@@ -1,26 +1,16 @@
-//! Nous-Desktop 占位入口。
-//!
-//! 三栏布局、会话、输入、置顶都还没写。先让窗口起得来，再去桌面上堆肉。
-//! headless 上 GPUI 起不来，别在这台机器上 `cargo run`。
+//! Nous-Desktop 入口。三栏布局、会话、输入、置顶都在 app.rs 里。
 
-use gpui_kit::component::*;
+mod app;
+mod config;
+
+use std::sync::OnceLock;
+
 use gpui_kit::*;
 
-pub struct Desktop;
+/// GPUI 的 executor 不是 tokio，而 nous-engine 的 HTTP 全在 tokio 上。
+/// 所以起一个 tokio runtime，把 Handle 挂全局，UI 里要用 HTTP 就从这里 spawn。
+pub static TOKIO: OnceLock<tokio::runtime::Handle> = OnceLock::new();
 
-impl Render for Desktop {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .v_flex()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .child("Nous-Desktop — 三栏还没写")
-    }
-}
-
-// GPUI 不装 logger，log 的输出全被丢掉。黑屏/白屏这类问题没日志没法查，
-// 所以自己装一个最简的：Info 及以上打 stderr。等应用成型再换成正经日志。
 fn init_log() {
     struct StderrLog;
     impl log::Log for StderrLog {
@@ -38,10 +28,15 @@ fn init_log() {
 
 fn main() {
     init_log();
+
+    let rt = tokio::runtime::Runtime::new().expect("起 tokio");
+    TOKIO.set(rt.handle().clone()).ok();
+    // enter 让 main 线程也在 runtime 上下文里；gpui run 会阻塞在这里，rt 一直活着。
+    let _guard = rt.enter();
+
     gpui_kit::application().run(move |cx| {
-        // 用任何 GPUI Component 之前必须先 init。
         gpui_kit::init(cx);
-        gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| cx.new(|_| Desktop))
+        gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| cx.new(|cx| app::Desktop::new(cx)))
             .expect("Failed to open window");
     });
 }

@@ -16,6 +16,7 @@ pub struct Sessions {
 
 /// 会话树上的一个节点。`parent != null` = 这是一条 fork 分支。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Session {
     pub id: i64,
     pub name: String,
@@ -42,12 +43,12 @@ pub struct SessionParent {
     pub at: Option<serde_json::Value>,
 }
 
-/// 列表里那条「最后一句」的摘要。
+/// 列表里那条「最后一句」的摘要。`text` 可以是 null（消息没正文时）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct SessionLast {
     pub id: serde_json::Value,
     pub kind: String,
-    pub text: String,
+    pub text: Option<String>,
 }
 
 /// `GET /v1/sessions/:id/entries` 返回的历史。**新的在前**，客户端要翻正。
@@ -69,6 +70,7 @@ pub struct Entry {
 
 /// `POST /v1/sessions/:id/messages` 的响应（不传 `waitMs` 时）。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Submission {
     #[serde(rename = "submissionId")]
     pub submission_id: serde_json::Value,
@@ -79,6 +81,7 @@ pub struct Submission {
 
 /// `GET /v1/device`。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Device {
     pub self_: Option<String>,
     pub origin: Option<String>,
@@ -95,6 +98,7 @@ pub struct Device {
 
 /// `GET /v1/presets/:section` 的一条模板。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Preset {
     pub name: String,
     pub summary: String,
@@ -144,6 +148,7 @@ pub struct CreateSession {
 
 /// `POST /v1/sessions` 的响应（201）。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreatedSession {
     pub id: i64,
     pub name: String,

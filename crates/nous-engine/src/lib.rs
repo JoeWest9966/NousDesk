@@ -8,6 +8,7 @@
 //! 不认业务规则，不碰 GPUI。UI 层要 16ms 合帧，那归 UI 层。
 
 pub mod client;
+pub mod resolve;
 pub mod sse;
 pub mod types;
 
