@@ -28,4 +28,4 @@ homepage = "https://github.com/JoeWest9966/nous-desktop"
 authors = ["JoeWest9966"]
 out_dir = "dist"
 icons = ["../../assets/icon.png", "../../assets/icon.ico"]
-binaries = [{ path = "nous-desktop" }]
+binaries = [{ path = "nous-desktop", main = true }]
