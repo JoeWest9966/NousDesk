@@ -87,15 +87,45 @@ pub struct SubmissionRecord {
     pub detail: Option<String>,
 }
 
-/// `message_update` 的 `changes[]`。`text_delta` 只该改内存里的 Map，别直接写 UI。
+/// `message_update` 的 `changes[]`。
+///
+/// 全集来自 `@earendil-works/pi-durable` 的 `MessageChange`
+/// （`dist/harness/events.d.ts`）—— **不是猜的**。少接一种就是「能发出去但字不出来」。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Change {
+    /// 一个内容块开头，`block` 里已有（可能为空的）全文。
+    TextStart {
+        #[serde(rename = "contentIndex", default)]
+        content_index: usize,
+        block: Option<serde_json::Value>,
+    },
+    ThinkingStart {
+        #[serde(rename = "contentIndex", default)]
+        content_index: usize,
+        block: Option<serde_json::Value>,
+    },
+    ToolcallStart {
+        #[serde(rename = "contentIndex", default)]
+        content_index: usize,
+        block: Option<serde_json::Value>,
+    },
     TextDelta {
         #[serde(rename = "contentIndex", default)]
         content_index: usize,
         delta: String,
     },
+    ThinkingDelta {
+        #[serde(rename = "contentIndex", default)]
+        content_index: usize,
+        delta: String,
+    },
+    ToolcallDelta {
+        #[serde(rename = "contentIndex", default)]
+        content_index: usize,
+        delta: serde_json::Value,
+    },
+    /// 整块替换（一个块后续的变化都已在批里）。
     Block {
         #[serde(rename = "contentIndex", default)]
         content_index: usize,

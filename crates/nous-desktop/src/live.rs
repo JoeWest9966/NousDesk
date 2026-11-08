@@ -45,6 +45,21 @@ impl Live {
             SseEvent::MessageUpdate { changes } => {
                 for change in changes {
                     match change {
+                        // 块开头：block 里已经有全文（可能为空）。
+                        nous_engine::Change::TextStart {
+                            content_index,
+                            block,
+                        } => {
+                            if let Some(text) = block_text(block) {
+                                state.blocks.insert(*content_index, text);
+                                state.dirty = true;
+                            }
+                        }
+                        // 思考块不进气泡（那是思考，不是回答）。
+                        nous_engine::Change::ThinkingStart { .. }
+                        | nous_engine::Change::ThinkingDelta { .. } => {}
+                        nous_engine::Change::ToolcallStart { .. }
+                        | nous_engine::Change::ToolcallDelta { .. } => {}
                         nous_engine::Change::TextDelta {
                             content_index,
                             delta,
@@ -60,16 +75,20 @@ impl Live {
                             content_index,
                             block,
                         } => {
-                            let text = block
-                                .as_ref()
-                                .and_then(|b| b.get("text"))
-                                .and_then(|t| t.as_str())
-                                .unwrap_or_default()
-                                .to_string();
-                            state.blocks.insert(*content_index, text);
+                            state
+                                .blocks
+                                .insert(*content_index, block_text(block).unwrap_or_default());
                             state.dirty = true;
                         }
-                        _ => {}
+                        nous_engine::Change::Message { message } => {
+                            // 结束时给整条：以它为准。
+                            if let Some(text) = message_text(message) {
+                                state.blocks.clear();
+                                state.blocks.insert(0, text);
+                                state.dirty = true;
+                            }
+                        }
+                        nous_engine::Change::Other => {}
                     }
                 }
             }
@@ -163,4 +182,31 @@ pub struct Drained {
     pub done: bool,
     pub error: Option<String>,
     pub tools: Vec<(String, String)>,
+}
+
+/// 从 `{type:"text", text:"…"}` 这种块里取正文。不是 text 块就返回 None。
+fn block_text(block: &Option<serde_json::Value>) -> Option<String> {
+    let block = block.as_ref()?;
+    if block.get("type").and_then(|t| t.as_str()) != Some("text") {
+        return None;
+    }
+    Some(block.get("text").and_then(|t| t.as_str())?.to_string())
+}
+
+/// 从整条 assistant message 里把 text 块拼起来（`content` 是块数组）。
+fn message_text(message: &Option<serde_json::Value>) -> Option<String> {
+    let message = message.as_ref()?;
+    if message.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+        return None;
+    }
+    let content = message.get("content")?.as_array()?;
+    let mut out = String::new();
+    for block in content {
+        if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+            if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                out.push_str(text);
+            }
+        }
+    }
+    Some(out)
 }

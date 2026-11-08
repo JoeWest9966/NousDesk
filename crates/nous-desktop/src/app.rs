@@ -504,6 +504,9 @@ async fn load_engine() -> Result<(Arc<EngineClient>, Vec<Session>), String> {
         .await
         .map_err(|e| e.to_string())?
         .items;
+    // 引擎按 id 升序给，聊天应用要新的在上。
+    let mut sessions = sessions;
+    sessions.sort_by(|a, b| b.id.cmp(&a.id));
     Ok((Arc::new(engine), sessions))
 }
 

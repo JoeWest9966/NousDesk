@@ -71,13 +71,24 @@ body `{ content, requestId?, waitMs?, whenBusy? }`。
 | `tool_execution_start` | `toolCallId` `toolName` | 开一个工具卡片 |
 | `tool_execution_update` | `toolCallId` `output` | `output.append` / `output.set` 追加 / 覆盖 |
 
-`message_update` 的 `changes[]`：
+`message_update` 的 `changes[]` —— **全集来自 pi-durable 的 `MessageChange`**
+（`node_modules/@earendil-works/pi-durable/dist/harness/events.d.ts`），不是猜的：
 
 ```
-{ type: "text_delta", contentIndex, delta }          → 追加到第 contentIndex 块
-{ type: "block", contentIndex, block: {type, text} } → 整块替换
-{ type: "message", message }                          → 结束时给的整条，以它为准
+{ type: "text_start" | "thinking_start" | "toolcall_start", contentIndex, block }
+{ type: "text_delta" | "thinking_delta", contentIndex, delta }
+{ type: "toolcall_delta", contentIndex, path, delta }
+{ type: "block", contentIndex, block }     → 整块替换，该块后续变化都在这一批里
+{ type: "message", message }               → 整条替换，以它为准
 ```
+
+**只在 `text_delta` 上动字符串是不够的**：块的开头走 `text_start`（`block.text` 已有全文），
+跳过它就等于把第一段吞掉。`thinking_*` 是思考不是正文，别往气泡里塞。
+
+其他事件的全集（同一个 d.ts 里的 `AgentEvent`）还有 `run_start` / `run_end` / `turn_start` /
+`turn_end` / `inbox_update` / `agent_changed` / `usage_changed` / `auto_retry_start` /
+`auto_retry_end` / `deferred_poll` / `tool_execution_end` / `compaction_start` / `compaction_end`。
+我们不认识的走 `Other`（`#[serde(other)]`），加事件不该让我们编译失败。
 
 **合帧铁律**：`text_delta` 只改内存里的 `Map<contentIndex, String>`，16ms 定时器读一次再
 `cx.notify()`。一个 token 一次 notify 会在 `Entity<T>` 不匹配报错之前，先把 CPU 烧穿。
