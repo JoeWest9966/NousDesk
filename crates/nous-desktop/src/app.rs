@@ -40,6 +40,8 @@ pub struct Desktop {
     live_state: Live,
     /// 有没有一条流正在跑，防止重复点火。
     streaming: bool,
+    /// 聊天区的滚动位置：新消息进来要跟着到底。
+    scroll: ScrollHandle,
     _subs: Vec<Subscription>,
 }
 
@@ -69,6 +71,7 @@ impl Desktop {
             live: None,
             live_state: Live::new(),
             streaming: false,
+            scroll: ScrollHandle::new(),
             _subs: subs,
         };
         this.bootstrap(cx);
@@ -102,8 +105,8 @@ impl Desktop {
         .detach();
     }
 
-    fn select_session(&mut self, id: i64, cx: &mut Context<Self>) {
-        if self.selected == Some(id) {
+    fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
+        if self.selected == Some(id) && !force {
             return;
         }
         self.selected = Some(id);
@@ -234,6 +237,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| loop {
             Timer::after(std::time::Duration::from_millis(16)).await;
             let drained = live.drain();
+            let mut reload = None;
             let stop = this
                 .update(cx, |this, cx| {
                     let Some(drained) = drained else {
@@ -247,14 +251,29 @@ impl Desktop {
                         return false;
                     }
                     this.live = Some(drained.text);
-                    if drained.done && !this.streaming {
-                        // 已经收过尾了
+                    // 新内容进来 / 收尾，都跟着滚到底。
+                    this.scroll.scroll_to_bottom();
+                    if drained.done {
+                        // 收尾：把那口气泡交出去，历史以引擎为准重拉一遍。
+                        this.streaming = false;
+                        if let Some(id) = this.selected {
+                            reload = Some(id);
+                        }
+                        cx.notify();
+                        return false;
                     }
                     cx.notify();
-                    !drained.done
+                    true
                 })
                 .unwrap_or(false);
             if !stop {
+                if let Some(id) = reload {
+                    // 流结束之后 live 就该消失，历史里已经有这条了。
+                    let _ = this.update(cx, |this, cx| {
+                        this.live = None;
+                        this.select_session(id, true, cx);
+                    });
+                }
                 break;
             }
         })
@@ -331,6 +350,14 @@ impl Desktop {
             let mut out: Vec<AnyElement> = self
                 .entries
                 .iter()
+                // 空正文的气泡不画 —— 引擎对「有 entry 没内容」会给空串/null，
+                // 画出来就是一个白方块（坑.md 第 7 条）。
+                .filter(|e| {
+                    e.text
+                        .as_deref()
+                        .map(|t| !t.trim().is_empty())
+                        .unwrap_or(false)
+                })
                 .map(|e| self.bubble(e, cx).into_any_element())
                 .collect();
             // 正在生成的那条：跟助手气泡同一个样子，只是文字还在长。
@@ -379,7 +406,9 @@ impl Desktop {
                     .flex()
                     .flex_col()
                     .flex_1()
-                    .overflow_hidden()
+                    .id("chat-scroll")
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
                     .py(px(8.))
                     .children(bubbles),
             )
@@ -442,7 +471,7 @@ impl Desktop {
             // `.id()` 把 Div 转成 Stateful<Div>，on_click 只存在于后者。
             .id(ElementId::Name(format!("sess-{id}").into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.select_session(id, cx);
+                this.select_session(id, false, cx);
             }))
     }
 
