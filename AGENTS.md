@@ -39,6 +39,26 @@ cargo check          # 这台机器上唯一的日常
 cargo run            # 你自己的桌面上
 ```
 
+### headless 机器上看窗口（本机 99966 已配好）
+
+GPUI 能在 Xvfb 里跑，三个坑都踩过了：
+
+1. **mesa 必须 ≥ 25.0.7**（bookworm-backports）。22.3.6 的 llvmpipe Vulkan WSI
+   会让窗口黑屏/灰屏（swapchain 内容落不到窗口），症状是截图纯黑且无报错。
+2. **要跑一个 compositor**（`picom --backend xrender`）：GPUI 用 depth32 带 alpha 的
+   Visual，没有 compositor 合成，画面一样出不来。
+3. **GPU 程序不需要指定**：GPUI 自己枚举并测试 adapter，选 llvmpipe (Vulkan)。
+
+```bash
+Xvfb :99 -screen 0 1280x800x24 &
+DISPLAY=:99 picom --backend xrender &
+DISPLAY=:99 target/debug/nous-desktop &
+DISPLAY=:99 import -window root /tmp/shot.png   # 截图看
+```
+
+注意 `CARGO_TARGET_DIR` 在这台机器上全局指向 `/opt/Warehousetui/target`，
+二进制不在项目的 `target/` 里。
+
 首次启动读 `~/.config/nous/desktop.toml`，只有两个键：
 
 ```toml

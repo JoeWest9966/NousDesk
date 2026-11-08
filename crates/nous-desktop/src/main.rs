@@ -19,7 +19,25 @@ impl Render for Desktop {
     }
 }
 
+// GPUI 不装 logger，log 的输出全被丢掉。黑屏/白屏这类问题没日志没法查，
+// 所以自己装一个最简的：Info 及以上打 stderr。等应用成型再换成正经日志。
+fn init_log() {
+    struct StderrLog;
+    impl log::Log for StderrLog {
+        fn enabled(&self, meta: &log::Metadata) -> bool {
+            meta.level() <= log::Level::Info
+        }
+        fn log(&self, record: &log::Record) {
+            eprintln!("[{}] {}", record.level(), record.args());
+        }
+        fn flush(&self) {}
+    }
+    let _ = log::set_boxed_logger(Box::new(StderrLog));
+    log::set_max_level(log::LevelFilter::Info);
+}
+
 fn main() {
+    init_log();
     gpui_kit::application().run(move |cx| {
         // 用任何 GPUI Component 之前必须先 init。
         gpui_kit::init(cx);

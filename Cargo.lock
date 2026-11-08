@@ -3911,6 +3911,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "gpui-kit",
+ "log",
  "nous-engine",
  "serde",
  "serde_json",
