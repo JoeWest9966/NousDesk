@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-11-08 · 仓库改为公开（MIT）
+
+**为什么**：公库的 Actions 分钟数免费 —— Windows release build 每次 20 分钟，私有库是实打实计费；
+这个项目也没有必须藏的东西。
+**做了什么**：删掉硬编码的私有宿主地址（默认 host 改 `http://127.0.0.1:4790`）、
+测试里的真实 URL/绝对路径换假、补 MIT LICENSE、**改写 git 历史并删库重建**
+（force push 不够：GitHub 不回收对象，旧 commit 靠 SHA 仍可访问）。
+**反悔点**：真要藏什么的那天，别指望删文件 —— 得换仓库。
+
 ## 2026-11-08 · UI 里跑 HTTP 的桥：一个 tokio runtime 挂全局
 
 **为什么**：GPUI 的 executor 不是 tokio，而 nous-engine 的 HTTP（reqwest）全在 tokio 上。
