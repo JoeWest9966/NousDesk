@@ -5,13 +5,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui_kit::*;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
+use smol::Timer;
 use nous_engine::resolve::resolve_engine;
 use nous_engine::types::{Entry, Session};
 use nous_engine::EngineClient;
 
 use crate::config::Config;
+use crate::live::Live;
 
 // 微信桌面版的几个固定色。
 const SIDEBAR_DARK: u32 = 0x2e2e2e;
@@ -30,10 +33,29 @@ pub struct Desktop {
     entries_error: Option<String>,
     error: Option<String>,
     loading: bool,
+    input: Entity<InputState>,
+    /// 正在生成的那条助手消息（流式）。
+    live: Option<String>,
+    /// 共享给 tokio 任务的流式状态。
+    live_state: Live,
+    /// 有没有一条流正在跑，防止重复点火。
+    streaming: bool,
+    _subs: Vec<Subscription>,
 }
 
 impl Desktop {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("输入消息，回车发送"));
+        let subs = vec![cx.subscribe_in(&input, window, {
+            move |this, _, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { shift, .. } = event {
+                    if !*shift {
+                        this.send(window, cx);
+                    }
+                }
+            }
+        })];
+
         let mut this = Self {
             engine: None,
             sessions: vec![],
@@ -43,6 +65,11 @@ impl Desktop {
             entries_error: None,
             error: None,
             loading: true,
+            input,
+            live: None,
+            live_state: Live::new(),
+            streaming: false,
+            _subs: subs,
         };
         this.bootstrap(cx);
         this
@@ -108,6 +135,128 @@ impl Desktop {
                 }
                 cx.notify();
             });
+        })
+        .detach();
+    }
+
+
+    /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
+    fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.selected else { return };
+        let Some(engine) = self.engine.clone() else { return };
+        let text = self.input.read(cx).value().to_string();
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+
+        // 幂等锚：同一句话重发拿到同一次提交。
+        let request_id = format!(
+            "desk-{}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0),
+            text.len()
+        );
+
+        self.input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
+
+        // 自己先当听众：先在本地插一条用户气泡，再开流。
+        self.entries.push(nous_engine::types::Entry {
+            id: serde_json::Value::Null,
+            kind: "pi.user".into(),
+            text: Some(text.clone()),
+            parent: None,
+            extra: Default::default(),
+        });
+        self.live = Some(String::new());
+        self.live_state = Live::new();
+        self.streaming = true;
+        cx.notify();
+
+        let live = self.live_state.clone();
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            if let Some(h) = handle {
+                // 发消息：不传 waitMs，立即回 202，正文靠 SSE。
+                let _ = h
+                    .spawn(async move {
+                        if let Err(e) = engine.send_message(id, &text, &request_id).await {
+                            live.fail(e.to_string());
+                        }
+                    })
+                    .await;
+            }
+            let _ = this.update(cx, |_this, cx| cx.notify());
+        })
+        .detach();
+
+        self.start_stream(cx);
+    }
+
+    /// 连 SSE。tokio 任务只往 `live_state` 里塞，UI 侧 16ms 取一次。
+    fn start_stream(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.selected else { return };
+        let Some(engine) = self.engine.clone() else { return };
+        let live = self.live_state.clone();
+
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let Some(h) = handle else { return };
+            h.spawn(async move {
+                match engine.events(id).await {
+                    Ok(mut stream) => {
+                        use futures_util::StreamExt as _;
+                        while let Some(item) = stream.next().await {
+                            match item {
+                                Ok(event) => live.ingest(&event),
+                                Err(e) => {
+                                    live.fail(e.to_string());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => live.fail(e.to_string()),
+                }
+            })
+            .await
+            .ok();
+            let _ = this.update(cx, |_this, cx| cx.notify());
+        })
+        .detach();
+
+        // UI 侧 16ms 一帧：把攒下的字写进气泡。一个 token 一次 notify 就是在这里被挡住的。
+        let live = self.live_state.clone();
+        cx.spawn(async move |this, cx| loop {
+            Timer::after(std::time::Duration::from_millis(16)).await;
+            let drained = live.drain();
+            let stop = this
+                .update(cx, |this, cx| {
+                    let Some(drained) = drained else {
+                        return this.streaming;
+                    };
+                    if let Some(err) = drained.error {
+                        this.error = Some(format!("生成失败：{err}"));
+                        this.live = None;
+                        this.streaming = false;
+                        cx.notify();
+                        return false;
+                    }
+                    this.live = Some(drained.text);
+                    if drained.done && !this.streaming {
+                        // 已经收过尾了
+                    }
+                    cx.notify();
+                    !drained.done
+                })
+                .unwrap_or(false);
+            if !stop {
+                break;
+            }
         })
         .detach();
     }
@@ -179,10 +328,34 @@ impl Desktop {
                 .child("还没消息，先从模板开一条。")
                 .into_any_element()]
         } else {
-            self.entries
+            let mut out: Vec<AnyElement> = self
+                .entries
                 .iter()
                 .map(|e| self.bubble(e, cx).into_any_element())
-                .collect()
+                .collect();
+            // 正在生成的那条：跟助手气泡同一个样子，只是文字还在长。
+            if let Some(live) = &self.live {
+                if !live.is_empty() {
+                    out.push(
+                        div()
+                            .flex()
+                            .justify_start()
+                            .px(px(12.))
+                            .py(px(4.))
+                            .child(
+                                div()
+                                    .max_w(px(480.))
+                                    .px(px(12.))
+                                    .py(px(8.))
+                                    .rounded(px(6.))
+                                    .bg(rgb(BUBBLE_OTHER))
+                                    .child(live.clone()),
+                            )
+                            .into_any_element(),
+                    );
+                }
+            }
+            out
         };
 
         div()
@@ -211,15 +384,14 @@ impl Desktop {
                     .children(bubbles),
             )
             .child(
-                // 输入框占位：真正的输入下一轮接。
                 div()
                     .flex()
-                    .h(px(64.))
+                    .h(px(72.))
                     .w_full()
                     .items_center()
                     .px(px(12.))
                     .bg(rgb(LIST_BG))
-                    .child(div().text_size(px(12.)).child("输入框还没写")),
+                    .child(div().flex_1().child(Input::new(&self.input))),
             )
             .into_any_element()
     }

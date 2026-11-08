@@ -4,7 +4,7 @@ Nous 的桌面客户端。微信桌面版的样子，原生应用，不是网页
 
 - **引擎**：`qrd3wh`（session 引擎）。这个客户端只做皮 + 一个哑的协议层，不跑 agent。
 - **手机端**：`bjes6b`（Nous-Mobile），同一套引擎，另一个客户端。
-- **技术**：Rust + GPUI（`gpui-kit`）。没有 webview，没有 PWA。
+- **技术**：Rust + GPUI，UI 框架是 [longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)（`gpui-kit 0.9`）。没有 webview，没有 PWA。
 
 ## 跑起来
 

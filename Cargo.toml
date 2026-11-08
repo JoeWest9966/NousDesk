@@ -17,6 +17,7 @@ futures-util = "0.3"
 thiserror = "2"
 url = "2"
 bytes = "1"
+smol = "2"
 
 [profile.release]
 lto = "thin"

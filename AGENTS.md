@@ -2,6 +2,13 @@
 
 Nous 的**桌面客户端**（微信桌面版的样子）。GPUI + `gpui-kit` 原生应用，不是网页。
 
+> **UI 框架钉死：必须用 [longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)**
+> （`gpui-kit = "0.9"`，crates.io 同名包，Apache-2.0）。
+> **不许换框架、不许绕开它直接用 `gpui-pre-*`、不许把 Tauri / Slint / egui 加进来。**
+> 组件怎么用、文档在哪、有哪些现成的例子 —— 一律以那个仓库为准：
+> <https://github.com/longbridge/gpui-kit> · 文档 <https://gpui-kit.com>。
+> 要换框架先说清楚为什么，写进 `decisions.md`，别默默换。
+
 - **引擎在 qrd3wh**（`Nous/Nous-Functions/session`）。这一块**不跑引擎，也不是引擎的一部分**。
 - 手机端是 `bjes6b`（Nous-Mobile）。两边是同一个产品的两个客户端，对同一个引擎。
 - 这一块是**项目本体 + 文档的落脚处**。源码放这儿，跑在你自己的桌面上。

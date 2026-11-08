@@ -1,6 +1,7 @@
 //! Nous-Desktop 入口。三栏布局、会话、输入、置顶都在 app.rs 里。
 
 mod app;
+mod live;
 mod config;
 
 use std::sync::OnceLock;
@@ -34,9 +35,9 @@ fn main() {
     // enter 让 main 线程也在 runtime 上下文里；gpui run 会阻塞在这里，rt 一直活着。
     let _guard = rt.enter();
 
-    gpui_kit::application().run(move |cx| {
+    gpui_kit::application().with_assets(gpui_kit::assets::Assets).run(move |cx| {
         gpui_kit::init(cx);
-        gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| cx.new(|cx| app::Desktop::new(cx)))
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| cx.new(|cx| app::Desktop::new(window, cx)))
             .expect("Failed to open window");
     });
 }
