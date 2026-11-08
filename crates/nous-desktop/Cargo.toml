@@ -17,3 +17,15 @@ log = "0.4"
 toml = "0.8"
 dirs = "6"
 smol = "2"
+
+# cargo-packager 的元数据：出 Windows 安装包用（见 .github/workflows/windows.yml）。
+[package.metadata.packager]
+product_name = "Nous Desktop"
+identifier = "com.joewest.nous.desktop"
+description = "Nous 桌面客户端"
+publisher = "JoeWest9966"
+homepage = "https://github.com/JoeWest9966/nous-desktop"
+authors = ["JoeWest9966"]
+out_dir = "dist"
+icons = ["../../assets/icon.png", "../../assets/icon.ico"]
+binaries = [{ path = "nous-desktop", name = "Nous Desktop" }]

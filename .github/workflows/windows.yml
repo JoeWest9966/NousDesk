@@ -1,0 +1,72 @@
+name: windows
+
+# 只做 Windows —— 这个应用只发布 Windows 版（见 decisions.md）。
+# 手动触发，或者打 tag（v*）时自动出包并发 Release。
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 装 Rust（stable）
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # 这个 workspace 有 800+ 依赖，缓存能把重复构建从 20 分钟压到几分钟。
+          workspaces: "."
+
+      - name: 编译 release
+        run: cargo build --release -p nous-desktop
+
+      # ── 便携版：exe + 一个去不掉的配置说明 ────────────────────────────
+      - name: 打便携 zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/release/nous-desktop.exe" "dist/NousDesktop.exe"
+          Copy-Item "README.md" "dist/README.md"
+          Compress-Archive -Path "dist/NousDesktop.exe","dist/README.md" `
+                           -DestinationPath "dist/NousDesktop-windows-x64.zip" -Force
+          Get-ChildItem dist
+
+      # ── 安装包：cargo-packager 出 msi ─────────────────────────────────
+      # 这一步失败不该把便携版也拖没有，所以 continue-on-error。
+      - name: 装 cargo-packager
+        continue-on-error: true
+        run: cargo install cargo-packager --locked
+
+      - name: 出 msi
+        continue-on-error: true
+        run: cargo packager -p nous-desktop --release --formats msi
+
+      - name: 看看产出了什么
+        shell: pwsh
+        run: Get-ChildItem -Recurse -File dist | Select-Object FullName, Length
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: nous-desktop-windows
+          path: |
+            dist/*.zip
+            dist/*.msi
+          if-no-files-found: error
+
+      - name: 发 Release（只有打 tag 时）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.msi
+          generate_release_notes: true

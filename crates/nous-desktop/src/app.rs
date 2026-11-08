@@ -432,10 +432,23 @@ impl Desktop {
             return div().text_size(px(12.)).child("连引擎中…");
         }
         if let Some(e) = &self.error {
+            // 连不上就告诉用户「改哪个文件」，别让他猜。
+            let hint = Config::path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "(没有配置目录)".into());
             return div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
                 .text_size(px(12.))
                 .text_color(rgb(0xd32f2f))
-                .child(format!("连不上：{e}"));
+                .child(format!("连不上：{e}"))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(rgb(0x777777))
+                        .child(format!("配置文件：{hint}")),
+                );
         }
         div()
             .text_size(px(12.))

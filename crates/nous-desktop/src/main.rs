@@ -37,7 +37,18 @@ fn main() {
 
     gpui_kit::application().with_assets(gpui_kit::assets::Assets).run(move |cx| {
         gpui_kit::init(cx);
-        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| cx.new(|cx| app::Desktop::new(window, cx)))
-            .expect("Failed to open window");
+        // 窗口：标题 Nous，1280x800 居中。桌面聊天应用的第一屏。
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
+            titlebar: Some(TitlebarOptions {
+                title: Some("Nous".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        gpui_kit::open_window(options, cx, |window, cx| {
+            cx.new(|cx| app::Desktop::new(window, cx))
+        })
+        .expect("Failed to open window");
     });
 }
