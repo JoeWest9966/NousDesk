@@ -41,15 +41,19 @@ fn parse_entries() {
     let json = r#"{
       "items": [
         {"id": 411, "kind": "pi.assistant", "text": "收到。不", "parent": null},
+        {"id": 409, "kind": "pi.assistant", "text": null, "parent": null},
         {"id": 410, "kind": "pi.user", "text": "你好", "parent": null}
       ],
       "next": null
     }"#;
 
     let e: Entries = serde_json::from_str(json).unwrap();
-    assert_eq!(e.items.len(), 2);
+    assert_eq!(e.items.len(), 3);
     assert_eq!(e.items[0].kind, "pi.assistant");
-    assert_eq!(e.items[1].text, "你好");
+    assert_eq!(e.items[0].text.as_deref(), Some("收到。不"));
+    // 坑 7：有 entry 没正文时 text 是 null，解析不许炸。
+    assert_eq!(e.items[1].text, None);
+    assert_eq!(e.items[2].text.as_deref(), Some("你好"));
 }
 
 #[test]
