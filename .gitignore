@@ -6,3 +6,4 @@ Cargo.lock.orig
 *.msi
 *.AppImage
 *.deb
+dist/

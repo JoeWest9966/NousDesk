@@ -433,9 +433,18 @@ impl Desktop {
         }
         if let Some(e) = &self.error {
             // 连不上就告诉用户「改哪个文件」，别让他猜。
-            let hint = Config::path()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "(没有配置目录)".into());
+            // 没找到配置时把**找过的地方**全列出来 —— 只说「没找到」等于让人干瞪眼。
+            let hint = match Config::path() {
+                Some(p) => format!("配置文件：{}", p.display()),
+                None => format!(
+                    "没找到配置文件，找过：{}",
+                    Config::candidates()
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(" · ")
+                ),
+            };
             return div()
                 .flex()
                 .flex_col()
@@ -447,7 +456,7 @@ impl Desktop {
                     div()
                         .text_size(px(11.))
                         .text_color(rgb(0x777777))
-                        .child(format!("配置文件：{hint}")),
+                        .child(hint),
                 );
         }
         div()

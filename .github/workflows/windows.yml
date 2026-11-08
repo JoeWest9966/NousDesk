@@ -44,8 +44,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           if (-not $env:NOUS_HOST) {
-            Write-Host "::warning::没有 NOUS_HOST secret，包里不带 desktop.toml（首次启动会连本机 127.0.0.1）"
-            exit 0
+            # packager 的 resources 要这个文件存在，所以缺省也要写一份（本地地址）。
+            Write-Host "::warning::没有 NOUS_HOST secret，包里带的是默认地址 127.0.0.1"
+            $env:NOUS_HOST = "http://127.0.0.1:4790"
           }
           "host = `"$env:NOUS_HOST`"`nboard = `"$env:NOUS_BOARD`"`n" |
             Set-Content -Path "dist/desktop.toml" -Encoding utf8 -NoNewline
