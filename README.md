@@ -13,12 +13,18 @@ cargo check          # 只检查，不跑（开发机 headless）
 cargo run            # 自己的桌面上
 ```
 
-首次启动读 `~/.config/nous/desktop.toml`：
+配置查找顺序（先到先得）：
+
+1. `NOUS_DESKTOP_CONFIG` 环境变量指向的文件（调试用）
+2. **exe 旁边**的 `desktop.toml` —— 发布包里带一份，解压即用
+3. `%APPDATA%\nous\desktop.toml`（Linux `~/.config/nous/desktop.toml`）
 
 ```toml
 host = "http://127.0.0.1:4790"
 board = "new1"
 ```
+
+一个都没有也能开：用默认值（本机 `127.0.0.1:4790`），连不上时左栏会把该改的路径显示出来。
 
 启动时从 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎。
 

@@ -39,7 +39,12 @@ impl Default for Config {
 }
 
 impl Config {
-    /// 读配置。文件不存在 → 用默认值（不是错误）。文件存在但写坏了 → 报错，别静默用默认。
+    /// 读配置。一个都不存在 → 用默认值（不是错误）。存在但写坏了 → 报错，别静默用默认。
+    ///
+    /// 查找顺序（先到先得）：
+    /// 1. `NOUS_DESKTOP_CONFIG` —— 调试用
+    /// 2. **exe 旁边**的 `desktop.toml` —— 便携式。发布包里就带一份，解压即用
+    /// 3. `%APPDATA%\nous\desktop.toml`（Linux 是 `~/.config`）—— 装机后的个人配置
     pub fn load() -> Result<Self, String> {
         let Some(path) = Self::path() else {
             return Ok(Self::default());
@@ -62,11 +67,25 @@ impl Config {
         Ok(cfg)
     }
 
-    /// 配置文件该在哪儿。`NOUS_DESKTOP_CONFIG` 优先（调试用）。
+    /// 实际用的那一个配置文件（不存在就是 None，会用默认值）。
     pub fn path() -> Option<PathBuf> {
-        std::env::var("NOUS_DESKTOP_CONFIG")
-            .map(PathBuf::from)
-            .ok()
-            .or_else(|| dirs::config_dir().map(|d| d.join("nous").join("desktop.toml")))
+        Self::candidates().into_iter().find(|p| p.is_file())
+    }
+
+    /// 所有候选路径，按优先级。exe 旁边那份排在用户配置之前 —— 便携包要能覆盖掉旧配置。
+    pub fn candidates() -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        if let Ok(explicit) = std::env::var("NOUS_DESKTOP_CONFIG") {
+            out.push(PathBuf::from(explicit));
+        }
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            out.push(dir.join("desktop.toml"));
+        }
+        if let Some(config) = dirs::config_dir() {
+            out.push(config.join("nous").join("desktop.toml"));
+        }
+        out
     }
 }
