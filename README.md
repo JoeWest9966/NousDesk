@@ -16,7 +16,7 @@ cargo run            # 自己的桌面上
 首次启动读 `~/.config/nous/desktop.toml`：
 
 ```toml
-host = "https://127.0.0.1/nous"
+host = "http://127.0.0.1:4790"
 board = "new1"
 ```
 

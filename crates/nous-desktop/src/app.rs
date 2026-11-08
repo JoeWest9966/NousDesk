@@ -13,7 +13,7 @@ use nous_engine::resolve::resolve_engine;
 use nous_engine::types::{Entry, Session};
 use nous_engine::EngineClient;
 
-use crate::config::Config;
+use crate::config::{Config, ENGINE_BLOCK, SELF_BLOCK};
 use crate::live::Live;
 
 // 微信桌面版的几个固定色。
@@ -537,7 +537,7 @@ impl Desktop {
 /// 连引擎：读配置 → resolve 地址 → 拉会话列表。全在 tokio 上。
 async fn load_engine() -> Result<(Arc<EngineClient>, Vec<Session>), String> {
     let cfg = Config::load()?;
-    let url = resolve_engine(&cfg.host, &cfg.board, "h58ga5", "qrd3wh")
+    let url = resolve_engine(&cfg.host, &cfg.board, SELF_BLOCK, ENGINE_BLOCK)
         .await
         .map_err(|e| e.to_string())?;
     let engine = EngineClient::new(url.as_str(), Duration::from_secs(10)).map_err(|e| e.to_string())?;

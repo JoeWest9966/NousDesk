@@ -55,14 +55,14 @@ fn parse_entries() {
 #[test]
 fn parse_device() {
     let json = r#"{
-      "self": "/p/demo/qrd3wh",
+      "self": "/p/demo/engine",
       "origin": "http://127.0.0.1:4790",
       "node": "v22.23.2",
       "startedAt": 1794131034132,
       "model": {"provider": "volc-ark", "modelId": "deepseek-v4-flash-260425"},
       "faux": false,
-      "data": "/home/user/nous/content/demo/map/qrd3wh/data",
-      "catalog": {"base": "https://catalog.example.com:8443"},
+      "data": "/home/user/nous/content/demo/map/engine/data",
+      "catalog": {"base": "https://catalog.example.com"},
       "available": ["Qoder/Auto"]
     }"#;
 

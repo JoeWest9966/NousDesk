@@ -1,6 +1,6 @@
 # wire — 我们和 qrd3wh 之间的线
 
-引擎是 `qrd3wh`（`Nous/Nous-Functions/session`）。这份抄的是**此刻**的协议，
+引擎是 `qrd3wh`（Nous 的 session 块）。这份抄的是**此刻**的协议，
 字段是从引擎 `server.js` 和真实消费方 `bjes6b` 里读出来的，不是文档里的。
 
 **这一份会漂。** 引擎加字段是常态。我们只依赖下面「我们依赖」列出来的字段，

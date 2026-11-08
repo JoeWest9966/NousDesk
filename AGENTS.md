@@ -9,7 +9,7 @@ Nous 的**桌面客户端**（微信桌面版的样子）。GPUI + `gpui-kit` �
 > <https://github.com/longbridge/gpui-kit> · 文档 <https://gpui-kit.com>。
 > 要换框架先说清楚为什么，写进 `decisions.md`，别默默换。
 
-- **引擎在 qrd3wh**（`Nous/Nous-Functions/session`）。这一块**不跑引擎，也不是引擎的一部分**。
+- **引擎在 `qrd3wh`**（Nous 的 session 块）。这一块**不跑引擎，也不是引擎的一部分**。
 - 手机端是 `bjes6b`（Nous-Mobile）。两边是同一个产品的两个客户端，对同一个引擎。
 - 这一块是**项目本体 + 文档的落脚处**。源码放这儿，跑在你自己的桌面上。
 
@@ -71,7 +71,7 @@ DISPLAY=:99 import -window root /tmp/shot.png   # 截图看
 首次启动读 `~/.config/nous/desktop.toml`，只有两个键：
 
 ```toml
-host = "https://127.0.0.1/nous"
+host = "http://127.0.0.1:4790"  # 走 tailnet/反代就写那个地址
 board = "new1"
 ```
 

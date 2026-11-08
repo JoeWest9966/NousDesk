@@ -8,8 +8,18 @@
 use std::path::PathBuf;
 
 /// 没有配置文件时用的默认宿主。这是**宿主**地址，不是引擎地址。
-pub const DEFAULT_HOST: &str = "https://127.0.0.1/nous";
+///
+/// 默认指向本机 —— 对任何跑着 Nous 的机器都成立。走 tailnet / 反代 / 域名的
+/// 写进 `desktop.toml`，别改这里（这里是所有人共用的默认值）。
+pub const DEFAULT_HOST: &str = "http://127.0.0.1:4790";
+
+/// 盘名。你自己那盘的 id，换盘就改。
 pub const DEFAULT_BOARD: &str = "new1";
+
+/// 自己的块 id 和引擎块 id：`resolve` 的路径里要用。
+/// 换一块部署就改这两个（它们是这一份安装的坐标，不是协议的一部分）。
+pub const SELF_BLOCK: &str = "h58ga5";
+pub const ENGINE_BLOCK: &str = "qrd3wh";
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {
