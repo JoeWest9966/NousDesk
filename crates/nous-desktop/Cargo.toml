@@ -26,6 +26,6 @@ description = "Nous 桌面客户端"
 publisher = "JoeWest9966"
 homepage = "https://github.com/JoeWest9966/nous-desktop"
 authors = ["JoeWest9966"]
-out_dir = "dist"
+out_dir = "../../dist"
 icons = ["../../assets/icon.png", "../../assets/icon.ico"]
 binaries = [{ path = "nous-desktop", main = true }]
