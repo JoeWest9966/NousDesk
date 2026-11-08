@@ -62,7 +62,8 @@ pub struct Entries {
 pub struct Entry {
     pub id: serde_json::Value,
     pub kind: String,
-    pub text: String,
+    /// 可为 null（比如空回复的 assistant 气泡）。
+    pub text: Option<String>,
     pub parent: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
