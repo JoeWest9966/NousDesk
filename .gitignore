@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+Cargo.lock.orig
+.DS_Store
+*.dmg
+*.msi
+*.AppImage
+*.deb

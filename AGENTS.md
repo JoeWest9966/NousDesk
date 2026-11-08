@@ -1,0 +1,56 @@
+# h58ga5 · Nous-Desktop
+
+Nous 的**桌面客户端**（微信桌面版的样子）。GPUI + `gpui-kit` 原生应用，不是网页。
+
+- **引擎在 qrd3wh**（`Nous/Nous-Functions/session`）。这一块**不跑引擎，也不是引擎的一部分**。
+- 手机端是 `bjes6b`（Nous-Mobile）。两边是同一个产品的两个客户端，对同一个引擎。
+- 这一块是**项目本体 + 文档的落脚处**。源码放这儿，跑在你自己的桌面上。
+
+## 三条硬规矩
+
+1. **这一块不是块页面。** 没有 `package.json` —— 有了 `scripts.start` 宿主就当它是网站，
+   spawn 进程、给空白页、崩了留墓碑。别为此加脚手架。
+2. **这台机器 build 不了。** headless Debian，没有 DISPLAY / Wayland。改代码在这儿，
+   `cargo check` / `clippy` / `cargo test` 在这儿，看得见的东西去你自己的桌面上跑。
+3. **地址只有一个来源。** 引擎地址从宿主的 `__nous/resolve/qrd3wh` 拿，配置里只写
+   **宿主地址 + board**，禁止把引擎路径写进 `Cargo.toml` / 常量 / 文档示例。
+
+## 工程规矩（别破）
+
+- **SSE 合帧到 16ms 再 `cx.notify()`。** `bytes_stream` 往 buffer 里塞，定时器读一次再通知 UI。
+  一个 token 一次 `cx.notify()` 是这一层最容易犯的错，和 bjes6b 手机上那条 rAF 规矩一个字不差。
+- **未知字段用 `serde_json::Value` 收着原样透传。** 不许 `deny_unknown_fields` —— 那个 flag
+  会让引擎每加一个字段这边就编译不过。
+- **协议是哑的。** 客户端只转发 `/v1/*`，不加业务字段、不在客户端算状态。
+  `/v1/*` 的类型变化先改 `crates/nous-engine`，UI 层一行 HTTP 都不许碰。
+- **只吃 `gpui-kit` 的重导出。** 永远别在自己的 `Cargo.toml` 里再写一条 `gpui-pre`，
+  否则版本对不上时会在 `Entity<T>` 不匹配上耗一整天。
+
+## 置顶的真相
+
+在 **bjes6b**（`data/pins.json`）。桌面端不自己存一份 —— 写穿过去走
+`POST /p/demo/bjes6b/api/sessions/:id/pin`，地址从 `resolve` 拿。宁可多一次 HTTP、
+坏了 404 响得很明显，也不要两份互不相干的置顶表。要改这条，见 `decisions.md`。
+
+## 启动 / 开发
+
+```bash
+cargo check          # 这台机器上唯一的日常
+cargo run            # 你自己的桌面上
+```
+
+首次启动读 `~/.config/nous/desktop.toml`，只有两个键：
+
+```toml
+host = "https://127.0.0.1/nous"
+board = "new1"
+```
+
+启动时打一次 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎。
+引擎版本进日志 + About 面板 —— 以后「怎么突然坏了」先看是不是引擎先动的。
+
+## 文档
+
+- `README.md` —— 给人看的：这是什么、怎么跑。
+- `wire.md` —— **唯一会漂的那份**：我们依赖了引擎 `/v1/*` 的哪些字段、引擎改了会怎么坏。
+- `decisions.md` —— 选了什么 + 为什么 + 什么时候该反悔。一行一条，追加式。

@@ -1,0 +1,15 @@
+[package]
+name = "nous-desktop"
+description = "Nous 桌面客户端（微信桌面版的样子）。GPUI + gpui-kit。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# 铁律：只吃 gpui-kit 的重导出，别再加一条 gpui-pre。
+gpui-kit = { version = "0.9.0", features = ["component", "assets"] }
+nous-engine = { path = "../nous-engine" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures-util.workspace = true
