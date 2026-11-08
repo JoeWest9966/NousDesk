@@ -8,6 +8,10 @@ on:
   push:
     tags: ["v*"]
 
+# 发 Release 要写权限；不给的话 softprops 会报 Resource not accessible by integration。
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
