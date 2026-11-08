@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-11-08 · UI 里跑 HTTP 的桥：一个 tokio runtime 挂全局
+
+**为什么**：GPUI 的 executor 不是 tokio，而 nous-engine 的 HTTP（reqwest）全在 tokio 上。
+main 里起一个 runtime、Handle 存 `OnceLock`，UI 的 `cx.spawn` 里用 `handle.spawn(...)` 跑 HTTP，
+结果回传再 `cx.notify()`。
+**反悔点**：以后要高频请求（SSE 重连、轮询），统一从 `crate::TOKIO` 走，别到处开新 runtime。
+
 ## 2026-11-08 · 用 GPUI + gpui-kit，不用 Tauri / Slint
 
 **为什么**：原生、无 webview，`gpui-kit` 0.9.0 已上 crates.io，Apache-2.0，生产可用
