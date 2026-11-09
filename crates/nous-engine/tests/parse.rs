@@ -1,7 +1,7 @@
 //! 用引擎的真实 JSON 形状做反序列化测试。
 //! 这些 sample 是从 qrd3wh `/v1/*` 实际响应里抠出来的，不是编的。
 
-use nous_engine::types::{Device, Entries, Sessions, Submission};
+use nous_engine::types::{Device, Entries, Forked, ReadReceipt, Sessions, Submission, Unread};
 
 #[test]
 fn parse_sessions() {
@@ -80,4 +80,61 @@ fn parse_submission() {
     let json = r#"{"submissionId": 42, "status": "queued"}"#;
     let s: Submission = serde_json::from_str(json).unwrap();
     assert_eq!(s.status, "queued");
+}
+
+/// `updatedAt` 三种状态都要活下来：有值 / null / 整个字段没来。
+/// null 不是 0，也不是「刚刚」—— 老会话就是空的，别替它编时间。
+#[test]
+fn parse_session_updated_at() {
+    let json = r#"{
+      "items": [
+        {"id": 2, "name": "有戳", "parent": null, "readOnly": false, "busy": null,
+         "thinkingLevels": [], "skills": [], "updatedAt": 1794222429712, "last": null},
+        {"id": 14, "name": "空戳", "parent": null, "readOnly": false, "busy": null,
+         "thinkingLevels": [], "skills": [], "updatedAt": null, "last": null},
+        {"id": 44, "name": "没这字段", "parent": {"id": 14, "at": 24}, "readOnly": false,
+         "busy": null, "thinkingLevels": [], "skills": [], "last": null}
+      ]
+    }"#;
+
+    let s: Sessions = serde_json::from_str(json).unwrap();
+    assert_eq!(s.items[0].updated_at, Some(1794222429712));
+    assert_eq!(s.items[1].updated_at, None);
+    assert_eq!(s.items[2].updated_at, None);
+    assert_eq!(s.items[2].parent.as_ref().unwrap().id, 14);
+}
+
+/// `GET /v1/unread` 是**平铺的 map**，不是 `{items: []}`。形状认错 = 角标全灭。
+#[test]
+fn parse_unread_flat_map() {
+    let json = r#"{
+      "2": {"unread": 0, "readAt": 1794222457741},
+      "14": {"unread": 3, "readAt": null}
+    }"#;
+
+    let u: Unread = serde_json::from_str(json).unwrap();
+    assert_eq!(u.count(2), 0);
+    assert_eq!(u.count(14), 3);
+    assert_eq!(u.of(2).unwrap().read_at, Some(1794222457741));
+    // readAt 为 null ≠ 读到过，只是一个没被推过的水位。
+    assert_eq!(u.of(14).unwrap().read_at, None);
+    // 表里没有的会话按 0 算，别 panic。
+    assert_eq!(u.count(999), 0);
+}
+
+#[test]
+fn parse_read_receipt() {
+    let json = r#"{"id": 514, "readAt": 1794222568258, "unread": 0}"#;
+    let r: ReadReceipt = serde_json::from_str(json).unwrap();
+    assert_eq!(r.id, 514);
+    assert_eq!(r.unread, 0);
+    assert_eq!(r.read_at, Some(1794222568258));
+}
+
+#[test]
+fn parse_forked() {
+    let json = r#"{"id": 296, "at": 50}"#;
+    let f: Forked = serde_json::from_str(json).unwrap();
+    assert_eq!(f.id, 296);
+    assert_eq!(f.at, Some(serde_json::json!(50)));
 }

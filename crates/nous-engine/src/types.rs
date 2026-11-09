@@ -32,6 +32,9 @@ pub struct Session {
     pub read_only: bool,
     /// `"queued" | "running" | <task state kind> | null`，不是布尔。
     pub busy: Option<serde_json::Value>,
+    /// 最后一次落库的时刻，epoch **毫秒**。可能是 null：引擎只记自己看着写过的那些，
+    /// 重启前的老会话就是空的。null 就是「不知道」，别拿文件 mtime 之类冒充。
+    pub updated_at: Option<i64>,
     pub last: Option<SessionLast>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -76,6 +79,57 @@ pub struct Submission {
     #[serde(rename = "submissionId")]
     pub submission_id: serde_json::Value,
     pub status: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/unread`。**平铺的 map**，一个会话一个键，没有 `items` 包一层。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Unread(pub HashMap<String, UnreadState>);
+
+impl Unread {
+    /// 按会话 id 查。键是字符串，`id.to_string()` 对上就行。
+    pub fn of(&self, id: i64) -> Option<&UnreadState> {
+        self.0.get(&id.to_string())
+    }
+
+    /// 没在表里的会话算 0 未读 —— 引擎说「覆盖所有会话」，但客户端别在上面押命。
+    pub fn count(&self, id: i64) -> u64 {
+        self.of(id).map(|s| s.unread).unwrap_or(0)
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreadState {
+    /// 引擎按 EntryId 水位数好的条数，**客户端不自己数**。
+    #[serde(default)]
+    pub unread: u64,
+    /// 上次标已读的时刻，epoch ms。可能为 null（水位还没被 `POST /v1/read/:id` 推过）。
+    /// **null 不等于「读到过」**。
+    pub read_at: Option<i64>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `POST /v1/read/:id` 的回执：`{ id, readAt, unread: 0 }`。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadReceipt {
+    pub id: i64,
+    pub read_at: Option<i64>,
+    pub unread: u64,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `POST /v1/sessions/:id/fork` 的回执：`{ id, at }`。`id` 是分出来的新会话。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Forked {
+    pub id: i64,
+    /// 在父会话的哪条 entry 上分的叉。
+    pub at: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
