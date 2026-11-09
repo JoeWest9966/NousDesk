@@ -1331,8 +1331,11 @@ impl Desktop {
                     div()
                         .id(ElementId::Name(format!("tool-body-{key}").into()))
                         .mt(px(2.))
-                        .max_w(px(560.))
-                        .max_h(px(190.))
+                        // 宽高都用**固定值**，不用 `max_*`：`max_*` 在「内容比它大」时扛不住，
+                        // 一行 487 行的代码能直接铺满整个聊天区（gpui 里 `min-width:auto`
+                        // 那一套，见坑.md 16）。
+                        .w(px(560.))
+                        .h(px(190.))
                         .overflow_y_scroll()
                         // 不折行：等宽代码一折行缩进就全乱了，宁可让它在块里横向滚
                         .whitespace_nowrap()
