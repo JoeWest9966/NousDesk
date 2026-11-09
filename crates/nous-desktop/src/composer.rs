@@ -34,6 +34,7 @@ const SEND_BG_IDLE: u32 = 0xe9e9e9;
 const SEND_TEXT_IDLE: u32 = 0xb2b2b2;
 const STOP_BG: u32 = 0xf2f2f2;
 const STOP_TEXT: u32 = 0xe64340;
+const HINT_TEXT: u32 = 0x8a8a8a;
 
 /// 调用方告诉输入区的事。全是**只读**快照，没有回调之外的交互。
 pub struct State {
@@ -76,6 +77,16 @@ pub fn render(
                 .child(tool_icon(IconName::Paperclip))
                 .child(tool_icon(IconName::Scissors)),
         )
+        // ── 生成中的提示：回车这时不该发出去，得让人知道为什么 ──
+        .when(state.streaming, |el| {
+            el.child(
+                div()
+                    .px(px(12.))
+                    .text_size(px(11.))
+                    .text_color(rgb(HINT_TEXT))
+                    .child("正在生成，回车暂不发送（可以点「停止」，或者等它说完）"),
+            )
+        })
         // ── 文本区 ──
         .child(
             div()

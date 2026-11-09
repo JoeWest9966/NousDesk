@@ -164,6 +164,12 @@ impl Desktop {
 
     /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 生成中**不发**：回车这时只想接着写，不该把半句话塞进队列。
+        // 界面上 composer 会显示「正在生成，回车暂不发送」，所以不是「按了没反应」。
+        // 引擎的 `whenBusy` 值域还没确认，先不传 —— 等确认了只需要在这一个入口加分支。
+        if self.streaming {
+            return;
+        }
         let Some(id) = self.selected else { return };
         let Some(engine) = self.engine.clone() else { return };
         let text = self.input.read(cx).value().to_string();
