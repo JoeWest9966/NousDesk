@@ -20,6 +20,12 @@ pub struct LiveState {
     done: bool,
     /// 出错 / 没答上来，给 UI 显示一句话。
     error: Option<String>,
+    /// 连上时引擎给的 `snapshot` 说「此刻没有正在生成的消息」。
+    ///
+    /// 这条是「粘住不动」的救命信息：上游报错（比如模型 id 不存在）时，失败事件可能在
+    /// 我们订阅**之前**就发完了，之后这条流只剩一个空 snapshot，永远等不到 `message_end`。
+    /// UI 靠它决定「再等几秒还是直接判这一轮没起来」。
+    idle_snapshot: bool,
     /// 工具卡片：名字和输出**分开存**。
     /// 以前是一个 `(id, "名字+输出")` 的二元组，名字会被拼到输出前面（「read第一段…」）——
     /// 以前没人渲染工具卡片所以看不出来，但谁先画谁踩。
@@ -157,6 +163,16 @@ impl Live {
                 state.done = true;
                 state.dirty = true;
             }
+            // 连上先收到一份「现在是什么样」：有 generation 说明正在生成；
+            // 没有就说明此刻是空的（可能这一轮已经结束，也可能还没轮到它）。
+            SseEvent::Snapshot { generation } => {
+                let generating = generation
+                    .as_ref()
+                    .and_then(|g| g.message.as_ref())
+                    .is_some();
+                state.idle_snapshot = !generating;
+                state.dirty = true;
+            }
             _ => {}
         }
     }
@@ -186,6 +202,7 @@ impl Live {
             text,
             done: state.done,
             error: state.error.clone(),
+            idle_snapshot: state.idle_snapshot,
             tools: state.tools.clone(),
         })
     }
@@ -195,6 +212,8 @@ pub struct Drained {
     pub text: String,
     pub done: bool,
     pub error: Option<String>,
+    /// 见 `LiveState::idle_snapshot`。
+    pub idle_snapshot: bool,
     pub tools: Vec<ToolRun>,
 }
 
@@ -392,6 +411,29 @@ mod tests {
         let d = live.drain().expect("drain");
         assert_eq!(d.error.as_deref(), Some("炸了"));
         assert!(d.done);
+    }
+
+    #[test]
+    fn 空快照说明此刻没在生成() {
+        // 上游报错时失败事件可能早于我们订阅，之后只剩这一个空 snapshot。
+        // UI 靠 idle_snapshot 决定「再等 8 秒就判这一轮没起来」，不然永远停在「停止」。
+        let live = Live::new();
+        live.ingest(&SseEvent::Snapshot { generation: None });
+        let d = live.drain().expect("快照也算一次变化");
+        assert!(d.idle_snapshot);
+        assert!(d.text.is_empty());
+        assert!(!d.done);
+    }
+
+    #[test]
+    fn 有正在生成的消息就不是空快照() {
+        let live = Live::new();
+        live.ingest(&SseEvent::Snapshot {
+            generation: Some(nous_engine::sse::Generation {
+                message: Some(serde_json::json!({ "role": "assistant" })),
+            }),
+        });
+        assert!(!live.drain().expect("drain").idle_snapshot);
     }
 
     #[test]

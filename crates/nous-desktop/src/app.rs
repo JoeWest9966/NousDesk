@@ -327,15 +327,48 @@ impl Desktop {
 
         // UI 侧 16ms 一帧：把攒下的字写进气泡。一个 token 一次 notify 就是在这里被挡住的。
         let live = self.live_state.clone();
-        cx.spawn(async move |this, cx| loop {
+        cx.spawn(async move |this, cx| {
+            // 看门狗：这一轮最后一条「有新东西」的时刻。
+            let mut last_change = std::time::Instant::now();
+            // 收到过「此刻没在生成」的快照。上游报错时失败事件可能早于我们订阅，
+            // 之后这条流只剩一个空 snapshot —— 不设上限就会永远停在「停止」。
+            let mut idle_snapshot = false;
+            loop {
             Timer::after(std::time::Duration::from_millis(16)).await;
             let drained = live.drain();
             let mut reload = None;
             let stop = this
                 .update(cx, |this, cx| {
                     let Some(drained) = drained else {
+                        // 没有新事件：把「永远等下去」变成一句能重试的话。
+                        if this.streaming {
+                            let limit = if idle_snapshot {
+                                std::time::Duration::from_secs(8)
+                            } else {
+                                std::time::Duration::from_secs(30)
+                            };
+                            if last_change.elapsed() > limit {
+                                this.live = None;
+                                this.streaming = false;
+                                if !this.user_stopped {
+                                    let why = if idle_snapshot {
+                                        "这一轮没有跑起来（引擎那边没有正在生成的消息）"
+                                    } else {
+                                        "30 秒没有任何输出"
+                                    };
+                                    log::warn!("{why}，判定本轮失败");
+                                    this.turn_error = Some(format!("{why}，可以重试"));
+                                }
+                                cx.notify();
+                                return false;
+                            }
+                        }
                         return this.streaming;
                     };
+                    last_change = std::time::Instant::now();
+                    if drained.idle_snapshot && drained.text.is_empty() && !drained.done {
+                        idle_snapshot = true;
+                    }
                     if let Some(err) = drained.error {
                         this.live = None;
                         this.streaming = false;
@@ -375,6 +408,7 @@ impl Desktop {
                     });
                 }
                 break;
+            }
             }
         })
         .detach();
