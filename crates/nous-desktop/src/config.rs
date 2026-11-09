@@ -20,6 +20,8 @@ pub const DEFAULT_BOARD: &str = "new1";
 /// 换一块部署就改这两个（它们是这一份安装的坐标，不是协议的一部分）。
 pub const SELF_BLOCK: &str = "h58ga5";
 pub const ENGINE_BLOCK: &str = "qrd3wh";
+/// 手机端那块。**只用来读写置顶**（`pins.json` 的单源在它那儿，见 `decisions.md`）。
+pub const MOBILE_BLOCK: &str = "bjes6b";
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {

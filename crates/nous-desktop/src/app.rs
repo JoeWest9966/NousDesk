@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::component::input::{InputEvent, TextareaState};
+use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
 use gpui_kit::assets::IconName;
@@ -14,9 +15,10 @@ use gpui_kit::*;
 use smol::Timer;
 use nous_engine::resolve::resolve_engine;
 use nous_engine::types::{Entry, Session};
+use nous_engine::pins::PinClient;
 use nous_engine::EngineClient;
 
-use crate::config::{Config, ENGINE_BLOCK, SELF_BLOCK};
+use crate::config::{Config, ENGINE_BLOCK, MOBILE_BLOCK, SELF_BLOCK};
 use crate::live::Live;
 
 // 微信桌面版的几个固定色。
@@ -28,6 +30,8 @@ const BUBBLE_OTHER: u32 = 0xffffff;
 pub(crate) const MUTED: u32 = 0x999999;
 /// 微信的绿：左栏选中图标就是这个颜色。
 pub(crate) const WECHAT_GREEN: u32 = 0x07c160;
+
+actions!(nous_desktop, [TogglePinAction]);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -71,6 +75,11 @@ pub struct Desktop {
     pub(crate) expanded: std::collections::HashSet<i64>,
     /// 这一轮是**用户自己按的停止**。abort 会让流断开，那不是错误，别弹红条。
     user_stopped: bool,
+    /// 手机端那块（bjes6b）的客户端：**只用来读写置顶**。
+    /// `None` = 那个块没部署 / 连不上 —— 这时不显示置顶功能，绝不弹错。
+    pins_client: Option<Arc<PinClient>>,
+    /// 置顶的会话 id，**顺序就是显示顺序**（来自 `pins.json`）。
+    pins: Vec<i64>,
     /// 模板页数据（`GET /v1/presets/Session-Template`）。
     pub(crate) presets: Option<nous_engine::types::Presets>,
     pub(crate) presets_error: Option<String>,
@@ -133,6 +142,8 @@ impl Desktop {
             branch_of: None,
             expanded: std::collections::HashSet::new(),
             user_stopped: false,
+            pins_client: None,
+            pins: vec![],
             presets: None,
             presets_error: None,
             presets_loading: false,
@@ -163,11 +174,110 @@ impl Desktop {
                         this.sessions = sessions;
                         // 列表是别人的地盘：定时重读，否则只在启动那一秒新鲜。
                         this.start_poll(cx);
+                        // 置顶单独去 bjes6b 拿（单源在它那儿）。
+                        this.load_pins(cx);
                     }
                     Err(e) => this.error = Some(e),
                 }
                 cx.notify();
             });
+        })
+        .detach();
+    }
+
+    /// 连 bjes6b 拿置顶。**失败就静默降级**：`pins_client` 留 `None`，
+    /// 界面上没有置顶功能，但不影响聊天 —— 客户端不该因为别人的块没装就红一片。
+    fn load_pins(&mut self, cx: &mut Context<Self>) {
+        let Some(host) = pins_host() else { return };
+        let board = pins_board();
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let url = match handle
+                .spawn(async move {
+                    nous_engine::resolve::resolve_engine(&host, &board, SELF_BLOCK, MOBILE_BLOCK).await
+                })
+                .await
+            {
+                Ok(Ok(url)) => url,
+                Ok(Err(e)) => {
+                    log::info!("手机端那块 resolve 不到，置顶功能关掉：{e}");
+                    return;
+                }
+                Err(e) => {
+                    log::info!("resolve 任务挂了，置顶功能关掉：{e}");
+                    return;
+                }
+            };
+            let client = match PinClient::new(url.as_str(), Duration::from_secs(8)) {
+                Ok(c) => Arc::new(c),
+                Err(e) => {
+                    log::warn!("置顶客户端建不起来：{e}");
+                    return;
+                }
+            };
+            let ids = {
+                let c = client.clone();
+                handle.spawn(async move { c.pinned_ids().await }).await
+            };
+            let _ = this.update(cx, |this, cx| match ids {
+                Ok(Ok(ids)) => {
+                    log::info!("置顶读到了：{ids:?}");
+                    this.pins_client = Some(client);
+                    this.pins = ids;
+                    cx.notify();
+                }
+                Ok(Err(e)) => log::info!("置顶读不到，功能关掉：{e}"),
+                Err(e) => log::info!("置顶任务挂了，功能关掉：{e}"),
+            });
+        })
+        .detach();
+    }
+
+    /// 置顶 / 取消置顶。**乐观更新**：界面先动，写失败再退回去（手机端同一套语义）。
+    fn toggle_pin(&mut self, id: i64, cx: &mut Context<Self>) {
+        let Some(client) = self.pins_client.clone() else {
+            return;
+        };
+        let want = !self.pins.contains(&id);
+        let before = self.pins.clone();
+        if want {
+            self.pins.retain(|x| *x != id);
+            self.pins.insert(0, id); // 新置顶的排最前 —— 和微信一致
+        } else {
+            self.pins.retain(|x| *x != id);
+        }
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let res = handle
+                .spawn(async move { client.set_pin(id, want).await })
+                .await;
+            let failed = match res {
+                Ok(Ok(())) => {
+                    log::info!("置顶写进去了：{id} -> {want}");
+                    false
+                }
+                Ok(Err(e)) => {
+                    log::warn!("置顶没写进去：{id} -> {want}：{e}");
+                    true
+                }
+                Err(e) => {
+                    log::warn!("置顶任务挂了：{id}：{e}");
+                    true
+                }
+            };
+            if failed {
+                // 回滚：绝不显示「已置顶」然后其实没存上。
+                let _ = this.update(cx, |this, cx| {
+                    this.pins = before;
+                    cx.notify();
+                });
+            }
         })
         .detach();
     }
@@ -606,10 +716,13 @@ impl Desktop {
         }
         // 默认只画主线：`parent != null` 的是 fork 分支，只在分支视图里出现 ——
         // 不然同一条分支会在两个地方各出现一次。
-        let rows: Vec<AnyElement> = self
-            .sessions
-            .iter()
-            .filter(|s| s.parent.is_none())
+        //
+        // 置顶排序只在**主线**这一份名单里做（分支视图按树画，不掺置顶）。
+        let mainline: Vec<&Session> = self.sessions.iter().filter(|s| s.parent.is_none()).collect();
+        let in_order: Vec<i64> = mainline.iter().map(|s| s.id).collect();
+        let rows: Vec<AnyElement> = order_ids(&in_order, &self.pins)
+            .into_iter()
+            .filter_map(|id| mainline.iter().find(|s| s.id == id))
             .map(|s| self.session_row(s, cx).into_any_element())
             .collect();
         div()
@@ -847,7 +960,7 @@ impl Desktop {
             ))
     }
 
-    fn session_row(&self, s: &Session, cx: &mut Context<Self>) -> impl IntoElement {
+    fn session_row(&self, s: &Session, cx: &mut Context<Self>) -> AnyElement {
         // 预览是最后一条 entry 的原文，带换行/连续空白是常态（工具输出整段）。
         // 摊平成一行，配合 `.truncate()` 才是微信那种单行摘要。
         let preview = s
@@ -860,8 +973,10 @@ impl Desktop {
         // `busy` 是 `"queued" | "running" | <task kind> | null`，不是布尔（`wire.md`）。
         let busy = s.busy.is_some();
         let id = s.id;
+        let pinned = self.pins.contains(&id);
+        let can_pin = self.pins_client.is_some();
 
-        div()
+        let row = div()
             .flex()
             .flex_col()
             .justify_center()
@@ -873,7 +988,21 @@ impl Desktop {
             .border_b(px(1.))
             .border_color(rgb(0xe0e0e0))
             .when(selected, |el| el.bg(rgb(0xd9d9d9)))
-            .child(div().truncate().child(s.name.clone()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    // 📌 用 lucide 的 Pin（AllAssets 里有）
+                    .when(pinned, |el| {
+                        el.child(
+                            Icon::new(IconName::Pin)
+                                .text_color(rgb(0x2e7d32))
+                                .size(px(13.)),
+                        )
+                    })
+                    .child(div().truncate().child(s.name.clone())),
+            )
             // 忙闲：预览行换成微信那句「正在输入…」+ 一个小圆点。
             // 比一个「忙」字可读，也不用新图标。
             .when(busy, |el| {
@@ -920,7 +1049,25 @@ impl Desktop {
             .id(ElementId::Name(format!("sess-{id}").into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.select_session(id, false, cx);
+            }));
+
+        // 右键菜单：置顶 / 取消置顶。菜单项发的是同一个 action，每行自己的 listener
+        // 捕获自己的 id，所以 action 不用带参数。
+        //
+        // 只能在链尾分支：`context_menu()` 返回的是 `ContextMenu<Stateful<Div>>`，
+        // 换个类型就没法再串 `when`（类型对不上）。
+        if can_pin {
+            row.on_action(cx.listener(move |this, _: &TogglePinAction, _window, cx| {
+                this.toggle_pin(id, cx);
             }))
+            .context_menu(move |menu, _window, _cx| {
+                let label = if pinned { "取消置顶" } else { "置顶该聊天" };
+                menu.menu(label, Box::new(TogglePinAction))
+            })
+            .into_any_element()
+        } else {
+            row.into_any_element()
+        }
     }
 
     /// 聊天区顶部那颗「⑂ 分支」。
@@ -1027,6 +1174,35 @@ impl Desktop {
     }
 }
 
+/// 左栏顺序：**置顶的在前**（顺序照 `pins` 给的），其余保持原来那套顺序。
+///
+/// 纯函数（只吃 id），所以能直接拿数字做单测 —— 排序这种事写错一次能烦一星期。
+fn order_ids(in_order: &[i64], pins: &[i64]) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::with_capacity(in_order.len());
+    for id in pins {
+        if in_order.contains(id) && !out.contains(id) {
+            out.push(*id);
+        }
+    }
+    for id in in_order {
+        if !out.contains(id) {
+            out.push(*id);
+        }
+    }
+    out
+}
+
+/// 读配置拿「宿主地址 / 盘名」，供置顶那次 resolve 用。读不到就用默认值。
+fn pins_host() -> Option<String> {
+    Config::load().ok().map(|c| c.host)
+}
+
+fn pins_board() -> String {
+    Config::load()
+        .map(|c| c.board)
+        .unwrap_or_else(|_| Config::default().board)
+}
+
 /// 错误原文可能很长（引擎把上游 400 的整段 JSON 递上来）。红条只给人看前 90 个字，
 /// 全文在 `%LOCALAPPDATA%` 下的 `nous/desktop.log` 里。
 fn short_text(text: &str, max_chars: usize) -> String {
@@ -1110,5 +1286,33 @@ impl Render for Desktop {
                 Tab::Templates => self.render_templates(cx),
             })
             .child(self.render_chat(cx))
+    }
+}
+
+// 排序写错一次能烦一星期，所以拿数字直接钉住。
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod tests {
+    use super::order_ids;
+
+    #[test]
+    fn 置顶的排前面_且按置顶顺序() {
+        // 原顺序 3,2,1；置顶顺序 1,3（新置顶的在最前）
+        assert_eq!(order_ids(&[3, 2, 1], &[1, 3]), vec![1, 3, 2]);
+    }
+
+    #[test]
+    fn 置顶里已经不存在的会话被忽略() {
+        assert_eq!(order_ids(&[5, 4], &[99, 4]), vec![4, 5]);
+    }
+
+    #[test]
+    fn 没有置顶就保持原顺序() {
+        assert_eq!(order_ids(&[3, 2, 1], &[]), vec![3, 2, 1]);
+    }
+
+    #[test]
+    fn 重复置顶不会重复出现() {
+        assert_eq!(order_ids(&[1, 2], &[2, 2]), vec![2, 1]);
     }
 }
