@@ -20,8 +20,18 @@ pub struct LiveState {
     done: bool,
     /// 出错 / 没答上来，给 UI 显示一句话。
     error: Option<String>,
-    /// 工具卡片最近的输出（key = toolCallId）。
-    tools: Vec<(String, String)>,
+    /// 工具卡片：名字和输出**分开存**。
+    /// 以前是一个 `(id, "名字+输出")` 的二元组，名字会被拼到输出前面（「read第一段…」）——
+    /// 以前没人渲染工具卡片所以看不出来，但谁先画谁踩。
+    tools: Vec<ToolRun>,
+}
+
+/// 一次工具调用。`output` 是引擎 `append`/`set` 累起来的。
+#[derive(Debug, Clone)]
+pub struct ToolRun {
+    pub id: String,
+    pub name: String,
+    pub output: String,
 }
 
 #[derive(Clone, Default)]
@@ -103,7 +113,11 @@ impl Live {
                 tool_name,
             } => {
                 let name = tool_name.clone().unwrap_or_else(|| "工具".into());
-                state.tools.push((tool_call_id.clone(), name));
+                state.tools.push(ToolRun {
+                    id: tool_call_id.clone(),
+                    name,
+                    output: String::new(),
+                });
                 state.dirty = true;
             }
             SseEvent::ToolExecutionUpdate {
@@ -122,8 +136,8 @@ impl Live {
                             .map(|s| s.to_string())
                     })
                     .unwrap_or_default();
-                if let Some((_, text)) = state.tools.iter_mut().find(|(id, _)| id == tool_call_id) {
-                    text.push_str(&chunk);
+                if let Some(run) = state.tools.iter_mut().find(|run| &run.id == tool_call_id) {
+                    run.output.push_str(&chunk);
                     state.dirty = true;
                 }
             }
@@ -181,7 +195,7 @@ pub struct Drained {
     pub text: String,
     pub done: bool,
     pub error: Option<String>,
-    pub tools: Vec<(String, String)>,
+    pub tools: Vec<ToolRun>,
 }
 
 /// 从 `{type:"text", text:"…"}` 这种块里取正文。不是 text 块就返回 None。
@@ -209,4 +223,193 @@ fn message_text(message: &Option<serde_json::Value>) -> Option<String> {
         }
     }
     Some(out)
+}
+
+// 测试名用中文写：读起来就是那句断言。非 snake_case 的告警在这里关掉。
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod tests {
+    use super::*;
+    use nous_engine::{Change, SseEvent};
+
+    fn text_start(index: usize, text: &str) -> SseEvent {
+        SseEvent::MessageUpdate {
+            changes: vec![Change::TextStart {
+                content_index: index,
+                block: Some(serde_json::json!({ "type": "text", "text": text })),
+            }],
+        }
+    }
+
+    fn text_delta(index: usize, delta: &str) -> SseEvent {
+        SseEvent::MessageUpdate {
+            changes: vec![Change::TextDelta {
+                content_index: index,
+                delta: delta.into(),
+            }],
+        }
+    }
+
+    fn assistant_start() -> SseEvent {
+        SseEvent::MessageStart {
+            message: Some(nous_engine::sse::RoleMessage {
+                role: Some("assistant".into()),
+            }),
+        }
+    }
+
+    fn assistant_end() -> SseEvent {
+        SseEvent::MessageEnd {
+            entry: Some(nous_engine::sse::KindEntry {
+                kind: "pi.assistant".into(),
+                extra: Default::default(),
+            }),
+        }
+    }
+
+    #[test]
+    fn 文字按_delta_累加_取走之后不再重复给() {
+        let live = Live::new();
+        live.ingest(&assistant_start());
+        live.ingest(&text_start(0, ""));
+        live.ingest(&text_delta(0, "你"));
+        live.ingest(&text_delta(0, "好"));
+
+        let d1 = live.drain().expect("有变化就该给");
+        assert_eq!(d1.text, "你好");
+        assert!(!d1.done);
+        // UI 每 16ms 取一次：没新内容就回 None，别让 UI 白重绘。
+        assert!(live.drain().is_none(), "第二次 drain 应该是 None");
+    }
+
+    #[test]
+    fn 多个_contentIndex_按序拼接() {
+        let live = Live::new();
+        live.ingest(&assistant_start());
+        live.ingest(&text_delta(1, "后半"));
+        live.ingest(&text_delta(0, "前半"));
+        let d = live.drain().expect("drain");
+        // 引擎给的 contentIndex 是权威顺序，不能按到达顺序拼。
+        assert_eq!(d.text, "前半后半");
+    }
+
+    #[test]
+    fn message_change_整条替换会覆盖已有块() {
+        let live = Live::new();
+        live.ingest(&assistant_start());
+        live.ingest(&text_delta(0, "写了一半"));
+        let _ = live.drain();
+
+        // 结束时引擎给整条正文 —— 以它为准。
+        live.ingest(&SseEvent::MessageUpdate {
+            changes: vec![Change::Message {
+                message: Some(serde_json::json!({
+                    "role": "assistant",
+                    "content": [{ "type": "text", "text": "最终正文" }]
+                })),
+            }],
+        });
+        assert_eq!(live.drain().expect("drain").text, "最终正文");
+    }
+
+    #[test]
+    fn 新一轮_messageStart_清掉上一轮的字() {
+        let live = Live::new();
+        live.ingest(&assistant_start());
+        live.ingest(&text_delta(0, "上一轮"));
+        let _ = live.drain();
+
+        live.ingest(&assistant_start());
+        live.ingest(&text_delta(0, "这一轮"));
+        assert_eq!(live.drain().expect("drain").text, "这一轮");
+    }
+
+    #[test]
+    fn 思考块不进正文() {
+        let live = Live::new();
+        live.ingest(&assistant_start());
+        live.ingest(&SseEvent::MessageUpdate {
+            changes: vec![
+                Change::ThinkingStart {
+                    content_index: 0,
+                    block: None,
+                },
+                Change::ThinkingDelta {
+                    content_index: 0,
+                    delta: "我在想".into(),
+                },
+            ],
+        });
+        // 思考不是回答：气泡里不该出现它的字。
+        let d = live.drain().expect("dirty 应该被置上了");
+        assert_eq!(d.text, "");
+    }
+
+    #[test]
+    fn 收尾时_done_置上_正文还在() {
+        let live = Live::new();
+        live.ingest(&assistant_start());
+        live.ingest(&text_delta(0, "答完了"));
+        live.ingest(&assistant_end());
+        let d = live.drain().expect("drain");
+        assert!(d.done, "收尾要告诉 UI 该重拉历史了");
+        assert_eq!(d.text, "答完了");
+    }
+
+    #[test]
+    fn 别的_entry_kind_不算收尾() {
+        let live = Live::new();
+        live.ingest(&SseEvent::MessageEnd {
+            entry: Some(nous_engine::sse::KindEntry {
+                kind: "pi.user".into(),
+                extra: Default::default(),
+            }),
+        });
+        assert!(live.drain().is_none(), "用户消息结束不该收尾");
+    }
+
+    #[test]
+    fn 没答上来要带原因() {
+        let live = Live::new();
+        live.ingest(&SseEvent::Submission {
+            record: Some(nous_engine::sse::SubmissionRecord {
+                status: Some("unanswered".into()),
+                reason: Some("模型没回".into()),
+                detail: None,
+            }),
+        });
+        let d = live.drain().expect("drain");
+        assert!(d.done);
+        assert_eq!(d.error.as_deref(), Some("模型没回"));
+    }
+
+    #[test]
+    fn task_failed_要带消息() {
+        let live = Live::new();
+        live.ingest(&SseEvent::TaskFailed {
+            message: Some("炸了".into()),
+        });
+        let d = live.drain().expect("drain");
+        assert_eq!(d.error.as_deref(), Some("炸了"));
+        assert!(d.done);
+    }
+
+    #[test]
+    fn 工具输出累加() {
+        let live = Live::new();
+        live.ingest(&SseEvent::ToolExecutionStart {
+            tool_call_id: "t1".into(),
+            tool_name: Some("read".into()),
+        });
+        for chunk in ["第一段", "第二段"] {
+            live.ingest(&SseEvent::ToolExecutionUpdate {
+                tool_call_id: "t1".into(),
+                output: Some(serde_json::json!({ "append": chunk })),
+            });
+        }
+        let d = live.drain().expect("drain");
+        assert_eq!(d.tools.len(), 1);
+        assert_eq!(d.tools[0].name, "read", "名字不能被拼进输出里");
+        assert_eq!(d.tools[0].output, "第一段第二段");
+    }
 }
