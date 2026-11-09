@@ -48,6 +48,14 @@ impl Live {
         Self::default()
     }
 
+    /// 这两份 `Live` 是不是**同一轮**（每次 `send()` 都会换一个新的）。
+    ///
+    /// 用来让上一轮遗留的 16ms 循环自己退场。踩过：旧循环还活着，它按自己的看门狗
+    /// 把新一轮的 `streaming` 改成 false，界面就卡在「停止」和红条之间来回撕。
+    pub fn same_round(&self, other: &Live) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// tokio 侧：吃一个 SSE 事件。**不许在这里碰 UI。**
     pub fn ingest(&self, event: &SseEvent) {
         let mut state = self.0.lock().unwrap();
@@ -411,6 +419,16 @@ mod tests {
         let d = live.drain().expect("drain");
         assert_eq!(d.error.as_deref(), Some("炸了"));
         assert!(d.done);
+    }
+
+    #[test]
+    fn 新旧两轮不是同一份_live() {
+        // 旧循环靠这个判断自己该退场，别去改新一轮的 streaming。
+        let a = Live::new();
+        let b = Live::new();
+        assert!(a.same_round(&a));
+        assert!(a.same_round(&a.clone()));
+        assert!(!a.same_round(&b));
     }
 
     #[test]

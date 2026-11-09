@@ -217,31 +217,42 @@ impl Desktop {
             .rev()
             .find(|e| e.kind == "pi.user")
             .and_then(|e| e.text.clone());
-        self.turn_error = None;
         match text {
             Some(text) if !text.trim().is_empty() => {
                 self.input
                     .update(cx, |input, cx| input.set_value(text, window, cx));
-                self.send(window, cx);
+                // **发出去了才收红条**。以前先无条件清掉，一旦 send() 被
+                // 「正在生成」拦下，红条就凭空消失、用户以为重试成功了（真踩过）。
+                if self.send(window, cx) {
+                    self.turn_error = None;
+                } else {
+                    log::warn!("重试没发出去（可能还在生成中）");
+                }
+                cx.notify();
             }
-            _ => cx.notify(),
+            _ => {
+                self.turn_error = None;
+                cx.notify();
+            }
         }
     }
 
     /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
-    fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 返回「这一句到底有没有发出去」。`retry_last` 要靠它决定红条留不留。
+    fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         // 生成中**不发**：回车这时只想接着写，不该把半句话塞进队列。
         // 界面上 composer 会显示「正在生成，回车暂不发送」，所以不是「按了没反应」。
         // 引擎的 `whenBusy` 值域还没确认，先不传 —— 等确认了只需要在这一个入口加分支。
         if self.streaming {
-            return;
+            log::info!("正在生成，这一句不发（回车被拦下）");
+            return false;
         }
-        let Some(id) = self.selected else { return };
-        let Some(engine) = self.engine.clone() else { return };
+        let Some(id) = self.selected else { return false };
+        let Some(engine) = self.engine.clone() else { return false };
         let text = self.input.read(cx).value().to_string();
         let text = text.trim().to_string();
         if text.is_empty() {
-            return;
+            return false;
         }
 
         // 幂等锚：同一句话重发拿到同一次提交。
@@ -291,6 +302,7 @@ impl Desktop {
         .detach();
 
         self.start_stream(cx);
+        true
     }
 
     /// 连 SSE。tokio 任务只往 `live_state` 里塞，UI 侧 16ms 取一次。
@@ -339,6 +351,12 @@ impl Desktop {
             let mut reload = None;
             let stop = this
                 .update(cx, |this, cx| {
+                    // 上一轮遗留的循环：send() 已经换了新的 Live，这个循环必须退场，
+                    // 否则它按自己的看门狗去改新一轮的 streaming（界面会卡在「停止」）。
+                    if !this.live_state.same_round(&live) {
+                        log::info!("旧的合帧循环退场");
+                        return false;
+                    }
                     let Some(drained) = drained else {
                         // 没有新事件：把「永远等下去」变成一句能重试的话。
                         if this.streaming {
@@ -611,7 +629,9 @@ impl Desktop {
                     streaming: self.streaming,
                     can_send: !self.input.read(cx).value().trim().is_empty(),
                 },
-                cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)),
+                cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.send(window, cx);
+                }),
                 cx.listener(|this, _: &ClickEvent, _window, cx| this.stop_generation(cx)),
             ))
             .into_any_element()
