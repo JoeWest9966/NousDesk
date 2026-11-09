@@ -10,8 +10,8 @@ use url::Url;
 
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
-    CreateSession, CreatedSession, Device, Entries, Forked, Presets, ReadReceipt, Sessions,
-    Submission, Unread,
+    CreateSession, CreatedSession, Device, Dirs, Entries, Forked, Machines, Models, Presets,
+    Prompts, ReadReceipt, Sessions, Skills, Submission, Unread,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -49,7 +49,11 @@ impl EngineClient {
             // 空闲读超时：只有「连着但一直没数据」才算坏。有心跳就永远不会触发。
             .read_timeout(Duration::from_secs(180))
             .build()?;
-        Ok(Self { http, sse, base: url })
+        Ok(Self {
+            http,
+            sse,
+            base: url,
+        })
     }
 
     fn url(&self, path: &str) -> Result<Url, EngineError> {
@@ -81,6 +85,46 @@ impl EngineClient {
 
     pub async fn device(&self) -> Result<Device, EngineError> {
         let resp = self.http.get(self.url("v1/device")?).send().await?;
+        self.json(resp).await
+    }
+
+    // ── 建会话那一页要的几份清单 ────────────────────────────────────────
+    // 一个端点一个小方法，不聚合：哪一份挂了不该把其它几份一起拖下水。
+
+    /// 模型清单 + 盘上"那只眼"当前指着哪个（`default`）。
+    pub async fn models(&self) -> Result<Models, EngineError> {
+        let resp = self.http.get(self.url("v1/models")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 已装技能（仓库版，带 `tracked` / `load.state`）。
+    pub async fn skills(&self) -> Result<Skills, EngineError> {
+        let resp = self.http.get(self.url("v1/skills")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 提示词模板（每轮都带的那份规则）+ 仓库默认值。
+    pub async fn prompts(&self) -> Result<Prompts, EngineError> {
+        let resp = self.http.get(self.url("v1/prompts")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 会话能跑在哪几台机器上。`None` = 本机。
+    pub async fn machines(&self) -> Result<Machines, EngineError> {
+        let resp = self.http.get(self.url("v1/machines")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 列目录。`path` 为 `None` = 用引擎给的起点（board 的 map 根）。
+    ///
+    /// 浏览发生在**引擎进程**里，这边只收发路径字符串 —— 以后引擎跑在远程机器上，
+    /// 这一页列的就是那台机器的目录。
+    pub async fn dirs(&self, path: Option<&str>) -> Result<Dirs, EngineError> {
+        let mut url = self.url("v1/fs/dirs")?;
+        if let Some(path) = path.filter(|p| !p.is_empty()) {
+            url.query_pairs_mut().append_pair("path", path);
+        }
+        let resp = self.http.get(url).send().await?;
         self.json(resp).await
     }
 
@@ -156,7 +200,10 @@ impl EngineClient {
         let resp = self
             .http
             .post(self.url(&format!("v1/sessions/{id}/messages"))?)
-            .json(&Body { content, request_id })
+            .json(&Body {
+                content,
+                request_id,
+            })
             .send()
             .await?;
         self.json(resp).await

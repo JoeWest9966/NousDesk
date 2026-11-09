@@ -138,3 +138,125 @@ fn parse_forked() {
     assert_eq!(f.id, 296);
     assert_eq!(f.at, Some(serde_json::json!(50)));
 }
+
+// ── 建会话那一页的五份清单（`/v1/models` `/v1/skills` `/v1/prompts` `/v1/machines` `/v1/fs/dirs`）
+
+#[test]
+fn parse_models() {
+    // GET /v1/models：242 个模型，截断到两条。`default` 是盘上那只眼指着的。
+    let json = r#"{
+      "default": {"provider": "volc-ark", "modelId": "deepseek-v4-flash-260425"},
+      "items": [
+        {"provider":"volc-ark","modelId":"deepseek-v4-flash-260425",
+         "name":"deepseek-v4-flash-260425",
+         "thinkingLevels":["off","minimal","low","medium","high"],
+         "contextWindow":128000,"maxTokens":8192},
+        {"provider":"Qoder","modelId":"GLM-5.3","name":"GLM-5.3",
+         "thinkingLevels":["off","high"],"contextWindow":180000,"maxTokens":8192}
+      ]
+    }"#;
+    let m: nous_engine::types::Models = serde_json::from_str(json).unwrap();
+    assert_eq!(m.items.len(), 2);
+    assert_eq!(
+        m.default_key().as_deref(),
+        Some("volc-ark/deepseek-v4-flash-260425")
+    );
+    assert_eq!(m.items[1].provider, "Qoder");
+    assert_eq!(m.items[1].levels(), vec!["off", "high"]);
+    // 不给 thinkingLevels 的模型也要能建：退成只有 off。
+    let only = r#"{"provider":"x","modelId":"y"}"#;
+    let one: nous_engine::types::Model = serde_json::from_str(only).unwrap();
+    assert_eq!(one.levels(), vec!["off"]);
+}
+
+#[test]
+fn parse_skills() {
+    // GET /v1/skills：`load.state != ok` 的画出来但不让勾；`hidden` 的干脆不列。
+    let json = r#"{
+      "root": "/opt/Nous-skills",
+      "categories": ["Basics","Basics/Code"],
+      "skills": [
+        {"name":"code-review","path":"code-review","description":"审查从某个点以来的改动",
+         "hidden":false,"category":["Basics/Code"],"load":{"state":"ok"},"tracked":true},
+        {"name":"broken","path":"broken","hidden":false,"category":[],
+         "load":{"state":"missing"},"tracked":false},
+        {"name":"internal","path":"internal","hidden":true,"category":[],
+         "load":{"state":"ok"},"tracked":true}
+      ]
+    }"#;
+    let s: nous_engine::types::Skills = serde_json::from_str(json).unwrap();
+    assert_eq!(s.skills.len(), 3);
+    assert!(s.skills[0].loadable());
+    assert!(!s.skills[1].loadable());
+    assert!(s.skills[2].hidden);
+    assert_eq!(s.categories.len(), 2);
+}
+
+#[test]
+fn parse_prompts() {
+    // GET /v1/prompts：形状照面板的消费方写的（`prompts[]` + `default`）。
+    let json = r#"{
+      "default": "审查一段改动",
+      "categories": ["Basics"],
+      "prompts": [
+        {"name":"审查一段改动","description":"标准和规格两轴","category":["Basics"],
+         "load":{"state":"ok"}},
+        {"name":"坏掉的","load":{"state":"error"}}
+      ]
+    }"#;
+    let p: nous_engine::types::Prompts = serde_json::from_str(json).unwrap();
+    assert_eq!(p.default.as_deref(), Some("审查一段改动"));
+    assert_eq!(p.prompts.len(), 2);
+    assert!(p.prompts[0].loadable());
+    assert!(!p.prompts[1].loadable());
+    // 没 description 的不能炸。
+    assert_eq!(p.prompts[1].description, None);
+}
+
+#[test]
+fn parse_machines_and_dirs() {
+    let m: nous_engine::types::Machines = serde_json::from_str(
+        r#"{"at":1794236685874,"machines":[
+             {"name":"j1900","user":"root","port":22,
+              "ips":[{"addr":"100.126.95.105","label":"tailscale"}],
+              "addr":"100.126.95.105","note":"小主机","tags":["board"]}]}"#,
+    )
+    .unwrap();
+    assert_eq!(m.machines.len(), 1);
+    assert_eq!(m.machines[0].port, Some(22));
+    assert_eq!(m.machines[0].ips[0].label.as_deref(), Some("tailscale"));
+
+    // `path` 为空串 = 起点，不是「没有路径」。
+    let d: nous_engine::types::Dirs = serde_json::from_str(
+        r#"{"path":"","dirs":[{"name":"/opt/Nous/content/new1/map","path":"/opt/Nous/content/new1/map"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(d.path.as_deref(), Some(""));
+    assert_eq!(d.dirs.len(), 1);
+}
+
+#[test]
+fn create_session_body_is_camel_case() {
+    // 这几个键是给引擎吃的：`thinkingLevel` / `cwd` / `machine` / `template: null`。
+    // 写错一个不会报错，只会**悄悄不生效** —— 所以钉在测试里。
+    let body = nous_engine::types::CreateSession {
+        name: Some("试试".into()),
+        model: Some(serde_json::json!({"provider":"volc-ark","modelId":"x"})),
+        thinking_level: Some(serde_json::json!("medium")),
+        template: Some(None),
+        cwd: Some("/opt/Nous/content/new1/map".into()),
+        machine: Some("j1900".into()),
+        ..Default::default()
+    };
+    let v = serde_json::to_value(&body).unwrap();
+    assert_eq!(v["thinkingLevel"], "medium");
+    assert_eq!(v["cwd"], "/opt/Nous/content/new1/map");
+    assert_eq!(v["machine"], "j1900");
+    assert!(v.get("thinking_level").is_none());
+    // `template` 总是发，null 也是有效值 = 明确不要。
+    assert!(v.as_object().unwrap().contains_key("template"));
+    assert!(v["template"].is_null());
+    // 没给的字段不出现（省掉 = 引擎用默认）。
+    assert!(v.get("skills").is_none());
+    assert!(v.get("presets").is_none());
+}
