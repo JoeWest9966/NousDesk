@@ -13,12 +13,24 @@ use gpui_kit::assets::IconName;
 // 可选中文本。`div().child(String)` 是死的 StyledText —— 鼠标拖不动，也就复制不出来。
 use gpui_kit::component::text::TextView;
 use gpui_kit::prelude::FluentBuilder as _;
+// `on_hover` / `on_click` 这些不是 Div 自带的方法，是这条 trait 给的，得显式拿进来。
+use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use smol::Timer;
 use nous_engine::resolve::resolve_engine;
 use nous_engine::pins::PinClient;
 use nous_engine::types::{Entry, Session, Unread};
 use nous_engine::EngineClient;
+
+pub(crate) mod scrollbar;
+
+/// 哪块面板的滚动条。加新面板就往这儿加一个分支。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Bar {
+    Chat,
+    List,
+    Presets,
+}
 
 use crate::config::{Config, ENGINE_BLOCK, MOBILE_BLOCK, SELF_BLOCK};
 use crate::live::Live;
@@ -63,6 +75,17 @@ pub struct Desktop {
     streaming: bool,
     /// 聊天区的滚动位置：新消息进来要跟着到底。
     scroll: ScrollHandle,
+    /// 左栏会话列表的滚动句柄（列表以前是 `overflow_hidden`，压根不能滚）。
+    list_scroll: ScrollHandle,
+    /// 模板页（通讯录）的滚动句柄。
+    pub(crate) presets_scroll: ScrollHandle,
+    /// 每个面板两位：鼠标在不在上面 / 滚动条在不在场（淡出那 250ms 里也得在场）。
+    chat_hover: bool,
+    chat_bar: bool,
+    list_hover: bool,
+    list_bar: bool,
+    pub(crate) presets_hover: bool,
+    pub(crate) presets_bar: bool,
     /// 左栏当前页：聊天 / 通讯录（模板）。
     pub(crate) tab: Tab,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
@@ -144,6 +167,14 @@ impl Desktop {
             live_state: Live::new(),
             streaming: false,
             scroll: ScrollHandle::new(),
+            list_scroll: ScrollHandle::new(),
+            presets_scroll: ScrollHandle::new(),
+            chat_hover: false,
+            chat_bar: false,
+            list_hover: false,
+            list_bar: false,
+            presets_hover: false,
+            presets_bar: false,
             tab: Tab::Chats,
             focused: true,
             stream_for: None,
@@ -770,6 +801,48 @@ impl Desktop {
             )
     }
 
+    /// 悬停 → 「滚动条在不在场」。
+    ///
+    /// 移开不能马上撤元素：撤了就看不到那 250ms 的淡出，会「啪」一下消失。
+    /// 所以先留着，等淡出跑完再收 —— 期间要是又进来了，就当成淡入继续用。
+    pub(crate) fn bar_hover(&mut self, which: Bar, hovered: bool, cx: &mut Context<Self>) {
+        let (hover, shown) = match which {
+            Bar::Chat => (&mut self.chat_hover, &mut self.chat_bar),
+            Bar::List => (&mut self.list_hover, &mut self.list_bar),
+            Bar::Presets => (&mut self.presets_hover, &mut self.presets_bar),
+        };
+        if *hover == hovered {
+            return;
+        }
+        *hover = hovered;
+        *shown = true;
+        cx.notify();
+        if hovered {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            Timer::after(scrollbar::FADE).await;
+            this.update(cx, |this, cx| {
+                let still_hovered = match which {
+                    Bar::Chat => this.chat_hover,
+                    Bar::List => this.list_hover,
+                    Bar::Presets => this.presets_hover,
+                };
+                if still_hovered {
+                    return;
+                }
+                match which {
+                    Bar::Chat => this.chat_bar = false,
+                    Bar::List => this.list_bar = false,
+                    Bar::Presets => this.presets_bar = false,
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn render_session_list(&self, cx: &mut Context<Self>) -> AnyElement {
         // 分支视图是左列的另一种内容：同一块地方，换一份名单。
         if self.branches {
@@ -796,7 +869,34 @@ impl Desktop {
             .bg(rgb(LIST_BG))
             .child(div().p(px(12.)).child("Nous"))
             .child(div().px(px(12.)).child(self.status_line(cx)))
-            .child(div().flex().flex_col().flex_1().overflow_hidden().children(rows))
+            .child(
+                div()
+                    .id("session-scroll-area")
+                    .relative()
+                    .flex_1()
+                    // `min_h(0)`：flex 项默认 `min-height: auto`，不加这行这个「视口」
+                    // 会被内容撑到真实几万像素高，永远不需要滚（滚动条也就不会出现）。
+                    .min_h(px(0.))
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        this.bar_hover(Bar::List, *hovered, cx)
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .size_full()
+                            .id("session-scroll")
+                            .overflow_y_scroll()
+                            .track_scroll(&self.list_scroll)
+                            .children(rows),
+                    )
+                    .child(scrollbar::overlay(
+                        "session-scrollbar",
+                        &self.list_scroll,
+                        self.list_bar,
+                        self.list_hover,
+                    )),
+            )
             .into_any_element()
     }
 
@@ -902,15 +1002,35 @@ impl Desktop {
             )
             .child(
                 div()
-                    .flex()
-                    .flex_col()
+                    // `on_hover` 挂在 `Stateful` 上，所以这里先给个 id。
+                    .id("chat-scroll-area")
+                    .relative()
                     .flex_1()
-                    .id("chat-scroll")
+                    // 鼠标在这块内容上 → 滚动条出现（demo 的 3 号：平时一条线都没有）。
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        this.bar_hover(Bar::Chat, *hovered, cx)
+                    }))
                     .min_w(px(0.))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .py(px(8.))
-                    .children(bubbles),
+                    // `min_h(0)` 是上面那条 `min_w(0)` 的竖版：不加它，这个「视口」
+                    // 会被内容撑到十几万像素高，内容就不需要滚了，滚动条也不再出现。
+                    .min_h(px(0.))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .size_full()
+                            .id("chat-scroll")
+                            .overflow_y_scroll()
+                            .track_scroll(&self.scroll)
+                            .py(px(8.))
+                            .children(bubbles),
+                    )
+                    .child(scrollbar::overlay(
+                        "chat-scrollbar",
+                        &self.scroll,
+                        self.chat_bar,
+                        self.chat_hover,
+                    )),
             )
             // 这一轮的失败就地显示：红条 + 重试 + 收起。不占左栏那条「连不上引擎」的通道。
             //

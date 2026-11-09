@@ -12,7 +12,7 @@ use gpui_kit::*;
 use nous_engine::types::{CreatedSession, CreateSession, Preset, Presets};
 use nous_engine::EngineError;
 
-use crate::app::{Desktop, Tab};
+use crate::app::{Bar, Desktop, Tab};
 
 /// `wire.md` 写死的 section：模板（通讯录）那页的数据。
 const TEMPLATE_SECTION: &str = "Session-Template";
@@ -206,13 +206,32 @@ impl Desktop {
             ))
             .child(
                 div()
-                    .flex()
-                    .flex_col()
+                    .id("presets-scroll-area")
+                    .relative()
                     .flex_1()
-                    .id(ElementId::Name("presets-scroll".into()))
-                    .overflow_y_scroll()
-                    .children(creating_note)
-                    .children(body),
+                    // 和左栏/聊天区同一条规矩：flex 项不写 `min_h(0)` 就会被内容撑爆，
+                    // 撑爆了就不需要滚，滚动条也就永远不出现。
+                    .min_h(px(0.))
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        this.bar_hover(Bar::Presets, *hovered, cx)
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .size_full()
+                            .id(ElementId::Name("presets-scroll".into()))
+                            .overflow_y_scroll()
+                            .track_scroll(&self.presets_scroll)
+                            .children(creating_note)
+                            .children(body),
+                    )
+                    .child(crate::app::scrollbar::overlay(
+                        "presets-scrollbar",
+                        &self.presets_scroll,
+                        self.presets_bar,
+                        self.presets_hover,
+                    )),
             )
             .into_any_element()
     }
