@@ -10,6 +10,8 @@ use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
 use gpui_kit::assets::IconName;
+// 可选中文本。`div().child(String)` 是死的 StyledText —— 鼠标拖不动，也就复制不出来。
+use gpui_kit::component::text::TextView;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use smol::Timer;
@@ -1258,6 +1260,7 @@ impl Desktop {
         let failed = text.trim_start().starts_with("[error]");
         let title = name.map(|n| n.to_string()).unwrap_or_else(|| "工具输出".to_string());
         let k = key.to_string();
+        let for_copy = text.clone();
 
         // 外层是列（卡片头一行、正文在下面），但卡片头自己包一层 `flex_row`：
         // 直接在列里放「一行东西」，它会被拉成整行宽，甲案那股「一小条」的味道就没了
@@ -1323,6 +1326,29 @@ impl Desktop {
                             } else {
                                 format!("{lines} 行 · {}", size_text(bytes))
                             }),
+                    )
+                    // 复制整段。代码块里划选后按 Ctrl+C 不一定会复制（键盘上下文分不到
+                    // TextView 上），所以给一个明面出口 —— 长输出本来就是「整段拿走」。
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("copy-{key}").into()))
+                            .flex_none()
+                            .px(px(6.))
+                            .py(px(1.))
+                            .rounded(px(4.))
+                            .text_size(px(11.))
+                            .text_color(rgb(WECHAT_GREEN))
+                            .cursor_pointer()
+                            .hover(|el| el.bg(rgb(0xe8f7ee)))
+                            .on_click(cx.listener(move |_this, _: &ClickEvent, _w, cx| {
+                                // 不拦的话这一下会连带把卡片展开/收起
+                                cx.stop_propagation();
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                    for_copy.clone(),
+                                ));
+                                log::info!("复制了工具输出：{} 字", for_copy.len());
+                            }))
+                            .child("复制"),
                     ),
                 ),
             )
@@ -1347,7 +1373,7 @@ impl Desktop {
                         .font_family("Consolas")
                         .text_size(px(11.5))
                         .text_color(rgb(0x3c3c3c))
-                        .child(text),
+                        .child(selectable_code(&format!("tb-{key}"), &text)),
                 )
             })
             .into_any_element()
@@ -1364,11 +1390,12 @@ impl Desktop {
                 .child(
                     div()
                         .max_w(px(480.))
+                        .min_w(px(0.))
                         .px(px(12.))
                         .py(px(8.))
                         .rounded(px(6.))
                         .bg(rgb(BUBBLE_ME))
-                        .child(text),
+                        .child(selectable(&format!("u-{}", e.id), &text, 0x1a1a1a)),
                 )
                 .into_any_element(),
             "pi.assistant" => div()
@@ -1379,11 +1406,12 @@ impl Desktop {
                 .child(
                     div()
                         .max_w(px(480.))
+                        .min_w(px(0.))
                         .px(px(12.))
                         .py(px(8.))
                         .rounded(px(6.))
                         .bg(rgb(BUBBLE_OTHER))
-                        .child(text),
+                        .child(selectable(&format!("a-{}", e.id), &text, 0x1a1a1a)),
                 )
                 .into_any_element(),
             "pi.tool-result" => self.tool_card(&e.id.to_string(), None, &text, cx),
@@ -1474,6 +1502,87 @@ fn sort_sessions(sessions: &mut [Session]) {
 /// 活跃度：最后一条 entry 的 id。没有 entry 的新会话退化成会话 id。
 pub(crate) fn activity_of(s: &Session) -> i64 {
     s.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(s.id)
+}
+
+/// 一段**可选中**的文本。
+///
+/// GPUI 里 `div().child("…")` 画出来的是死的 StyledText，鼠标拖不动 —— 整个界面
+/// 一个字都复制不出来就是这个原因。`TextView` 才有选区（拖选、双击选词、Ctrl+C）。
+///
+/// 现在按 markdown 解析，但内容先**转义**过，所以看起来还是纯文本 ——
+/// 等哪天要真渲染 markdown，把 `md_plain()` 去掉就行，组件这边一行不用改。
+fn selectable(id: &str, text: &str, color: u32) -> TextView {
+    TextView::markdown(ElementId::Name(format!("t-{id}").into()), md_plain(text))
+        .selectable(true)
+        .text_size(px(13.5))
+        .text_color(rgb(color))
+}
+
+/// 一段**可选中**的等宽文本（工具输出、代码）。
+///
+/// 包成代码块：markdown 才不会把 `#`、`- `、`|` 这些当成标题/列表/表格去排版，
+/// 空白也原样保留。围栏长度跟着内容走，输出里本身有 ``` 也不会把块切断。
+fn selectable_code(id: &str, text: &str) -> TextView {
+    TextView::markdown(
+        ElementId::Name(format!("tc-{id}").into()),
+        fenced_code(text),
+    )
+    .selectable(true)
+    .text_size(px(11.5))
+    .font_family("Consolas")
+    .text_color(rgb(0x3c3c3c))
+}
+
+/// 把纯文本转义成「markdown 里看着还是纯文本」。
+///
+/// 只转义会被当成语法的字符。**这是临时手段** —— 真要做 markdown 渲染时，这一步整个删掉。
+fn md_plain(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 32);
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        // 行首的块级标记：`# 标题`、`> 引用`、`- ` / `* ` / `1. ` 列表
+        let mut rest = line;
+        loop {
+            let hit = ["#", ">", "-", "*", "+"]
+                .iter()
+                .find(|m| rest.starts_with(&format!("{m} ")))
+                .copied();
+            match hit {
+                Some(m) => {
+                    out.push('\\');
+                    out.push_str(m);
+                    rest = &rest[m.len()..];
+                }
+                None => break,
+            }
+        }
+        for ch in rest.chars() {
+            // 行内语法：强调、代码、链接、表格、删除线
+            if matches!(ch, '\\' | '*' | '_' | '`' | '[' | ']' | '|' | '~') {
+                out.push('\\');
+            }
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// 包成代码块（围栏比内容里最长的那串反引号还长）。
+fn fenced_code(text: &str) -> String {
+    let mut longest = 0;
+    let mut run = 0;
+    for ch in text.chars() {
+        if ch == '`' {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    let fence = "`".repeat((longest + 1).max(3));
+    format!("{fence}\n{text}\n{fence}")
 }
 
 /// 剥掉引擎给工具输出套的壳：`<harness>…</harness>`。
@@ -1590,6 +1699,37 @@ mod tests {
         use super::size_text;
         assert_eq!(size_text(12), "12 B");
         assert_eq!(size_text(2048), "2.0 KB");
+    }
+
+    #[test]
+    fn 纯文本在_markdown_里还是纯文本() {
+        use super::md_plain;
+        // 这几个字符不转义就会被当成语法：`**粗体**`、行首 `# `、`- `、`|` 表格
+        assert_eq!(md_plain("**这条要有回复**"), r"\*\*这条要有回复\*\*");
+        assert_eq!(md_plain("# 标题"), r"\# 标题");
+        assert_eq!(md_plain("- 一项"), r"\- 一项");
+        assert_eq!(md_plain("a|b"), r"a\|b");
+        // 普通行原样
+        assert_eq!(md_plain("收 到 了"), "收 到 了");
+    }
+
+    #[test]
+    fn 代码围栏跟着内容变长() {
+        use super::fenced_code;
+        assert_eq!(fenced_code("ls"), "```
+ls
+```");
+        // 输出里本身有三连反引号：围栏要更长，不然块会被提前切断
+        assert_eq!(fenced_code("```
+x"), "````
+```
+x
+````");
+        assert_eq!(fenced_code("```
+x"), r"````
+```
+x
+````");
     }
 
     #[test]
