@@ -56,6 +56,10 @@ impl Desktop {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
+                // 回车=发送，不在这里插换行。少了这句，多行框里的回车会**先插一个换行**
+                // 再发出去：文本被清空时看不出来，但 send() 提前返回（比如正在生成）时
+                // 就留下一个空行。Shift+回车仍然换行（由 submit_on_enter 的 shift 分支决定）。
+                .submit_on_enter(true)
                 .placeholder("输入消息，回车发送 · Shift+回车换行")
         });
         let subs = vec![cx.subscribe_in(&input, window, {
