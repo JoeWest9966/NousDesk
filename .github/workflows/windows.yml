@@ -29,6 +29,9 @@ jobs:
           # 这个 workspace 有 800+ 依赖，缓存能把重复构建从 20 分钟压到几分钟。
           workspaces: "."
 
+      - name: 单测（协议层：SSE 切帧 / 中文跨 chunk / 心跳帧）
+        run: cargo test -p nous-engine
+
       - name: 编译 release
         run: cargo build --release -p nous-desktop
 
@@ -66,9 +69,18 @@ jobs:
 
       # ── 安装包：cargo-packager 出 msi（cargo-packager 的 wix 格式） ─────────────────────────────────
       # 这一步失败不该把便携版也拖没有，所以 continue-on-error。
+      # `cargo install` 本身也要走网络（crates.io），runner 上偶发 502，同样重试三次。
       - name: 装 cargo-packager
         continue-on-error: true
-        run: cargo install cargo-packager --locked
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            cargo install cargo-packager --locked
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "第 $i 次装 cargo-packager 失败，等 10 秒重试"
+            Start-Sleep -Seconds 10
+          }
+          exit 1
 
       # WiX 要从 github.com 下载，runner 上偶发 504，重试三次。
       - name: 出 msi（cargo-packager 的 wix 格式）
@@ -86,6 +98,17 @@ jobs:
       - name: 看看产出了什么
         shell: pwsh
         run: Get-ChildItem -Recurse -File dist | Select-Object FullName, Length
+
+      # v0.1.4 就是只出了 zip、msi 静默地没出来，没人发现。缺了要显眼报警
+      # （用 ::error:: 只做注释，不把整份产物判死 —— 便携版还是能用的）。
+      - name: msi 缺了要报警
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/*.msi")) {
+            Write-Host "::error::这次没产出 msi（多半是 WiX 下载挂了）。便携 zip 仍然可用，但安装版用户拿不到这个版本。"
+          } else {
+            Write-Host "msi 正常：$(Get-ChildItem dist/*.msi | Select-Object -First 1 -ExpandProperty Name)"
+          }
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
