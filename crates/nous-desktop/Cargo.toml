@@ -17,6 +17,8 @@ log = "0.4"
 toml = "0.8"
 dirs = "6"
 smol = "2"
+# 只用来把 epoch ms 转成本地时间（列表右上角那格）。别拿它做业务。
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 # cargo-packager 的元数据：出 Windows 安装包用（见 .github/workflows/windows.yml）。
 [package.metadata.packager]

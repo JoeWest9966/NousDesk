@@ -14,8 +14,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use smol::Timer;
 use nous_engine::resolve::resolve_engine;
-use nous_engine::types::{Entry, Session};
 use nous_engine::pins::PinClient;
+use nous_engine::types::{Entry, Session, Unread};
 use nous_engine::EngineClient;
 
 use crate::config::{Config, ENGINE_BLOCK, MOBILE_BLOCK, SELF_BLOCK};
@@ -67,6 +67,8 @@ pub struct Desktop {
     focused: bool,
     /// 当前常连着 SSE 的会话。`None` = 没连。切会话就换一个，不叠加。
     stream_for: Option<i64>,
+    /// 每个会话的未读条数和水位。引擎按 EntryId 数好的，这边只画。
+    pub(crate) unread: Unread,
     /// 左栏是不是「分支视图」。默认 false = 全部主线会话。
     pub(crate) branches: bool,
     /// 分支视图的根。进视图时锁住：点分支里的会话只换右侧，列表不跟着塌。
@@ -138,6 +140,7 @@ impl Desktop {
             tab: Tab::Chats,
             focused: true,
             stream_for: None,
+            unread: Unread::default(),
             branches: false,
             branch_of: None,
             expanded: std::collections::HashSet::new(),
@@ -303,7 +306,16 @@ impl Desktop {
                 };
                 let Some(engine) = engine else { continue };
                 let Some(h) = crate::TOKIO.get().cloned() else { break };
-                let Ok(Ok(list)) = h.spawn(async move { engine.sessions().await }).await else {
+                // 会话和未读一起拉：两个都是小 JSON，分两次反而多一次 RTT。
+                let got = h
+                    .spawn(async move {
+                        let sessions = engine.sessions().await;
+                        let unread = engine.unread().await;
+                        (sessions, unread)
+                    })
+                    .await;
+                let Ok((sessions, unread)) = got else { continue };
+                let Ok(list) = sessions else {
                     // 断一下就等下一轮，不打断 UI。
                     continue;
                 };
@@ -317,6 +329,13 @@ impl Desktop {
                         let after = next.iter().find(|s| s.id == id).map(sig_of);
                         before != after
                     });
+                    // 未读变了也要重画（红点上不上、消不消）。
+                    if let Ok(u) = unread
+                        && this.unread != u
+                    {
+                        this.unread = u;
+                        cx.notify();
+                    }
                     if this.sessions.iter().map(sig_of).ne(next.iter().map(sig_of)) {
                         this.sessions = next;
                         // 日志里能对上：「列表怎么不动了」先看这行还在不在跳；
@@ -332,6 +351,10 @@ impl Desktop {
                     }
                     if stale_entries && let Some(id) = selected {
                         this.select_session(id, true, cx);
+                    }
+                    // 人正停在某个会话上：新进来的也算读过，红点不该一直挂着。
+                    if let Some(id) = this.selected {
+                        this.mark_read(id, cx);
                     }
                 });
             }
@@ -351,6 +374,7 @@ impl Desktop {
         self.streaming = false;
         // 选中就常连：别的写出方（另一个终端、面板页）进这一条，这边会自己长出来。
         self.start_stream(cx);
+        self.mark_read(id, cx);
         cx.notify();
 
         let engine = self.engine.clone();
@@ -380,6 +404,28 @@ impl Desktop {
         .detach();
     }
 
+
+    /// 「我读到这儿了」。有未读才推，别每 3 秒空推一次水位。
+    ///
+    /// 回执里带着引擎算好的 `unread: 0`，直接抄回表里 —— 水位的真相在服务端，
+    /// 客户端不自己减。
+    fn mark_read(&mut self, id: i64, cx: &mut Context<Self>) {
+        if self.unread.count(id) == 0 {
+            return;
+        }
+        let Some(engine) = self.engine.clone() else { return };
+        let Some(h) = crate::TOKIO.get().cloned() else { return };
+        log::info!("标已读：会话 {id}（{} 条未读）", self.unread.count(id));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(r)) = h.spawn(async move { engine.mark_read(id).await }).await {
+                let _ = this.update(cx, |this, cx| {
+                    this.unread.apply(&r);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
 
     /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
     ///
@@ -988,11 +1034,14 @@ impl Desktop {
             .border_b(px(1.))
             .border_color(rgb(0xe0e0e0))
             .when(selected, |el| el.bg(rgb(0xd9d9d9)))
+            // 一行里三样东西：📌 / 名字 / 分支角标 / 时间。左半边 `flex_1` 占满并 truncate，
+            // 右半边 `flex_none` 顶到右边 —— 谁都不会被谁顶出去（比 absolute 好使，也不会重叠）。
             .child(
                 div()
                     .flex()
+                    .w_full()
                     .items_center()
-                    .gap(px(4.))
+                    .gap(px(6.))
                     // 📌 用 lucide 的 Pin（AllAssets 里有）
                     .when(pinned, |el| {
                         el.child(
@@ -1001,50 +1050,64 @@ impl Desktop {
                                 .size(px(13.)),
                         )
                     })
-                    .child(div().truncate().child(s.name.clone())),
-            )
-            // 忙闲：预览行换成微信那句「正在输入…」+ 一个小圆点。
-            // 比一个「忙」字可读，也不用新图标。
-            .when(busy, |el| {
-                el.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .child(div().size(px(6.)).rounded(px(3.)).bg(rgb(WECHAT_GREEN)))
-                        .child(
+                    .child(div().flex_1().min_w(px(0.)).truncate().child(s.name.clone()))
+                    // 别用 `⑂`：雅黑里没这个字形，会退化成别的样子。
+                    .when(self.descendant_count(id) > 0, |el| {
+                        el.child(
                             div()
-                                .text_size(px(12.))
+                                .flex_none()
+                                .text_size(px(11.))
                                 .text_color(rgb(WECHAT_GREEN))
-                                .child("正在输入…"),
-                        ),
-                )
-            })
-            .when(!busy && !preview.is_empty(), |el| {
-                el.child(
-                    div()
-                        .truncate()
-                        .text_size(px(12.))
-                        .text_color(rgb(MUTED))
-                        .child(preview),
-                )
-            })
-            // 有分支就在右下角挂条数：这是「进分支视图」唯一的线索，别省。
-            .when(self.descendant_count(id) > 0, |el| {
-                el.child(
-                    div()
-                        .absolute()
-                        .right(px(8.))
-                        .bottom(px(8.))
-                        .flex_none()
-                        .px(px(6.))
-                        .rounded(px(8.))
-                        .bg(rgb(0xe4f8ea))
-                        .text_size(px(11.))
-                        .text_color(rgb(WECHAT_GREEN))
-                        .child(format!("{} 条分支", self.descendant_count(id))),
-                )
-            })
+                                .child(format!("{} 分支", self.descendant_count(id))),
+                        )
+                    })
+                    .children(when_text(s.updated_at).map(|t| {
+                        div()
+                            .flex_none()
+                            .text_size(px(11.))
+                            .text_color(rgb(MUTED))
+                            .child(t)
+                    })),
+            )
+            // 第二行只有一个出口：左边是「正在输入…」或预览（`flex_1` + truncate），
+            // 右边是未读红点（`flex_none`）。
+            //
+            // 早先拆成两个分支、红点挂在 `flex_col` 上，结果红点被拉伸成整条红带
+            // —— 列容器里加子元素就是铺满宽度，红点得装在一个 `justify_end` 的横排里。
+            .child(
+                div()
+                    .flex()
+                    .w_full()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(if busy {
+                        // 忙闲：微信那句「正在输入…」+ 一个小圆点。比一个「忙」字可读。
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .child(div().flex_none().size(px(6.)).rounded(px(3.)).bg(rgb(WECHAT_GREEN)))
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(rgb(WECHAT_GREEN))
+                                    .child("正在输入…"),
+                            )
+                            .into_any_element()
+                    } else {
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate()
+                            .text_size(px(12.))
+                            .text_color(rgb(MUTED))
+                            .child(preview)
+                            .into_any_element()
+                    })
+                    .children(self.unread_badge(id)),
+            )
             // `.id()` 把 Div 转成 Stateful<Div>，on_click 只存在于后者。
             .id(ElementId::Name(format!("sess-{id}").into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
@@ -1068,6 +1131,32 @@ impl Desktop {
         } else {
             row.into_any_element()
         }
+    }
+
+    /// 未读数红点。0 条就返回 `None`（别画个「0」在那儿）。
+    ///
+    /// `99+` 封顶：微信就是这么干的，条数到三位数对谁都没信息量。
+    fn unread_badge(&self, id: i64) -> Option<AnyElement> {
+        let n = self.unread.count(id);
+        if n == 0 {
+            return None;
+        }
+        Some(
+            div()
+                .flex_none()
+                .min_w(px(18.))
+                .h(px(18.))
+                .px(px(5.))
+                .rounded(px(9.))
+                .bg(rgb(0xfa5151))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(11.))
+                .text_color(rgb(0xffffff))
+                .child(if n > 99 { "99+".to_string() } else { n.to_string() })
+                .into_any_element(),
+        )
     }
 
     /// 聊天区顶部那颗「⑂ 分支」。
@@ -1247,19 +1336,21 @@ pub(crate) fn activity_of(s: &Session) -> i64 {
     s.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(s.id)
 }
 
-/// 相对年龄（`5 分钟前` / `3 天前`）。`updatedAt` 为 null 就返回 None —— **不编时间**。
-pub(crate) fn ago(updated_at: Option<i64>) -> Option<String> {
-    let ts = updated_at?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_millis() as i64;
-    let mins = (now - ts) / 60_000;
-    Some(match mins {
-        m if m < 1 => "刚刚".to_string(),
-        m if m < 60 => format!("{m} 分钟前"),
-        m if m < 60 * 24 => format!("{} 小时前", m / 60),
-        m => format!("{} 天前", m / 1440),
+/// 列表右上角那格时间。`updatedAt` 为 null 就返回 `None` —— **不编时间**
+/// （引擎没记过就是没记过，拿文件 mtime 冒充是错的）。
+///
+/// 微信的规矩：今天给钟点、昨天给「昨天」、一周内给几天前、今年给月日、再往前给年月日。
+pub(crate) fn when_text(updated_at: Option<i64>) -> Option<String> {
+    use chrono::{Datelike as _, Local, TimeZone as _};
+    let t = Local.timestamp_millis_opt(updated_at?).single()?;
+    let now = Local::now();
+    let days = (now.date_naive() - t.date_naive()).num_days();
+    Some(match days {
+        0 => t.format("%H:%M").to_string(),
+        1 => "昨天".to_string(),
+        d if (2..7).contains(&d) => format!("{} 天前", d),
+        _ if t.year() == now.year() => format!("{}月{}日", t.month(), t.day()),
+        _ => format!("{}/{}/{}", t.year(), t.month(), t.day()),
     })
 }
 
@@ -1293,7 +1384,30 @@ impl Render for Desktop {
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::order_ids;
+    use super::{order_ids, when_text};
+
+    /// 时间列的三档：今天给钟点、昨天给「昨天」、今年更早给月日。
+    /// 都拿「现在」往前推，不写死日期 —— 写死的话过一天就红。
+    #[test]
+    fn when_text_三档() {
+        let now = chrono::Local::now();
+        let today = now.timestamp_millis();
+        let hhmm = when_text(Some(today)).unwrap();
+        assert_eq!(hhmm.len(), 5, "今天的格式是 HH:MM，拿到 {hhmm:?}");
+
+        let y = (now - chrono::Duration::days(1)).timestamp_millis();
+        assert_eq!(when_text(Some(y)).unwrap(), "昨天");
+
+        let five = (now - chrono::Duration::days(5)).timestamp_millis();
+        assert_eq!(when_text(Some(five)).unwrap(), "5 天前");
+    }
+
+    /// `updatedAt == null` 必须给 `None`：引擎没记过就是没记过，
+    /// 这格空着才对，不许拿别的时间填。
+    #[test]
+    fn when_text_没时间就是空() {
+        assert!(when_text(None).is_none());
+    }
 
     #[test]
     fn 置顶的排前面_且按置顶顺序() {

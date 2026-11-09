@@ -15,7 +15,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use nous_engine::types::Session;
 
-use crate::app::{Desktop, LIST_BG, MUTED, WECHAT_GREEN, activity_of};
+use crate::app::{Desktop, LIST_BG, MUTED, activity_of};
 
 /// 缩进宽度 / 层。封顶 [`MAX_DEPTH`] 层。
 const INDENT: f32 = 14.;
@@ -257,7 +257,7 @@ impl Desktop {
             .and_then(|p| self.sessions.iter().find(|x| x.id == p.id))
             .map(|p| p.name.clone())
             .unwrap_or_else(|| "?".to_string());
-        let sub = match crate::app::ago(s.updated_at) {
+        let sub = match crate::app::when_text(s.updated_at) {
             Some(t) => format!("↳ 从 {from} 分叉 · {t}"),
             None => format!("↳ 从 {from} 分叉"),
         };

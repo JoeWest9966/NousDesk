@@ -84,7 +84,7 @@ pub struct Submission {
 }
 
 /// `GET /v1/unread`。**平铺的 map**，一个会话一个键，没有 `items` 包一层。
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 pub struct Unread(pub HashMap<String, UnreadState>);
 
 impl Unread {
@@ -97,9 +97,19 @@ impl Unread {
     pub fn count(&self, id: i64) -> u64 {
         self.of(id).map(|s| s.unread).unwrap_or(0)
     }
+
+    /// 把 `POST /v1/read/:id` 的回执落进表里。
+    ///
+    /// **照抄引擎给的数**（`unread` / `readAt`），不在客户端拿旧值减一减 ——
+    /// 水位是服务端的事，这边只是把答案记下来。
+    pub fn apply(&mut self, r: &ReadReceipt) {
+        let st = self.0.entry(r.id.to_string()).or_default();
+        st.unread = r.unread;
+        st.read_at = r.read_at;
+    }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UnreadState {
     /// 引擎按 EntryId 水位数好的条数，**客户端不自己数**。
