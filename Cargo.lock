@@ -3907,7 +3907,7 @@ dependencies = [
 
 [[package]]
 name = "nous-desktop"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "chrono",
  "dirs 6.0.0",
@@ -3924,7 +3924,7 @@ dependencies = [
 
 [[package]]
 name = "nous-engine"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytes",
  "futures-util",
