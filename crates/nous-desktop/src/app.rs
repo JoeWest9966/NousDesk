@@ -153,13 +153,42 @@ impl Desktop {
     }
 
 
-    /// 「停止」按钮的这一轮落点：只记一行日志 + 重画，`abort()` 的接线以后再说。
+    /// 「停止」：`POST /v1/sessions/:id/abort`，把当前这一轮生成掐掉。
     ///
-    /// 单独开一个方法是为了接线上线时只改这里：UI 已经知道「谁被点了」，
-    /// 到时候把 `engine.abort(id)` 塞进 tokio 就行，`composer.rs` 一个字不用动。
-    fn notify_stop_clicked(&mut self, cx: &mut Context<Self>) {
-        log::info!("点了停止（这一轮只有样子，还没接 abort）");
+    /// 三个要点：
+    /// 1. **先改 UI 再发请求**：按钮立刻变回「发送」，不等网络。用户点了就该有反应。
+    /// 2. 只掐自己盯着的那一条会话；SSE 的收尾交给引擎（它会关流）。
+    /// 3. 掐完以**引擎历史为准**重拉一次：引擎那边已经落下的半截回答要显示出来，
+    ///    不能只把本地那口气泡删掉了事 —— 那样用户会以为刚才那段没发生过。
+    ///
+    /// 失败（网络/引擎 404）只记日志：停止本身是「少做事」，失败了也不该弹红字吓人。
+    fn stop_generation(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.selected else { return };
+        let Some(engine) = self.engine.clone() else { return };
+        if !self.streaming {
+            return;
+        }
+
+        // 1. 先让界面停下：`start_stream` 里那个 16ms 循环看的就是这个标志。
+        self.streaming = false;
         cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            match handle.spawn(async move { engine.abort(id).await }).await {
+                Ok(Ok(resp)) => log::info!("停止成功：{resp}"),
+                Ok(Err(e)) => log::warn!("停止失败（不打扰用户）：{e}"),
+                Err(e) => log::warn!("停止任务没跑完：{e}"),
+            }
+            // 3. 停止之后历史以引擎为准。
+            let _ = this.update(cx, |this, cx| {
+                this.live = None;
+                this.select_session(id, true, cx);
+            });
+        })
+        .detach();
     }
 
     /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
@@ -444,10 +473,7 @@ impl Desktop {
                     can_send: !self.input.read(cx).value().trim().is_empty(),
                 },
                 cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)),
-                cx.listener(|this, _: &ClickEvent, _window, cx| {
-                    // 「停止」这一轮只有样子：abort() 的接线以后再说。
-                    this.notify_stop_clicked(cx);
-                }),
+                cx.listener(|this, _: &ClickEvent, _window, cx| this.stop_generation(cx)),
             ))
             .into_any_element()
     }
