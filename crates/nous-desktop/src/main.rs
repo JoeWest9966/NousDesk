@@ -8,6 +8,7 @@
 mod app;
 mod live;
 mod config;
+mod templates;
 
 use std::io::Write as _;
 use std::sync::OnceLock;
@@ -94,7 +95,7 @@ fn main() {
     // enter 让 main 线程也在 runtime 上下文里；gpui run 会阻塞在这里，rt 一直活着。
     let _guard = rt.enter();
 
-    gpui_kit::application().with_assets(gpui_kit::assets::Assets).run(move |cx| {
+    gpui_kit::application().with_assets(gpui_kit::assets::AllAssets).run(move |cx| {
         gpui_kit::init(cx);
         // 窗口：标题 Nous，1280x800 居中。桌面聊天应用的第一屏。
         let options = WindowOptions {

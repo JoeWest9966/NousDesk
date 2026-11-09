@@ -6,6 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::{Icon, Sizable as _, Size};
+// 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
+use gpui_kit::assets::IconName;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use smol::Timer;
@@ -18,16 +21,24 @@ use crate::live::Live;
 
 // 微信桌面版的几个固定色。
 const SIDEBAR_DARK: u32 = 0x2e2e2e;
-const LIST_BG: u32 = 0xf7f7f7;
+pub(crate) const LIST_BG: u32 = 0xf7f7f7;
 const CHAT_BG: u32 = 0xededed;
 const BUBBLE_ME: u32 = 0x95ec69;
 const BUBBLE_OTHER: u32 = 0xffffff;
 const MUTED: u32 = 0x999999;
+/// 微信的绿：左栏选中图标就是这个颜色。
+const WECHAT_GREEN: u32 = 0x07c160;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tab {
+    Chats,
+    Templates,
+}
 
 pub struct Desktop {
-    engine: Option<Arc<EngineClient>>,
-    sessions: Vec<Session>,
-    selected: Option<i64>,
+    pub(crate) engine: Option<Arc<EngineClient>>,
+    pub(crate) sessions: Vec<Session>,
+    pub(crate) selected: Option<i64>,
     entries: Vec<Entry>,
     entries_loading: bool,
     entries_error: Option<String>,
@@ -42,6 +53,14 @@ pub struct Desktop {
     streaming: bool,
     /// 聊天区的滚动位置：新消息进来要跟着到底。
     scroll: ScrollHandle,
+    /// 左栏当前页：聊天 / 通讯录（模板）。
+    pub(crate) tab: Tab,
+    /// 模板页数据（`GET /v1/presets/Session-Template`）。
+    pub(crate) presets: Option<nous_engine::types::Presets>,
+    pub(crate) presets_error: Option<String>,
+    pub(crate) presets_loading: bool,
+    /// 正在从模板开的那条（防连点 + 状态提示）。
+    pub(crate) creating: Option<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -72,6 +91,11 @@ impl Desktop {
             live_state: Live::new(),
             streaming: false,
             scroll: ScrollHandle::new(),
+            tab: Tab::Chats,
+            presets: None,
+            presets_error: None,
+            presets_loading: false,
+            creating: None,
             _subs: subs,
         };
         this.bootstrap(cx);
@@ -105,7 +129,7 @@ impl Desktop {
         .detach();
     }
 
-    fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
+    pub(crate) fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
         if self.selected == Some(id) && !force {
             return;
         }
@@ -282,8 +306,8 @@ impl Desktop {
 
     // ── 三个栏 ──────────────────────────────────────────────
 
-    fn render_icon_bar(&self, _cx: &mut Context<Self>) -> impl IntoElement {
-        // 微信桌面版最左的深色窄条。图标还没画，先放占位。
+    fn render_icon_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        // 微信桌面版最左的深色窄条：聊天 / 通讯录两个入口。
         div()
             .flex()
             .flex_col()
@@ -291,8 +315,39 @@ impl Desktop {
             .h_full()
             .bg(rgb(SIDEBAR_DARK))
             .items_center()
-            .py(px(8.))
-            .child(div().size(px(32.)).rounded(px(4.)).bg(rgb(0x444444)))
+            .py(px(10.))
+            .gap(px(6.))
+            .child(self.tab_button(IconName::MessageCircle, Tab::Chats, cx))
+            .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
+    }
+
+    fn tab_button(
+        &self,
+        name: IconName,
+        tab: Tab,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = self.tab == tab;
+        let id = match tab {
+            Tab::Chats => "tab-chats",
+            Tab::Templates => "tab-templates",
+        };
+        div()
+            .id(ElementId::Name(id.into()))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.switch_tab(tab, cx);
+            }))
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(40.))
+            .rounded(px(8.))
+            .hover(|el| el.bg(rgb(0x3a3a3a)))
+            .child(
+                Icon::new(name)
+                    .with_size(Size::Size(px(22.)))
+                    .text_color(rgb(if active { WECHAT_GREEN } else { 0x9a9a9a })),
+            )
     }
 
     fn render_session_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -569,7 +624,10 @@ impl Render for Desktop {
             .size_full()
             .bg(rgb(CHAT_BG))
             .child(self.render_icon_bar(cx))
-            .child(self.render_session_list(cx))
+            .child(match self.tab {
+                Tab::Chats => self.render_session_list(cx).into_any_element(),
+                Tab::Templates => self.render_templates(cx),
+            })
             .child(self.render_chat(cx))
     }
 }
