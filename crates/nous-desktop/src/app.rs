@@ -31,7 +31,12 @@ pub struct Desktop {
     entries: Vec<Entry>,
     entries_loading: bool,
     entries_error: Option<String>,
+    /// **连引擎失败**（启动/解析地址）。只给左栏的状态行用，带「改哪个配置文件」的提示。
     error: Option<String>,
+    /// **这一轮生成失败**（模型 400、任务挂了、没答上来）。渲染在聊天区底部，
+    /// 带「重试」。跟上面那个不能共用一条通道 —— 模型订阅过期那种事被说成
+    /// 「连不上 + 配置文件在哪」会把用户带到沟里去（真踩过）。
+    turn_error: Option<String>,
     loading: bool,
     input: Entity<TextareaState>,
     /// 正在生成的那条助手消息（流式）。
@@ -76,6 +81,7 @@ impl Desktop {
             entries_loading: false,
             entries_error: None,
             error: None,
+            turn_error: None,
             loading: true,
             input,
             live: None,
@@ -122,6 +128,7 @@ impl Desktop {
         self.selected = Some(id);
         self.entries.clear();
         self.entries_error = None;
+        self.turn_error = None;
         self.entries_loading = true;
         cx.notify();
 
@@ -191,6 +198,27 @@ impl Desktop {
         .detach();
     }
 
+    /// 「重试」：把最后一条用户消息原样再发一遍（新的 `requestId`，所以引擎不会当成重发）。
+    ///
+    /// 没找到用户消息（比如历史里只有系统条目）就只把错误条收起来，别让按钮点了没反应。
+    fn retry_last(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self
+            .entries
+            .iter()
+            .rev()
+            .find(|e| e.kind == "pi.user")
+            .and_then(|e| e.text.clone());
+        self.turn_error = None;
+        match text {
+            Some(text) if !text.trim().is_empty() => {
+                self.input
+                    .update(cx, |input, cx| input.set_value(text, window, cx));
+                self.send(window, cx);
+            }
+            _ => cx.notify(),
+        }
+    }
+
     /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // 生成中**不发**：回车这时只想接着写，不该把半句话塞进队列。
@@ -230,6 +258,7 @@ impl Desktop {
             extra: Default::default(),
         });
         self.live = Some(String::new());
+        self.turn_error = None;
         self.live_state = Live::new();
         self.streaming = true;
         cx.notify();
@@ -298,7 +327,9 @@ impl Desktop {
                         return this.streaming;
                     };
                     if let Some(err) = drained.error {
-                        this.error = Some(format!("生成失败：{err}"));
+                        // 全文进日志（红条只截前 90 字，够看出是哪类错）。
+                        log::warn!("生成失败：{err}");
+                        this.turn_error = Some(err);
                         this.live = None;
                         this.streaming = false;
                         cx.notify();
@@ -466,6 +497,65 @@ impl Desktop {
                     .py(px(8.))
                     .children(bubbles),
             )
+            // 这一轮的失败就地显示：红条 + 重试 + 收起。不占左栏那条「连不上引擎」的通道。
+            //
+            // 两颗按钮**左锚**、文字在右：GPUI 里长文字（不换行）会按内容宽度算，
+            // 谁在它右边谁就被顶出屏幕 —— 先试的右端按钮版整颗消失了，别改回去。
+            .when_some(self.turn_error.clone(), |el, message| {
+                el.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .w_full()
+                        .px(px(12.))
+                        .py(px(8.))
+                        .bg(rgb(0xfff1f0))
+                        .border_t(px(1.))
+                        .border_color(rgb(0xf3c9c6))
+                        .child(
+                            div()
+                                .id("turn-error-retry")
+                                .flex_shrink_0()
+                                .px(px(10.))
+                                .py(px(4.))
+                                .rounded(px(4.))
+                                .bg(rgb(0xc0392b))
+                                .text_size(px(12.))
+                                .text_color(rgb(0xffffff))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.retry_last(window, cx)
+                                }))
+                                .child("重 试"),
+                        )
+                        .child(
+                            div()
+                                .id("turn-error-dismiss")
+                                .flex_shrink_0()
+                                .px(px(6.))
+                                .py(px(4.))
+                                .text_size(px(12.))
+                                .text_color(rgb(0x8a6d6a))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.turn_error = None;
+                                    cx.notify();
+                                }))
+                                .child("收起"),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .text_size(px(12.))
+                                .text_color(rgb(0xc0392b))
+                                .child(short_text(&message, 90)),
+                        ),
+                )
+            })
             .child(crate::composer::render(
                 &self.input,
                 crate::composer::State {
@@ -594,6 +684,16 @@ impl Desktop {
                 ),
         }
     }
+}
+
+/// 错误原文可能很长（引擎把上游 400 的整段 JSON 递上来）。红条只给人看前 90 个字，
+/// 全文在 `%LOCALAPPDATA%` 下的 `nous/desktop.log` 里。
+fn short_text(text: &str, max_chars: usize) -> String {
+    let mut out: String = text.chars().take(max_chars).collect();
+    if out.chars().count() < text.chars().count() {
+        out.push('…');
+    }
+    out
 }
 
 /// 连引擎：读配置 → resolve 地址 → 拉会话列表。全在 tokio 上。
