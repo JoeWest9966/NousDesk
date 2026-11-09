@@ -46,9 +46,29 @@ impl Live {
     pub fn ingest(&self, event: &SseEvent) {
         let mut state = self.0.lock().unwrap();
         match event {
+            SseEvent::Snapshot { generation } => {
+                // 常连：刚连上（或重连）时引擎先推一帧 snapshot。有正在生成的消息就续上，
+                // 没有就只当「连上了」。**别把它当错误，也别清空已有内容。**
+                if let Some(text) = generation
+                    .as_ref()
+                    .and_then(|g| g.message.clone())
+                    .and_then(|m| message_text(&Some(m)))
+                    && !text.is_empty()
+                {
+                    state.blocks.clear();
+                    state.blocks.insert(0, text);
+                    state.done = false;
+                    state.error = None;
+                    state.dirty = true;
+                }
+            }
             SseEvent::MessageStart { message } => {
                 if message.as_ref().and_then(|m| m.role.as_deref()) == Some("assistant") {
                     state.blocks.clear();
+                    // 常连的流可能已经结束过一轮：`done` 不复位，下一轮的第一帧就会被
+                    // 当成「结束了」，气泡当场被清掉。
+                    state.done = false;
+                    state.error = None;
                     state.dirty = true;
                 }
             }

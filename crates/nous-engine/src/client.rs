@@ -26,6 +26,10 @@ pub enum EngineError {
 #[derive(Debug, Clone)]
 pub struct EngineClient {
     http: reqwest::Client,
+    /// SSE 专用。**不能挂总超时**：挂上之后长流会在超时那一刻整根断掉，
+    /// 症状是回答到一半「HTTP 流断了」（reqwest 报 `error decoding response body`），
+    /// 然后重连、重新等 snapshot。只限连接阶段。
+    stream: reqwest::Client,
     /// 引擎地址，保证以 `/` 结尾。来源只能是宿主的 `__nous/resolve`，别自己拼。
     base: Url,
 }
@@ -37,7 +41,8 @@ impl EngineClient {
             url.set_path(&format!("{}/", url.path()));
         }
         let http = reqwest::Client::builder().timeout(timeout).build()?;
-        Ok(Self { http, base: url })
+        let stream = reqwest::Client::builder().connect_timeout(timeout).build()?;
+        Ok(Self { http, stream, base: url })
     }
 
     fn url(&self, path: &str) -> Result<Url, EngineError> {
@@ -162,7 +167,7 @@ impl EngineClient {
         id: i64,
     ) -> Result<impl Stream<Item = Result<SseEvent, SseError>>, EngineError> {
         let resp = self
-            .http
+            .stream
             .get(self.url(&format!("v1/sessions/{id}/events"))?)
             .send()
             .await?;
