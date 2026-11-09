@@ -1,4 +1,9 @@
 //! Nous-Desktop 入口。三栏布局、会话、输入、置顶都在 app.rs 里。
+//
+// 正式包不要控制台黑框：不加这句，Windows 会给进程配一个 console，
+// GPUI 的 INFO 日志（字体/GPU/D3D feature level）就打在那个黑窗里。
+// debug 构建保留控制台，方便本地看日志。
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
 mod live;
