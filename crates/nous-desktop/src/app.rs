@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use smol::Timer;
@@ -33,7 +33,7 @@ pub struct Desktop {
     entries_error: Option<String>,
     error: Option<String>,
     loading: bool,
-    input: Entity<InputState>,
+    input: Entity<TextareaState>,
     /// 正在生成的那条助手消息（流式）。
     live: Option<String>,
     /// 共享给 tokio 任务的流式状态。
@@ -47,13 +47,23 @@ pub struct Desktop {
 
 impl Desktop {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("输入消息，回车发送"));
+        // 多行：1~8 行自动长高，超过就在框里滚。回车发送、Shift+回车换行。
+        let input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 8)
+                .placeholder("输入消息，回车发送 · Shift+回车换行")
+        });
         let subs = vec![cx.subscribe_in(&input, window, {
             move |this, _, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { shift, .. } = event {
-                    if !*shift {
-                        this.send(window, cx);
+                match event {
+                    // 输入框内容变了要重画一次，否则「发送」按钮永远是灰的。
+                    InputEvent::Change => cx.notify(),
+                    InputEvent::PressEnter { shift, .. } => {
+                        if !*shift {
+                            this.send(window, cx);
+                        }
                     }
+                    _ => {}
                 }
             }
         })];
@@ -142,6 +152,15 @@ impl Desktop {
         .detach();
     }
 
+
+    /// 「停止」按钮的这一轮落点：只记一行日志 + 重画，`abort()` 的接线以后再说。
+    ///
+    /// 单独开一个方法是为了接线上线时只改这里：UI 已经知道「谁被点了」，
+    /// 到时候把 `engine.abort(id)` 塞进 tokio 就行，`composer.rs` 一个字不用动。
+    fn notify_stop_clicked(&mut self, cx: &mut Context<Self>) {
+        log::info!("点了停止（这一轮只有样子，还没接 abort）");
+        cx.notify();
+    }
 
     /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -412,16 +431,18 @@ impl Desktop {
                     .py(px(8.))
                     .children(bubbles),
             )
-            .child(
-                div()
-                    .flex()
-                    .h(px(72.))
-                    .w_full()
-                    .items_center()
-                    .px(px(12.))
-                    .bg(rgb(LIST_BG))
-                    .child(div().flex_1().child(Input::new(&self.input))),
-            )
+            .child(crate::composer::render(
+                &self.input,
+                crate::composer::State {
+                    streaming: self.streaming,
+                    can_send: !self.input.read(cx).value().trim().is_empty(),
+                },
+                cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)),
+                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    // 「停止」这一轮只有样子：abort() 的接线以后再说。
+                    this.notify_stop_clicked(cx);
+                }),
+            ))
             .into_any_element()
     }
 

@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod composer;
 mod live;
 mod config;
 
@@ -94,7 +95,9 @@ fn main() {
     // enter 让 main 线程也在 runtime 上下文里；gpui run 会阻塞在这里，rt 一直活着。
     let _guard = rt.enter();
 
-    gpui_kit::application().with_assets(gpui_kit::assets::Assets).run(move |cx| {
+    // AllAssets 而不是 Assets：后者只嵌了 106 个「组件自用」的图标，图标名不在那
+    // 106 个里就静静地什么都不画（踩过一次）。全量 1830 个 SVG 一共 2.8MB。
+    gpui_kit::application().with_assets(gpui_kit::assets::AllAssets).run(move |cx| {
         gpui_kit::init(cx);
         // 窗口：标题 Nous，1280x800 居中。桌面聊天应用的第一屏。
         let options = WindowOptions {
