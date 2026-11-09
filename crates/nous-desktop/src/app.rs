@@ -11,7 +11,10 @@ use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
 use gpui_kit::assets::IconName;
 // 可选中文本。`div().child(String)` 是死的 StyledText —— 鼠标拖不动，也就复制不出来。
-use gpui_kit::component::text::TextView;
+// 用 gpui-base 那个原始 TextView，不是 gpui-component 的兼容包装：
+// 包装层根本没开放 `code_block_highlighter`（它把高亮挂在自己的主题机制上，
+// 而那个机制只在 tree-sitter 那条分支里才有），拿不到就没法给代码块上色。
+use gpui_kit::base::text::TextView;
 use gpui_kit::prelude::FluentBuilder as _;
 // `on_hover` / `on_click` 这些不是 Div 自带的方法，是这条 trait 给的，得显式拿进来。
 use gpui_kit::prelude::StatefulInteractiveElement as _;
@@ -33,6 +36,7 @@ pub(crate) enum Bar {
 }
 
 use crate::config::{Config, ENGINE_BLOCK, MOBILE_BLOCK, SELF_BLOCK};
+use crate::md::{chat_md, code_copy_button, code_highlighter, md_style, strip_harness};
 use crate::live::Live;
 
 // 微信桌面版的几个固定色。
@@ -1629,13 +1633,17 @@ pub(crate) fn activity_of(s: &Session) -> i64 {
 /// GPUI 里 `div().child("…")` 画出来的是死的 StyledText，鼠标拖不动 —— 整个界面
 /// 一个字都复制不出来就是这个原因。`TextView` 才有选区（拖选、双击选词、Ctrl+C）。
 ///
-/// 现在按 markdown 解析，但内容先**转义**过，所以看起来还是纯文本 ——
-/// 等哪天要真渲染 markdown，把 `md_plain()` 去掉就行，组件这边一行不用改。
+/// 真渲染 markdown：标题、粗体、列表、表格、代码块都按语法走。
+/// 代码块带高亮 + 一个「复制」（见 `code_highlighter` / `code_copy_button`）。
 fn selectable(id: &str, text: &str, color: u32) -> TextView {
-    TextView::markdown(ElementId::Name(format!("t-{id}").into()), md_plain(text))
+    TextView::markdown(ElementId::Name(format!("t-{id}").into()), chat_md(text))
         .selectable(true)
         .text_size(px(13.5))
         .text_color(rgb(color))
+        .style(md_style())
+        .code_block_actions(code_copy_button)
+        // 全局同一份 Arc：框架靠这个判断「这块代码没变，别重算高亮」
+        .shared_code_block_highlighter(code_highlighter())
 }
 
 /// 一段**可选中**的等宽文本（工具输出、代码）。
@@ -1653,42 +1661,6 @@ fn selectable_code(id: &str, text: &str) -> TextView {
     .text_color(rgb(0x3c3c3c))
 }
 
-/// 把纯文本转义成「markdown 里看着还是纯文本」。
-///
-/// 只转义会被当成语法的字符。**这是临时手段** —— 真要做 markdown 渲染时，这一步整个删掉。
-fn md_plain(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 32);
-    for (i, line) in text.split('\n').enumerate() {
-        if i > 0 {
-            out.push('\n');
-        }
-        // 行首的块级标记：`# 标题`、`> 引用`、`- ` / `* ` / `1. ` 列表
-        let mut rest = line;
-        loop {
-            let hit = ["#", ">", "-", "*", "+"]
-                .iter()
-                .find(|m| rest.starts_with(&format!("{m} ")))
-                .copied();
-            match hit {
-                Some(m) => {
-                    out.push('\\');
-                    out.push_str(m);
-                    rest = &rest[m.len()..];
-                }
-                None => break,
-            }
-        }
-        for ch in rest.chars() {
-            // 行内语法：强调、代码、链接、表格、删除线
-            if matches!(ch, '\\' | '*' | '_' | '`' | '[' | ']' | '|' | '~') {
-                out.push('\\');
-            }
-            out.push(ch);
-        }
-    }
-    out
-}
-
 /// 包成代码块（围栏比内容里最长的那串反引号还长）。
 fn fenced_code(text: &str) -> String {
     let mut longest = 0;
@@ -1702,18 +1674,9 @@ fn fenced_code(text: &str) -> String {
         }
     }
     let fence = "`".repeat((longest + 1).max(3));
-    format!("{fence}\n{text}\n{fence}")
-}
-
-/// 剥掉引擎给工具输出套的壳：`<harness>…</harness>`。
-///
-/// 壳里通常是 `[error] …` 这类标记。壳本身对用户没有信息量 —— 谁调的、调什么，
-/// 卡片标题里已经说了；一眼看见的是「输出长什么样」。
-fn strip_harness(raw: &str) -> String {
-    let t = raw.trim();
-    let t = t.strip_prefix("<harness>").unwrap_or(t);
-    let t = t.strip_suffix("</harness>").unwrap_or(t);
-    t.trim().to_string()
+    format!("{fence}
+{text}
+{fence}")
 }
 
 /// 给人看的体积：`12 B` / `1.9 KB`。
@@ -1800,7 +1763,7 @@ mod tests {
 
     #[test]
     fn 工具输出剥掉_harness_壳() {
-        use super::strip_harness;
+        use crate::md::strip_harness;
         assert_eq!(
             strip_harness("<harness>
 [error] boom
@@ -1822,15 +1785,26 @@ mod tests {
     }
 
     #[test]
-    fn 纯文本在_markdown_里还是纯文本() {
-        use super::md_plain;
-        // 这几个字符不转义就会被当成语法：`**粗体**`、行首 `# `、`- `、`|` 表格
-        assert_eq!(md_plain("**这条要有回复**"), r"\*\*这条要有回复\*\*");
-        assert_eq!(md_plain("# 标题"), r"\# 标题");
-        assert_eq!(md_plain("- 一项"), r"\- 一项");
-        assert_eq!(md_plain("a|b"), r"a\|b");
-        // 普通行原样
-        assert_eq!(md_plain("收 到 了"), "收 到 了");
+    fn 单换行补成硬换行() {
+        use crate::md::hard_breaks;
+        assert_eq!(hard_breaks("一
+二"), "一  
+二");
+        assert_eq!(hard_breaks("一
+
+二"), "一  
+
+二");
+        // 代码块里的换行一个都不能碰（会改成代码内容）
+        assert_eq!(hard_breaks("```
+a
+b
+```"), "```
+a
+b
+```");
+        // 空行不补（补了就是三个空格挂在那）
+        assert_eq!(hard_breaks(""), "");
     }
 
     #[test]

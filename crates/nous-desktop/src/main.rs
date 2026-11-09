@@ -9,6 +9,7 @@ mod app;
 mod branches;
 mod composer;
 mod live;
+mod md;
 mod config;
 mod templates;
 
