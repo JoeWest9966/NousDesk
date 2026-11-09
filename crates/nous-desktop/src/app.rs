@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui_kit::component::input::{InputEvent, TextareaState};
+use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
@@ -93,6 +93,9 @@ pub struct Desktop {
     /// 输入区悬停提示两位：鼠标在不在输入区上 / 提示字在不在场（淡出那 250ms 里也得在场）。
     composer_hover: bool,
     composer_hint: bool,
+    /// 左栏的搜索框。**单行**的 `InputState`（输入区那个是多行 `TextareaState`）。
+    /// 空着 = 不过滤，列表跟没有搜索这回事一样。
+    search: Entity<InputState>,
     /// 左栏当前页：聊天 / 通讯录（模板）。
     pub(crate) tab: Tab,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
@@ -143,6 +146,8 @@ impl Desktop {
             // 不设 placeholder：空框就该是空白。悬停的提示字由 composer 的 hint 层
             // 负责（Enter 发送 · Shift+Enter 换行），别在这里再叠一行永远挂着的灰字。
         });
+        // 左栏的搜索框：单行，带搜索图标 + 一键清空。
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜索会话"));
         let subs = vec![
             cx.observe_window_activation(window, |this, window, _cx| {
                 // 在后台就别每 3 秒拉一次。
@@ -159,6 +164,14 @@ impl Desktop {
                             }
                         }
                         _ => {}
+                    }
+                }
+            }),
+            cx.subscribe_in(&search, window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    // 每敲一个字都要重排列表（纯本地过滤，不请求引擎）。
+                    if matches!(event, InputEvent::Change) {
+                        cx.notify();
                     }
                 }
             }),
@@ -189,6 +202,7 @@ impl Desktop {
             presets_bar: false,
             composer_hover: false,
             composer_hint: false,
+            search,
             tab: Tab::Chats,
             focused: true,
             stream_for: None,
@@ -927,6 +941,127 @@ impl Desktop {
         .detach();
     }
 
+    /// 当前搜索词（已 trim）。空 = 没在搜。
+    fn query(&self, cx: &Context<Self>) -> String {
+        self.search.read(cx).value().trim().to_string()
+    }
+
+    /// 列表顶上那个搜索框。常驻，不藏起来 —— 会话上百条之后「找得到」比「好看」重要。
+    ///
+    /// 高度交给组件（单行的 `.h()` 只管多行，设了也不生效 —— 试过了）。
+    fn render_search_box(&self) -> AnyElement {
+        Input::new(&self.search)
+            .small()
+            .cleanable(true)
+            .prefix(
+                Icon::new(IconName::Search)
+                    .text_color(rgb(0xaaaaaa))
+                    .size(px(14.)),
+            )
+            .into_any_element()
+    }
+
+    /// 搜索中的列表：**先过滤，再按组摆**。
+    ///
+    /// 顺序是固定的「置顶 → 今天 → 7 天内 → 更早」，跟 `pins.json` 和 `updated_at` 走；
+    /// 组内保持 `ordered` 里的先后（置顶组就是 `pins` 给的顺序）。
+    ///
+    /// 没搜到不画空列表：给一句「没有找到」比一片白好认，至少知道是搜不到而不是列表塌了。
+    fn search_rows(
+        &self,
+        ordered: &[&Session],
+        q: &str,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        use crate::search::{Group, group_of, hit};
+        let today = chrono::Local::now().date_naive();
+        let mut out: Vec<AnyElement> = Vec::new();
+        let mut total = 0usize;
+        for g in [Group::Pinned, Group::Today, Group::Week, Group::Older] {
+            let items: Vec<&Session> = ordered
+                .iter()
+                .copied()
+                .filter(|s| hit(s, q).is_some())
+                .filter(|s| group_of(s.updated_at, self.pins.contains(&s.id), today) == g)
+                .collect();
+            if items.is_empty() {
+                continue;
+            }
+            total += items.len();
+            out.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .px(px(10.))
+                    .pt(px(10.))
+                    .pb(px(4.))
+                    .text_size(px(11.))
+                    .text_color(rgb(0xaaaaaa))
+                    .when(g == Group::Pinned, |el| {
+                        el.child(
+                            Icon::new(IconName::Pin)
+                                .size(px(11.))
+                                .text_color(rgb(0x2e7d32)),
+                        )
+                    })
+                    .child(format!("{} · {}", g.label(), items.len()))
+                    .into_any_element(),
+            );
+            out.extend(items.iter().map(|s| self.session_row(s, q, cx)));
+        }
+        if total == 0 {
+            out.push(
+                div()
+                    .w_full()
+                    .py(px(28.))
+                    .text_size(px(12.))
+                    .text_color(rgb(0xaaaaaa))
+                    .text_center()
+                    .child("没有找到相关会话")
+                    .into_any_element(),
+            );
+        }
+        out
+    }
+
+    /// 一行「可能带高亮」的文本。
+    ///
+    /// `q` 空的时候就是一根普通的截断文本 —— 跟加搜索之前**一字不差**；
+    /// 在搜的时候拆成几段，命中的那段垫一层浅绿底。
+    ///
+    /// 为什么不用 `StyledText::with_runs`：`TextRun` 要求显式给 `Font`，而这里拿不到
+    /// 「当前继承的是哪个字体」。拆 div 横排就不用管字体，代价是超宽时直接裁掉、
+    /// 不补省略号。
+    fn hl_line(text: &str, q: &str, size: Option<f32>, color: Option<u32>) -> AnyElement {
+        if q.trim().is_empty() {
+            let mut el = div().truncate();
+            if let Some(s) = size {
+                el = el.text_size(px(s));
+            }
+            if let Some(c) = color {
+                el = el.text_color(rgb(c));
+            }
+            return el.child(text.to_string()).into_any_element();
+        }
+        let mut row = div().flex().min_w(px(0.)).overflow_hidden();
+        for (part, hot) in crate::search::runs(text, q) {
+            let mut seg = div().flex_none().whitespace_nowrap();
+            if let Some(s) = size {
+                seg = seg.text_size(px(s));
+            }
+            if let Some(c) = color {
+                seg = seg.text_color(rgb(c));
+            }
+            if hot {
+                // 高亮的底色 / 字色跟 demo 一致（淡绿底 + 深绿字）。
+                seg = seg.bg(rgb(0xc8f0d8)).text_color(rgb(0x0a7a3f));
+            }
+            row = row.child(seg.child(part));
+        }
+        row.into_any_element()
+    }
+
     fn render_session_list(&self, cx: &mut Context<Self>) -> AnyElement {
         // 分支视图是左列的另一种内容：同一块地方，换一份名单。
         if self.branches {
@@ -944,11 +1079,20 @@ impl Desktop {
             .filter(|s| s.parent.is_none())
             .collect();
         let in_order: Vec<i64> = mainline.iter().map(|s| s.id).collect();
-        let rows: Vec<AnyElement> = order_ids(&in_order, &self.pins)
+        let ordered: Vec<&Session> = order_ids(&in_order, &self.pins)
             .into_iter()
-            .filter_map(|id| mainline.iter().find(|s| s.id == id))
-            .map(|s| self.session_row(s, cx).into_any_element())
+            .filter_map(|id| mainline.iter().find(|s| s.id == id).copied())
             .collect();
+        let q = self.query(cx);
+        let rows: Vec<AnyElement> = if q.is_empty() {
+            // 没在搜：老样子。**一行都不动** —— 搜索不能把常态列表的顺序改了。
+            ordered
+                .iter()
+                .map(|s| self.session_row(s, &q, cx))
+                .collect()
+        } else {
+            self.search_rows(&ordered, &q, cx)
+        };
         div()
             .flex()
             .flex_col()
@@ -979,6 +1123,8 @@ impl Desktop {
                     ),
             )
             .child(div().px(px(12.)).child(self.status_line(cx)))
+            // 搜索框：常驻在列表顶上（方案 6）。空着就是一行灰字，不占额外的排。
+            .child(div().px(px(12.)).pb(px(8.)).child(self.render_search_box()))
             .child(
                 div()
                     .id("session-scroll-area")
@@ -1268,7 +1414,7 @@ impl Desktop {
         ))
     }
 
-    fn session_row(&self, s: &Session, cx: &mut Context<Self>) -> AnyElement {
+    fn session_row(&self, s: &Session, q: &str, cx: &mut Context<Self>) -> AnyElement {
         // 预览是最后一条 entry 的原文，带换行/连续空白是常态（工具输出整段）。
         // 摊平成一行，配合 `.truncate()` 才是微信那种单行摘要。
         let preview = s
@@ -1316,9 +1462,23 @@ impl Desktop {
                         div()
                             .flex_1()
                             .min_w(px(0.))
-                            .truncate()
-                            .child(s.name.clone()),
+                            .child(Self::hl_line(&s.name, q, None, None)),
                     )
+                    // 搜的时候多一个小标签：这一条是名字命中的还是内容命中的。
+                    // 不搜的时候不占地方（`when` 整块不渲染）。
+                    .when(!q.is_empty(), |el| {
+                        el.children(crate::search::hit(s, q).map(|w| {
+                            div()
+                                .flex_none()
+                                .px(px(3.))
+                                .rounded(px(3.))
+                                .border(px(1.))
+                                .border_color(rgb(0xeeeeee))
+                                .text_size(px(10.))
+                                .text_color(rgb(0xaaaaaa))
+                                .child(w.label())
+                        }))
+                    })
                     // 别用 `⑂`：雅黑里没这个字形，会退化成别的样子。
                     .when(self.descendant_count(id) > 0, |el| {
                         el.child(
@@ -1374,10 +1534,7 @@ impl Desktop {
                         div()
                             .flex_1()
                             .min_w(px(0.))
-                            .truncate()
-                            .text_size(px(12.))
-                            .text_color(rgb(MUTED))
-                            .child(preview)
+                            .child(Self::hl_line(&preview, q, Some(12.), Some(MUTED)))
                             .into_any_element()
                     })
                     .children(self.unread_badge(id)),

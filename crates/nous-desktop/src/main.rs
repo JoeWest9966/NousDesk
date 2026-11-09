@@ -12,6 +12,7 @@ mod branches;
 mod composer;
 mod live;
 mod md;
+mod search;
 mod config;
 mod templates;
 
