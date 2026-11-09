@@ -9,6 +9,7 @@ mod app;
 mod composer;
 mod live;
 mod config;
+mod templates;
 
 use std::io::Write as _;
 use std::sync::OnceLock;

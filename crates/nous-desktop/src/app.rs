@@ -6,6 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::component::input::{InputEvent, TextareaState};
+use gpui_kit::component::{Icon, Sizable as _, Size};
+// 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
+use gpui_kit::assets::IconName;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use smol::Timer;
@@ -18,24 +21,31 @@ use crate::live::Live;
 
 // 微信桌面版的几个固定色。
 const SIDEBAR_DARK: u32 = 0x2e2e2e;
-const LIST_BG: u32 = 0xf7f7f7;
+pub(crate) const LIST_BG: u32 = 0xf7f7f7;
 const CHAT_BG: u32 = 0xededed;
 const BUBBLE_ME: u32 = 0x95ec69;
 const BUBBLE_OTHER: u32 = 0xffffff;
 const MUTED: u32 = 0x999999;
+/// 微信的绿：左栏选中图标就是这个颜色。
+const WECHAT_GREEN: u32 = 0x07c160;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tab {
+    Chats,
+    Templates,
+}
 
 pub struct Desktop {
-    engine: Option<Arc<EngineClient>>,
-    sessions: Vec<Session>,
-    selected: Option<i64>,
+    pub(crate) engine: Option<Arc<EngineClient>>,
+    pub(crate) sessions: Vec<Session>,
+    pub(crate) selected: Option<i64>,
     entries: Vec<Entry>,
     entries_loading: bool,
     entries_error: Option<String>,
-    /// **连引擎失败**（启动/解析地址）。只给左栏的状态行用，带「改哪个配置文件」的提示。
     error: Option<String>,
-    /// **这一轮生成失败**（模型 400、任务挂了、没答上来）。渲染在聊天区底部，
-    /// 带「重试」。跟上面那个不能共用一条通道 —— 模型订阅过期那种事被说成
-    /// 「连不上 + 配置文件在哪」会把用户带到沟里去（真踩过）。
+    /// **这一轮生成失败**（模型 400、task_failed、没答上来）：画在聊天区底部，
+    /// 带「重试」。跟 `error`（连引擎失败、带「改哪个配置文件」提示）不是一条通道 ——
+    /// 把「模型订阅过期」说成「连不上 + 去改配置」会把用户带到沟里（真踩过）。
     turn_error: Option<String>,
     loading: bool,
     input: Entity<TextareaState>,
@@ -45,11 +55,22 @@ pub struct Desktop {
     live_state: Live,
     /// 有没有一条流正在跑，防止重复点火。
     streaming: bool,
-    /// 这一轮是**用户自己按的停止**。停止会让 SSE 连接断开，那不是错误 ——
-    /// 不能把「HTTP 流断了」当生成失败弹红条（真踩过：用户停了看到「重试/收起」）。
-    user_stopped: bool,
     /// 聊天区的滚动位置：新消息进来要跟着到底。
     scroll: ScrollHandle,
+    /// 左栏当前页：聊天 / 通讯录（模板）。
+    pub(crate) tab: Tab,
+    /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
+    focused: bool,
+    /// 当前常连着 SSE 的会话。`None` = 没连。切会话就换一个，不叠加。
+    stream_for: Option<i64>,
+    /// 这一轮是**用户自己按的停止**。abort 会让流断开，那不是错误，别弹红条。
+    user_stopped: bool,
+    /// 模板页数据（`GET /v1/presets/Session-Template`）。
+    pub(crate) presets: Option<nous_engine::types::Presets>,
+    pub(crate) presets_error: Option<String>,
+    pub(crate) presets_loading: bool,
+    /// 正在从模板开的那条（防连点 + 状态提示）。
+    pub(crate) creating: Option<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -60,15 +81,19 @@ impl Desktop {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
                 // 回车=发送，不在这里插换行。少了这句，多行框里的回车会**先插一个换行**
-                // 再发出去：文本被清空时看不出来，但 send() 提前返回（比如正在生成）时
-                // 就留下一个空行。Shift+回车仍然换行（由 submit_on_enter 的 shift 分支决定）。
+                // 再发出去：文本被清空时看不出来，但 send() 提前返回时会留一个空行。
                 .submit_on_enter(true)
                 .placeholder("输入消息，回车发送 · Shift+回车换行")
         });
-        let subs = vec![cx.subscribe_in(&input, window, {
+        let subs = vec![
+            cx.observe_window_activation(window, |this, window, _cx| {
+                // 在后台就别每 3 秒拉一次。
+                this.focused = window.is_window_active();
+            }),
+            cx.subscribe_in(&input, window, {
             move |this, _, event: &InputEvent, window, cx| {
                 match event {
-                    // 输入框内容变了要重画一次，否则「发送」按钮永远是灰的。
+                    // 内容变了要重画，否则「发送」按钮永远是灰的。
                     InputEvent::Change => cx.notify(),
                     InputEvent::PressEnter { shift, .. } => {
                         if !*shift {
@@ -94,8 +119,15 @@ impl Desktop {
             live: None,
             live_state: Live::new(),
             streaming: false,
-            user_stopped: false,
             scroll: ScrollHandle::new(),
+            tab: Tab::Chats,
+            focused: true,
+            stream_for: None,
+            user_stopped: false,
+            presets: None,
+            presets_error: None,
+            presets_loading: false,
+            creating: None,
             _subs: subs,
         };
         this.bootstrap(cx);
@@ -120,6 +152,8 @@ impl Desktop {
                     Ok((engine, sessions)) => {
                         this.engine = Some(engine);
                         this.sessions = sessions;
+                        // 列表是别人的地盘：定时重读，否则只在启动那一秒新鲜。
+                        this.start_poll(cx);
                     }
                     Err(e) => this.error = Some(e),
                 }
@@ -129,7 +163,64 @@ impl Desktop {
         .detach();
     }
 
-    fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
+    /// 定时重读 `/v1/sessions`。聚焦才拉、流式中不拉。
+    ///
+    /// 内容没变就不 `cx.notify()` —— 每 3 秒重绘一次窗口是白烧 CPU。
+    fn start_poll(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                Timer::after(Duration::from_secs(3)).await;
+                let go = this
+                    .update(cx, |this, _| this.focused && !this.streaming && this.engine.is_some())
+                    .unwrap_or(false);
+                if !go {
+                    continue;
+                }
+                let (engine, selected) = match this
+                    .update(cx, |this, _| (this.engine.clone(), this.selected))
+                {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let Some(engine) = engine else { continue };
+                let Some(h) = crate::TOKIO.get().cloned() else { break };
+                let Ok(Ok(list)) = h.spawn(async move { engine.sessions().await }).await else {
+                    // 断一下就等下一轮，不打断 UI。
+                    continue;
+                };
+
+                let mut next = list.items;
+                sort_sessions(&mut next);
+                let _ = this.update(cx, |this, cx| {
+                    // 选中的那条被别人写了：重拉它的历史。
+                    let stale_entries = selected.is_some_and(|id| {
+                        let before = this.sessions.iter().find(|s| s.id == id).map(sig_of);
+                        let after = next.iter().find(|s| s.id == id).map(sig_of);
+                        before != after
+                    });
+                    if this.sessions.iter().map(sig_of).ne(next.iter().map(sig_of)) {
+                        this.sessions = next;
+                        // 日志里能对上：「列表怎么不动了」先看这行还在不在跳；
+                        // 「怎么没跳到最上面」就看置顶那条和水位。
+                        log::info!(
+                            "列表刷新：{} 行，置顶「{}」（last.id={:?}, busy={:?}）",
+                            this.sessions.len(),
+                            this.sessions.first().map(|s| s.name.as_str()).unwrap_or("-"),
+                            this.sessions.first().and_then(|s| sig_of(s).2),
+                            this.sessions.first().map(|s| s.busy.as_ref().map(|b| b.to_string())).unwrap_or(None),
+                        );
+                        cx.notify();
+                    }
+                    if stale_entries && let Some(id) = selected {
+                        this.select_session(id, true, cx);
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
         if self.selected == Some(id) && !force {
             return;
         }
@@ -138,6 +229,9 @@ impl Desktop {
         self.entries_error = None;
         self.turn_error = None;
         self.entries_loading = true;
+        self.streaming = false;
+        // 选中就常连：别的写出方（另一个终端、面板页）进这一条，这边会自己长出来。
+        self.start_stream(cx);
         cx.notify();
 
         let engine = self.engine.clone();
@@ -168,81 +262,12 @@ impl Desktop {
     }
 
 
-    /// 「停止」：`POST /v1/sessions/:id/abort`，把当前这一轮生成掐掉。
-    ///
-    /// 三个要点：
-    /// 1. **先改 UI 再发请求**：按钮立刻变回「发送」，不等网络。用户点了就该有反应。
-    /// 2. 只掐自己盯着的那一条会话；SSE 的收尾交给引擎（它会关流）。
-    /// 3. 掐完以**引擎历史为准**重拉一次：引擎那边已经落下的半截回答要显示出来，
-    ///    不能只把本地那口气泡删掉了事 —— 那样用户会以为刚才那段没发生过。
-    ///
-    /// 失败（网络/引擎 404）只记日志：停止本身是「少做事」，失败了也不该弹红字吓人。
-    fn stop_generation(&mut self, cx: &mut Context<Self>) {
-        let Some(id) = self.selected else { return };
-        let Some(engine) = self.engine.clone() else { return };
-        if !self.streaming {
-            return;
-        }
-
-        // 1. 先让界面停下：`start_stream` 里那个 16ms 循环看的就是这个标志。
-        self.streaming = false;
-        self.user_stopped = true;
-        cx.notify();
-
-        cx.spawn(async move |this, cx| {
-            let Some(handle) = crate::TOKIO.get().cloned() else {
-                return;
-            };
-            match handle.spawn(async move { engine.abort(id).await }).await {
-                Ok(Ok(resp)) => log::info!("停止成功：{resp}"),
-                Ok(Err(e)) => log::warn!("停止失败（不打扰用户）：{e}"),
-                Err(e) => log::warn!("停止任务没跑完：{e}"),
-            }
-            // 3. 停止之后历史以引擎为准。
-            let _ = this.update(cx, |this, cx| {
-                this.live = None;
-                this.select_session(id, true, cx);
-            });
-        })
-        .detach();
-    }
-
-    /// 「重试」：把最后一条用户消息原样再发一遍（新的 `requestId`，所以引擎不会当成重发）。
-    ///
-    /// 没找到用户消息（比如历史里只有系统条目）就只把错误条收起来，别让按钮点了没反应。
-    fn retry_last(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self
-            .entries
-            .iter()
-            .rev()
-            .find(|e| e.kind == "pi.user")
-            .and_then(|e| e.text.clone());
-        match text {
-            Some(text) if !text.trim().is_empty() => {
-                self.input
-                    .update(cx, |input, cx| input.set_value(text, window, cx));
-                // **发出去了才收红条**。以前先无条件清掉，一旦 send() 被
-                // 「正在生成」拦下，红条就凭空消失、用户以为重试成功了（真踩过）。
-                if self.send(window, cx) {
-                    self.turn_error = None;
-                } else {
-                    log::warn!("重试没发出去（可能还在生成中）");
-                }
-                cx.notify();
-            }
-            _ => {
-                self.turn_error = None;
-                cx.notify();
-            }
-        }
-    }
-
     /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
-    /// 返回「这一句到底有没有发出去」。`retry_last` 要靠它决定红条留不留。
+    ///
+    /// 返回「这一句到底有没有发出去」：`retry_last` 靠它决定红条留不留。
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         // 生成中**不发**：回车这时只想接着写，不该把半句话塞进队列。
-        // 界面上 composer 会显示「正在生成，回车暂不发送」，所以不是「按了没反应」。
-        // 引擎的 `whenBusy` 值域还没确认，先不传 —— 等确认了只需要在这一个入口加分支。
+        // 引擎的 `whenBusy` 值域还没确认，先不传 —— 确认了只需要在这一个入口加分支。
         if self.streaming {
             log::info!("正在生成，这一句不发（回车被拦下）");
             return false;
@@ -278,10 +303,11 @@ impl Desktop {
             extra: Default::default(),
         });
         self.live = Some(String::new());
+        // **不换 Live**：常连的合帧循环靠 `Arc::ptr_eq` 认身份，换掉会让循环退场。
+        self.live_state.reset_round();
+        self.streaming = true;
         self.turn_error = None;
         self.user_stopped = false;
-        self.live_state = Live::new();
-        self.streaming = true;
         cx.notify();
 
         let live = self.live_state.clone();
@@ -305,54 +331,84 @@ impl Desktop {
         true
     }
 
-    /// 连 SSE。tokio 任务只往 `live_state` 里塞，UI 侧 16ms 取一次。
+    /// 连 SSE。**选中就一直连着**，断了 1s 重连；切会话才换。
+    ///
+    /// 两半：tokio 任务只往 `live_state` 里塞，UI 侧 16ms 取一次。
     fn start_stream(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.selected else { return };
         let Some(engine) = self.engine.clone() else { return };
+        if self.stream_for == Some(id) {
+            return;
+        }
+        self.stream_for = Some(id);
+        self.live = None;
+        self.live_state = Live::new();
         let live = self.live_state.clone();
 
+        // 读流：断了就重连，直到这个会话不再被选中。
         cx.spawn(async move |this, cx| {
-            let handle = crate::TOKIO.get().cloned();
-            let Some(h) = handle else { return };
-            h.spawn(async move {
-                match engine.events(id).await {
-                    Ok(mut stream) => {
+            loop {
+                let still = this
+                    .update(cx, |this, _| this.stream_for == Some(id))
+                    .unwrap_or(false);
+                if !still {
+                    break;
+                }
+                let Some(h) = crate::TOKIO.get().cloned() else { break };
+                let engine = engine.clone();
+                let live = live.clone();
+                let _ = h
+                    .spawn(async move {
                         use futures_util::StreamExt as _;
-                        while let Some(item) = stream.next().await {
-                            match item {
-                                Ok(event) => live.ingest(&event),
-                                Err(e) => {
-                                    live.fail(e.to_string());
-                                    break;
+                        match engine.events(id).await {
+                            Ok(mut stream) => {
+                                log::info!("SSE 连上：会话 {id}");
+                                while let Some(item) = stream.next().await {
+                                    match item {
+                                        Ok(event) => live.ingest(&event),
+                                        Err(e) => {
+                                            log::warn!("SSE 中断：{id}：{e}");
+                                            live.fail(e.to_string());
+                                            break;
+                                        }
+                                    }
                                 }
+                                log::info!("SSE 结束：会话 {id}");
+                            }
+                            Err(e) => {
+                                log::warn!("SSE 连不上：{id}：{e}");
+                                live.fail(e.to_string())
                             }
                         }
-                    }
-                    Err(e) => live.fail(e.to_string()),
-                }
-            })
-            .await
-            .ok();
-            let _ = this.update(cx, |_this, cx| cx.notify());
+                    })
+                    .await;
+                // 断线不刷屏：等一秒重连（已切走就在下一圈退出）。
+                Timer::after(Duration::from_millis(1000)).await;
+            }
         })
         .detach();
 
-        // UI 侧 16ms 一帧：把攒下的字写进气泡。一个 token 一次 notify 就是在这里被挡住的。
+        // UI 侧 16ms 一帧：把攒下的字写进气泡。
         let live = self.live_state.clone();
         cx.spawn(async move |this, cx| {
-            // 看门狗：这一轮最后一条「有新东西」的时刻。
-            let mut last_change = std::time::Instant::now();
-            // 收到过「此刻没在生成」的快照。上游报错时失败事件可能早于我们订阅，
-            // 之后这条流只剩一个空 snapshot —— 不设上限就会永远停在「停止」。
-            let mut idle_snapshot = false;
-            loop {
-            Timer::after(std::time::Duration::from_millis(16)).await;
+        // 看门狗：这一轮最后一条「有新东西」的时刻。
+        let mut last_change = std::time::Instant::now();
+        // 收到过「此刻没在生成」的快照。上游报错时失败事件可能早于我们订阅，
+        // 之后这条流只剩一个空 snapshot —— 不设上限就会永远停在「停止」。
+        let mut idle_snapshot = false;
+        loop {
+            Timer::after(Duration::from_millis(16)).await;
+            let alive = this
+                .update(cx, |this, _| this.stream_for == Some(id))
+                .unwrap_or(false);
+            if !alive {
+                break;
+            }
             let drained = live.drain();
-            let mut reload = None;
-            let stop = this
+            let mut reload = false;
+            let cont = this
                 .update(cx, |this, cx| {
-                    // 上一轮遗留的循环：send() 已经换了新的 Live，这个循环必须退场，
-                    // 否则它按自己的看门狗去改新一轮的 streaming（界面会卡在「停止」）。
+                    // 换过会话的旧循环：立刻退场，别去改新会话的状态。
                     if !this.live_state.same_round(&live) {
                         log::info!("旧的合帧循环退场");
                         return false;
@@ -361,9 +417,9 @@ impl Desktop {
                         // 没有新事件：把「永远等下去」变成一句能重试的话。
                         if this.streaming {
                             let limit = if idle_snapshot {
-                                std::time::Duration::from_secs(8)
+                                Duration::from_secs(8)
                             } else {
-                                std::time::Duration::from_secs(30)
+                                Duration::from_secs(30)
                             };
                             if last_change.elapsed() > limit {
                                 this.live = None;
@@ -378,10 +434,9 @@ impl Desktop {
                                     this.turn_error = Some(format!("{why}，可以重试"));
                                 }
                                 cx.notify();
-                                return false;
                             }
                         }
-                        return this.streaming;
+                        return true;
                     };
                     last_change = std::time::Instant::now();
                     if drained.idle_snapshot && drained.text.is_empty() && !drained.done {
@@ -391,51 +446,106 @@ impl Desktop {
                         this.live = None;
                         this.streaming = false;
                         if this.user_stopped {
-                            // 用户按了停止：连接被掐断是**预期**，别弹红条。
+                            // 用户按了停止：流被掐断是**预期**，别弹红条。
                             log::info!("停止后流断开，按预期忽略：{err}");
                         } else {
-                            // 全文进日志（红条只截前 90 字，够看出是哪类错）。
                             log::warn!("生成失败：{err}");
                             this.turn_error = Some(err);
                         }
                         cx.notify();
-                        return false;
+                        return true;
                     }
                     this.live = Some(drained.text);
-                    // 新内容进来 / 收尾，都跟着滚到底。
                     this.scroll.scroll_to_bottom();
                     if drained.done {
-                        // 收尾：把那口气泡交出去，历史以引擎为准重拉一遍。
+                        // 一轮结束：交出去，历史以引擎为准重拉一遍。流不关，继续等下一轮。
                         this.streaming = false;
-                        if let Some(id) = this.selected {
-                            reload = Some(id);
-                        }
-                        cx.notify();
-                        return false;
+                        idle_snapshot = false;
+                        reload = true;
                     }
                     cx.notify();
                     true
                 })
                 .unwrap_or(false);
-            if !stop {
-                if let Some(id) = reload {
-                    // 流结束之后 live 就该消失，历史里已经有这条了。
-                    let _ = this.update(cx, |this, cx| {
-                        this.live = None;
-                        this.select_session(id, true, cx);
-                    });
-                }
+            if !cont {
                 break;
             }
+            if reload {
+                let _ = this.update(cx, |this, cx| {
+                    this.live = None;
+                    this.select_session(id, true, cx);
+                });
             }
+        }
         })
         .detach();
     }
 
+    /// 「停止」：`POST /v1/sessions/:id/abort`，把当前这一轮掐掉。
+    ///
+    /// 先改 UI 再发请求（按钮立刻变回「发送」，不等网络）；掐完以**引擎历史为准**
+    /// 重拉一次 —— 引擎已经落下的半截回答要显示出来。失败只记日志：停止是「少做事」，
+    /// 网络抖一下没必要吓用户。
+    fn stop_generation(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.selected else { return };
+        let Some(engine) = self.engine.clone() else { return };
+        if !self.streaming {
+            return;
+        }
+        self.streaming = false;
+        self.user_stopped = true;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            match handle.spawn(async move { engine.abort(id).await }).await {
+                Ok(Ok(resp)) => log::info!("停止成功：{resp}"),
+                Ok(Err(e)) => log::warn!("停止失败（不打扰用户）：{e}"),
+                Err(e) => log::warn!("停止任务没跑完：{e}"),
+            }
+            let _ = this.update(cx, |this, cx| {
+                this.live = None;
+                this.select_session(id, true, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// 「重试」：把最后一条用户消息原样再发一遍（新的 `requestId`）。
+    fn retry_last(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self
+            .entries
+            .iter()
+            .rev()
+            .find(|e| e.kind == "pi.user")
+            .and_then(|e| e.text.clone());
+        match text {
+            Some(text) if !text.trim().is_empty() => {
+                self.input
+                    .update(cx, |input, cx| input.set_value(text, window, cx));
+                // **发出去了才收红条**：send() 可能被「正在生成」拦下，先清掉会让用户
+                // 以为重试成功了（真踩过）。
+                if self.send(window, cx) {
+                    self.turn_error = None;
+                } else {
+                    log::warn!("重试没发出去（可能还在生成中）");
+                }
+                cx.notify();
+            }
+            _ => {
+                self.turn_error = None;
+                cx.notify();
+            }
+        }
+    }
+
+
     // ── 三个栏 ──────────────────────────────────────────────
 
-    fn render_icon_bar(&self, _cx: &mut Context<Self>) -> impl IntoElement {
-        // 微信桌面版最左的深色窄条。图标还没画，先放占位。
+    fn render_icon_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        // 微信桌面版最左的深色窄条：聊天 / 通讯录两个入口。
         div()
             .flex()
             .flex_col()
@@ -443,8 +553,39 @@ impl Desktop {
             .h_full()
             .bg(rgb(SIDEBAR_DARK))
             .items_center()
-            .py(px(8.))
-            .child(div().size(px(32.)).rounded(px(4.)).bg(rgb(0x444444)))
+            .py(px(10.))
+            .gap(px(6.))
+            .child(self.tab_button(IconName::MessageCircle, Tab::Chats, cx))
+            .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
+    }
+
+    fn tab_button(
+        &self,
+        name: IconName,
+        tab: Tab,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = self.tab == tab;
+        let id = match tab {
+            Tab::Chats => "tab-chats",
+            Tab::Templates => "tab-templates",
+        };
+        div()
+            .id(ElementId::Name(id.into()))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.switch_tab(tab, cx);
+            }))
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(40.))
+            .rounded(px(8.))
+            .hover(|el| el.bg(rgb(0x3a3a3a)))
+            .child(
+                Icon::new(name)
+                    .with_size(Size::Size(px(22.)))
+                    .text_color(rgb(if active { WECHAT_GREEN } else { 0x9a9a9a })),
+            )
     }
 
     fn render_session_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -566,8 +707,8 @@ impl Desktop {
             )
             // 这一轮的失败就地显示：红条 + 重试 + 收起。不占左栏那条「连不上引擎」的通道。
             //
-            // 两颗按钮**左锚**、文字在右：GPUI 里长文字（不换行）会按内容宽度算，
-            // 谁在它右边谁就被顶出屏幕 —— 先试的右端按钮版整颗消失了，别改回去。
+            // 按钮**左锚**、文字放最后：GPUI 里长文字（不换行）按内容宽度算，
+            // 谁在它右边谁就被顶出屏幕（试过，右端按钮整颗消失）。
             .when_some(self.turn_error.clone(), |el, message| {
                 el.child(
                     div()
@@ -683,6 +824,8 @@ impl Desktop {
             .and_then(|l| l.text.clone())
             .unwrap_or_default();
         let selected = self.selected == Some(s.id);
+        // `busy` 是 `"queued" | "running" | <task kind> | null`，不是布尔（`wire.md`）。
+        let busy = s.busy.is_some();
         let id = s.id;
 
         div()
@@ -694,7 +837,24 @@ impl Desktop {
             .border_color(rgb(0xe0e0e0))
             .when(selected, |el| el.bg(rgb(0xd9d9d9)))
             .child(div().child(s.name.clone()))
-            .when(!preview.is_empty(), |el| {
+            // 忙闲：预览行换成微信那句「正在输入…」+ 一个小圆点。
+            // 比一个「忙」字可读，也不用新图标。
+            .when(busy, |el| {
+                el.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .child(div().size(px(6.)).rounded(px(3.)).bg(rgb(WECHAT_GREEN)))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(rgb(WECHAT_GREEN))
+                                .child("正在输入…"),
+                        ),
+                )
+            })
+            .when(!busy && !preview.is_empty(), |el| {
                 el.child(
                     div()
                         .text_size(px(12.))
@@ -777,10 +937,35 @@ async fn load_engine() -> Result<(Arc<EngineClient>, Vec<Session>), String> {
         .await
         .map_err(|e| e.to_string())?
         .items;
-    // 引擎按 id 升序给，聊天应用要新的在上。
     let mut sessions = sessions;
-    sessions.sort_by(|a, b| b.id.cmp(&a.id));
+    sort_sessions(&mut sessions);
     Ok((Arc::new(engine), sessions))
+}
+
+/// 会话排序：按 `last.id` 倒序 = 最后说话的那条在最上面。
+///
+/// `EntryId` 是全局单调的（durable 的 `conversation-tails` 就靠这条），实测也成立：
+/// session 465 → last.id 483、session 14 → 458、session 2 → 411。所以排序**不需要时间**。
+///
+/// 一条 entry 都没有的新会话没有 `last`，退化成按会话 id 排（两个序列都随时间增），
+/// 保证刚建的那条落在最上面。
+fn sort_sessions(sessions: &mut [Session]) {
+    sessions.sort_by(|a, b| {
+        let ka = a.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(a.id);
+        let kb = b.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(b.id);
+        kb.cmp(&ka).then_with(|| b.id.cmp(&a.id))
+    });
+}
+
+/// 一行的「长相」。轮询时只比这个，不变就不 `cx.notify()`。
+fn sig_of(s: &Session) -> (i64, String, Option<i64>, Option<String>, bool) {
+    (
+        s.id,
+        s.name.clone(),
+        s.last.as_ref().and_then(|l| l.id.as_i64()),
+        s.last.as_ref().and_then(|l| l.text.clone()),
+        s.busy.is_some(),
+    )
 }
 
 impl Render for Desktop {
@@ -791,7 +976,10 @@ impl Render for Desktop {
             .size_full()
             .bg(rgb(CHAT_BG))
             .child(self.render_icon_bar(cx))
-            .child(self.render_session_list(cx))
+            .child(match self.tab {
+                Tab::Chats => self.render_session_list(cx).into_any_element(),
+                Tab::Templates => self.render_templates(cx),
+            })
             .child(self.render_chat(cx))
     }
 }

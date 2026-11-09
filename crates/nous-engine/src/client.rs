@@ -10,7 +10,8 @@ use url::Url;
 
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
-    CreateSession, CreatedSession, Device, Entries, Presets, Sessions, Submission,
+    CreateSession, CreatedSession, Device, Entries, Forked, Presets, ReadReceipt, Sessions,
+    Submission, Unread,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -94,6 +95,47 @@ impl EngineClient {
         let resp = self
             .http
             .get(self.url(&format!("v1/sessions/{id}/entries"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 每条会话的未读数，平铺的 map。跟 [`Self::sessions`] 一起拉，别一会拉一个。
+    pub async fn unread(&self) -> Result<Unread, EngineError> {
+        let resp = self.http.get(self.url("v1/unread")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 把这条会话标成读到最新。水位只进不退，引擎那边钉住了。
+    ///
+    /// 别自己推水位、也别只把「已读」写本地了事 —— 重装客户端不该丢未读。
+    pub async fn mark_read(&self, id: i64) -> Result<ReadReceipt, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/read/{id}"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 从这条会话分叉一条新的。`entry_id` 为 `None` = 从最后一条分叉。
+    pub async fn fork(
+        &self,
+        id: i64,
+        entry_id: Option<i64>,
+        name: Option<&str>,
+    ) -> Result<Forked, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            entry_id: Option<i64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            name: Option<&'a str>,
+        }
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/sessions/{id}/fork"))?)
+            .json(&Body { entry_id, name })
             .send()
             .await?;
         self.json(resp).await

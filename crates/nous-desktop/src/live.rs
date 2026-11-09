@@ -48,6 +48,20 @@ impl Live {
         Self::default()
     }
 
+    /// 开始新一轮：清掉上一轮的残留，**不换 Arc**。
+    ///
+    /// 常连 SSE 的合帧循环靠 `Arc::ptr_eq` 认身份；`send()` 里如果直接
+    /// `Live::new()`，循环会以为「换轮了」当场退场，新的一轮就再也没人合帧。
+    pub fn reset_round(&self) {
+        let mut state = self.0.lock().unwrap();
+        state.blocks.clear();
+        state.dirty = false;
+        state.done = false;
+        state.error = None;
+        state.idle_snapshot = false;
+        state.tools.clear();
+    }
+
     /// 这两份 `Live` 是不是**同一轮**（每次 `send()` 都会换一个新的）。
     ///
     /// 用来让上一轮遗留的 16ms 循环自己退场。踩过：旧循环还活着，它按自己的看门狗
@@ -60,9 +74,36 @@ impl Live {
     pub fn ingest(&self, event: &SseEvent) {
         let mut state = self.0.lock().unwrap();
         match event {
+            SseEvent::Snapshot { generation } => {
+                // 常连：刚连上（或重连）时引擎先推一帧 snapshot。有正在生成的消息就续上，
+                // 没有就只当「连上了」。**别把它当错误，也别清空已有内容。**
+                if let Some(text) = generation
+                    .as_ref()
+                    .and_then(|g| g.message.clone())
+                    .and_then(|m| message_text(&Some(m)))
+                    && !text.is_empty()
+                {
+                    state.blocks.clear();
+                    state.blocks.insert(0, text);
+                    state.done = false;
+                    state.error = None;
+                    state.dirty = true;
+                }
+                // 快照里**没有**正在生成的消息 = 此刻是空的（这一轮结束过、或者还没轮到它）。
+                // UI 靠这个决定「再等 8 秒就判这一轮没起来」，不然会永远停在「停止」。
+                state.idle_snapshot = generation
+                    .as_ref()
+                    .and_then(|g| g.message.as_ref())
+                    .is_none();
+                state.dirty = true;
+            }
             SseEvent::MessageStart { message } => {
                 if message.as_ref().and_then(|m| m.role.as_deref()) == Some("assistant") {
                     state.blocks.clear();
+                    // 常连的流可能已经结束过一轮：`done` 不复位，下一轮的第一帧就会被
+                    // 当成「结束了」，气泡当场被清掉。
+                    state.done = false;
+                    state.error = None;
                     state.dirty = true;
                 }
             }
@@ -169,16 +210,6 @@ impl Live {
             SseEvent::TaskFailed { message } => {
                 state.error = Some(message.clone().unwrap_or_else(|| "任务挂了".into()));
                 state.done = true;
-                state.dirty = true;
-            }
-            // 连上先收到一份「现在是什么样」：有 generation 说明正在生成；
-            // 没有就说明此刻是空的（可能这一轮已经结束，也可能还没轮到它）。
-            SseEvent::Snapshot { generation } => {
-                let generating = generation
-                    .as_ref()
-                    .and_then(|g| g.message.as_ref())
-                    .is_some();
-                state.idle_snapshot = !generating;
                 state.dirty = true;
             }
             _ => {}
