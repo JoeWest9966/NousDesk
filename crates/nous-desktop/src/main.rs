@@ -105,7 +105,13 @@ fn main() {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
             titlebar: Some(TitlebarOptions {
-                title: Some("Nous".into()),
+                // 开发版和「装好的那份」窗口标题一样，任务栏里根本分不出来
+                // （这台机器上还同时开着别人工作区的构建）。debug 构建带上标记。
+                title: Some(if cfg!(debug_assertions) {
+                    "Nous（开发版）".into()
+                } else {
+                    "Nous".into()
+                }),
                 ..Default::default()
             }),
             ..Default::default()
