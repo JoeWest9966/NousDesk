@@ -722,7 +722,7 @@ impl Desktop {
         let board_w = m.w - 2. * f32::from(m.v(1.6));
         let board_h = m.h - f32::from(m.v(7.2));
         let w = (0.32 * board_w).clamp(250., 620.);
-        let h = (0.28 * board_h).clamp(170., 340.);
+        let h = (0.28 * board_h).clamp(200., 340.);
         let muted = rgb(art::MUTED);
 
         let machine_label = b.machine.clone().unwrap_or_else(|| "本机".into());
@@ -739,7 +739,6 @@ impl Desktop {
             move |_bounds, _, _| (w, h),
             move |bounds, (w, h), window, _| {
                 let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
-                let center = point(px(w / 2.), px(h / 2.));
                 let rx = (w / 2. - 0.5).max(1.);
                 let ry = (h / 2. - 0.5).max(1.);
                 let mut pts = Vec::with_capacity(96);
@@ -750,19 +749,25 @@ impl Desktop {
                         px(oy + h / 2. + ry * t.sin()),
                     ));
                 }
-                let _ = center;
-                let mut fill = PathBuilder::fill();
-                fill.add_polygon(&pts, true);
-                if let Ok(path) = fill.build() {
+                // 先铺不透明的 panel 底（参考 `.hub { background: var(--panel) }`），
+                // 再叠 18% 的青（参考 `.hub::before { background: var(--s5); opacity: .18 }`）。
+                // 少了这层底，象限色和 cliff 会从椭圆里透出来 —— 中心就发脏了。
+                let mut base = PathBuilder::fill();
+                base.add_polygon(&pts, true);
+                if let Ok(path) = base.build() {
+                    window.paint_path(path, rgb(art::PANEL));
+                }
+                let mut tint = PathBuilder::fill();
+                tint.add_polygon(&pts, true);
+                if let Ok(path) = tint.build() {
                     window.paint_path(path, rgb(art::S5).opacity(art::HUB_ALPHA));
                 }
-                let mut edge = PathBuilder::stroke(px(1.)).dash_array(&[px(6.), px(3.)]);
+                let mut edge = PathBuilder::stroke(px(1.)).dash_array(&[px(3.), px(3.)]);
                 edge.add_polygon(&pts, true);
                 let edge_color: Hsla = rgb(art::BORDER).into();
                 if let Ok(path) = edge.build() {
                     window.paint_path(path, edge_color);
                 }
-                let _ = bounds;
             },
         );
 
@@ -776,6 +781,9 @@ impl Desktop {
             .text_center()
             .w(px(w))
             .h(px(h))
+            // 参考 `.hub { padding: 3% 9% }`：CSS 的 % 相对宽度，所以上下 3%、左右 9% 都乘 w。
+            .px(px(w * 0.09))
+            .py(px(w * 0.03))
             .child(
                 div()
                     .absolute()
@@ -799,7 +807,7 @@ impl Desktop {
             )
             .child(
                 div()
-                    .w(px(f32::from(m.v(34.)).min(w * 0.62)))
+                    .w(px(f32::from(m.v(34.)).min(w * 0.82)))
                     .mt(m.v(0.6))
                     .px(m.v(1.))
                     .py(m.v(0.3))
@@ -835,19 +843,18 @@ impl Desktop {
             .child(
                 div()
                     .id(ElementId::Name("board-create".into()))
-                    .mt(m.v(0.6))
                     .px(m.v(1.6))
                     .py(m.v(0.5))
+                    .bg(rgb(art::PANEL))
                     .rounded(px(6.))
                     .border_1()
-                    .border_color(if b.picked.is_some() {
-                        rgb(art::LINE)
-                    } else {
-                        rgb(art::BORDER)
-                    })
+                    .border_color(rgb(art::BORDER))
                     .text_size(m.f(1.6, 11., 14.5))
                     .when(b.picked.is_some(), |el| {
-                        el.hover(|s| s.bg(rgb(art::SURFACE)))
+                        el.hover(|s| {
+                            s.bg(rgb(art::SURFACE))
+                                .border_color(rgb(art::LINE))
+                        })
                     })
                     .when(b.picked.is_none(), |el| el.opacity(0.45))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
