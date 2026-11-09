@@ -19,11 +19,11 @@ use gpui_kit::prelude::FluentBuilder as _;
 // `on_hover` / `on_click` 这些不是 Div 自带的方法，是这条 trait 给的，得显式拿进来。
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
-use smol::Timer;
-use nous_engine::resolve::resolve_engine;
-use nous_engine::pins::PinClient;
-use nous_engine::types::{Entry, Session, Unread};
 use nous_engine::EngineClient;
+use nous_engine::pins::PinClient;
+use nous_engine::resolve::resolve_engine;
+use nous_engine::types::{Entry, Session, Unread};
+use smol::Timer;
 
 pub(crate) mod scrollbar;
 
@@ -36,8 +36,8 @@ pub(crate) enum Bar {
 }
 
 use crate::config::{Config, ENGINE_BLOCK, MOBILE_BLOCK, SELF_BLOCK};
-use crate::md::{chat_md, code_copy_button, code_highlighter, md_style, strip_harness};
 use crate::live::Live;
+use crate::md::{chat_md, code_copy_button, code_highlighter, md_style, strip_harness};
 
 // 微信桌面版的几个固定色。
 const SIDEBAR_DARK: u32 = 0x2e2e2e;
@@ -90,6 +90,9 @@ pub struct Desktop {
     list_bar: bool,
     pub(crate) presets_hover: bool,
     pub(crate) presets_bar: bool,
+    /// 输入区悬停提示两位：鼠标在不在输入区上 / 提示字在不在场（淡出那 250ms 里也得在场）。
+    composer_hover: bool,
+    composer_hint: bool,
     /// 左栏当前页：聊天 / 通讯录（模板）。
     pub(crate) tab: Tab,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
@@ -129,14 +132,16 @@ pub struct Desktop {
 
 impl Desktop {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        // 多行：1~8 行自动长高，超过就在框里滚。回车发送、Shift+回车换行。
+        // 多行：3~8 行自动长高（最少 3 行：空框也占 3 行高，跟微信的写字区一样），
+        // 超过就在框里滚。回车发送、Shift+回车换行。
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(1, 8)
+                .auto_grow(3, 8)
                 // 回车=发送，不在这里插换行。少了这句，多行框里的回车会**先插一个换行**
                 // 再发出去：文本被清空时看不出来，但 send() 提前返回时会留一个空行。
                 .submit_on_enter(true)
-                .placeholder("输入消息，回车发送 · Shift+回车换行")
+            // 不设 placeholder：空框就该是空白。悬停的提示字由 composer 的 hint 层
+            // 负责（Enter 发送 · Shift+Enter 换行），别在这里再叠一行永远挂着的灰字。
         });
         let subs = vec![
             cx.observe_window_activation(window, |this, window, _cx| {
@@ -144,19 +149,20 @@ impl Desktop {
                 this.focused = window.is_window_active();
             }),
             cx.subscribe_in(&input, window, {
-            move |this, _, event: &InputEvent, window, cx| {
-                match event {
-                    // 内容变了要重画，否则「发送」按钮永远是灰的。
-                    InputEvent::Change => cx.notify(),
-                    InputEvent::PressEnter { shift, .. } => {
-                        if !*shift {
-                            this.send(window, cx);
+                move |this, _, event: &InputEvent, window, cx| {
+                    match event {
+                        // 内容变了要重画，否则「发送」按钮永远是灰的。
+                        InputEvent::Change => cx.notify(),
+                        InputEvent::PressEnter { shift, .. } => {
+                            if !*shift {
+                                this.send(window, cx);
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
-        })];
+            }),
+        ];
 
         let mut this = Self {
             engine: None,
@@ -181,6 +187,8 @@ impl Desktop {
             list_bar: false,
             presets_hover: false,
             presets_bar: false,
+            composer_hover: false,
+            composer_hint: false,
             tab: Tab::Chats,
             focused: true,
             stream_for: None,
@@ -270,7 +278,8 @@ impl Desktop {
             };
             let url = match handle
                 .spawn(async move {
-                    nous_engine::resolve::resolve_engine(&host, &board, SELF_BLOCK, MOBILE_BLOCK).await
+                    nous_engine::resolve::resolve_engine(&host, &board, SELF_BLOCK, MOBILE_BLOCK)
+                        .await
                 })
                 .await
             {
@@ -364,19 +373,22 @@ impl Desktop {
             loop {
                 Timer::after(Duration::from_secs(3)).await;
                 let go = this
-                    .update(cx, |this, _| this.focused && !this.streaming && this.engine.is_some())
+                    .update(cx, |this, _| {
+                        this.focused && !this.streaming && this.engine.is_some()
+                    })
                     .unwrap_or(false);
                 if !go {
                     continue;
                 }
-                let (engine, selected) = match this
-                    .update(cx, |this, _| (this.engine.clone(), this.selected))
-                {
-                    Ok(v) => v,
-                    Err(_) => break,
-                };
+                let (engine, selected) =
+                    match this.update(cx, |this, _| (this.engine.clone(), this.selected)) {
+                        Ok(v) => v,
+                        Err(_) => break,
+                    };
                 let Some(engine) = engine else { continue };
-                let Some(h) = crate::TOKIO.get().cloned() else { break };
+                let Some(h) = crate::TOKIO.get().cloned() else {
+                    break;
+                };
                 // 会话和未读一起拉：两个都是小 JSON，分两次反而多一次 RTT。
                 let got = h
                     .spawn(async move {
@@ -385,7 +397,9 @@ impl Desktop {
                         (sessions, unread)
                     })
                     .await;
-                let Ok((sessions, unread)) = got else { continue };
+                let Ok((sessions, unread)) = got else {
+                    continue;
+                };
                 let Ok(list) = sessions else {
                     // 断一下就等下一轮，不打断 UI。
                     continue;
@@ -414,9 +428,15 @@ impl Desktop {
                         log::info!(
                             "列表刷新：{} 行，置顶「{}」（last.id={:?}, busy={:?}）",
                             this.sessions.len(),
-                            this.sessions.first().map(|s| s.name.as_str()).unwrap_or("-"),
+                            this.sessions
+                                .first()
+                                .map(|s| s.name.as_str())
+                                .unwrap_or("-"),
                             this.sessions.first().and_then(|s| sig_of(s).2),
-                            this.sessions.first().map(|s| s.busy.as_ref().map(|b| b.to_string())).unwrap_or(None),
+                            this.sessions
+                                .first()
+                                .map(|s| s.busy.as_ref().map(|b| b.to_string()))
+                                .unwrap_or(None),
                         );
                         cx.notify();
                     }
@@ -477,7 +497,6 @@ impl Desktop {
         .detach();
     }
 
-
     /// 「我读到这儿了」。有未读才推，别每 3 秒空推一次水位。
     ///
     /// 回执里带着引擎算好的 `unread: 0`，直接抄回表里 —— 水位的真相在服务端，
@@ -486,8 +505,12 @@ impl Desktop {
         if self.unread.count(id) == 0 {
             return;
         }
-        let Some(engine) = self.engine.clone() else { return };
-        let Some(h) = crate::TOKIO.get().cloned() else { return };
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let Some(h) = crate::TOKIO.get().cloned() else {
+            return;
+        };
         log::info!("标已读：会话 {id}（{} 条未读）", self.unread.count(id));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(r)) = h.spawn(async move { engine.mark_read(id).await }).await {
@@ -510,8 +533,12 @@ impl Desktop {
             log::info!("正在生成，这一句不发（回车被拦下）");
             return false;
         }
-        let Some(id) = self.selected else { return false };
-        let Some(engine) = self.engine.clone() else { return false };
+        let Some(id) = self.selected else {
+            return false;
+        };
+        let Some(engine) = self.engine.clone() else {
+            return false;
+        };
         let text = self.input.read(cx).value().to_string();
         let text = text.trim().to_string();
         if text.is_empty() {
@@ -575,7 +602,9 @@ impl Desktop {
     /// 两半：tokio 任务只往 `live_state` 里塞，UI 侧 16ms 取一次。
     fn start_stream(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.selected else { return };
-        let Some(engine) = self.engine.clone() else { return };
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
         if self.stream_for == Some(id) {
             return;
         }
@@ -593,7 +622,9 @@ impl Desktop {
                 if !still {
                     break;
                 }
-                let Some(h) = crate::TOKIO.get().cloned() else { break };
+                let Some(h) = crate::TOKIO.get().cloned() else {
+                    break;
+                };
                 let engine = engine.clone();
                 let live = live.clone();
                 let _ = h
@@ -630,97 +661,97 @@ impl Desktop {
         // UI 侧 16ms 一帧：把攒下的字写进气泡。
         let live = self.live_state.clone();
         cx.spawn(async move |this, cx| {
-        // 看门狗：这一轮最后一条「有新东西」的时刻。
-        let mut last_change = std::time::Instant::now();
-        // 收到过「此刻没在生成」的快照。上游报错时失败事件可能早于我们订阅，
-        // 之后这条流只剩一个空 snapshot —— 不设上限就会永远停在「停止」。
-        let mut idle_snapshot = false;
-        loop {
-            Timer::after(Duration::from_millis(16)).await;
-            let alive = this
-                .update(cx, |this, _| this.stream_for == Some(id))
-                .unwrap_or(false);
-            if !alive {
-                break;
-            }
-            let drained = live.drain();
-            let mut reload = false;
-            let cont = this
-                .update(cx, |this, cx| {
-                    // 换过会话的旧循环：立刻退场，别去改新会话的状态。
-                    if !this.live_state.same_round(&live) {
-                        log::info!("旧的合帧循环退场");
-                        return false;
-                    }
-                    let Some(drained) = drained else {
-                        // 没有新事件：把「永远等下去」变成一句能重试的话。
-                        if this.streaming {
-                            let limit = if idle_snapshot {
-                                Duration::from_secs(8)
-                            } else {
-                                Duration::from_secs(30)
-                            };
-                            if last_change.elapsed() > limit {
-                                this.live = None;
-                                this.streaming = false;
-                                if !this.user_stopped {
-                                    let why = if idle_snapshot {
-                                        "这一轮没有跑起来（引擎那边没有正在生成的消息）"
-                                    } else {
-                                        "30 秒没有任何输出"
-                                    };
-                                    log::warn!("{why}，判定本轮失败");
-                                    this.turn_error = Some(format!("{why}，可以重试"));
-                                }
-                                cx.notify();
-                            }
+            // 看门狗：这一轮最后一条「有新东西」的时刻。
+            let mut last_change = std::time::Instant::now();
+            // 收到过「此刻没在生成」的快照。上游报错时失败事件可能早于我们订阅，
+            // 之后这条流只剩一个空 snapshot —— 不设上限就会永远停在「停止」。
+            let mut idle_snapshot = false;
+            loop {
+                Timer::after(Duration::from_millis(16)).await;
+                let alive = this
+                    .update(cx, |this, _| this.stream_for == Some(id))
+                    .unwrap_or(false);
+                if !alive {
+                    break;
+                }
+                let drained = live.drain();
+                let mut reload = false;
+                let cont = this
+                    .update(cx, |this, cx| {
+                        // 换过会话的旧循环：立刻退场，别去改新会话的状态。
+                        if !this.live_state.same_round(&live) {
+                            log::info!("旧的合帧循环退场");
+                            return false;
                         }
-                        return true;
-                    };
-                    last_change = std::time::Instant::now();
-                    if drained.idle_snapshot && drained.text.is_empty() && !drained.done {
-                        idle_snapshot = true;
-                    }
-                    if let Some(err) = drained.error {
-                        this.live = None;
-                        this.streaming = false;
-                        if this.user_stopped {
-                            // 用户按了停止：流被掐断是**预期**，别弹红条。
-                            log::info!("停止后流断开，按预期忽略：{err}");
-                        } else {
-                            log::warn!("生成失败：{err}");
-                            this.turn_error = Some(err);
+                        let Some(drained) = drained else {
+                            // 没有新事件：把「永远等下去」变成一句能重试的话。
+                            if this.streaming {
+                                let limit = if idle_snapshot {
+                                    Duration::from_secs(8)
+                                } else {
+                                    Duration::from_secs(30)
+                                };
+                                if last_change.elapsed() > limit {
+                                    this.live = None;
+                                    this.streaming = false;
+                                    if !this.user_stopped {
+                                        let why = if idle_snapshot {
+                                            "这一轮没有跑起来（引擎那边没有正在生成的消息）"
+                                        } else {
+                                            "30 秒没有任何输出"
+                                        };
+                                        log::warn!("{why}，判定本轮失败");
+                                        this.turn_error = Some(format!("{why}，可以重试"));
+                                    }
+                                    cx.notify();
+                                }
+                            }
+                            return true;
+                        };
+                        last_change = std::time::Instant::now();
+                        if drained.idle_snapshot && drained.text.is_empty() && !drained.done {
+                            idle_snapshot = true;
+                        }
+                        if let Some(err) = drained.error {
+                            this.live = None;
+                            this.streaming = false;
+                            if this.user_stopped {
+                                // 用户按了停止：流被掐断是**预期**，别弹红条。
+                                log::info!("停止后流断开，按预期忽略：{err}");
+                            } else {
+                                log::warn!("生成失败：{err}");
+                                this.turn_error = Some(err);
+                            }
+                            cx.notify();
+                            return true;
+                        }
+                        this.live = Some(drained.text);
+                        // 工具卡片：这一轮调过哪些工具，SSE 里是带名字的（`ToolRun.name`）。
+                        // 以前 `Drained.tools` 没人看，所以 `live.rs` 里那两个字段一直是死代码。
+                        this.live_tools = drained.tools;
+                        this.scroll.scroll_to_bottom();
+                        if drained.done {
+                            // 一轮结束：交出去，历史以引擎为准重拉一遍。流不关，继续等下一轮。
+                            this.streaming = false;
+                            idle_snapshot = false;
+                            reload = true;
+                            // 转成历史之前先收起来：历史版会按引擎的说法重画一遍。
+                            this.live_tools.clear();
                         }
                         cx.notify();
-                        return true;
-                    }
-                    this.live = Some(drained.text);
-                    // 工具卡片：这一轮调过哪些工具，SSE 里是带名字的（`ToolRun.name`）。
-                    // 以前 `Drained.tools` 没人看，所以 `live.rs` 里那两个字段一直是死代码。
-                    this.live_tools = drained.tools;
-                    this.scroll.scroll_to_bottom();
-                    if drained.done {
-                        // 一轮结束：交出去，历史以引擎为准重拉一遍。流不关，继续等下一轮。
-                        this.streaming = false;
-                        idle_snapshot = false;
-                        reload = true;
-                        // 转成历史之前先收起来：历史版会按引擎的说法重画一遍。
-                        this.live_tools.clear();
-                    }
-                    cx.notify();
-                    true
-                })
-                .unwrap_or(false);
-            if !cont {
-                break;
+                        true
+                    })
+                    .unwrap_or(false);
+                if !cont {
+                    break;
+                }
+                if reload {
+                    let _ = this.update(cx, |this, cx| {
+                        this.live = None;
+                        this.select_session(id, true, cx);
+                    });
+                }
             }
-            if reload {
-                let _ = this.update(cx, |this, cx| {
-                    this.live = None;
-                    this.select_session(id, true, cx);
-                });
-            }
-        }
         })
         .detach();
     }
@@ -732,7 +763,9 @@ impl Desktop {
     /// 网络抖一下没必要吓用户。
     fn stop_generation(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.selected else { return };
-        let Some(engine) = self.engine.clone() else { return };
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
         if !self.streaming {
             return;
         }
@@ -785,7 +818,6 @@ impl Desktop {
         }
     }
 
-
     // ── 三个栏 ──────────────────────────────────────────────
 
     fn render_icon_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -803,12 +835,7 @@ impl Desktop {
             .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
     }
 
-    fn tab_button(
-        &self,
-        name: IconName,
-        tab: Tab,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn tab_button(&self, name: IconName, tab: Tab, cx: &mut Context<Self>) -> impl IntoElement {
         let active = self.tab == tab;
         let id = match tab {
             Tab::Chats => "tab-chats",
@@ -874,6 +901,32 @@ impl Desktop {
         .detach();
     }
 
+    /// 输入区的悬停提示：鼠标放上去 → 淡入一行浅灰字（「Enter 发送 · Shift+Enter 换行」），
+    /// 移开 → 250ms 淡出。跟 `bar_hover` 同一套状态机，只是不经过 `Bar` 枚举。
+    fn composer_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if self.composer_hover == hovered {
+            return;
+        }
+        self.composer_hover = hovered;
+        self.composer_hint = true;
+        cx.notify();
+        if hovered {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            Timer::after(scrollbar::FADE).await;
+            this.update(cx, |this, cx| {
+                if this.composer_hover {
+                    return;
+                }
+                this.composer_hint = false;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn render_session_list(&self, cx: &mut Context<Self>) -> AnyElement {
         // 分支视图是左列的另一种内容：同一块地方，换一份名单。
         if self.branches {
@@ -885,7 +938,11 @@ impl Desktop {
         // 不然同一条分支会在两个地方各出现一次。
         //
         // 置顶排序只在**主线**这一份名单里做（分支视图按树画，不掺置顶）。
-        let mainline: Vec<&Session> = self.sessions.iter().filter(|s| s.parent.is_none()).collect();
+        let mainline: Vec<&Session> = self
+            .sessions
+            .iter()
+            .filter(|s| s.parent.is_none())
+            .collect();
         let in_order: Vec<i64> = mainline.iter().map(|s| s.id).collect();
         let rows: Vec<AnyElement> = order_ids(&in_order, &self.pins)
             .into_iter()
@@ -973,20 +1030,30 @@ impl Desktop {
             .unwrap_or_else(|| format!("会话 {id}"));
 
         let bubbles: Vec<AnyElement> = if self.entries_loading {
-            vec![div().p(px(12.)).text_size(px(12.)).child("拉历史中…").into_any_element()]
+            vec![
+                div()
+                    .p(px(12.))
+                    .text_size(px(12.))
+                    .child("拉历史中…")
+                    .into_any_element(),
+            ]
         } else if let Some(e) = &self.entries_error {
-            vec![div()
-                .p(px(12.))
-                .text_size(px(12.))
-                .text_color(rgb(0xd32f2f))
-                .child(format!("拉历史失败：{e}"))
-                .into_any_element()]
+            vec![
+                div()
+                    .p(px(12.))
+                    .text_size(px(12.))
+                    .text_color(rgb(0xd32f2f))
+                    .child(format!("拉历史失败：{e}"))
+                    .into_any_element(),
+            ]
         } else if self.entries.is_empty() {
-            vec![div()
-                .p(px(12.))
-                .text_size(px(12.))
-                .child("还没消息，先从模板开一条。")
-                .into_any_element()]
+            vec![
+                div()
+                    .p(px(12.))
+                    .text_size(px(12.))
+                    .child("还没消息，先从模板开一条。")
+                    .into_any_element(),
+            ]
         } else {
             let mut out: Vec<AnyElement> = self
                 .entries
@@ -1150,6 +1217,9 @@ impl Desktop {
                     streaming: self.streaming,
                     can_send: !self.input.read(cx).value().trim().is_empty(),
                 },
+                self.composer_hint,
+                self.composer_hover,
+                cx.listener(|this, hovered: &bool, _, cx| this.composer_hover(*hovered, cx)),
                 cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.send(window, cx);
                 }),
@@ -1192,12 +1262,10 @@ impl Desktop {
                         .child(hint),
                 );
         }
-        div()
-            .text_size(px(12.))
-            .child(format!(
-                "{} 个会话",
-                self.sessions.iter().filter(|s| s.parent.is_none()).count()
-            ))
+        div().text_size(px(12.)).child(format!(
+            "{} 个会话",
+            self.sessions.iter().filter(|s| s.parent.is_none()).count()
+        ))
     }
 
     fn session_row(&self, s: &Session, cx: &mut Context<Self>) -> AnyElement {
@@ -1244,7 +1312,13 @@ impl Desktop {
                                 .size(px(13.)),
                         )
                     })
-                    .child(div().flex_1().min_w(px(0.)).truncate().child(s.name.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate()
+                            .child(s.name.clone()),
+                    )
                     // 别用 `⑂`：雅黑里没这个字形，会退化成别的样子。
                     .when(self.descendant_count(id) > 0, |el| {
                         el.child(
@@ -1282,7 +1356,13 @@ impl Desktop {
                             .flex()
                             .items_center()
                             .gap(px(4.))
-                            .child(div().flex_none().size(px(6.)).rounded(px(3.)).bg(rgb(WECHAT_GREEN)))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .size(px(6.))
+                                    .rounded(px(3.))
+                                    .bg(rgb(WECHAT_GREEN)),
+                            )
                             .child(
                                 div()
                                     .text_size(px(12.))
@@ -1318,7 +1398,11 @@ impl Desktop {
                 this.toggle_pin(id, cx);
             }))
             .context_menu(move |menu, _window, _cx| {
-                let label = if pinned { "取消置顶" } else { "置顶该聊天" };
+                let label = if pinned {
+                    "取消置顶"
+                } else {
+                    "置顶该聊天"
+                };
                 menu.menu(label, Box::new(TogglePinAction))
             })
             .into_any_element()
@@ -1348,7 +1432,11 @@ impl Desktop {
                 .justify_center()
                 .text_size(px(11.))
                 .text_color(rgb(0xffffff))
-                .child(if n > 99 { "99+".to_string() } else { n.to_string() })
+                .child(if n > 99 {
+                    "99+".to_string()
+                } else {
+                    n.to_string()
+                })
                 .into_any_element(),
         )
     }
@@ -1431,7 +1519,9 @@ impl Desktop {
         let bytes = text.len();
         // 失败判据只用引擎自己的标记：剥完壳以 `[error]` 开头。
         let failed = text.trim_start().starts_with("[error]");
-        let title = name.map(|n| n.to_string()).unwrap_or_else(|| "工具输出".to_string());
+        let title = name
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "工具输出".to_string());
         let k = key.to_string();
         let for_copy = text.clone();
 
@@ -1445,84 +1535,81 @@ impl Desktop {
             .px(px(12.))
             .py(px(4.))
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .child(
-                div()
-                    .id(ElementId::Name(format!("tool-{key}").into()))
-                    .flex()
-                    .items_center()
-                    .gap(px(7.))
-                    // 不收宽度上限：长标题会被外层挤成一条缝。`max_w` 是给整条卡片的。
-                    .max_w(px(520.))
-                    .px(px(10.))
-                    .py(px(5.))
-                    .rounded(px(5.))
-                    .border_1()
-                    .border_color(rgb(0xe3e3e3))
-                    .bg(rgb(0xffffff))
-                    .cursor_pointer()
-                    .hover(|el| el.bg(rgb(0xfafafa)))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                        let opened = this.open_tools.insert(k.clone());
-                        if !opened {
-                            this.open_tools.remove(&k);
-                        }
-                        log::info!("工具卡片 {k} -> {}", if opened { "展开" } else { "收起" });
-                        cx.notify();
-                    }))
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(px(10.))
-                            .text_color(rgb(MUTED))
-                            .child(if open { "▾" } else { "▸" }),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .size(px(6.))
-                            .rounded(px(3.))
-                            .bg(rgb(if failed { 0xfa5151 } else { WECHAT_GREEN })),
-                    )
-                    .child(div().flex_none().text_size(px(12.5)).child(title))
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(px(11.))
-                            .text_color(rgb(MUTED))
-                            .child(if failed && lines == 1 {
-                                "失败".to_string()
-                            } else if failed {
-                                format!("失败 · {lines} 行")
-                            } else {
-                                format!("{lines} 行 · {}", size_text(bytes))
-                            }),
-                    )
-                    // 复制整段。代码块里划选后按 Ctrl+C 不一定会复制（键盘上下文分不到
-                    // TextView 上），所以给一个明面出口 —— 长输出本来就是「整段拿走」。
-                    .child(
-                        div()
-                            .id(ElementId::Name(format!("copy-{key}").into()))
-                            .flex_none()
-                            .px(px(6.))
-                            .py(px(1.))
-                            .rounded(px(4.))
-                            .text_size(px(11.))
-                            .text_color(rgb(WECHAT_GREEN))
-                            .cursor_pointer()
-                            .hover(|el| el.bg(rgb(0xe8f7ee)))
-                            .on_click(cx.listener(move |_this, _: &ClickEvent, _w, cx| {
-                                // 不拦的话这一下会连带把卡片展开/收起
-                                cx.stop_propagation();
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                    for_copy.clone(),
-                                ));
-                                log::info!("复制了工具输出：{} 字", for_copy.len());
-                            }))
-                            .child("复制"),
-                    ),
+                div().flex().flex_row().child(
+                    div()
+                        .id(ElementId::Name(format!("tool-{key}").into()))
+                        .flex()
+                        .items_center()
+                        .gap(px(7.))
+                        // 不收宽度上限：长标题会被外层挤成一条缝。`max_w` 是给整条卡片的。
+                        .max_w(px(520.))
+                        .px(px(10.))
+                        .py(px(5.))
+                        .rounded(px(5.))
+                        .border_1()
+                        .border_color(rgb(0xe3e3e3))
+                        .bg(rgb(0xffffff))
+                        .cursor_pointer()
+                        .hover(|el| el.bg(rgb(0xfafafa)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                            let opened = this.open_tools.insert(k.clone());
+                            if !opened {
+                                this.open_tools.remove(&k);
+                            }
+                            log::info!("工具卡片 {k} -> {}", if opened { "展开" } else { "收起" });
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(px(10.))
+                                .text_color(rgb(MUTED))
+                                .child(if open { "▾" } else { "▸" }),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .size(px(6.))
+                                .rounded(px(3.))
+                                .bg(rgb(if failed { 0xfa5151 } else { WECHAT_GREEN })),
+                        )
+                        .child(div().flex_none().text_size(px(12.5)).child(title))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(px(11.))
+                                .text_color(rgb(MUTED))
+                                .child(if failed && lines == 1 {
+                                    "失败".to_string()
+                                } else if failed {
+                                    format!("失败 · {lines} 行")
+                                } else {
+                                    format!("{lines} 行 · {}", size_text(bytes))
+                                }),
+                        )
+                        // 复制整段。代码块里划选后按 Ctrl+C 不一定会复制（键盘上下文分不到
+                        // TextView 上），所以给一个明面出口 —— 长输出本来就是「整段拿走」。
+                        .child(
+                            div()
+                                .id(ElementId::Name(format!("copy-{key}").into()))
+                                .flex_none()
+                                .px(px(6.))
+                                .py(px(1.))
+                                .rounded(px(4.))
+                                .text_size(px(11.))
+                                .text_color(rgb(WECHAT_GREEN))
+                                .cursor_pointer()
+                                .hover(|el| el.bg(rgb(0xe8f7ee)))
+                                .on_click(cx.listener(move |_this, _: &ClickEvent, _w, cx| {
+                                    // 不拦的话这一下会连带把卡片展开/收起
+                                    cx.stop_propagation();
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                        for_copy.clone(),
+                                    ));
+                                    log::info!("复制了工具输出：{} 字", for_copy.len());
+                                }))
+                                .child("复制"),
+                        ),
                 ),
             )
             .when(open, |el| {
@@ -1593,12 +1680,7 @@ impl Desktop {
                 .justify_center()
                 .px(px(12.))
                 .py(px(4.))
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(rgb(MUTED))
-                        .child(text),
-                )
+                .child(div().text_size(px(11.)).text_color(rgb(MUTED)).child(text))
                 .into_any_element(),
         }
     }
@@ -1649,12 +1731,9 @@ async fn load_engine() -> Result<(Arc<EngineClient>, Vec<Session>), String> {
     let url = resolve_engine(&cfg.host, &cfg.board, SELF_BLOCK, ENGINE_BLOCK)
         .await
         .map_err(|e| e.to_string())?;
-    let engine = EngineClient::new(url.as_str(), Duration::from_secs(10)).map_err(|e| e.to_string())?;
-    let sessions = engine
-        .sessions()
-        .await
-        .map_err(|e| e.to_string())?
-        .items;
+    let engine =
+        EngineClient::new(url.as_str(), Duration::from_secs(10)).map_err(|e| e.to_string())?;
+    let sessions = engine.sessions().await.map_err(|e| e.to_string())?.items;
     let mut sessions = sessions;
     sort_sessions(&mut sessions);
     Ok((Arc::new(engine), sessions))
@@ -1668,7 +1747,11 @@ async fn load_engine() -> Result<(Arc<EngineClient>, Vec<Session>), String> {
 /// 一条 entry 都没有的新会话没有 `last`，退化成按会话 id 排（两个序列都随时间增），
 /// 保证刚建的那条落在最上面。
 fn sort_sessions(sessions: &mut [Session]) {
-    sessions.sort_by(|a, b| activity_of(b).cmp(&activity_of(a)).then_with(|| b.id.cmp(&a.id)));
+    sessions.sort_by(|a, b| {
+        activity_of(b)
+            .cmp(&activity_of(a))
+            .then_with(|| b.id.cmp(&a.id))
+    });
 }
 
 /// 一行的「长相」。轮询时只比这个，不变就不 `cx.notify()`。
@@ -1723,9 +1806,11 @@ fn fenced_code(text: &str) -> String {
         }
     }
     let fence = "`".repeat((longest + 1).max(3));
-    format!("{fence}
+    format!(
+        "{fence}
 {text}
-{fence}")
+{fence}"
+    )
 }
 
 /// 给人看的体积：`12 B` / `1.9 KB`。
@@ -1831,14 +1916,21 @@ mod tests {
     fn 工具输出剥掉_harness_壳() {
         use crate::md::strip_harness;
         assert_eq!(
-            strip_harness("<harness>
+            strip_harness(
+                "<harness>
 [error] boom
-</harness>"),
+</harness>"
+            ),
             "[error] boom"
         );
-        assert_eq!(strip_harness("j1900
-/root"), "j1900
-/root");
+        assert_eq!(
+            strip_harness(
+                "j1900
+/root"
+            ),
+            "j1900
+/root"
+        );
         // 只有一边的壳也剥（引擎写半截的时候别把它当正文）
         assert_eq!(strip_harness("<harness>ok"), "ok");
     }
@@ -1853,22 +1945,37 @@ mod tests {
     #[test]
     fn 单换行补成硬换行() {
         use crate::md::hard_breaks;
-        assert_eq!(hard_breaks("一
-二"), "一  
-二");
-        assert_eq!(hard_breaks("一
+        assert_eq!(
+            hard_breaks(
+                "一
+二"
+            ),
+            "一  
+二"
+        );
+        assert_eq!(
+            hard_breaks(
+                "一
 
-二"), "一  
+二"
+            ),
+            "一  
 
-二");
+二"
+        );
         // 代码块里的换行一个都不能碰（会改成代码内容）
-        assert_eq!(hard_breaks("```
+        assert_eq!(
+            hard_breaks(
+                "```
 a
 b
-```"), "```
+```"
+            ),
+            "```
 a
 b
-```");
+```"
+        );
         // 空行不补（补了就是三个空格挂在那）
         assert_eq!(hard_breaks(""), "");
     }
@@ -1876,20 +1983,33 @@ b
     #[test]
     fn 代码围栏跟着内容变长() {
         use super::fenced_code;
-        assert_eq!(fenced_code("ls"), "```
+        assert_eq!(
+            fenced_code("ls"),
+            "```
 ls
-```");
+```"
+        );
         // 输出里本身有三连反引号：围栏要更长，不然块会被提前切断
-        assert_eq!(fenced_code("```
-x"), "````
+        assert_eq!(
+            fenced_code(
+                "```
+x"
+            ),
+            "````
 ```
 x
-````");
-        assert_eq!(fenced_code("```
-x"), r"````
+````"
+        );
+        assert_eq!(
+            fenced_code(
+                "```
+x"
+            ),
+            r"````
 ```
 x
-````");
+````"
+        );
     }
 
     #[test]
