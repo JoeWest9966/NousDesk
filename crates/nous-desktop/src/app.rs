@@ -25,9 +25,9 @@ pub(crate) const LIST_BG: u32 = 0xf7f7f7;
 const CHAT_BG: u32 = 0xededed;
 const BUBBLE_ME: u32 = 0x95ec69;
 const BUBBLE_OTHER: u32 = 0xffffff;
-const MUTED: u32 = 0x999999;
+pub(crate) const MUTED: u32 = 0x999999;
 /// 微信的绿：左栏选中图标就是这个颜色。
-const WECHAT_GREEN: u32 = 0x07c160;
+pub(crate) const WECHAT_GREEN: u32 = 0x07c160;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -63,6 +63,12 @@ pub struct Desktop {
     focused: bool,
     /// 当前常连着 SSE 的会话。`None` = 没连。切会话就换一个，不叠加。
     stream_for: Option<i64>,
+    /// 左栏是不是「分支视图」。默认 false = 全部主线会话。
+    pub(crate) branches: bool,
+    /// 分支视图的根。进视图时锁住：点分支里的会话只换右侧，列表不跟着塌。
+    pub(crate) branch_of: Option<i64>,
+    /// 分支视图里展开着的会话。纯内存，重启重置（它不是事实，是「我眼下看到哪」）。
+    pub(crate) expanded: std::collections::HashSet<i64>,
     /// 这一轮是**用户自己按的停止**。abort 会让流断开，那不是错误，别弹红条。
     user_stopped: bool,
     /// 模板页数据（`GET /v1/presets/Session-Template`）。
@@ -123,6 +129,9 @@ impl Desktop {
             tab: Tab::Chats,
             focused: true,
             stream_for: None,
+            branches: false,
+            branch_of: None,
+            expanded: std::collections::HashSet::new(),
             user_stopped: false,
             presets: None,
             presets_error: None,
@@ -588,10 +597,19 @@ impl Desktop {
             )
     }
 
-    fn render_session_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_session_list(&self, cx: &mut Context<Self>) -> AnyElement {
+        // 分支视图是左列的另一种内容：同一块地方，换一份名单。
+        if self.branches {
+            if let Some(root) = self.branch_of {
+                return self.render_branch_list(root, cx);
+            }
+        }
+        // 默认只画主线：`parent != null` 的是 fork 分支，只在分支视图里出现 ——
+        // 不然同一条分支会在两个地方各出现一次。
         let rows: Vec<AnyElement> = self
             .sessions
             .iter()
+            .filter(|s| s.parent.is_none())
             .map(|s| self.session_row(s, cx).into_any_element())
             .collect();
         div()
@@ -603,6 +621,7 @@ impl Desktop {
             .child(div().p(px(12.)).child("Nous"))
             .child(div().px(px(12.)).child(self.status_line(cx)))
             .child(div().flex().flex_col().flex_1().overflow_hidden().children(rows))
+            .into_any_element()
     }
 
     fn render_chat(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -682,7 +701,11 @@ impl Desktop {
             .flex()
             .flex_col()
             .flex_1()
-            .size_full()
+            // `min_w(0)` 不能省：flex 项默认 `min-width: auto`，历史里只要有一条
+            // 折不开的长行（工具输出整段），这块就被撑得比窗口还宽，
+            // 顶部 `justify_between` 的右半边全跑到窗口外面（症状：按钮"有时候不见了"）。
+            .min_w(px(0.))
+            .h_full()
             .bg(rgb(CHAT_BG))
             .child(
                 div()
@@ -690,9 +713,12 @@ impl Desktop {
                     .h(px(48.))
                     .w_full()
                     .items_center()
+                    .justify_between()
                     .px(px(12.))
                     .bg(rgb(LIST_BG))
-                    .child(title),
+                    .child(div().flex_none().truncate().child(title))
+                    // 分支：分叉树唯一的入口。激活时变绿 —— 绿 = 左列现在看到的是分支。
+                    .child(self.branch_button(id, cx)),
             )
             .child(
                 div()
@@ -700,6 +726,7 @@ impl Desktop {
                     .flex_col()
                     .flex_1()
                     .id("chat-scroll")
+                    .min_w(px(0.))
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)
                     .py(px(8.))
@@ -814,14 +841,20 @@ impl Desktop {
         }
         div()
             .text_size(px(12.))
-            .child(format!("{} 个会话", self.sessions.len()))
+            .child(format!(
+                "{} 个会话",
+                self.sessions.iter().filter(|s| s.parent.is_none()).count()
+            ))
     }
 
     fn session_row(&self, s: &Session, cx: &mut Context<Self>) -> impl IntoElement {
+        // 预览是最后一条 entry 的原文，带换行/连续空白是常态（工具输出整段）。
+        // 摊平成一行，配合 `.truncate()` 才是微信那种单行摘要。
         let preview = s
             .last
             .as_ref()
-            .and_then(|l| l.text.clone())
+            .and_then(|l| l.text.as_deref())
+            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
             .unwrap_or_default();
         let selected = self.selected == Some(s.id);
         // `busy` 是 `"queued" | "running" | <task kind> | null`，不是布尔（`wire.md`）。
@@ -831,12 +864,16 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .p(px(8.))
+            .justify_center()
+            // 固定下限：没有预览的行（新会话、只有工具输出的）也跟别人一样高，列表才成一列节奏。
+            .min_h(px(56.))
+            .px(px(10.))
+            .py(px(6.))
             .gap(px(2.))
             .border_b(px(1.))
             .border_color(rgb(0xe0e0e0))
             .when(selected, |el| el.bg(rgb(0xd9d9d9)))
-            .child(div().child(s.name.clone()))
+            .child(div().truncate().child(s.name.clone()))
             // 忙闲：预览行换成微信那句「正在输入…」+ 一个小圆点。
             // 比一个「忙」字可读，也不用新图标。
             .when(busy, |el| {
@@ -857,9 +894,26 @@ impl Desktop {
             .when(!busy && !preview.is_empty(), |el| {
                 el.child(
                     div()
+                        .truncate()
                         .text_size(px(12.))
                         .text_color(rgb(MUTED))
                         .child(preview),
+                )
+            })
+            // 有分支就在右下角挂条数：这是「进分支视图」唯一的线索，别省。
+            .when(self.descendant_count(id) > 0, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .right(px(8.))
+                        .bottom(px(8.))
+                        .flex_none()
+                        .px(px(6.))
+                        .rounded(px(8.))
+                        .bg(rgb(0xe4f8ea))
+                        .text_size(px(11.))
+                        .text_color(rgb(WECHAT_GREEN))
+                        .child(format!("{} 条分支", self.descendant_count(id))),
                 )
             })
             // `.id()` 把 Div 转成 Stateful<Div>，on_click 只存在于后者。
@@ -867,6 +921,64 @@ impl Desktop {
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.select_session(id, false, cx);
             }))
+    }
+
+    /// 聊天区顶部那颗「⑂ 分支」。
+    ///
+    /// 点一下：左列从「全部会话」切成「这条会话的分支」；再点一下切回去。
+    /// 没有分支也照样画（灰的），点进去是空状态「还没有分支」——
+    /// 按钮时有时无会让人以为功能坏了。
+    fn branch_button(&self, id: i64, cx: &mut Context<Self>) -> AnyElement {
+        // 数字说的是**当前这个视图**有几条分支：开了分支视图就报根的数字，
+        // 不然点到一条末端分支时角标会变成 0，看着像「视图空了」。
+        let n = match (self.branches, self.branch_of) {
+            (true, Some(root)) => self.descendant_count(root),
+            _ => self.descendant_count(id),
+        };
+        let on = self.branches;
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(5.))
+            .px(px(10.))
+            .h(px(28.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(rgb(if on { WECHAT_GREEN } else { 0xd0d0d0 }))
+            .bg(rgb(if on { WECHAT_GREEN } else { 0xffffff }))
+            .text_size(px(13.))
+            .text_color(rgb(if on { 0xffffff } else { 0x333333 }))
+            .id(ElementId::Name("branch-toggle".into()))
+            .cursor_pointer()
+            .hover(|el| el.bg(rgb(if on { 0x06a854 } else { 0xf2f2f2 })))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                if this.branches {
+                    this.exit_branches(cx);
+                } else {
+                    this.enter_branches(this.selected.unwrap_or(id), cx);
+                }
+            }))
+            .child(
+                Icon::new(IconName::GitBranch)
+                    .with_size(Size::Size(px(15.)))
+                    .text_color(rgb(if on { 0xffffff } else { 0x555555 })),
+            )
+            .child("分支")
+            .children(if n > 0 {
+                Some(
+                    div()
+                        .flex_none()
+                        .px(px(5.))
+                        .rounded(px(8.))
+                        .bg(rgb(if on { 0x0aa85a } else { 0xededed }))
+                        .text_size(px(11.))
+                        .child(format!("{n}")),
+                )
+            } else {
+                None
+            })
+            .into_any_element()
     }
 
     fn bubble(&self, e: &Entry, _cx: &mut Context<Self>) -> impl IntoElement {
@@ -950,14 +1062,31 @@ async fn load_engine() -> Result<(Arc<EngineClient>, Vec<Session>), String> {
 /// 一条 entry 都没有的新会话没有 `last`，退化成按会话 id 排（两个序列都随时间增），
 /// 保证刚建的那条落在最上面。
 fn sort_sessions(sessions: &mut [Session]) {
-    sessions.sort_by(|a, b| {
-        let ka = a.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(a.id);
-        let kb = b.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(b.id);
-        kb.cmp(&ka).then_with(|| b.id.cmp(&a.id))
-    });
+    sessions.sort_by(|a, b| activity_of(b).cmp(&activity_of(a)).then_with(|| b.id.cmp(&a.id)));
 }
 
 /// 一行的「长相」。轮询时只比这个，不变就不 `cx.notify()`。
+/// 活跃度：最后一条 entry 的 id。没有 entry 的新会话退化成会话 id。
+pub(crate) fn activity_of(s: &Session) -> i64 {
+    s.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(s.id)
+}
+
+/// 相对年龄（`5 分钟前` / `3 天前`）。`updatedAt` 为 null 就返回 None —— **不编时间**。
+pub(crate) fn ago(updated_at: Option<i64>) -> Option<String> {
+    let ts = updated_at?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis() as i64;
+    let mins = (now - ts) / 60_000;
+    Some(match mins {
+        m if m < 1 => "刚刚".to_string(),
+        m if m < 60 => format!("{m} 分钟前"),
+        m if m < 60 * 24 => format!("{} 小时前", m / 60),
+        m => format!("{} 天前", m / 1440),
+    })
+}
+
 fn sig_of(s: &Session) -> (i64, String, Option<i64>, Option<String>, bool) {
     (
         s.id,
