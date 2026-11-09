@@ -20,11 +20,11 @@ cargo run            # 自己的桌面上
 3. `%APPDATA%\nous\desktop.toml`（Linux `~/.config/nous/desktop.toml`）
 
 ```toml
-host = "http://127.0.0.1:4790"
+host = "http://192.168.1.7:4790"
 board = "new1"
 ```
 
-一个都没有也能开：用默认值（本机 `127.0.0.1:4790`），连不上时左栏会把该改的路径显示出来。
+一个都没有也能开：用默认值（`192.168.1.7:4790`），连不上时左栏会把该改的路径显示出来。
 
 启动时从 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎。
 

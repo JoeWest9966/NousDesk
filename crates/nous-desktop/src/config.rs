@@ -11,7 +11,7 @@ use std::path::PathBuf;
 ///
 /// 默认指向本机 —— 对任何跑着 Nous 的机器都成立。走 tailnet / 反代 / 域名的
 /// 写进 `desktop.toml`，别改这里（这里是所有人共用的默认值）。
-pub const DEFAULT_HOST: &str = "http://127.0.0.1:4790";
+pub const DEFAULT_HOST: &str = "http://192.168.1.7:4790";
 
 /// 盘名。你自己那盘的 id，换盘就改。
 pub const DEFAULT_BOARD: &str = "new1";
