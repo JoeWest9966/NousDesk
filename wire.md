@@ -168,6 +168,75 @@ body `{ entryId?, name? }`。`entryId` 省略 = **从最后一条分叉**。回 
 
 ---
 
+### GET /v1/models
+
+`{ default: {provider, modelId} | null, items: [...] }`。`items[]` 每条：
+
+```
+{ provider, modelId, name, thinkingLevels: string[], contextWindow, maxTokens }
+```
+
+- `default` 是**盘上那只眼当前指着的**模型，不是我们的默认值。
+- `thinkingLevels` 从少想到多（`off` … `max`），**每个模型不一样**。换模型必须按新模型的表
+  重新夹档位（`off` 一定要在表里，没有就退成 `off`）。
+- 242 个模型是常态 —— 模型那一列必须能滚，别想着一次画完。
+
+### GET /v1/skills
+
+`{ root, categories: string[], repo, skills: [...] }`。技能那条：
+
+```
+{ name, path, description, dir, file, hidden, category: string[], tracked, load: { state } }
+```
+
+- **只列 `load.state == "ok" && !hidden`**。`hidden` 是 `disable-model-invocation`，
+  勾上也不会动；`state != ok` 的加载不出来。
+- `categories` 只是词表，和技能身上挂的 `category` 取并集才是栏里该有的那些。
+
+### GET /v1/prompts
+
+`{ default: string | null, categories: string[], prompts: [...] }`。模板那条至少有
+`{ name, description?, category?, load: { state } }`。
+
+- 和技能不是一回事：**模板是单值**（每轮都带的那份规则），技能是集合。所以列表里
+  模板用单选框、技能用复选框 —— 形状本身在说能选几个。
+- 仓库 `settings.json` 的默认值只用来**预勾**，选不选仍然是人的事。
+
+### GET /v1/machines
+
+`{ at, machines: [{ name, user, port, ips: [{addr,label}], addr, note, tags }] }`。
+
+- 没有 `machine` 字段 = **本机**。名字要和创建请求里的 `machine` 对得上。
+
+### GET /v1/fs/dirs?path=
+
+`{ path, dirs: [{ name, path }] }`。**列的是 qrd3wh 那台机器上的目录。**
+
+- 不带 `path` = 引擎给的起点（board 的 map 根）；`path: ""` 是起点，不是「没有路径」。
+- 浏览发生在引擎进程里：引擎以后跑在远程机器上，这一页一行都不用改。
+
+### POST /v1/sessions —— 建会话的完整 body
+
+```jsonc
+{
+  "name": "…",                        // 可省，省了引擎给「对话 N」
+  "model": {"provider":"…","modelId":"…"},
+  "thinkingLevel": "off|minimal|low|medium|high|xhigh|max",
+  "skills": ["code-review", "…"],     // 可省 = 不挂
+  "template": "审查一段改动" | null,   // **总是发**：null 是「明确不要」
+  "extensions": ["…"],                // 可省 = 全开（空数组才是「一个都不要」）
+  "cwd": "/opt/Nous/content/new1/map",
+  "machine": "j1900"                  // 缺省 = 本机
+}
+```
+
+- 这几个键是 **camelCase**（`thinkingLevel` / `cwd` / `machine`）。写成 snake_case
+  不会报错，只会**悄悄不生效** —— `crates/nous-engine/tests/parse.rs` 里有条测试钉着它。
+- `template` 省掉 ≠ 不要：省掉服务端会用仓库默认值，于是「我明明点了无模板又给我塞回来」。
+- 201 回来带 `missing` / `missingExtensions` / `missingTemplates`：引擎那边找不到的东西，
+  客户端要如实说，别当成功。
+- 建完再 `POST /v1/selection { id }` 把盘上那只眼切过去（切不过去不该把会话判死）。
+
 ## 引擎改了会怎么坏（按我们依赖的字段）
 
 | 引擎改动 | 我们会怎样 |

@@ -123,6 +123,8 @@ pub struct Desktop {
     /// 正在从模板开的那条（防连点 + 状态提示）。
     pub(crate) creating: Option<String>,
     _subs: Vec<Subscription>,
+    /// 「新对话」盘面。盖在三栏之上的一整页（外形照 qrd3wh 的 hb7k3j 页）。
+    pub(crate) newchat: crate::board::NewChat,
 }
 
 impl Desktop {
@@ -195,6 +197,7 @@ impl Desktop {
             presets_error: None,
             presets_loading: false,
             creating: None,
+            newchat: crate::board::NewChat::new(window, cx),
             _subs: subs,
         };
         this.bootstrap(cx);
@@ -223,6 +226,30 @@ impl Desktop {
                         this.start_poll(cx);
                         // 置顶单独去 bjes6b 拿（单源在它那儿）。
                         this.load_pins(cx);
+                        // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在新对话盘面上，
+                        // 省得每次手点。只是开关，不是功能。
+                        if std::env::var("NOUS_OPEN_BOARD").is_ok() {
+                            log::info!("NOUS_OPEN_BOARD：直接开在新对话盘面上");
+                            this.newchat.open = true;
+                            this.board_load(cx);
+                            // 再给一个梯子：直接开在某个弹层上，省得每次手点。
+                            match std::env::var("NOUS_OPEN_SHEET").as_deref() {
+                                Ok("model") => {
+                                    this.newchat.sheet = Some(crate::board::Sheet::Model)
+                                }
+                                Ok("skills") => {
+                                    this.newchat.sheet = Some(crate::board::Sheet::Skills)
+                                }
+                                Ok("prompt") => {
+                                    this.newchat.sheet = Some(crate::board::Sheet::Prompt)
+                                }
+                                Ok("dir") => this.newchat.sheet = Some(crate::board::Sheet::Dir),
+                                Ok("machine") => {
+                                    this.newchat.sheet = Some(crate::board::Sheet::Machine)
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     Err(e) => this.error = Some(e),
                 }
@@ -871,7 +898,29 @@ impl Desktop {
             .w(px(280.))
             .h_full()
             .bg(rgb(LIST_BG))
-            .child(div().p(px(12.)).child("Nous"))
+            .child(
+                div()
+                    .p(px(12.))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child("Nous")
+                    // 建会话的唯一入口。以前只能从模板起，现在多一条「从零配」的路。
+                    .child(
+                        div()
+                            .id("new-chat-btn")
+                            .px(px(8.))
+                            .py(px(3.))
+                            .rounded(px(4.))
+                            .text_size(px(12.))
+                            .text_color(rgb(WECHAT_GREEN))
+                            .hover(|s| s.bg(rgb(0xe8f8ee)))
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.board_open(window, cx);
+                            }))
+                            .child("+ 新对话"),
+                    ),
+            )
             .child(div().px(px(12.)).child(self.status_line(cx)))
             .child(
                 div()
@@ -1717,8 +1766,8 @@ fn sig_of(s: &Session) -> (i64, String, Option<i64>, Option<String>, bool) {
 }
 
 impl Render for Desktop {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let shell = div()
             .flex()
             .flex_row()
             .size_full()
@@ -1728,7 +1777,24 @@ impl Render for Desktop {
                 Tab::Chats => self.render_session_list(cx).into_any_element(),
                 Tab::Templates => self.render_templates(cx),
             })
-            .child(self.render_chat(cx))
+            .child(self.render_chat(cx));
+
+        // 新对话是**一整页**，不是三栏里的一格：那个页面的尺寸全走 vmin、一屏不滚，
+        // 塞进聊天区会把四块象限挤成一团。所以它盖在整窗上，关掉才回到三栏。
+        div()
+            .relative()
+            .size_full()
+            .child(shell)
+            .children(self.newchat.open.then(|| {
+                // 明确绝对定位：靠子元素的 `size_full` 撑满有时会拿不到父高，
+                // 结果只有 canvas 画上去了、底下的深色没铺 —— 看着像「盘面没开」。
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .child(self.render_board(window, cx))
+            }))
     }
 }
 

@@ -199,15 +199,23 @@ pub struct CreateSession {
     pub preset: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // 这几个键是 camelCase：`hb7k3j` 的面板就是照这个名字发的，照抄，别自己翻译。
+    #[serde(rename = "thinkingLevel", skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<String>>,
+    // **总是发**（`null` 也是有效值 = 明确不要）。省掉它服务端会用仓库默认值，
+    // 就会出现「我明明点了无模板，它又给我塞回来」。所以这层是 `Option<Option<_>>`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// `None` = 本机。名字要和 `GET /v1/machines` 里的 `name` 对上。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    #[serde(rename = "readOnly", skip_serializing_if = "Option::is_none")]
     pub read_only: Option<bool>,
 }
 
@@ -229,6 +237,208 @@ pub struct CreatedSession {
     pub missing_extensions: Vec<String>,
     #[serde(rename = "missingTemplates", default)]
     pub missing_templates: Vec<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+// ── 建会话那一页要用的四份清单（盘面四个角 + 中央两个胶囊）─────────────────
+//
+// 全部来自 qrd3wh：`/v1/models` `/v1/skills` `/v1/prompts` `/v1/machines` `/v1/fs/dirs`。
+// 这里只描述形状，不做选择、不排序 —— 「哪些能选」是引擎算的。
+
+/// `GET /v1/models`。`default` 是盘上那只眼睛当前指着的模型。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Models {
+    pub default: Option<ModelRef>,
+    #[serde(default)]
+    pub items: Vec<Model>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl Models {
+    /// 默认模型摊成 `provider/modelId`，UI 只用这一个键（`picked` 也是它）。
+    pub fn default_key(&self) -> Option<String> {
+        self.default.as_ref().map(ModelRef::key)
+    }
+}
+
+/// `{provider, modelId}`。建会话时**原样发回**这个对象。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelRef {
+    pub provider: String,
+    pub model_id: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl ModelRef {
+    pub fn key(&self) -> String {
+        format!("{}/{}", self.provider, self.model_id)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Model {
+    pub provider: String,
+    pub model_id: String,
+    pub name: Option<String>,
+    /// 这个模型支持的思考档，**从少想到多想**。换模型要拿它重新夹当前档位。
+    #[serde(default)]
+    pub thinking_levels: Vec<String>,
+    pub context_window: Option<u64>,
+    pub max_tokens: Option<u64>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl Model {
+    pub fn key(&self) -> String {
+        format!("{}/{}", self.provider, self.model_id)
+    }
+
+    /// 给「档位只对它支持的模型出」用的：不支持思考档的模型给一个 `off`。
+    pub fn levels(&self) -> Vec<String> {
+        if self.thinking_levels.is_empty() {
+            vec!["off".to_string()]
+        } else {
+            self.thinking_levels.clone()
+        }
+    }
+}
+
+/// `GET /v1/skills`。只列 `load.state == "ok" && !hidden` 的那些（判据在 UI，不在类型里）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Skills {
+    #[serde(default)]
+    pub skills: Vec<Skill>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    pub root: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skill {
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
+    /// `true` = `disable-model-invocation`，进不了 `<available_skills>`，勾上也不动。
+    #[serde(default, rename = "hidden")]
+    pub hidden: bool,
+    #[serde(default)]
+    pub tracked: bool,
+    pub dir: Option<String>,
+    pub file: Option<String>,
+    /// `{ state: "ok" | ... }`。不是 `ok` 的技能加载不出来，别让人勾。
+    pub load: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl Skill {
+    pub fn loadable(&self) -> bool {
+        self.load
+            .as_ref()
+            .and_then(|l| l.get("state"))
+            .and_then(|s| s.as_str())
+            == Some("ok")
+    }
+}
+
+/// `GET /v1/prompts`。默认值来自仓库的 `settings.json`。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Prompts {
+    #[serde(default)]
+    pub prompts: Vec<Prompt>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    pub default: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Prompt {
+    pub name: String,
+    pub description: Option<String>,
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
+    pub load: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl Prompt {
+    pub fn loadable(&self) -> bool {
+        self.load
+            .as_ref()
+            .and_then(|l| l.get("state"))
+            .and_then(|s| s.as_str())
+            == Some("ok")
+    }
+}
+
+/// `GET /v1/machines`。会话跑在哪台机器上，`null` = 本机。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Machines {
+    pub at: Option<i64>,
+    #[serde(default)]
+    pub machines: Vec<Machine>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Machine {
+    pub name: String,
+    pub addr: Option<String>,
+    pub user: Option<String>,
+    pub port: Option<u32>,
+    #[serde(default)]
+    pub ips: Vec<MachineIp>,
+    pub note: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MachineIp {
+    pub addr: String,
+    pub label: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/fs/dirs`。**列的是 qrd3wh 那台机器上的目录** —— 引擎跑在远程时，
+/// 这一页一行都不用改。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Dirs {
+    /// 请求时没给 `path` 就为空串（= 起点）。
+    pub path: Option<String>,
+    #[serde(default)]
+    pub dirs: Vec<DirEntry>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DirEntry {
+    /// 给眼睛看的名字（通常就是最后一段）。
+    pub name: String,
+    /// 规范绝对路径，选它就是把这一串发给引擎。
+    pub path: String,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }

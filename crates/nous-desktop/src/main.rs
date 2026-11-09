@@ -6,6 +6,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod board;
+mod board_art;
 mod branches;
 mod composer;
 mod live;
