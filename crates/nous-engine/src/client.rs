@@ -26,6 +26,12 @@ pub enum EngineError {
 #[derive(Debug, Clone)]
 pub struct EngineClient {
     http: reqwest::Client,
+    /// **SSE 专用**：长连接绝不能挂「总超时」。
+    ///
+    /// 踩过：SSE 和普通请求共用一个 `timeout(10s)` 的 client，回答超过 10 秒时 reqwest
+    /// 直接把响应体掐了，客户端看到的是 `HTTP 流断了：error decoding response body` ——
+    /// 长回答必死，而且看起来像「引擎挂了」。这条流只掐「连不上」和「一直不来数据」。
+    sse: reqwest::Client,
     /// 引擎地址，保证以 `/` 结尾。来源只能是宿主的 `__nous/resolve`，别自己拼。
     base: Url,
 }
@@ -37,7 +43,12 @@ impl EngineClient {
             url.set_path(&format!("{}/", url.path()));
         }
         let http = reqwest::Client::builder().timeout(timeout).build()?;
-        Ok(Self { http, base: url })
+        let sse = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            // 空闲读超时：只有「连着但一直没数据」才算坏。有心跳就永远不会触发。
+            .read_timeout(Duration::from_secs(180))
+            .build()?;
+        Ok(Self { http, sse, base: url })
     }
 
     fn url(&self, path: &str) -> Result<Url, EngineError> {
@@ -162,7 +173,7 @@ impl EngineClient {
         id: i64,
     ) -> Result<impl Stream<Item = Result<SseEvent, SseError>>, EngineError> {
         let resp = self
-            .http
+            .sse
             .get(self.url(&format!("v1/sessions/{id}/events"))?)
             .send()
             .await?;

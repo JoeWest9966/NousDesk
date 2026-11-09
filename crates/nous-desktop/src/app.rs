@@ -45,6 +45,9 @@ pub struct Desktop {
     live_state: Live,
     /// 有没有一条流正在跑，防止重复点火。
     streaming: bool,
+    /// 这一轮是**用户自己按的停止**。停止会让 SSE 连接断开，那不是错误 ——
+    /// 不能把「HTTP 流断了」当生成失败弹红条（真踩过：用户停了看到「重试/收起」）。
+    user_stopped: bool,
     /// 聊天区的滚动位置：新消息进来要跟着到底。
     scroll: ScrollHandle,
     _subs: Vec<Subscription>,
@@ -91,6 +94,7 @@ impl Desktop {
             live: None,
             live_state: Live::new(),
             streaming: false,
+            user_stopped: false,
             scroll: ScrollHandle::new(),
             _subs: subs,
         };
@@ -182,6 +186,7 @@ impl Desktop {
 
         // 1. 先让界面停下：`start_stream` 里那个 16ms 循环看的就是这个标志。
         self.streaming = false;
+        self.user_stopped = true;
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -263,6 +268,7 @@ impl Desktop {
         });
         self.live = Some(String::new());
         self.turn_error = None;
+        self.user_stopped = false;
         self.live_state = Live::new();
         self.streaming = true;
         cx.notify();
@@ -331,11 +337,16 @@ impl Desktop {
                         return this.streaming;
                     };
                     if let Some(err) = drained.error {
-                        // 全文进日志（红条只截前 90 字，够看出是哪类错）。
-                        log::warn!("生成失败：{err}");
-                        this.turn_error = Some(err);
                         this.live = None;
                         this.streaming = false;
+                        if this.user_stopped {
+                            // 用户按了停止：连接被掐断是**预期**，别弹红条。
+                            log::info!("停止后流断开，按预期忽略：{err}");
+                        } else {
+                            // 全文进日志（红条只截前 90 字，够看出是哪类错）。
+                            log::warn!("生成失败：{err}");
+                            this.turn_error = Some(err);
+                        }
                         cx.notify();
                         return false;
                     }
