@@ -67,6 +67,11 @@ pub struct Desktop {
     focused: bool,
     /// 当前常连着 SSE 的会话。`None` = 没连。切会话就换一个，不叠加。
     stream_for: Option<i64>,
+    /// 展开了的工具卡片，按 entry id 记。**纯内存**：它不是事实，是「我眼下想看哪块」。
+    pub(crate) open_tools: std::collections::HashSet<String>,
+    /// 正在生成的这一轮里调过的工具。只有实时流里有名字（历史里的 `pi.tool-result`
+    /// 只存输出，见 `坑.md`）。
+    pub(crate) live_tools: Vec<crate::live::ToolRun>,
     /// 每个会话的未读条数和水位。引擎按 EntryId 数好的，这边只画。
     pub(crate) unread: Unread,
     /// 左栏是不是「分支视图」。默认 false = 全部主线会话。
@@ -140,6 +145,8 @@ impl Desktop {
             tab: Tab::Chats,
             focused: true,
             stream_for: None,
+            open_tools: std::collections::HashSet::new(),
+            live_tools: vec![],
             unread: Unread::default(),
             branches: false,
             branch_of: None,
@@ -372,6 +379,8 @@ impl Desktop {
         self.turn_error = None;
         self.entries_loading = true;
         self.streaming = false;
+        self.live_tools.clear();
+        self.open_tools.clear();
         // 选中就常连：别的写出方（另一个终端、面板页）进这一条，这边会自己长出来。
         self.start_stream(cx);
         self.mark_read(id, cx);
@@ -468,6 +477,7 @@ impl Desktop {
             extra: Default::default(),
         });
         self.live = Some(String::new());
+        self.live_tools.clear();
         // **不换 Live**：常连的合帧循环靠 `Arc::ptr_eq` 认身份，换掉会让循环退场。
         self.live_state.reset_round();
         self.streaming = true;
@@ -621,12 +631,17 @@ impl Desktop {
                         return true;
                     }
                     this.live = Some(drained.text);
+                    // 工具卡片：这一轮调过哪些工具，SSE 里是带名字的（`ToolRun.name`）。
+                    // 以前 `Drained.tools` 没人看，所以 `live.rs` 里那两个字段一直是死代码。
+                    this.live_tools = drained.tools;
                     this.scroll.scroll_to_bottom();
                     if drained.done {
                         // 一轮结束：交出去，历史以引擎为准重拉一遍。流不关，继续等下一轮。
                         this.streaming = false;
                         idle_snapshot = false;
                         reload = true;
+                        // 转成历史之前先收起来：历史版会按引擎的说法重画一遍。
+                        this.live_tools.clear();
                     }
                     cx.notify();
                     true
@@ -831,6 +846,10 @@ impl Desktop {
                 })
                 .map(|e| self.bubble(e, cx).into_any_element())
                 .collect();
+            // 正在生成这一轮调的工具：SSE 里带名字，所以是「bash · hostname; pwd」。
+            for t in &self.live_tools {
+                out.push(self.tool_card(&format!("live-{}", t.id), Some(&t.name), &t.output, cx));
+            }
             // 正在生成的那条：跟助手气泡同一个样子，只是文字还在长。
             if let Some(live) = &self.live {
                 if !live.is_empty() {
@@ -1217,7 +1236,121 @@ impl Desktop {
             .into_any_element()
     }
 
-    fn bubble(&self, e: &Entry, _cx: &mut Context<Self>) -> impl IntoElement {
+    /// 工具卡片（甲案：一行细灰条，点开在**块内**滚动）。
+    ///
+    /// 为什么非要卡片：工具输出是**机器说的话**，混在气泡里既读不出来，也会把聊天区撑坏
+    /// （一整段 `ls -l` 能撑得比窗口还宽，见 `坑.md` 16）。
+    ///
+    /// 标题里那个名字只有实时流给得起；历史里的 `pi.tool-result` 只有输出，
+    /// 所以老会话显示「工具输出 · N 行」—— **不从输出内容反推是 bash 还是 read**，那是算命。
+    fn tool_card(
+        &self,
+        key: &str,
+        name: Option<&str>,
+        raw: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let text = strip_harness(raw);
+        let open = self.open_tools.contains(key);
+        let lines = text.lines().count().max(1);
+        let bytes = text.len();
+        // 失败判据只用引擎自己的标记：剥完壳以 `[error]` 开头。
+        let failed = text.trim_start().starts_with("[error]");
+        let title = name.map(|n| n.to_string()).unwrap_or_else(|| "工具输出".to_string());
+        let k = key.to_string();
+
+        // 外层是列（卡片头一行、正文在下面），但卡片头自己包一层 `flex_row`：
+        // 直接在列里放「一行东西」，它会被拉成整行宽，甲案那股「一小条」的味道就没了
+        // （跟坑.md 19 同一个病）。
+        div()
+            .flex()
+            .flex_col()
+            .items_start()
+            .px(px(12.))
+            .py(px(4.))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .child(
+                div()
+                    .id(ElementId::Name(format!("tool-{key}").into()))
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    // 不收宽度上限：长标题会被外层挤成一条缝。`max_w` 是给整条卡片的。
+                    .max_w(px(520.))
+                    .px(px(10.))
+                    .py(px(5.))
+                    .rounded(px(5.))
+                    .border_1()
+                    .border_color(rgb(0xe3e3e3))
+                    .bg(rgb(0xffffff))
+                    .cursor_pointer()
+                    .hover(|el| el.bg(rgb(0xfafafa)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
+                        let opened = this.open_tools.insert(k.clone());
+                        if !opened {
+                            this.open_tools.remove(&k);
+                        }
+                        log::info!("工具卡片 {k} -> {}", if opened { "展开" } else { "收起" });
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(10.))
+                            .text_color(rgb(MUTED))
+                            .child(if open { "▾" } else { "▸" }),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(6.))
+                            .rounded(px(3.))
+                            .bg(rgb(if failed { 0xfa5151 } else { WECHAT_GREEN })),
+                    )
+                    .child(div().flex_none().text_size(px(12.5)).child(title))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(11.))
+                            .text_color(rgb(MUTED))
+                            .child(if failed && lines == 1 {
+                                "失败".to_string()
+                            } else if failed {
+                                format!("失败 · {lines} 行")
+                            } else {
+                                format!("{lines} 行 · {}", size_text(bytes))
+                            }),
+                    ),
+                ),
+            )
+            .when(open, |el| {
+                el.child(
+                    div()
+                        .id(ElementId::Name(format!("tool-body-{key}").into()))
+                        .mt(px(2.))
+                        .max_w(px(560.))
+                        .max_h(px(190.))
+                        .overflow_y_scroll()
+                        // 不折行：等宽代码一折行缩进就全乱了，宁可让它在块里横向滚
+                        .whitespace_nowrap()
+                        .px(px(10.))
+                        .py(px(8.))
+                        .border_l_2()
+                        .border_color(rgb(0xcfcfcf))
+                        .bg(rgb(0xfbfbfb))
+                        .font_family("Consolas")
+                        .text_size(px(11.5))
+                        .text_color(rgb(0x3c3c3c))
+                        .child(text),
+                )
+            })
+            .into_any_element()
+    }
+
+    fn bubble(&self, e: &Entry, cx: &mut Context<Self>) -> AnyElement {
         let text = e.text.clone().unwrap_or_default();
         match e.kind.as_str() {
             "pi.user" => div()
@@ -1233,7 +1366,8 @@ impl Desktop {
                         .rounded(px(6.))
                         .bg(rgb(BUBBLE_ME))
                         .child(text),
-                ),
+                )
+                .into_any_element(),
             "pi.assistant" => div()
                 .flex()
                 .justify_start()
@@ -1247,7 +1381,9 @@ impl Desktop {
                         .rounded(px(6.))
                         .bg(rgb(BUBBLE_OTHER))
                         .child(text),
-                ),
+                )
+                .into_any_element(),
+            "pi.tool-result" => self.tool_card(&e.id.to_string(), None, &text, cx),
             _ => div()
                 .flex()
                 .justify_center()
@@ -1258,7 +1394,8 @@ impl Desktop {
                         .text_size(px(11.))
                         .text_color(rgb(MUTED))
                         .child(text),
-                ),
+                )
+                .into_any_element(),
         }
     }
 }
@@ -1336,6 +1473,26 @@ pub(crate) fn activity_of(s: &Session) -> i64 {
     s.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(s.id)
 }
 
+/// 剥掉引擎给工具输出套的壳：`<harness>…</harness>`。
+///
+/// 壳里通常是 `[error] …` 这类标记。壳本身对用户没有信息量 —— 谁调的、调什么，
+/// 卡片标题里已经说了；一眼看见的是「输出长什么样」。
+fn strip_harness(raw: &str) -> String {
+    let t = raw.trim();
+    let t = t.strip_prefix("<harness>").unwrap_or(t);
+    let t = t.strip_suffix("</harness>").unwrap_or(t);
+    t.trim().to_string()
+}
+
+/// 给人看的体积：`12 B` / `1.9 KB`。
+fn size_text(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    }
+}
+
 /// 列表右上角那格时间。`updatedAt` 为 null 就返回 `None` —— **不编时间**
 /// （引擎没记过就是没记过，拿文件 mtime 冒充是错的）。
 ///
@@ -1407,6 +1564,29 @@ mod tests {
     #[test]
     fn when_text_没时间就是空() {
         assert!(when_text(None).is_none());
+    }
+
+    #[test]
+    fn 工具输出剥掉_harness_壳() {
+        use super::strip_harness;
+        assert_eq!(
+            strip_harness("<harness>
+[error] boom
+</harness>"),
+            "[error] boom"
+        );
+        assert_eq!(strip_harness("j1900
+/root"), "j1900
+/root");
+        // 只有一边的壳也剥（引擎写半截的时候别把它当正文）
+        assert_eq!(strip_harness("<harness>ok"), "ok");
+    }
+
+    #[test]
+    fn 体积给人看() {
+        use super::size_text;
+        assert_eq!(size_text(12), "12 B");
+        assert_eq!(size_text(2048), "2.0 KB");
     }
 
     #[test]
