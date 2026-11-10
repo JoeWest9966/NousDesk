@@ -1,9 +1,9 @@
-//! 通讯录（模板页）。从模板开新会话是客户端唯一「从零起步」的路。
+//! Template 页（最早叫「通讯录」）。从模板开新会话是客户端唯一「从零起步」的路。
 //!
 //! 版面是两栏：**类别树**（含段切换）+ **预设列表**。段有两条，同一个私仓按段放：
 //!
-//! - `Session-Template` 会话模板：一条 = 一组「开一条会话时用什么」（**能开**）
-//! - `Ultimate-Template` 终极模板：一条 = 触发器 + 参数 + 引用的会话模板（**这一段只读**，
+//! - `Session-Template`（按钮写 **Session Template**）：一条 = 一组「开一条会话时用什么」（**能开**）
+//! - `Ultimate-Template`（按钮写 **Ultimate Template**）：一条 = 触发器 + 参数 + 引用的会话模板（**这一段只读**，
 //!   启用触发器的动作用哪个端点还没定，别在客户端发明一个）
 //!
 //! 每段各有自己的类别词表（`categories.json` 住在段目录里），所以换段 = 换词表 + 换条目 +
@@ -27,8 +27,8 @@ use crate::app::{Bar, Desktop, Tab};
 /// 两段。`(段的 id, 段标题)` —— id 是 API 的路径段，标题只做人读的按钮字。
 /// 标题引擎也会给（`Presets::title`），但按钮在数据到之前就得有字，所以这里留一份。
 pub(crate) const SECTIONS: [(&str, &str); 2] = [
-    ("Session-Template", "会话模板"),
-    ("Ultimate-Template", "终极模板"),
+    ("Session-Template", "Session Template"),
+    ("Ultimate-Template", "Ultimate Template"),
 ];
 
 /// 未分类不是词表里的类别，是我们自己的兜底桶。用这个哨兵值放进同一个「当前类别」槽。
@@ -88,7 +88,7 @@ pub(crate) struct CatNode {
 impl Desktop {
     // ── 数据 ────────────────────────────────────────────────
 
-    /// 切左栏入口。切到通讯录时顺手拉当前段（拉过就不重拉）。
+    /// 切左栏入口。切到 Template 页时顺手拉当前段（拉过就不重拉）。
     pub(crate) fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if self.tab == tab {
             return;
@@ -107,7 +107,7 @@ impl Desktop {
 
     /// 两段都拉一遍。段按钮下面要写真实条数，「—」看着像坏了。
     ///
-    /// 副作用是想要的：引擎**连上之前**打开过通讯录会留下「还没连上引擎」，
+    /// 副作用是想要的：引擎**连上之前**打开过 Template 页会留下「还没连上引擎」，
     /// 这里跑一遍会把它清掉（`load_section` 开头就 `error = None`）。
     pub(crate) fn load_all_sections(&mut self, force: bool, cx: &mut Context<Self>) {
         for i in 0..SECTIONS.len() {
@@ -269,7 +269,7 @@ impl Desktop {
 
     // ── 渲染：类别树 ────────────────────────────────────────
 
-    /// 通讯录的左栏：段切换 + 类别树 + 段脚注。
+    /// Template 页的左栏：段切换 + 类别树 + 段脚注。
     pub(crate) fn render_preset_tree(&self, cx: &mut Context<Self>) -> AnyElement {
         let sec = &self.sections[self.section];
         let tree = sec
@@ -289,7 +289,9 @@ impl Desktop {
             .flex()
             .flex_row()
             .gap(px(2.))
-            .mx(px(10.))
+            // 段名是英文（`Ultimate Template` 12px 量出来 106px，按钮只有 ~98px），
+            // 所以这里降到 11px、左右边距 10→8，把每个按钮撑到 ~100px 才不折行。
+            .mx(px(8.))
             .mb(px(10.))
             .p(px(3.))
             .rounded(px(9.))
@@ -305,7 +307,12 @@ impl Desktop {
                     .flex()
                     .flex_col()
                     .items_center()
-                    .flex_1()
+                    // 两个按钮要一样宽：`flex_1` 只长不缩，是按内容宽长起来的
+                    // （`Ultimate Template` 比 `Session Template` 宽 5px，药丸就一长一短）。
+                    // 宽度写 0 + grow，等分才准；11px 下最长那个 95px，放得下。
+                    .w(px(0.))
+                    .flex_grow(1.)
+                    .min_w(px(0.))
                     .py(px(4.))
                     .rounded(px(7.))
                     .when(active, |el| el.bg(rgb(0xffffff)))
@@ -315,7 +322,8 @@ impl Desktop {
                     }))
                     .child(
                         div()
-                            .text_size(px(12.))
+                            .text_size(px(11.))
+                            .whitespace_nowrap()
                             .text_color(rgb(if active { 0x222222 } else { 0x6a6a6a }))
                             .child(SECTIONS[i].1),
                     )
@@ -407,7 +415,7 @@ impl Desktop {
                     .px(px(14.))
                     .pt(px(14.))
                     .pb(px(8.))
-                    .child(div().text_size(px(13.)).child("通讯录"))
+                    .child(div().text_size(px(13.)).child("Template"))
                     .child(
                         div()
                             .ml_auto()
@@ -464,7 +472,8 @@ impl Desktop {
                         div()
                             .text_size(px(10.))
                             .text_color(rgb(0xb0b0b0))
-                            .child(format!("{} · {}", sec.id, sec.title)),
+                            // 段名已经写在按钮上了，脚注只留 API 的路径段（换成英文名后两者会撞）。
+                            .child(sec.id.to_string()),
                     ),
             )
             .into_any_element()
@@ -574,7 +583,7 @@ impl Desktop {
 
     // ── 渲染：预设列表 ──────────────────────────────────────
 
-    /// 通讯录的右栏：类别标题 + 条目列表。
+    /// Template 页的右栏：类别标题 + 条目列表。
     pub(crate) fn render_templates(&self, cx: &mut Context<Self>) -> AnyElement {
         let sec = &self.sections[self.section];
         let uncat = sec
@@ -815,7 +824,7 @@ impl Desktop {
                             .collect::<Vec<_>>(),
                     ),
             )
-            // 能开的行右侧画个「发起聊天」的箭头，像微信通讯录的入口。
+            // 能开的行右侧画个「发起聊天」的箭头，像微信通讯录（那个是真·通讯录）的入口。
             .when(ok, |el| {
                 el.child(
                     div().flex_none().items_center().child(

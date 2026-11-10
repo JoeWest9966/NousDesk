@@ -49,7 +49,7 @@ pub(crate) struct M {
 }
 
 /// 盘面所在的那一格 = 窗口减去图标条和左栏。
-/// 左栏宽度按当前 tab 算（聊天一栏 / 通讯录两栏），**常量直接引用 app.rs 的**，
+/// 左栏宽度按当前 tab 算（聊天一栏 / Template 两栏），**常量直接引用 app.rs 的**，
 /// 改宽度时不用再来同步这份表。
 pub(crate) fn pane_width(win_w: f32, tab: crate::app::Tab) -> f32 {
     use crate::app::{ICON_BAR_W, PRESET_TREE_W, SESSION_LIST_W, TEMPLATE_LIST_W, Tab};

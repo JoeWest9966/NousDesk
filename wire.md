@@ -148,7 +148,7 @@ body `{ entryId?, name? }`。`entryId` 省略 = **从最后一条分叉**。回 
 
 ### GET /v1/presets/:section
 
-模板（通讯录）那一页的数据。**段（section）不是只有一个**：同一个私仓按段放，
+Template 页（原来叫「通讯录」）的数据。**段（section）不是只有一个**：同一个私仓按段放，
 `Session-Template`（会话模板）和 `Ultimate-Template`（终极模板）各自一套端点、一套数据、
 **一套类别词表**（`categories.json` 住在段目录里）。
 
@@ -266,7 +266,7 @@ body `{ entryId?, name? }`。`entryId` 省略 = **从最后一条分叉**。回 
 | 删 `last` / 换形状 | 列表预览空了 |
 | `parent` 语义变 | fork 过滤逻辑失效 |
 | 删 `updatedAt` / 单位换成秒 | 列表时间全空，或者每条都显示成 1970 |
-| `categories` 里把零计数的类别滤掉 | 通讯录里「建了但还没挂东西」的类别消失 |
+| `categories` 里把零计数的类别滤掉 | Template 页里「建了但还没挂东西」的类别消失 |
 | `category` 的 `/` 改成另一种分隔符 | 层级树断成一层，父级筛选丢失整枝 |
 | `repo` 整块没了 / `head` 变必填 | 段脚注显示「仓状态未知」，最坏是解析失败 |
 | 终极模板的 `trigger` / `session` 改名 | 那一段的 chip 没了（只是少显示，不报错） |

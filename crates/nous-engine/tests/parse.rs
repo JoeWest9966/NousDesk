@@ -264,7 +264,7 @@ fn create_session_body_is_camel_case() {
 #[test]
 fn parse_presets_with_categories_and_repo() {
     // GET /v1/presets/Session-Template 的真实响应（2026-11-09 实测，条目截到一条）。
-    // 两个字段是通讯录要用的：`categories`（含零计数类别，引擎已排序）+ `repo`（这一段的仓状态）。
+    // 两个字段是 Template 页要用的：`categories`（含零计数类别，引擎已排序）+ `repo`（这一段的仓状态）。
     let json = r#"{
       "section": "Session-Template",
       "title": "会话模板",
