@@ -66,7 +66,7 @@ body `{ content, requestId?, waitMs?, whenBusy? }`。
 
 | type | 我们依赖什么 | 备注 |
 |---|---|---|
-| `snapshot` | `generation?.message` | 重连第一帧。有正在生成的消息就续上，没有就只当「连上了」 |
+| `snapshot` | `generation?.message`；`entries[].model[].timestamp` | 重连第一帧。有正在生成的消息就续上，没有就只当「连上了」。**`entries` 是唯一的时间源**：`/v1/entries` 不给时间（引擎的 `activity.json` 只按会话记一个时刻），按天分组目录读这里 |
 | `message_start` | `message.role === "assistant"` | user/system 也发，只有 assistant 该开口一个气泡 |
 | `message_update` | `changes[]` | 见下 |
 | `message_end` | `entry.kind === "pi.assistant"` 时收尾 | 助手气泡结束，把攒的字定稿 |
