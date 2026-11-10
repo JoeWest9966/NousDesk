@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nous Desk · 左下「更多」菜单 · 样品间（3 个理解）</title>
+<!--
+  已定稿：C（分组应用面板 + 主区整页），图标锚在深色窄条。
+  实现落在 crates/nous-desktop/src/settings.rs；本文件留作当时的样品间，不进产品。
+
+  PROTOTYPE / THROWAWAY — 只是对齐视觉用的 HTML 样品间，不进 GPUI，不进生产包，不碰引擎。
+  问题：最左深色窄条底部加微信式「≡ 更多」按钮 → 点开选项菜单 → 菜单里有一项「设置」。
+  三个变体（?variant=a|b|c） disagree 的是结构：菜单的形态 + 设置打开后是什么，不是配色。
+  双击本文件即可；也可 `python -m http.server` 后开 ?variant=b。
+-->
+<style>
+  :root{
+    --rail:#2e2e2e; --list:#f7f7f7; --chat:#ededed; --green:#07c160;
+    --line:#e2e2e2; --muted:#999; --faint:#aaa; --ink:#1a1a1a;
+    --desk:#e9e8e4;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--desk);color:var(--ink);font-size:13px;
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;
+       -webkit-font-smoothing:antialiased}
+  button,input,select{font:inherit;color:inherit}
+  button{cursor:pointer;border:0;background:none;padding:0}
+  svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;
+      stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+  /* ── 工作台（窗口外的说明，不是产品界面） ───────────────── */
+  .stage{max-width:1200px;margin:0 auto;padding:20px 24px 100px}
+  .lede{margin:0 0 12px;font-size:14px;font-weight:600;letter-spacing:-.01em}
+  .lede span{font-weight:400;color:#8a8882;font-size:12px;margin-left:8px}
+  .guess{background:rgba(255,255,255,.66);border:1px solid #dedcd6;border-radius:10px;
+         padding:10px 14px;margin-bottom:14px;font-size:12.5px;line-height:1.85;color:#55534e}
+  .guess b{color:#2b2a27;font-weight:600}
+  .guess ol{margin:4px 0 4px;padding-left:20px}
+  .guess .q{color:#a2600a;background:#fdf3e0;border-radius:4px;padding:1px 5px}
+  .guess code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+              background:#eceae5;border-radius:3px;padding:1px 4px}
+
+  /* ── 应用窗口 + 三栏骨架（这是真实页面，三个变体共用） ──── */
+  .variant{display:none}
+  .variant.active{display:block}
+  .window{position:relative;display:flex;width:100%;
+          height:min(720px,calc(100vh - 230px));min-height:470px;
+          background:#fff;border-radius:12px;overflow:hidden;
+          box-shadow:0 18px 50px rgba(0,0,0,.13),0 0 0 1px rgba(0,0,0,.05)}
+  .rail{width:60px;flex:none;background:var(--rail);display:flex;flex-direction:column;
+        align-items:center;padding:12px 0;gap:8px}
+  .tab{width:40px;height:40px;border-radius:8px;display:grid;place-items:center;color:#9a9a9a}
+  .tab svg{width:21px;height:21px}
+  .tab:hover{background:#3a3a3a}
+  .tab.on{color:var(--green)}
+  .spacer{flex:1}
+  .more{width:40px;height:40px;border-radius:8px;display:grid;place-items:center;
+        color:#9a9a9a;position:relative}
+  .more svg{width:21px;height:21px}
+  .more:hover{background:#3a3a3a;color:#e6e6e6}
+  .variant.menu-open .more{background:#3f3f3f;color:#fff}
+  .more .newdot{position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;
+                background:var(--green)}
+
+  .list{width:280px;flex:none;background:var(--list);border-right:1px solid var(--line);
+        display:flex;flex-direction:column;min-width:0}
+  .list-hd{padding:12px 12px 8px;border-bottom:1px solid #ebebeb}
+  .list-hd b{font-size:14px;font-weight:600}
+  .list-hd span{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
+  .rows{flex:1;overflow:auto}
+  .row{display:flex;gap:9px;padding:9px 12px;align-items:center;border-bottom:1px solid rgba(0,0,0,.035)}
+  .row:hover{background:#ececec}
+  .row.on{background:#dedede}
+  .av{width:34px;height:34px;border-radius:5px;background:#cfd8dc;flex:none;
+      display:grid;place-items:center;color:#5a6b73;font-size:12px}
+  .row .t{flex:1;min-width:0}
+  .row .l1{display:flex;justify-content:space-between;gap:6px;align-items:center}
+  .row .name{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .when{font-size:10.5px;color:var(--muted);flex:none}
+  .row .pre{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;
+            white-space:nowrap;margin-top:2px}
+  .pin{color:#c9a227;font-size:10px;margin-right:3px}
+  .badge{background:#fa5151;color:#fff;font-size:10px;border-radius:9px;padding:0 5px;flex:none}
+  .list-more{margin:0 0 10px 10px;width:auto;padding:0 10px;height:34px;gap:8px;
+             justify-content:flex-start;display:none;color:#6b6b6b;font-size:12px;
+             border-radius:6px;border:1px solid #e3e3e3;background:#fff}
+  .list-more:hover{border-color:var(--green);color:var(--green)}
+  .list-more .newdot{display:none}
+  body.anchor-list .menu{left:70px;bottom:52px}
+  body.anchor-list .rail-more{display:none}
+  body.anchor-list .list-more{display:flex}
+
+  .chat{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--chat)}
+  .chat-normal,.settings-page{display:flex;flex-direction:column;flex:1;min-height:0}
+  .settings-page{display:none}
+  .chat-top{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;
+            background:var(--list);border-bottom:1px solid var(--line);font-size:14px;font-weight:600}
+  .chat-top small{font-weight:400;color:var(--muted);font-size:11.5px}
+  .bubbles{flex:1;overflow:auto;padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+  .b{display:flex}
+  .b.me{justify-content:flex-end}
+  .b .txt{max-width:460px;padding:9px 12px;border-radius:6px;font-size:13px;line-height:1.6;
+          background:#fff;box-shadow:0 1px 1px rgba(0,0,0,.04)}
+  .b.me .txt{background:#95ec69}
+  .composer{height:72px;flex:none;background:var(--list);border-top:1px solid var(--line);
+            padding:10px 14px}
+  .composer .box{background:#fff;border:1px solid var(--line);border-radius:6px;height:100%;
+                 padding:8px 10px;font-size:12.5px;color:var(--faint)}
+
+  /* ── 菜单共用的位置：从按钮右上方往上展开（微信「更多」的方向） ── */
+  .menu{position:absolute;left:54px;bottom:12px;z-index:30;background:#fff;
+        border-radius:9px;padding:6px;box-shadow:0 12px 38px rgba(0,0,0,.22),
+        0 0 0 1px rgba(0,0,0,.05);display:none}
+  .variant.menu-open .menu{display:block;animation:pop .13s ease-out}
+  @keyframes pop{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+  .menu::before{content:"";position:absolute;left:-4px;bottom:14px;width:9px;height:9px;
+                background:#fff;transform:rotate(45deg);box-shadow:-1px 1px 0 rgba(0,0,0,.04)}
+  .mi{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:6px;
+      font-size:12.5px;white-space:nowrap;cursor:pointer;color:#333}
+  .mi:hover{background:#f2f2f2}
+  .mi svg{width:15px;height:15px;color:#777}
+  .mi .key{margin-left:auto;font-size:10px;color:#b0b0b0}
+  .mi.hero{font-weight:600}
+  .mi.hero svg{color:var(--green)}
+  .mi .tag{font-size:9px;font-weight:700;letter-spacing:.06em;color:#fff;background:var(--green);
+           border-radius:3px;padding:1px 4px;margin-left:auto}
+  .mi .sep{margin-left:auto}
+  .msep{height:1px;background:#eee;margin:5px 4px}
+  .mi.danger{color:#c33}
+  .mi.danger svg{color:#c33}
+
+  /* ── 表单小件（三个变体都用，但排布各写各的） ─────────── */
+  .fld{display:flex;flex-direction:column;gap:5px}
+  .fld label{font-size:11.5px;color:#777}
+  .fld input,.fld select{height:30px;border:1px solid #dcdcdc;border-radius:5px;padding:0 9px;
+                         font-size:12.5px;background:#fff;width:100%}
+  .fld input:focus,.fld select:focus{outline:none;border-color:var(--green)}
+  .ro{background:#f6f6f6;border:1px dashed #d8d8d8;border-radius:5px;padding:8px 10px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#666;line-height:1.6}
+  .note{font-size:11px;color:#9a9a9a;line-height:1.7}
+  .btn{height:29px;padding:0 13px;border-radius:5px;background:#f0f0f0;font-size:12px;color:#444}
+  .btn:hover{background:#e6e6e6}
+  .btn.primary{background:var(--green);color:#fff}
+  .btn.primary:hover{background:#06ad56}
+  .sw{width:30px;height:17px;border-radius:9px;background:#d5d5d5;position:relative;flex:none;
+      cursor:pointer;transition:.15s}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+             background:#fff;transition:.15s}
+  .sw.on{background:var(--green)}
+  .sw.on::after{left:15px}
+  .setrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+          padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:12.5px}
+  .setrow:last-child{border-bottom:0}
+  .setrow .sub{font-size:11px;color:#9a9a9a;margin-top:2px}
+
+  /* ── A：微信原版小菜单 + 独立「设置窗口」 ───────────────── */
+  .v-a .menu{width:186px}
+  .setwin{position:absolute;inset:0;z-index:40;display:none;place-items:center;
+          background:rgba(0,0,0,.26)}
+  .v-a.settings-open .setwin{display:grid}
+  .setwin .card{width:min(650px,calc(100% - 60px));max-height:calc(100% - 44px);
+                background:#fff;border-radius:9px;overflow:hidden;display:flex;flex-direction:column;
+                box-shadow:0 26px 70px rgba(0,0,0,.3);animation:pop .15s ease-out}
+  .setwin .titlebar{height:40px;flex:none;display:flex;align-items:center;padding:0 12px 0 16px;
+                    background:#fafafa;border-bottom:1px solid #eee;font-size:13px;font-weight:600}
+  .setwin .titlebar .x{margin-left:auto;width:26px;height:26px;border-radius:5px;color:#888;
+                       display:grid;place-items:center}
+  .setwin .titlebar .x:hover{background:#eee;color:#333}
+  .setwin .body{display:flex;flex:1;min-height:0}
+  .setwin .cats{width:150px;flex:none;background:#f7f7f7;border-right:1px solid #eee;padding:8px 6px}
+  .setwin .cat{padding:8px 10px;border-radius:6px;font-size:12.5px;color:#555;cursor:pointer}
+  .setwin .cat:hover{background:#ececec}
+  .setwin .cat.on{background:#e5e5e5;color:#111;font-weight:600}
+  .setwin .pane{flex:1;min-width:0;overflow:auto;padding:18px 20px}
+  .setwin h3{margin:0 0 4px;font-size:14px}
+  .setwin .pane>.note{margin:0 0 16px}
+  .setwin .grid{display:flex;flex-direction:column;gap:13px;max-width:430px}
+  .setwin .foot{flex:none;border-top:1px solid #eee;padding:10px 16px;display:flex;gap:8px;
+                justify-content:flex-end;background:#fafafa}
+
+  /* ── B：极简两项菜单 + 贴着左栏滑出的抽屉 ───────────────── */
+  .v-b .menu{width:148px;left:54px}
+  .drawer{position:absolute;left:60px;top:0;bottom:0;width:280px;z-index:40;background:#fff;
+          box-shadow:8px 0 26px rgba(0,0,0,.14);display:flex;flex-direction:column;
+          transform:translateX(-102%);transition:transform .2s ease;display:none}
+  .v-b.settings-open .drawer{display:flex;transform:none;animation:slide .2s ease-out}
+  @keyframes slide{from{transform:translateX(-102%)}to{transform:none}}
+  .drawer .dh{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;
+              border-bottom:1px solid #eee;font-size:13px;font-weight:600}
+  .drawer .dh .x{margin-left:auto;width:26px;height:26px;border-radius:5px;color:#888;
+                 display:grid;place-items:center}
+  .drawer .dh .x:hover{background:#f0f0f0}
+  .drawer .db{flex:1;overflow:auto;padding:12px 14px}
+  .drawer h4{margin:14px 0 6px;font-size:10.5px;color:#a0a0a0;letter-spacing:.08em;font-weight:600}
+  .drawer h4:first-child{margin-top:0}
+  .drawer .grid{display:flex;flex-direction:column;gap:10px}
+  .drawer .df{flex:none;border-top:1px solid #eee;padding:10px 14px;display:flex;gap:8px;
+              justify-content:flex-end}
+
+  /* ── C：分组「应用面板」+ 主区整页设置 ─────────────────── */
+  .v-c .menu{width:266px;padding:0;overflow:hidden}
+  .v-c .menu::before{display:none}
+  .v-c .mhd{display:flex;align-items:center;gap:10px;padding:14px;background:#f7f7f7;
+            border-bottom:1px solid #eee}
+  .v-c .mhd .av{width:36px;height:36px;background:#2e2e2e;color:#fff;font-size:13px}
+  .v-c .mhd b{font-size:13px;display:block}
+  .v-c .mhd .st{font-size:11px;color:#0a9e55;margin-top:2px}
+  .v-c .mhd .st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+                        background:var(--green);margin-right:5px;vertical-align:1px}
+  .v-c .mgroup{padding:8px 6px}
+  .v-c .mgroup+.mgroup{border-top:1px solid #f0f0f0}
+  .v-c .glb{font-size:10px;color:#aaa;letter-spacing:.08em;padding:3px 10px 5px;font-weight:600}
+  .v-c .mi{height:32px}
+  .v-c .mi .chev{margin-left:auto;color:#bbb;width:13px;height:13px}
+  .v-c.settings-open .chat-normal{display:none}
+  .v-c.settings-open .settings-page{display:flex}
+  .spage .chat-top{justify-content:flex-start;gap:10px}
+  .spage .back{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:400;color:#666}
+  .spage .back:hover{color:var(--green)}
+  .spage .sbody{flex:1;display:flex;min-height:0;background:#fff}
+  .spage .nav{width:170px;flex:none;border-right:1px solid #eee;padding:10px 6px;background:#fafafa}
+  .spage .nav .n{padding:8px 10px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#555}
+  .spage .nav .n:hover{background:#eee}
+  .spage .nav .n.on{background:#e8f7ee;color:#079c50;font-weight:600}
+  .spage .pane{flex:1;min-width:0;overflow:auto;padding:20px 26px}
+  .spage .pane h3{margin:0 0 3px;font-size:15px}
+  .spage .pane>.note{margin:0 0 18px}
+  .spage .grid{display:flex;flex-direction:column;gap:14px;max-width:480px}
+  .spage .foot{margin-top:22px;display:flex;gap:8px;justify-content:flex-end}
+
+  /* ── toast + 样品间切换条（明显不是产品界面） ─────────── */
+  .toast{position:absolute;right:16px;bottom:16px;z-index:60;background:rgba(30,30,30,.9);
+         color:#fff;font-size:11.5px;padding:8px 12px;border-radius:6px;display:none}
+  .toast.on{display:block}
+  .switcher{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:100;
+            background:#202020;color:#fff;border-radius:12px;padding:8px 10px 7px;
+            box-shadow:0 10px 34px rgba(0,0,0,.32);min-width:460px;
+            font-family:-apple-system,"Segoe UI","Microsoft YaHei UI",sans-serif}
+  .sw1{display:flex;align-items:center;gap:8px}
+  .switcher .badge-label{font-size:9px;font-weight:700;letter-spacing:.1em;color:#8fe3b3;
+                         border:1px solid #3e6b52;border-radius:4px;padding:2px 5px;white-space:nowrap}
+  .switcher .arw{width:26px;height:26px;border-radius:6px;color:#ddd;display:grid;place-items:center;
+                 font-size:15px}
+  .switcher .arw:hover{background:#3a3a3a}
+  .switcher .lab{flex:1;text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;
+                 text-overflow:ellipsis}
+  .switcher .lab b{color:#8fe3b3}
+  .switcher .anchor{font-size:10.5px;color:#bbb;border:1px solid #4a4a4a;border-radius:5px;
+                    padding:4px 7px;white-space:nowrap}
+  .switcher .anchor:hover{border-color:#8fe3b3;color:#8fe3b3}
+  .sw2{margin-top:6px;font-size:10.5px;color:#9a9a9a;text-align:center;
+       font-family:ui-monospace,Consolas,monospace;letter-spacing:.01em}
+  .sw2 b{color:#ddd;font-weight:500}
+  .footnote{max-width:1200px;margin:12px auto 0;padding:0 24px;font-size:11.5px;color:#8a8882;
+            line-height:1.8}
+  .footnote b{color:#55534e;font-weight:600}
+</style>
+</head>
+<body>
+
+<!-- 图标 sprite（共享资源，不是共享布局） -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 9.5 9.5 0 0 1-4-.9L3 21l1.9-4.5A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" y1="6.5" x2="20" y2="6.5"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17.5" x2="20" y2="17.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
+</svg>
+
+<div class="stage">
+  <p class="lede">左下「更多」→ 选项菜单 → 设置<span>样品间 · 双击本文件即可 · 不进 GPUI</span></p>
+
+  <div class="guess">
+    <b>我在对齐的三件事</b>（不对的那条直接报编号）：
+    <ol>
+      <li>「三个横杠」= <b>≡ 更多</b>，放在<b>最左 60px 深色图标条的底部</b>（聊天 / 通讯录两个 tab 之下），不是会话列表栏底部。拿不准的话点下面切换条右侧的「图标位置」看另一种。</li>
+      <li>点击后菜单<b>从按钮右上方往上弹</b>（微信「更多」的方向），里面有一项 <b>⚙ 设置</b>；其余条目这次只是占位，不实现。</li>
+      <li>设置里只放 <code>host</code> / <code>board</code> + 当前命中的配置文件；<b>引擎地址不进配置</b>，仍由 <code>__nous/resolve/&lt;engine&gt;</code> 拿 —— 三条规矩之一，我不会在设置里加个引擎地址输入框。</li>
+    </ol>
+    <span class="q">拿不准的是「设置」点开后长什么样</span>，所以给了 3 个结构完全不同的样子：独立窗口 / 左栏抽屉 / 主区整页。用 ← → 或键盘方向键翻，也可以直接拼。
+  </div>
+
+  <!-- ══════════ A ══════════ -->
+  <section class="variant v-a" id="vA">
+    <div class="window">
+      <div class="rail">
+        <button class="tab on"><svg><use href="#i-chat"/></svg></button>
+        <button class="tab"><svg><use href="#i-users"/></svg></button>
+        <div class="spacer"></div>
+        <button class="more rail-more" data-v="a" title="更多"><svg><use href="#i-menu"/></svg><i class="newdot"></i></button>
+      </div>
+      <div class="list">
+        <div class="list-hd"><b>Nous</b><span>6 个会话 · 已连接</span></div>
+        <div class="rows"></div>
+        <button class="more list-more" data-v="a"><svg><use href="#i-menu"/></svg>更多<i class="newdot"></i></button>
+      </div>
+      <div class="chat"><div class="chat-normal"></div></div>
+
+      <div class="menu">
+        <div class="mi hero" data-act="settings"><svg><use href="#i-gear"/></svg>设置<span class="tag">NEW</span></div>
+        <div class="mi" data-act="notify"><svg><use href="#i-bell"/></svg>消息通知</div>
+        <div class="mi" data-act="update"><svg><use href="#i-refresh"/></svg>检查更新</div>
+        <div class="mi" data-act="about"><svg><use href="#i-info"/></svg>关于 Nous</div>
+        <div class="msep"></div>
+        <div class="mi danger" data-act="logout"><svg><use href="#i-out"/></svg>退出登录</div>
+      </div>
+
+      <!-- 独立设置窗口 -->
+      <div class="setwin">
+        <div class="card">
+          <div class="titlebar">设置
+            <button class="x close-settings" data-v="a"><svg><use href="#i-x"/></svg></button>
+          </div>
+          <div class="body">
+            <div class="cats">
+              <div class="cat">通用</div>
+              <div class="cat on">连接</div>
+              <div class="cat">关于</div>
+            </div>
+            <div class="pane">
+              <h3>连接</h3>
+              <p class="note">只改这两项。改完保存并重新连接，不动引擎那一半。</p>
+              <div class="grid">
+                <div class="fld"><label>宿主地址 host</label><input value="http://127.0.0.1:4790"></div>
+                <div class="fld"><label>Board</label><input value="new1"></div>
+                <div class="fld"><label>引擎地址（只读）</label>
+                  <div class="ro">由 &lt;host&gt;/p/&lt;board&gt;/&lt;self&gt;/__nous/resolve/&lt;engine&gt; 获取<br>不写进配置 · 不写进常量</div></div>
+                <div class="fld"><label>当前命中的配置文件</label>
+                  <div class="ro">%APPDATA%\nous\desktop.toml</div>
+                  <div class="note">查找顺序：NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → %APPDATA%</div>
+                </div>
+                <div class="setrow"><div>启动时自动连接<div class="sub">关掉就停在空列表，手动点「重新连接」</div></div><div class="sw on"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn" data-act="openfile"><svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px"><use href="#i-folder"/></svg>打开配置文件</button>
+            <button class="btn" data-act="reconnect">重新连接</button>
+            <button class="btn primary" data-act="save">保存</button>
+          </div>
+        </div>
+      </div>
+      <div class="toast"></div>
+    </div>
+  </section>
+
+  <!-- ══════════ B ══════════ -->
+  <section class="variant v-b" id="vB">
+    <div class="window">
+      <div class="rail">
+        <button class="tab on"><svg><use href="#i-chat"/></svg></button>
+        <button class="tab"><svg><use href="#i-users"/></svg></button>
+        <div class="spacer"></div>
+        <button class="more rail-more" data-v="b" title="更多"><svg><use href="#i-menu"/></svg><i class="newdot"></i></button>
+      </div>
+      <div class="list">
+        <div class="list-hd"><b>Nous</b><span>6 个会话 · 已连接</span></div>
+        <div class="rows"></div>
+        <button class="more list-more" data-v="b"><svg><use href="#i-menu"/></svg>更多<i class="newdot"></i></button>
+      </div>
+      <div class="chat"><div class="chat-normal"></div></div>
+
+      <div class="menu">
+        <div class="mi hero" data-act="settings"><svg><use href="#i-gear"/></svg>设置<span class="tag">NEW</span></div>
+        <div class="msep"></div>
+        <div class="mi" data-act="about"><svg><use href="#i-info"/></svg>关于</div>
+      </div>
+
+      <!-- 就地抽屉：盖住会话列表，聊天区还在 -->
+      <div class="drawer">
+        <div class="dh"><svg><use href="#i-gear"/></svg>设置
+          <button class="x close-settings" data-v="b"><svg><use href="#i-x"/></svg></button>
+        </div>
+        <div class="db">
+          <h4>连接</h4>
+          <div class="grid">
+            <div class="fld"><label>宿主地址 host</label><input value="http://127.0.0.1:4790"></div>
+            <div class="fld"><label>Board</label><input value="new1"></div>
+            <div class="note">引擎地址仍由 resolve 获取，设置里不给它留输入框。</div>
+          </div>
+          <h4>外观</h4>
+          <div class="setrow"><div>深色模式<div class="sub">示例项 · 未定</div></div><div class="sw"></div></div>
+          <div class="setrow"><div>消息字号<div class="sub">示例项 · 未定</div></div><span class="note">中</span></div>
+          <h4>启动</h4>
+          <div class="setrow"><div>开机自启<div class="sub">示例项 · 未定</div></div><div class="sw on"></div></div>
+          <h4>路径</h4>
+          <div class="ro">%APPDATA%\nous\desktop.toml<br>%LOCALAPPDATA%\nous\desktop.log</div>
+        </div>
+        <div class="df"><button class="btn" data-act="reconnect">重新连接</button>
+          <button class="btn primary" data-act="save">保存</button></div>
+      </div>
+      <div class="toast"></div>
+    </div>
+  </section>
+
+  <!-- ══════════ C ══════════ -->
+  <section class="variant v-c" id="vC">
+    <div class="window">
+      <div class="rail">
+        <button class="tab on"><svg><use href="#i-chat"/></svg></button>
+        <button class="tab"><svg><use href="#i-users"/></svg></button>
+        <div class="spacer"></div>
+        <button class="more rail-more" data-v="c" title="更多"><svg><use href="#i-menu"/></svg><i class="newdot"></i></button>
+      </div>
+      <div class="list">
+        <div class="list-hd"><b>Nous</b><span>6 个会话 · 已连接</span></div>
+        <div class="rows"></div>
+        <button class="more list-more" data-v="c"><svg><use href="#i-menu"/></svg>更多<i class="newdot"></i></button>
+      </div>
+      <div class="chat">
+        <div class="chat-normal"></div>
+        <div class="settings-page spage">
+          <div class="chat-top"><button class="back back-to-chat" data-v="c"><svg><use href="#i-back"/></svg>返回聊天</button>
+            <span style="flex:1"></span><small>设置</small></div>
+          <div class="sbody">
+            <div class="nav">
+              <div class="n on">连接</div><div class="n">通用</div><div class="n">消息通知</div>
+              <div class="n">快捷键</div><div class="n">关于</div>
+            </div>
+            <div class="pane">
+              <h3>连接</h3>
+              <p class="note">桌面端只认宿主地址和 board；引擎地址从 resolve 拿，不写进配置。</p>
+              <div class="grid">
+                <div class="fld"><label>宿主地址 host</label><input value="http://127.0.0.1:4790"></div>
+                <div class="fld"><label>Board</label><input value="new1"></div>
+                <div class="fld"><label>引擎地址（只读）</label>
+                  <div class="ro">由 &lt;host&gt;/p/&lt;board&gt;/&lt;self&gt;/__nous/resolve/&lt;engine&gt; 获取</div></div>
+                <div class="fld"><label>配置文件（当前命中第 3 级）</label>
+                  <div class="ro">%APPDATA%\nous\desktop.toml</div>
+                  <div class="note">NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → %APPDATA%</div>
+                </div>
+                <div class="setrow"><div>启动时自动连接</div><div class="sw on"></div></div>
+                <div class="setrow"><div>连接状态<div class="sub">引擎版本会进日志与「关于」</div></div>
+                  <span style="font-size:11.5px;color:#079c50">已连接</span></div>
+              </div>
+              <div class="foot"><button class="btn" data-act="reconnect">重新连接</button>
+                <button class="btn primary" data-act="save">保存</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 分组应用面板 -->
+      <div class="menu">
+        <div class="mhd"><div class="av">N</div><div><b>Nous Desktop</b><div class="st">已连接 · new1</div></div></div>
+        <div class="mgroup">
+          <div class="glb">应用</div>
+          <div class="mi hero" data-act="settings"><svg><use href="#i-gear"/></svg>设置<span class="tag">NEW</span></div>
+          <div class="mi" data-act="notify"><svg><use href="#i-bell"/></svg>消息通知<svg class="chev"><use href="#i-chev"/></svg></div>
+          <div class="mi" data-act="keys"><svg><use href="#i-keyboard"/></svg>快捷键<svg class="chev"><use href="#i-chev"/></svg></div>
+        </div>
+        <div class="mgroup">
+          <div class="glb">连接</div>
+          <div class="mi" data-act="switch"><svg><use href="#i-monitor"/></svg>切换 Board<svg class="chev"><use href="#i-chev"/></svg></div>
+          <div class="mi" data-act="reconnect2"><svg><use href="#i-refresh"/></svg>重新连接</div>
+        </div>
+        <div class="mgroup">
+          <div class="glb">关于</div>
+          <div class="mi" data-act="about"><svg><use href="#i-info"/></svg>版本 v0.1.x<svg class="chev"><use href="#i-chev"/></svg></div>
+          <div class="mi" data-act="update"><svg><use href="#i-refresh"/></svg>检查更新</div>
+          <div class="msep"></div>
+          <div class="mi danger" data-act="logout"><svg><use href="#i-out"/></svg>退出登录</div>
+        </div>
+      </div>
+      <div class="toast"></div>
+    </div>
+  </section>
+
+  <p class="footnote"><b>怎么读：</b>A/B/C 共用同一张三栏真界面，只换「菜单 + 设置」这一段。
+    菜单默认已展开，点 ☰ 可以收起 / 再开；点「设置」看落点；点别的条目只会提示占位。
+    <b>确认后我按选中的那个改 GPUI</b>（只动 <code>crates/nous-desktop</code>，协议层和 J1900 内核都不碰）。</p>
+</div>
+
+<!-- 样品间切换条：高对比、明显不属于被评估的界面 -->
+<div class="switcher">
+  <div class="sw1">
+    <span class="badge-label">PROTOTYPE</span>
+    <button class="arw" id="prev" title="← 上一个">←</button>
+    <span class="lab" id="lab"></span>
+    <button class="arw" id="next" title="下一个 →">→</button>
+    <button class="anchor" id="anchorBtn"></button>
+  </div>
+  <div class="sw2" id="state"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var NAMES = {
+    a:"A · 微信原版：小菜单 + 独立设置窗",
+    b:"B · 极简：两项菜单 + 左栏抽屉",
+    c:"C · 应用面板：分组菜单 + 主区整页"
+  };
+  var KEYS = ["a","b","c"];
+  var current = "a", anchor = "rail", hit = {a:"—",b:"—",c:"—"};
+
+  /* 共享的真实页面数据：会话列表 + 聊天区。三个变体共用，不算共享布局。 */
+  var SESSIONS = [
+    {av:"📌",pin:true,name:"产品周会",when:"10:24",pre:"下周一之前把验收清单过一遍",on:true},
+    {av:"🧭",name:"nous-desktop",when:"09:58",pre:"左栏底部那个按钮先别写死",badge:"2"},
+    {av:"🗂",name:"模型选型",when:"昨天",pre:"242 个模型，先按供应商分"},
+    {av:"🔧",name:"J1900 面板",when:"昨天",pre:"resolve 返回 200",badge:""},
+    {av:"📖",name:"读书笔记",when:"周二",pre:"markdown 代码块要不要 nowrap"},
+    {av:"🤖",name:"模板 · 日报",when:"周一",pre:"已从模板开一条"}
+  ];
+  var rowsHTML = SESSIONS.map(function(s){
+    return '<div class="row'+(s.on?" on":"")+'"><div class="av">'+s.av+'</div><div class="t">'+
+      '<div class="l1"><span class="name">'+(s.pin?'<span class="pin">📌</span>':"")+s.name+'</span>'+
+      (s.badge?'<span class="badge">'+s.badge+'</span>':'<span class="when">'+s.when+'</span>')+'</div>'+
+      '<div class="pre">'+s.pre+'</div></div></div>';
+  }).join("");
+  var chatHTML =
+    '<div class="chat-top">产品周会 <small>· 6 条消息</small></div>'+
+    '<div class="bubbles">'+
+      '<div class="b"><div class="txt">左栏底部那个位置，微信是一个三条横杠的「更多」按钮，点开是竖排菜单。</div></div>'+
+      '<div class="b me"><div class="txt">对，我们也放那儿。菜单里先做一项「设置」就够了。</div></div>'+
+      '<div class="b"><div class="txt">设置里只写 host 和 board 吧，引擎地址还是从 resolve 拿 —— 别在配置里再开一个口子。</div></div>'+
+      '<div class="b me"><div class="txt">同意。我先出个 HTML 给你看落点。</div></div>'+
+    '</div>'+
+    '<div class="composer"><div class="box">输入消息，回车发送</div></div>';
+
+  document.querySelectorAll(".rows").forEach(function(el){ el.innerHTML = rowsHTML; });
+  document.querySelectorAll(".chat-normal").forEach(function(el){ el.innerHTML = chatHTML; });
+
+  function V(k){ return document.getElementById("v"+k.toUpperCase()); }
+  function toast(v,msg){
+    var t=v.querySelector(".toast"); if(!t) return;
+    t.textContent=msg; t.classList.add("on");
+    clearTimeout(t._tm); t._tm=setTimeout(function(){t.classList.remove("on");},1900);
+  }
+  function readout(){
+    var v=V(current);
+    var menu=v.classList.contains("menu-open")?"开":"关";
+    var set =v.classList.contains("settings-open")?"开":"关";
+    document.getElementById("state").innerHTML =
+      "状态 · 菜单 <b>"+menu+"</b> · 设置 <b>"+set+"</b> · 图标 <b>"+
+      (anchor==="rail"?"深色窄条":"会话列表栏")+"</b> · 命中项 <b>"+hit[current]+"</b> · ?variant="+current;
+    document.getElementById("anchorBtn").textContent =
+      "图标位置："+(anchor==="rail"?"深色窄条":"会话列表栏");
+  }
+  function reset(v){ v.classList.remove("settings-open"); v.classList.add("menu-open");
+                     hit[v.id.slice(1).toLowerCase()]="—"; }
+  function apply(){
+    KEYS.forEach(function(k){ var v=V(k); v.classList.toggle("active",k===current); });
+    document.body.classList.toggle("anchor-list",anchor==="list");
+    document.getElementById("lab").innerHTML="<b>"+current.toUpperCase()+"</b> · "+NAMES[current].slice(4);
+    readout();
+  }
+  function setParam(k,val){
+    var u=new URL(location.href); u.searchParams.set(k,val);
+    try{ history.replaceState(null,"",u); }catch(e){}  /* file:// 下可能被拒；切换与键盘仍照常可用 */
+  }
+  function go(k,resetState){
+    current=k;
+    if(resetState!==false) KEYS.forEach(function(x){ reset(V(x)); });
+    setParam("variant",k); apply();
+  }
+  function firstState(){
+    var p=new URL(location.href).searchParams;
+    var k=p.get("variant"); current=KEYS.indexOf(k)>=0?k:"a";
+    anchor=p.get("anchor")==="list"?"list":"rail";
+    KEYS.forEach(function(x){ reset(V(x)); });
+    apply();
+  }
+
+  /* 交互：菜单 / 设置 / 占位条目 */
+  document.addEventListener("click",function(e){
+    var more=e.target.closest(".more");
+    if(more){
+      var v=V(more.getAttribute("data-v"));
+      v.classList.remove("settings-open");
+      v.classList.toggle("menu-open"); readout(); return;
+    }
+    var mi=e.target.closest(".mi");
+    if(mi){
+      var host=mi.closest(".variant");
+      var key=host.id.slice(1).toLowerCase();
+      var act=mi.getAttribute("data-act");
+      var LABEL={settings:"设置",notify:"消息通知",keys:"快捷键",switch:"切换 Board",
+                 reconnect2:"重新连接",about:"关于 / 版本",update:"检查更新",logout:"退出登录"};
+      hit[key]=LABEL[act]||act;
+      host.classList.remove("menu-open");
+      if(act==="settings") host.classList.add("settings-open");
+      else toast(host,"样品间：这次只做了「设置」，其余条目是占位");
+      readout(); return;
+    }
+    if(e.target.closest(".close-settings")||e.target.closest(".back-to-chat")){
+      var v2=e.target.closest(".variant");
+      v2.classList.remove("settings-open"); v2.classList.add("menu-open"); readout(); return;
+    }
+    if(e.target.closest(".sw")){ e.target.closest(".sw").classList.toggle("on"); return; }
+    var btn=e.target.closest("[data-act]");
+    if(btn){
+      var v3=btn.closest(".variant");
+      toast(v3,"样品间："+({save:"不会真的写 desktop.toml",reconnect:"不会真的发 HTTP",
+        openfile:"不会真的打开文件",reconnect2:"不会真的发 HTTP"}[btn.getAttribute("data-act")]||"占位"));
+      return;
+    }
+    /* 点菜单外部收起菜单（设置窗口/抽屉由自己的关闭按钮管） */
+    var openMenu=document.querySelector(".variant.active.menu-open");
+    if(openMenu){ openMenu.classList.remove("menu-open"); readout(); }
+  });
+
+  document.addEventListener("keydown",function(e){
+    var t=e.target;
+    if(t && (t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.isContentEditable)) return;
+    if(e.key==="ArrowLeft"||e.key==="ArrowRight"){
+      var i=KEYS.indexOf(current), d=e.key==="ArrowRight"?1:-1;
+      go(KEYS[(i+d+KEYS.length)%KEYS.length]); e.preventDefault();
+    } else if(e.key==="Escape"){
+      var v=V(current); v.classList.remove("menu-open","settings-open"); readout();
+    }
+  });
+
+  document.getElementById("prev").onclick=function(){var i=KEYS.indexOf(current);go(KEYS[(i-1+KEYS.length)%KEYS.length]);};
+  document.getElementById("next").onclick=function(){var i=KEYS.indexOf(current);go(KEYS[(i+1)%KEYS.length]);};
+  document.getElementById("anchorBtn").onclick=function(){
+    anchor=anchor==="rail"?"list":"rail"; setParam("anchor",anchor); apply();
+  };
+
+  firstState();
+})();
+</script>
+</body>
+</html>

@@ -68,4 +68,6 @@ crates/nous-desktop/  GPUI 应用：三栏布局、会话、输入、置顶。
 NOUS_OPEN_BOARD=1 ./nous-desktop.exe              # 一启动就开在右格的盘面上
 NOUS_OPEN_BOARD=1 NOUS_OPEN_SHEET=model ./…exe    # 再直接开在某个弹层上
 # sheet ∈ model | skills | prompt | dir | machine
+NOUS_DESKTOP_OPEN=settings ./…exe                 # 一启动就开在左栏底部「≡」的设置页
+# menu | settings
 ```
