@@ -1,11 +1,14 @@
-//! 「新对话」盘面。
+//! 「New Manual」盘面。
 //!
 //! 外观照抄 qrd3wh 的面板页 `/p/<board>/hb7k3j/`（Pele / Flexoki dark）：
 //! 四块象限 + 中间一颗虚线椭圆，模型 / 上下文 / 扩展 / 权限各占一角，
 //! 建会话的参数全在椭圆里，点哪块开哪块的弹层。
 //!
+//! **只占右侧聊天区那一格**，不再盖住整窗：左导航和会话列表永远在，
+//! 点某个会话 / Esc 就回到聊天。尺寸基准因此从整窗 vmin 换成右格 cqmin。
+//!
 //! 三条纪律（和页面对齐，不是我自己编的）：
-//! - **一屏不滚**：尺寸全走 vmin，窗口变了跟着缩，盘面永远填满窗口。
+//! - **一屏不滚**：尺寸全走右格 cqmin，右格变了跟着缩，盘面永远填满右格。
 //! - **形状说语义**：模型是「供应商 › 模型 › 思考」三段语法链，画成铁路图；
 //!   技能 / 模板 / 目录是平铺清单，因为它们不是链（一个是集合、一个是单值、
 //!   一个是导航）。把后者硬套成语法图就是把语义搞错。
@@ -446,9 +449,10 @@ impl Desktop {
 
     // ── 渲染 ──────────────────────────────────────────────────────────
 
-    /// 整块盘面。盖在三栏之上（`app.rs` 的 render 里挂成 overlay）。
+    /// 整块盘面。**顶替**右侧聊天区那一格（`app.rs` 的 render 里换掉 `render_chat`）。
     pub(crate) fn render_board(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let m = art::M::new(window.viewport_size());
+        // 基准是**右格**不是整窗：盘面现在是三栏里的一格。
+        let m = art::M::new(window.viewport_size(), self.tab);
         let b = &self.newchat;
 
         let body = div()
@@ -465,7 +469,10 @@ impl Desktop {
             .relative()
             .flex()
             .flex_col()
-            .size_full()
+            .flex_1()
+            // flex 项不写 min_w(0)、h_full 会被内容撑到比右格还宽（坑 16）。
+            .min_w(px(0.))
+            .h_full()
             .bg(rgb(art::BG))
             .text_color(rgb(art::FG))
             .text_size(m.f(1.75, 12., 16.))
@@ -482,62 +489,10 @@ impl Desktop {
                     cx.notify();
                 }
             }))
-            .child(self.board_header(&m, cx))
+            // 没有顶栏：右格自己没有标题行，和 HTML demo 一致。
+            // 出口是 Esc、以及左栏点任意一个会话。
             .child(body)
             .children(self.board_sheet(&m, cx))
-            .into_any_element()
-    }
-
-    /// 顶栏：一行，标题居中，右边一个去引擎页的出口。
-    fn board_header(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .relative()
-            .flex()
-            .items_center()
-            .justify_center()
-            .pt(m.v(1.6))
-            .pb(m.v(1.))
-            .px(m.v(2.4))
-            .child(
-                div()
-                    .text_size(m.f(1.9, 13., 17.))
-                    .font_weight(FontWeight::BOLD)
-                    .child("新对话"),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .right(m.v(2.4))
-                    .top(m.v(1.8))
-                    .flex()
-                    .items_center()
-                    .gap(m.v(1.4))
-                    .child(
-                        div()
-                            .text_size(m.f(1.35, 10., 12.5))
-                            .text_color(rgb(art::MUTED))
-                            .child(if self.newchat.loading {
-                                "loading".to_string()
-                            } else {
-                                self.newchat
-                                    .models
-                                    .as_ref()
-                                    .map(|x| format!("{} 款可用", x.items.len()))
-                                    .unwrap_or_default()
-                            }),
-                    )
-                    .child(
-                        div()
-                            .id(ElementId::Name("board-close".into()))
-                            .text_size(m.f(1.35, 10., 12.5))
-                            .text_color(rgb(art::MUTED))
-                            .hover(|s| s.text_color(rgb(art::LINE)))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.board_close(cx);
-                            }))
-                            .child("取消 ‹"),
-                    ),
-            )
             .into_any_element()
     }
 
@@ -717,12 +672,13 @@ impl Desktop {
     /// 中央那颗虚线椭圆：名字、机器、目录、Create、状态行。
     fn board_hub(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
         let b = &self.newchat;
-        // 盘面尺寸 = 窗口减去顶栏和边距。椭圆是盘面的 32% × 28%（同页面），
-        // 用 vmin 算会变成正圆 —— 那个比例是宽的百分比。
+        // 盘面尺寸 = 右格减去四周留白。椭圆是盘面的 36% × 30%（同 HTML demo），
+
+        // 用 cqmin 算会变成正圆 —— 那个比例是宽/高的百分比。
         let board_w = m.w - 2. * f32::from(m.v(1.6));
-        let board_h = m.h - f32::from(m.v(7.2));
-        let w = (0.32 * board_w).clamp(250., 620.);
-        let h = (0.28 * board_h).clamp(200., 340.);
+        let board_h = m.h - f32::from(m.v(1.6));
+        let w = (0.36 * board_w).clamp(220., 560.);
+        let h = (0.30 * board_h).clamp(180., 320.);
         let muted = rgb(art::MUTED);
 
         let machine_label = b.machine.clone().unwrap_or_else(|| "本机".into());
@@ -796,7 +752,7 @@ impl Desktop {
                 div()
                     .text_size(m.f(1.85, 12., 17.))
                     .font_weight(FontWeight::BOLD)
-                    .child("New chat"),
+                    .child("New Manual"),
             )
             .child(
                 div()
@@ -851,10 +807,7 @@ impl Desktop {
                     .border_color(rgb(art::BORDER))
                     .text_size(m.f(1.6, 11., 14.5))
                     .when(b.picked.is_some(), |el| {
-                        el.hover(|s| {
-                            s.bg(rgb(art::SURFACE))
-                                .border_color(rgb(art::LINE))
-                        })
+                        el.hover(|s| s.bg(rgb(art::SURFACE)).border_color(rgb(art::LINE)))
                     })
                     .when(b.picked.is_none(), |el| el.opacity(0.45))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {

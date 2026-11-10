@@ -251,6 +251,9 @@ impl Desktop {
                         this.sessions = sessions;
                         this.sections[this.section].error = None;
                         this.tab = Tab::Chats;
+                        // 从模板建完也回聊天：盘面不该留在右格里。
+                        this.newchat.open = false;
+                        this.newchat.sheet = None;
                         this.select_session(created.id, true, cx);
                     }
                     Some(Err(e)) => {
@@ -390,7 +393,7 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(224.))
+            .w(px(super::app::PRESET_TREE_W))
             .h_full()
             .flex_none()
             .bg(rgb(TREE_BG))
@@ -642,7 +645,7 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(340.))
+            .w(px(super::app::TEMPLATE_LIST_W))
             .h_full()
             .flex_none()
             .bg(rgb(super::app::LIST_BG))
