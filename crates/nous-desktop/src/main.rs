@@ -18,6 +18,7 @@ mod search;
 mod slash;
 mod session_nav;
 mod config;
+mod settings;
 mod templates;
 
 use std::io::Write as _;

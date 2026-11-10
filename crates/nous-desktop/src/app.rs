@@ -75,12 +75,12 @@ pub struct Desktop {
     entries: Vec<Entry>,
     entries_loading: bool,
     entries_error: Option<String>,
-    error: Option<String>,
+    pub(crate) error: Option<String>,
     /// **这一轮生成失败**（模型 400、task_failed、没答上来）：画在聊天区底部，
     /// 带「重试」。跟 `error`（连引擎失败、带「改哪个配置文件」提示）不是一条通道 ——
     /// 把「模型订阅过期」说成「连不上 + 去改配置」会把用户带到沟里（真踩过）。
     turn_error: Option<String>,
-    loading: bool,
+    pub(crate) loading: bool,
     input: Entity<TextareaState>,
     /// 正在生成的那条助手消息（流式）。
     live: Option<String>,
@@ -126,6 +126,24 @@ pub struct Desktop {
     cfg: crate::config_panel::Panel,
     /// 左栏当前页：聊天 / 通讯录（模板）。
     pub(crate) tab: Tab,
+    /// 底部「≡ 更多」菜单开着没有。
+    pub(crate) menu_open: bool,
+    /// 右栏是不是在显示全局设置（整页替换聊天区，左栏不动）。
+    pub(crate) settings_open: bool,
+    /// 设置页左边选的那一项。
+    pub(crate) settings_tab: crate::settings::SettingsTab,
+    /// 设置页底部的一行反馈：文案 + 是不是错。
+    pub(crate) settings_msg: Option<(String, bool)>,
+    /// 启动时读到的配置（保存后跟着换）。
+    ///
+    /// 不叫 `cfg` —— 那个名字已经被 `config_panel` 的界面状态占了。
+    pub(crate) conn: Config,
+    pub(crate) host_input: Entity<InputState>,
+    pub(crate) board_input: Entity<InputState>,
+    /// resolve 拿到的引擎地址 —— 只用来显示，不存盘。
+    pub(crate) engine_url: Option<String>,
+    /// 引擎版本（`GET /v1/device` 的 `node`）。
+    pub(crate) engine_node: Option<String>,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
     focused: bool,
     /// 当前常连着 SSE 的会话。`None` = 没连。切会话就换一个，不叠加。
@@ -183,6 +201,24 @@ impl Desktop {
         });
         // 左栏的搜索框：单行，带搜索图标 + 一键清空。
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜索会话"));
+
+        // 配置在这里同步读掉：设置页要立刻显示 host / board，不能等 tokio。
+        // 读坏了也先拿默认值把窗口支起来，错误交给 connect() 报。
+        let conn = Config::load().unwrap_or_default();
+        let host_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("http://127.0.0.1:4790")
+                .default_value(conn.host.clone())
+        });
+        let board_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("new1")
+                .default_value(conn.board.clone())
+        });
+
+        // 调试用：启动就直接打开某个浮层，省得每次手点。
+        // `NOUS_DESKTOP_OPEN=menu` 或 `=settings`，别的值（包括不设）就是正常启动。
+        let open_at_start = std::env::var("NOUS_DESKTOP_OPEN").unwrap_or_default();
         // `/` 面板的 ↑↓ / ↵ / Esc 要在**输入框组件之前**拿到。
         // 用 interceptor（`observe_keystrokes` 太晚，`on_key_down` 挂在祖先节点上也会被
         // input 的 key binding 抢先消费）：在它里面 `cx.stop_propagation()` 就同时挡掉了
@@ -294,6 +330,15 @@ impl Desktop {
             turn_error: None,
             loading: true,
             input,
+            menu_open: open_at_start == "menu",
+            settings_open: open_at_start == "settings",
+            settings_tab: crate::settings::SettingsTab::Connection,
+            settings_msg: None,
+            conn,
+            host_input,
+            board_input,
+            engine_url: None,
+            engine_node: None,
             live: None,
             live_state: Live::new(),
             streaming: false,
@@ -346,11 +391,27 @@ impl Desktop {
         this
     }
 
+    /// 启动：起轮询 + 连一次。
     fn bootstrap(&mut self, cx: &mut Context<Self>) {
+        // 轮询是个死循环，只能起一次 —— 所以它留在这儿，不在 connect 里。
+        self.start_poll(cx);
+        self.connect(cx);
+    }
+
+    /// 连引擎。启动走一次；「重新连接」和设置页保存后也走这里。
+    ///
+    /// 只做「连上 + 重拉数据」，不碰轮询（见上）。
+    pub(crate) fn connect(&mut self, cx: &mut Context<Self>) {
+        self.loading = true;
+        self.error = None;
+        self.engine_url = None;
+        cx.notify();
+
+        let cfg = self.conn.clone();
         cx.spawn(async move |this, cx| {
             let handle = crate::TOKIO.get().cloned();
             let outcome = match handle {
-                Some(h) => match h.spawn(load_engine()).await {
+                Some(h) => match h.spawn(load_engine(cfg)).await {
                     Ok(Ok(v)) => Ok(v),
                     Ok(Err(e)) => Err(e),
                     Err(e) => Err(format!("任务挂了：{e}")),
@@ -361,20 +422,29 @@ impl Desktop {
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 match outcome {
-                    Ok((engine, sessions)) => {
+                    Ok((engine, sessions, node, url)) => {
                         this.engine = Some(engine);
                         this.sessions = sessions;
+                        this.engine_node = node;
+                        this.engine_url = Some(url);
+                        // 换了盘之后，原来选中的那条可能不在新引擎上 —— 别留个空壳。
+                        if this
+                            .selected
+                            .is_some_and(|id| !this.sessions.iter().any(|s| s.id == id))
+                        {
+                            this.selected = None;
+                            this.entries.clear();
+                            this.entries_error = None;
+                        }
                         // 引擎连上之前如果点过通讯录，「还没连上引擎」那句得自己消掉。
                         this.load_all_sections(false, cx);
-                        // 列表是别人的地盘：定时重读，否则只在启动那一秒新鲜。
-                        this.start_poll(cx);
                         // 置顶单独去 bjes6b 拿（单源在它那儿）。
                         this.load_pins(cx);
-                        // `/` 面板的技能清单：只在启动时拉一次，失败就认了（面板给提示）。
+                        // `/` 面板的技能清单：失败就认了（面板给提示）。
                         this.load_skills(cx);
                         // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在 New Manual 盘面上，
                         // 省得每次手点。只是开关，不是功能。
-                        if std::env::var("NOUS_OPEN_BOARD").is_ok() {
+                        if std::env::var("NOUS_OPEN_BOARD").is_ok() && !this.newchat.open {
                             log::info!("NOUS_OPEN_BOARD：直接开在 New Manual 盘面上");
                             this.newchat.open = true;
                             this.board_load(cx);
@@ -1447,7 +1517,7 @@ impl Desktop {
     // ── 三个栏 ──────────────────────────────────────────────
 
     fn render_icon_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        // 微信桌面版最左的深色窄条：聊天 / 通讯录两个入口。
+        // 微信桌面版最左的深色窄条：聊天 / 通讯录两个入口，底部「≡ 更多」。
         div()
             .flex()
             .flex_col()
@@ -1459,6 +1529,28 @@ impl Desktop {
             .gap(px(6.))
             .child(self.tab_button(IconName::MessageCircle, Tab::Chats, cx))
             .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
+            .child(div().flex_1())
+            .child(self.more_button(cx))
+    }
+
+    /// 底部那三个横杠。点和菜单同一个状态 —— 开着的时候按钮自己也亮着。
+    fn more_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let open = self.menu_open;
+        div()
+            .id(ElementId::Name("rail-more".into()))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_menu(cx)))
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(40.))
+            .rounded(px(8.))
+            .when(open, |el| el.bg(rgb(0x3f3f3f)))
+            .hover(|el| el.bg(rgb(0x3a3a3a)))
+            .child(
+                Icon::new(IconName::Menu)
+                    .with_size(Size::Size(px(20.)))
+                    .text_color(rgb(if open { 0xffffff } else { 0x9a9a9a })),
+            )
     }
 
     fn tab_button(&self, name: IconName, tab: Tab, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2782,9 +2874,13 @@ fn short_text(text: &str, max_chars: usize) -> String {
     out
 }
 
-/// 连引擎：读配置 → resolve 地址 → 拉会话列表。全在 tokio 上。
-async fn load_engine() -> Result<(Arc<EngineClient>, Vec<Session>), String> {
-    let cfg = Config::load()?;
+/// 连引擎：拿配置 → resolve 地址 → 拉会话列表 + 设备信息。全在 tokio 上。
+///
+/// 配置**从调用方传进来**，不在这里再读一次盘：设置页刚保存完就重连，
+/// 重新读盘会让「保存了什么」和「连了什么」有可能对不上。
+async fn load_engine(
+    cfg: Config,
+) -> Result<(Arc<EngineClient>, Vec<Session>, Option<String>, String), String> {
     let url = resolve_engine(&cfg.host, &cfg.board, SELF_BLOCK, ENGINE_BLOCK)
         .await
         .map_err(|e| e.to_string())?;
@@ -2793,7 +2889,9 @@ async fn load_engine() -> Result<(Arc<EngineClient>, Vec<Session>), String> {
     let sessions = engine.sessions().await.map_err(|e| e.to_string())?.items;
     let mut sessions = sessions;
     sort_sessions(&mut sessions);
-    Ok((Arc::new(engine), sessions))
+    // 版本只是「关于」里的展示项，拿不到不妨碍连接。
+    let node = engine.device().await.ok().and_then(|d| d.node);
+    Ok((Arc::new(engine), sessions, node, url.as_str().to_string()))
 }
 
 /// 会话排序：按 `last.id` 倒序 = 最后说话的那条在最上面。
@@ -2915,7 +3013,10 @@ impl Render for Desktop {
 
         // New Manual **顶替**右侧聊天区，不再盖住整窗：左导航和会话列表永远在。
         // 尺寸基准也因此从整窗 vmin 换成右格 cqmin（见 `board_art::M`）。
-        let right: AnyElement = if self.newchat.open {
+        // 设置页也顶替右栏，但它优先级更高：正在改连接时别把盘面盖在上面。
+        let right: AnyElement = if self.settings_open {
+            self.render_settings(cx)
+        } else if self.newchat.open {
             self.render_board(window, cx)
         } else {
             self.render_chat(cx).into_any_element()
@@ -2942,8 +3043,11 @@ impl Render for Desktop {
             // 会话内跳转目录（J）：只在聊天页、选中了会话、且**盘面没开**时出现。
             // New Manual 顶替右栏时那一列会把它挤窄，所以一并让开。
             .children(
-                (self.tab == Tab::Chats && self.selected.is_some() && !self.newchat.open).then(
-                    || {
+                (self.tab == Tab::Chats
+                    && self.selected.is_some()
+                    && !self.newchat.open
+                    && !self.settings_open)
+                    .then(|| {
                         let groups = self.nav_groups();
                         if groups.is_empty() {
                             return div().into_any_element();
@@ -2971,6 +3075,8 @@ impl Render for Desktop {
             .size_full()
             .child(shell_root)
             .children(self.cfg_overlay(cx))
+            // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
+            .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
     }
 }
 

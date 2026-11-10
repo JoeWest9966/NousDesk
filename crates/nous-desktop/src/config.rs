@@ -23,7 +23,7 @@ pub const ENGINE_BLOCK: &str = "qrd3wh";
 /// 手机端那块。**只用来读写置顶**（`pins.json` 的单源在它那儿，见 `decisions.md`）。
 pub const MOBILE_BLOCK: &str = "bjes6b";
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Config {
     /// 宿主地址，可带路径前缀（如 `https://…/nous`）。
     pub host: String,
@@ -74,6 +74,36 @@ impl Config {
         Self::candidates().into_iter().find(|p| p.is_file())
     }
 
+    /// 保存会写到哪个文件：**当前生效的那份**；一份都没有就新建用户配置那一级。
+    ///
+    /// 写「生效的那份」而不是永远写用户配置：便携包的 `desktop.toml` 排在用户配置之前，
+    /// 写死 `%APPDATA%` 的话用户改完保存会发现毫无变化。
+    pub fn save_target() -> Result<PathBuf, String> {
+        if let Some(path) = Self::path() {
+            return Ok(path);
+        }
+        dirs::config_dir()
+            .map(|dir| dir.join("nous").join("desktop.toml"))
+            .ok_or_else(|| "找不到配置目录（%APPDATA%）".to_string())
+    }
+
+    /// 把这两个键写回去。**不会**顺手拉别的键进来 —— 这个文件就只有这两行。
+    pub fn save(&self) -> Result<PathBuf, String> {
+        let path = Self::save_target()?;
+        self.save_to(&path)?;
+        Ok(path)
+    }
+
+    /// 写到指定文件（父目录不存在就建）。分成两步是为了能直接测，不用动环境变量。
+    pub fn save_to(&self, path: &std::path::Path) -> Result<(), String> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("建不了目录 {}：{e}", dir.display()))?;
+        }
+        let text = toml::to_string(self).map_err(|e| format!("写不出来：{e}"))?;
+        std::fs::write(path, text).map_err(|e| format!("写不了 {}：{e}", path.display()))
+    }
+
     /// 所有候选路径，按优先级。exe 旁边那份排在用户配置之前 —— 便携包要能覆盖掉旧配置。
     pub fn candidates() -> Vec<PathBuf> {
         let mut out = Vec::new();
@@ -89,5 +119,41 @@ impl Config {
             out.push(config.join("nous").join("desktop.toml"));
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 写回去的文件必须**只有**这两行 —— 多出来的键会让「配置文件就两个键」这句话变成假的。
+    #[test]
+    fn save_writes_only_host_and_board() {
+        let dir = std::env::temp_dir().join(format!("nous-desktop-cfg-{}", std::process::id()));
+        let path = dir.join("nested").join("desktop.toml");
+        let cfg = Config {
+            host: "http://example.test:4790".into(),
+            board: "probe".into(),
+        };
+
+        cfg.save_to(&path).expect("写得进去（父目录会自己建）");
+        let text = std::fs::read_to_string(&path).expect("读得回来");
+
+        assert!(
+            text.contains("host = \"http://example.test:4790\""),
+            "host 没写对：{text}"
+        );
+        assert!(text.contains("board = \"probe\""), "board 没写对：{text}");
+        assert_eq!(
+            text.lines().filter(|l| !l.trim().is_empty()).count(),
+            2,
+            "不该有第三个键：{text}"
+        );
+
+        let back: Config = toml::from_str(&text).expect("还是合法的 toml");
+        assert_eq!(back.host, cfg.host);
+        assert_eq!(back.board, cfg.board);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
