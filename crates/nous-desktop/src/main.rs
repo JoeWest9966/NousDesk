@@ -13,6 +13,7 @@ mod composer;
 mod live;
 mod md;
 mod search;
+mod slash;
 mod config;
 mod templates;
 

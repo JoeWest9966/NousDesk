@@ -11,7 +11,7 @@ use url::Url;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     CreateSession, CreatedSession, Device, Dirs, Entries, Forked, Machines, Models, Presets,
-    Prompts, ReadReceipt, Sessions, Skills, Submission, Unread,
+    Prompts, ReadReceipt, SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -223,6 +223,24 @@ impl EngineClient {
             .http
             .post(self.url("v1/sessions")?)
             .json(body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 改**这条会话**的配置。`skills` 传的是完整目标数组（服务端自己算相对改法：
+    /// 读当前 extension 名牌 → remove 旧的 / add 新的），不要在本地模拟增减。
+    ///
+    /// 回包是生效值，调用方拿它覆盖本地会话的 `skills`，别自己乐观地假定写成功了。
+    pub async fn config(&self, id: i64, skills: &[String]) -> Result<SessionConfig, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            skills: &'a [String],
+        }
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/sessions/{id}/config"))?)
+            .json(&Body { skills })
             .send()
             .await?;
         self.json(resp).await

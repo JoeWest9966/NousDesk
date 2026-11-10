@@ -96,6 +96,16 @@ pub struct Desktop {
     /// 左栏的搜索框。**单行**的 `InputState`（输入区那个是多行 `TextareaState`）。
     /// 空着 = 不过滤，列表跟没有搜索这回事一样。
     search: Entity<InputState>,
+    /// 输入区 `/` 技能命令的纯 UI 状态（光标注标 / Esc / 在途 / 写失败）。
+    slash: crate::slash::Slash,
+    /// `GET /v1/skills` 的结果。`None` = 还没拿到 / 拿失败；面板此时给一行提示。
+    skills: Option<nous_engine::types::Skills>,
+    /// 面板当前过滤出的技能快照。每次 `render` 现算，键盘 ↵ 和点击都认它。
+    slash_items: Vec<nous_engine::types::Skill>,
+    /// `GET /v1/skills` 在不在路上。一次只发一笔，别在 render 里反复点火。
+    skills_loading: bool,
+    /// 清单拉失败的一句话。有它就不重试（否则「失败 → notify → 再拉」是个死循环）。
+    skills_error: Option<String>,
     /// 左栏当前页：聊天 / 通讯录（模板）。
     pub(crate) tab: Tab,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
@@ -148,6 +158,12 @@ impl Desktop {
         });
         // 左栏的搜索框：单行，带搜索图标 + 一键清空。
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜索会话"));
+        // `/` 面板的 ↑↓ / ↵ / Esc 要在**输入框组件之前**拿到。
+        // 用 interceptor（`observe_keystrokes` 太晚，`on_key_down` 挂在祖先节点上也会被
+        // input 的 key binding 抢先消费）：在它里面 `cx.stop_propagation()` 就同时挡掉了
+        // 组件的 Enter action（否则回车会顺手把 `/deep` 当消息发出去）。
+        // 只有输入框聚焦 + 面板在场时才拦，别把全窗口的方向键都吃掉。
+        let weak = cx.weak_entity();
         let subs = vec![
             cx.observe_window_activation(window, |this, window, _cx| {
                 // 在后台就别每 3 秒拉一次。
@@ -157,7 +173,11 @@ impl Desktop {
                 move |this, _, event: &InputEvent, window, cx| {
                     match event {
                         // 内容变了要重画，否则「发送」按钮永远是灰的。
-                        InputEvent::Change => cx.notify(),
+                        // `/` 面板的高亮/收起也跟着重置（只认输入框当前内容这一份真相）。
+                        InputEvent::Change => {
+                            this.slash.reset();
+                            cx.notify();
+                        }
                         InputEvent::PressEnter { shift, .. } => {
                             if !*shift {
                                 this.send(window, cx);
@@ -173,6 +193,49 @@ impl Desktop {
                     if matches!(event, InputEvent::Change) {
                         cx.notify();
                     }
+                }
+            }),
+            cx.intercept_keystrokes(move |ev, window, app| {
+                let key = ev.keystroke.key.as_str();
+                if !matches!(key, "up" | "down" | "enter" | "escape") {
+                    return;
+                }
+                // 修饰键组合（Ctrl+Enter 之类）不归面板管。
+                if ev.keystroke.modifiers.control
+                    || ev.keystroke.modifiers.alt
+                    || ev.keystroke.modifiers.platform
+                {
+                    return;
+                }
+                let handled = weak
+                    .update(app, |this, cx| {
+                        if !this.slash_visible(cx) || this.slash.busy {
+                            return false;
+                        }
+                        if !this.input.read(cx).focus_handle(cx).is_focused(window) {
+                            return false;
+                        }
+                        match key {
+                            "up" | "down" => {
+                                let delta = if key == "up" { -1 } else { 1 };
+                                let len = this.slash_items.len();
+                                this.slash.move_by(delta, len);
+                            }
+                            "escape" => this.slash.dismissed = true,
+                            "enter" => {
+                                let ix = this.slash.cursor;
+                                this.apply_skill(ix, window, cx);
+                            }
+                            _ => unreachable!(),
+                        }
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                // 拦下的键不许再走到 input 组件：尤其 Enter，不然会把 `/deep`
+                // 当成一条用户消息发出去。
+                if handled {
+                    app.stop_propagation();
                 }
             }),
         ];
@@ -203,6 +266,11 @@ impl Desktop {
             composer_hover: false,
             composer_hint: false,
             search,
+            slash: crate::slash::Slash::default(),
+            skills: None,
+            slash_items: vec![],
+            skills_loading: false,
+            skills_error: None,
             tab: Tab::Chats,
             focused: true,
             stream_for: None,
@@ -248,6 +316,8 @@ impl Desktop {
                         this.start_poll(cx);
                         // 置顶单独去 bjes6b 拿（单源在它那儿）。
                         this.load_pins(cx);
+                        // `/` 面板的技能清单：只在启动时拉一次，失败就认了（面板给提示）。
+                        this.load_skills(cx);
                         // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在新对话盘面上，
                         // 省得每次手点。只是开关，不是功能。
                         if std::env::var("NOUS_OPEN_BOARD").is_ok() {
@@ -537,10 +607,162 @@ impl Desktop {
         .detach();
     }
 
+    // ── 输入区 `/` 技能命令 ─────────────────────────────────────────
+
+    /// 面板在不在场。只看输入框当前内容这一份真相（不另存 query）：
+    /// 整段以 `/` 开头、后面没有空白、且没被 Esc 收起过。
+    fn slash_visible(&self, cx: &App) -> bool {
+        !self.slash.dismissed
+            && self.selected.is_some()
+            && !self.newchat.open
+            && crate::slash::command(&self.input.read(cx).value()).is_some()
+    }
+
+    /// `GET /v1/skills` 只拉一次。失败也不重试 —— render 里若每次失败都 notify，
+    /// 就成了「失败 → 重画 → 再拉」的死循环；记一句话，面板给提示。
+    fn load_skills(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        if self.skills_loading || self.skills.is_some() || self.skills_error.is_some() {
+            return;
+        }
+        self.skills_loading = true;
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h.spawn(async move { engine.skills().await }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.skills_loading = false;
+                match got {
+                    Ok(Ok(list)) => {
+                        log::info!("技能清单读到了：{} 条", list.skills.len());
+                        this.skills = Some(list);
+                    }
+                    Ok(Err(e)) => this.skills_error = Some(format!("技能清单拉不到：{e}")),
+                    Err(e) => this.skills_error = Some(format!("技能清单拉不到：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 每次 render 重算一次过滤结果。放 render 里而不是订阅里：清单是异步回来的，
+    /// 回来那一刻也得重算，render 天然覆盖两种时机。
+    fn refresh_slash(&mut self, cx: &App) {
+        if !self.slash_visible(cx) {
+            self.slash_items.clear();
+            return;
+        }
+        let value = self.input.read(cx).value().to_string();
+        let q = crate::slash::command(&value).unwrap_or("");
+        let all = self
+            .skills
+            .as_ref()
+            .map(|s| s.skills.as_slice())
+            .unwrap_or(&[]);
+        self.slash_items = crate::slash::matches(all, q);
+        self.slash.clamp(self.slash_items.len());
+    }
+
+    /// 当前会话挂着哪些技能。**以 `sessions` 为准**（3 秒轮询会把它刷成引擎的真相），
+    /// 不自己另存一份 —— 那会跟真相分叉。
+    fn session_skill_names(&self) -> Vec<String> {
+        self.selected
+            .and_then(|id| self.sessions.iter().find(|s| s.id == id))
+            .map(|s| s.skills.clone())
+            .unwrap_or_default()
+    }
+
+    /// 点一项 / ↵：算出目标数组 → POST /config → 拿回生效值覆盖本地。
+    ///
+    /// **不做乐观更新**：会话配置是真相，写失败就还是原样，别让界面先骗人。
+    fn apply_skill(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.slash.busy {
+            return;
+        }
+        let Some(skill) = self.slash_items.get(ix) else {
+            return;
+        };
+        let Some(id) = self.selected else { return };
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let wanted = crate::slash::toggle(&self.session_skill_names(), &skill.name);
+        self.slash.busy = true;
+        self.slash.error = None;
+        cx.notify();
+        log::info!("技能配置：会话 {id} → {wanted:?}");
+
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move { engine.config(id, &wanted).await })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.slash.busy = false;
+                match got {
+                    Ok(Ok(back)) => {
+                        // 回包是**生效值**。覆盖本地会话，界面立刻对上真相。
+                        if let Some(s) = this.sessions.iter_mut().find(|s| s.id == id) {
+                            s.skills = back.skills.clone();
+                        }
+                        // 选完把 `/xxx` 从输入框里清掉，别让它留着挡下一次输入。
+                        this.input
+                            .update(cx, |input, cx| input.set_value("", window, cx));
+                        this.slash.reset();
+                        this.slash.dismissed = true;
+                    }
+                    Ok(Err(e)) => this.slash.error = Some(format!("没写进去：{e}")),
+                    Err(e) => this.slash.error = Some(format!("没写进去：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 画 `/` 面板（或 `None`）。
+    fn slash_panel(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.slash_visible(cx) {
+            return None;
+        }
+        let empty_note = if let Some(e) = &self.skills_error {
+            Some(e.as_str())
+        } else if self.skills.is_none() {
+            Some("技能清单加载中…")
+        } else {
+            None
+        };
+        let on_pick: crate::slash::OnPick = std::rc::Rc::new(
+            cx.listener(|this, ix: &usize, window, cx| this.apply_skill(*ix, window, cx)),
+        );
+        Some(crate::slash::panel(
+            self.slash_items.clone(),
+            self.session_skill_names(),
+            self.slash.cursor,
+            self.slash.busy,
+            self.slash.error.clone(),
+            empty_note.map(str::to_string),
+            on_pick,
+        ))
+    }
+
+    // ── 列表 / 气泡 ─────────────────────────────────────────
+
     /// 发一条。SSE 走的是 `requestId` 幂等锚：重发不会答两遍。
     ///
     /// 返回「这一句到底有没有发出去」：`retry_last` 靠它决定红条留不留。
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        // 面板在场时，回车归面板（拦键在 interceptor 里做）；这里再兜一道，
+        // 防止某个路径绕过去把 `/deep` 当消息发出去。
+        if self.slash_visible(cx) {
+            return false;
+        }
         // 生成中**不发**：回车这时只想接着写，不该把半句话塞进队列。
         // 引擎的 `whenBusy` 值域还没确认，先不传 —— 确认了只需要在这一个入口加分支。
         if self.streaming {
@@ -1361,7 +1583,9 @@ impl Desktop {
                 &self.input,
                 crate::composer::State {
                     streaming: self.streaming,
-                    can_send: !self.input.read(cx).value().trim().is_empty(),
+                    // 面板在场时发送键是灰的：这时回车归面板，点它也不该发出 `/deep`。
+                    can_send: !self.slash_visible(cx)
+                        && !self.input.read(cx).value().trim().is_empty(),
                 },
                 self.composer_hint,
                 self.composer_hover,
@@ -1370,6 +1594,7 @@ impl Desktop {
                     this.send(window, cx);
                 }),
                 cx.listener(|this, _: &ClickEvent, _window, cx| this.stop_generation(cx)),
+                self.slash_panel(cx),
             ))
             .into_any_element()
     }
@@ -2009,6 +2234,10 @@ fn sig_of(s: &Session) -> (i64, String, Option<i64>, Option<String>, bool) {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 面板的过滤快照只在 render 里算一次：键盘 ↵ 和鼠标点都认这一份，
+        // 不会「看到的」和「选中的」对不上。
+        self.refresh_slash(cx);
+
         let shell = div()
             .flex()
             .flex_row()

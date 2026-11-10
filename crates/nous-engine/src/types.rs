@@ -387,6 +387,21 @@ impl Prompt {
     }
 }
 
+/// `POST /v1/sessions/:id/config` 的回包。**回的是生效值，不是请求值** ——
+/// 服务端先 `configure` 再读 agent 状态回来，前端拿它重画就不会跟真相分叉。
+/// 这一轮只用 `skills`，其余字段照样解出来（以后 `/model` 那条路直接复用）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionConfig {
+    pub id: i64,
+    #[serde(default)]
+    pub skills: Vec<String>,
+    pub model: Option<String>,
+    pub thinking_level: Option<serde_json::Value>,
+    pub template: Option<String>,
+    pub read_only: bool,
+}
+
 /// `GET /v1/machines`。会话跑在哪台机器上，`null` = 本机。
 #[derive(Debug, Clone, Deserialize)]
 pub struct Machines {
