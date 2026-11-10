@@ -1862,8 +1862,24 @@ impl Desktop {
     }
 
     pub(crate) fn nav_close_drawer(&mut self, cx: &mut Context<Self>) {
+        if !self.nav.drawer_open {
+            return;
+        }
         self.nav.drawer_open = false;
+        // 关掉之后高亮要回到主视图那一轮 —— 不回到 ``self.nav.current = 0``：
+        // 抽屉里刚看的那轮很可能不在主视图里，一关就高亮到第一次对话很莫名其妙。
         cx.notify();
+    }
+
+    /// 顶栏「历史与目录」：**开关**。开着再点就关。
+    ///
+    /// 关的时候不清 `drawer_scroll`：再打开还是上次看的地方，不会跳回顶部。
+    pub(crate) fn nav_toggle_drawer(&mut self, cx: &mut Context<Self>) {
+        if self.nav.drawer_open {
+            self.nav_close_drawer(cx);
+        } else {
+            self.nav_open_drawer(None, cx);
+        }
     }
 
     /// 抽屉头上的桥：把「目录当前高亮的那轮」加载进主视图，然后关抽屉。

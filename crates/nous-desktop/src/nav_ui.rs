@@ -457,9 +457,16 @@ pub fn drawer(
         return div().into_any_element();
     }
     div()
+        .id("nav-drawer-backdrop")
         .absolute()
         .inset_0()
+        // **必须挡住鼠标**。不加这一行，抽屉里的点击会同时落到底下正文上：
+        // 点「关闭 ✕」关掉了，同一次点击又打中主视图顶部那条「更早的 N 条 ·
+        // 打开历史」→ 立刻又打开，看起来就是「点关闭没反应」（坑.md 43）。
+        .occlude()
         .bg(rgba(0x0000002a))
+        // 点面板外那圈空白 = 关。面板自己也 `occlude`，所以点抽屉内部不会冒到这里。
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_close_drawer(cx)))
         .child(
             div()
                 .absolute()
@@ -467,6 +474,8 @@ pub fn drawer(
                 .top_0()
                 .bottom_0()
                 .w(relative(DRAWER_W))
+                // 面板自己也挡住：不然点抽屉里的空白处，这次点击仍算到遮罩头上 → 一碰就关。
+                .occlude()
                 .bg(rgb(0xffffff))
                 .shadow_md()
                 .flex()
@@ -501,13 +510,22 @@ pub fn drawer(
                                 .child("把这一轮加载进主视图"),
                         )
                         .child(
+                            // ✕ 的命中区不能只有文字那么大 —— 手点偏 1px 就落空。
+                            // 28×28 是「小按钮」的下限（跟 macOS 关闭钮一个量级）。
                             div()
                                 .id("nav-drawer-close")
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .size(px(28.))
+                                .rounded(px(5.))
                                 .cursor_pointer()
                                 .text_size(px(12.))
                                 .text_color(rgb(0x8a8a8a))
+                                .hover(|el| el.bg(rgb(0xf2f2f2)))
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_close_drawer(cx)))
-                                .child("关闭 ✕"),
+                                .child("✕"),
                         ),
                 )
                 .child(
@@ -561,7 +579,8 @@ pub fn collapse_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
         .into_any_element()
 }
 
-/// 顶栏：历史与目录。
+/// 顶栏：历史与目录。**是开关**：开着再点就关（跟「更早 N 条」不一样，
+/// 那条只负责开 —— 它在主视图顶部，抽屉开着时它自己都被盖住了）。
 pub fn history_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
     div()
         .id("nav-history")
@@ -574,7 +593,7 @@ pub fn history_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
         .text_color(rgb(0xffffff))
         .cursor_pointer()
         .hover(|el| el.bg(rgb(0x06ad56)))
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_open_drawer(None, cx)))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_toggle_drawer(cx)))
         .child("历史与目录")
         .into_any_element()
 }
