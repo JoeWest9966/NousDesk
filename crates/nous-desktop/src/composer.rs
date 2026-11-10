@@ -76,6 +76,9 @@ pub fn render(
     on_hover: impl Fn(&bool, &mut Window, &mut App) + 'static,
     on_send: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_stop: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    // 输入区**上方**那张 `/` 技能面板。`None` = 不渲染，也不占高度。
+    // 由调用方按输入框内容现算好递进来（composer 自己不读输入框、不存状态）。
+    slash_panel: Option<AnyElement>,
 ) -> impl IntoElement {
     let dimmed = state.streaming;
 
@@ -87,6 +90,8 @@ pub fn render(
         .pt(px(8.))
         .px(px(10.))
         .pb(px(10.))
+        // 面板压在卡片上方：留白跟卡片一致（左右 10、底 6），不额外加边框。
+        .children(slash_panel.map(|p| div().px(px(0.)).pb(px(6.)).child(p).into_any_element()))
         .child(
             div()
                 .flex()
