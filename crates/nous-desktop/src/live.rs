@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use nous_engine::SseEvent;
 
+use crate::session_nav::entry_key;
+
 /// 共享给 tokio 任务和 UI 的那份「正在生成的消息」。
 #[derive(Default)]
 pub struct LiveState {
@@ -26,6 +28,14 @@ pub struct LiveState {
     /// 我们订阅**之前**就发完了，之后这条流只剩一个空 snapshot，永远等不到 `message_end`。
     /// UI 靠它决定「再等几秒还是直接判这一轮没起来」。
     idle_snapshot: bool,
+    /// SSE 首帧 `snapshot.entries[]` 带的时间戳：entry id（字符串）→ epoch ms。
+    /// 按天分组目录读它。UI 每 16ms 来 drain 一次，只在「快照来了」时更新，
+    /// 平时不碰 —— 目录不因此产生任何新状态。
+    times: HashMap<String, i64>,
+    /// 首帧到过没有（哪怕 entries 是空的，也说明「这份会话没有时间信息」）。
+    snapshot_seen: bool,
+    /// `times` 有没有变，UI 取走后清掉。
+    times_dirty: bool,
     /// 工具卡片：名字和输出**分开存**。
     /// 以前是一个 `(id, "名字+输出")` 的二元组，名字会被拼到输出前面（「read第一段…」）——
     /// 以前没人渲染工具卡片所以看不出来，但谁先画谁踩。
@@ -60,6 +70,7 @@ impl Live {
         state.error = None;
         state.idle_snapshot = false;
         state.tools.clear();
+        // 换一轮不清时间：目录按天分组靠它，清了会闪回「更早」。
     }
 
     /// 这两份 `Live` 是不是**同一轮**（每次 `send()` 都会换一个新的）。
@@ -74,7 +85,20 @@ impl Live {
     pub fn ingest(&self, event: &SseEvent) {
         let mut state = self.0.lock().unwrap();
         match event {
-            SseEvent::Snapshot { generation } => {
+            SseEvent::Snapshot { generation, entries } => {
+                // 快照里的全量历史带着 `model[].timestamp`。只取时间，不取正文 ——
+                // 历史的真相仍是 GET /v1/entries。
+                let mut times = HashMap::new();
+                for e in entries {
+                    if let Some(ts) = e.timestamp() {
+                        times.insert(entry_key(&e.id), ts);
+                    }
+                }
+                if !times.is_empty() || !state.snapshot_seen {
+                    state.times = times;
+                    state.snapshot_seen = true;
+                    state.times_dirty = true;
+                }
                 // 常连：刚连上（或重连）时引擎先推一帧 snapshot。有正在生成的消息就续上，
                 // 没有就只当「连上了」。**别把它当错误，也别清空已有内容。**
                 if let Some(text) = generation
@@ -243,6 +267,12 @@ impl Live {
             error: state.error.clone(),
             idle_snapshot: state.idle_snapshot,
             tools: state.tools.clone(),
+            times: if state.times_dirty {
+                state.times_dirty = false;
+                Some(state.times.clone())
+            } else {
+                None
+            },
         })
     }
 }
@@ -254,6 +284,8 @@ pub struct Drained {
     /// 见 `LiveState::idle_snapshot`。
     pub idle_snapshot: bool,
     pub tools: Vec<ToolRun>,
+    /// 首帧时间戳有没有变（变了就把整张表递给 UI，目录重算一次）。
+    pub times: Option<HashMap<String, i64>>,
 }
 
 /// 从 `{type:"text", text:"…"}` 这种块里取正文。不是 text 块就返回 None。
@@ -467,7 +499,7 @@ mod tests {
         // 上游报错时失败事件可能早于我们订阅，之后只剩这一个空 snapshot。
         // UI 靠 idle_snapshot 决定「再等 8 秒就判这一轮没起来」，不然永远停在「停止」。
         let live = Live::new();
-        live.ingest(&SseEvent::Snapshot { generation: None });
+        live.ingest(&SseEvent::Snapshot { generation: None, entries: vec![] });
         let d = live.drain().expect("快照也算一次变化");
         assert!(d.idle_snapshot);
         assert!(d.text.is_empty());
@@ -481,6 +513,7 @@ mod tests {
             generation: Some(nous_engine::sse::Generation {
                 message: Some(serde_json::json!({ "role": "assistant" })),
             }),
+            entries: vec![],
         });
         assert!(!live.drain().expect("drain").idle_snapshot);
     }

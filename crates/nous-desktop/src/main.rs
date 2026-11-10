@@ -12,8 +12,10 @@ mod branches;
 mod composer;
 mod live;
 mod md;
+mod nav_ui;
 mod search;
 mod slash;
+mod session_nav;
 mod config;
 mod templates;
 
