@@ -35,6 +35,9 @@ pub enum SseError {
 pub enum SseEvent {
     Snapshot {
         generation: Option<Generation>,
+        /// 首帧带全量历史（含 `model[].timestamp`）。没带就是空表，别编时间。
+        #[serde(default)]
+        entries: Vec<SnapshotEntry>,
     },
     MessageStart {
         message: Option<RoleMessage>,
@@ -73,6 +76,39 @@ pub enum SseEvent {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Generation {
     pub message: Option<serde_json::Value>,
+}
+
+/// SSE 首帧 `snapshot.entries[]` 里的一条。
+///
+/// `GET /v1/entries` 不给时间，但快照里每条的 `model[].timestamp` 带着落库时刻
+/// （epoch ms）。桌面端按天分组目录读它 —— 引擎没给就没有，不拿别的冒充。
+/// 正文也在这里，但**只拿时间**：历史的真相仍以 `GET /v1/entries` 为准。
+#[derive(Debug, Clone, Deserialize)]
+pub struct SnapshotEntry {
+    pub id: serde_json::Value,
+    pub kind: String,
+    #[serde(default)]
+    pub model: Vec<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+impl SnapshotEntry {
+    /// 第一个 `model[].timestamp`，没有就是 `None`。
+    pub fn timestamp(&self) -> Option<i64> {
+        self.model
+            .iter()
+            .filter_map(|m| m.get("timestamp").and_then(|v| v.as_i64()))
+            .next()
+    }
+
+    /// id 统一成字符串，跟 `GET /v1/entries` 那边对得上。
+    pub fn key(&self) -> String {
+        match &self.id {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -408,5 +444,30 @@ mod tests {
     #[test]
     fn 空帧不算事件() {
         assert!(collect("\n\n\n\n").is_empty());
+    }
+
+    /// 首帧 snapshot 里的 entries 带着 `model[].timestamp` —— 桌面端按天分组
+    /// 目录就靠它。`generation` 没有也不影响，别让缺字段把整帧丢了。
+    #[test]
+    fn snapshot_里的历史时间戳() {
+        let data = r#"{"type":"snapshot","generation":null,"entries":[
+            {"id":9,"kind":"pi.user","model":[{"role":"user","timestamp":1793156783434}]},
+            {"id":12,"kind":"pi.system","model":[{"role":"system"}]}
+        ]}"#;
+        let ev: SseEvent = serde_json::from_str(data).expect("解析");
+        let SseEvent::Snapshot { entries, .. } = ev else { panic!("不是快照") };
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].key(), "9");
+        assert_eq!(entries[0].timestamp(), Some(1793156783434));
+        assert_eq!(entries[1].timestamp(), None, "没给的就不编");
+    }
+
+    /// 老形状（没有 entries 字段）照样能解，别把旧引擎一棍子打死。
+    #[test]
+    fn 快照没有_entries_也能解() {
+        let ev: SseEvent = serde_json::from_str(r#"{"type":"snapshot","generation":null}"#)
+            .expect("解析");
+        let SseEvent::Snapshot { entries, .. } = ev else { panic!("不是快照") };
+        assert!(entries.is_empty());
     }
 }

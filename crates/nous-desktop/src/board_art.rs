@@ -1,13 +1,13 @@
-//! 「新对话」盘面的美术件：颜色、尺寸、那张图。
+//! 「New Manual」盘面的美术件：颜色、尺寸、那张图。
 //!
 //! 外观照抄 qrd3wh 的面板页（`/p/<board>/hb7k3j/`，Pele / Flexoki dark）。
-//! 这里只放**能被抄错**的东西：色值、vmin 尺寸换算、Cynefin 那几条路径。
+//! 这里只放**能被抄错**的东西：色值、尺寸换算、Cynefin 那几条路径。
 //!
 //! 两条纪律：
 //! - 颜色只用下面这些常量，别在渲染代码里现编色值 —— 那个页面整套色是一张调色板，
 //!   漏一个就会「看着像但不是」。
-//! - 尺寸一律先换算成 vmin 再落到 px：那个页面是**一屏不滚、随窗口缩**的，
-//!   写死 px 在 1280 和 2560 上会一个挤一个散。
+//! - 尺寸一律先换算成**右格的 cqmin** 再落到 px：盘面现在只占聊天区那一格，
+//!   不再按整个窗口的 vmin 算 —— 否则在 280px 列表 + 60px 图标条旁边会挤成一团。
 
 use gpui_kit::*;
 
@@ -36,35 +36,51 @@ pub(crate) const HUB_ALPHA: f32 = 0.18;
 /// 等宽字。Windows 上 `Consolas` 一定有；`Cascadia Code` 不一定装了，别写在前面。
 pub(crate) const MONO: &str = "Consolas";
 
-/// 尺寸换算。`vmin` = 窗口短边（CSS 的 `1vmin` 就是这个的 1%）。
+/// 尺寸换算。**基准是盘面（右格）自己的短边**，等价于 CSS 的 `1cqmin`。
+/// 以前这里吃 `window.viewport_size()`（整窗 vmin）；盘面塞进右格之后必须换成
+/// 右格实测 bounds，不然字和椭圆按整窗算、在窄右栏里会挤爆。
 #[derive(Clone, Copy)]
 pub(crate) struct M {
-    pub vmin: f32,
-    /// 窗口宽高。那个页面里 `32%` 这种是**相对盘面**的，不是相对 vmin ——
-    /// 中央椭圆就吃这个，用 vmin 算会变成一个圆。
+    pub cqmin: f32,
+    /// 右格宽高。那个页面里 `32%` 这种是**相对盘面**的，不是相对 cqmin ——
+    /// 中央椭圆就吃这个，用 cqmin 算会变成一个圆。
     pub w: f32,
     pub h: f32,
 }
 
+/// 盘面所在的那一格 = 窗口减去图标条和左栏。
+/// 左栏宽度按当前 tab 算（聊天一栏 / 通讯录两栏），**常量直接引用 app.rs 的**，
+/// 改宽度时不用再来同步这份表。
+pub(crate) fn pane_width(win_w: f32, tab: crate::app::Tab) -> f32 {
+    use crate::app::{ICON_BAR_W, PRESET_TREE_W, SESSION_LIST_W, TEMPLATE_LIST_W, Tab};
+    let left = match tab {
+        Tab::Chats => ICON_BAR_W + SESSION_LIST_W,
+        Tab::Templates => ICON_BAR_W + PRESET_TREE_W + TEMPLATE_LIST_W,
+    };
+    (win_w - left).max(1.)
+}
+
 impl M {
-    pub fn new(size: Size<Pixels>) -> Self {
-        let w = f32::from(size.width);
-        let h = f32::from(size.height);
+    /// `size` = 整个窗口的 viewport。盘面打开时它**顶替** `render_chat`
+    /// （连那条 48px 的会话标题栏一起换掉），所以右格高度就是整窗高度。
+    pub fn new(size: Size<Pixels>, tab: crate::app::Tab) -> Self {
+        let w = pane_width(f32::from(size.width), tab);
+        let h = f32::from(size.height).max(1.);
         Self {
-            vmin: w.min(h).max(1.),
+            cqmin: w.min(h).max(1.),
             w,
             h,
         }
     }
 
-    /// `12vmin` 这种写法：单位是 vmin。
-    pub fn v(&self, vmin: f32) -> Pixels {
-        px(vmin * self.vmin / 100.)
+    /// `12cqmin` 这种写法：单位是容器短边的 1%。
+    pub fn v(&self, cqmin: f32) -> Pixels {
+        px(cqmin * self.cqmin / 100.)
     }
 
-    /// `clamp(lo, kvmin, hi)`。那个页面所有字号都长这样。
-    pub fn f(&self, vmin: f32, lo: f32, hi: f32) -> Pixels {
-        px((vmin * self.vmin / 100.).clamp(lo, hi))
+    /// `clamp(lo, kcqmin, hi)`。那个页面所有字号都长这样。
+    pub fn f(&self, cqmin: f32, lo: f32, hi: f32) -> Pixels {
+        px((cqmin * self.cqmin / 100.).clamp(lo, hi))
     }
 }
 

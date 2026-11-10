@@ -26,6 +26,8 @@ use nous_engine::resolve::resolve_engine;
 use nous_engine::types::{ConfigPatch, Entry, Session, Unread};
 use smol::Timer;
 
+use crate::nav_ui::SessionNav;
+
 pub(crate) mod scrollbar;
 
 /// 哪块面板的滚动条。加新面板就往这儿加一个分支。
@@ -50,6 +52,13 @@ const BUBBLE_OTHER: u32 = 0xffffff;
 pub(crate) const MUTED: u32 = 0x999999;
 /// 微信的绿：左栏选中图标就是这个颜色。
 pub(crate) const WECHAT_GREEN: u32 = 0x07c160;
+
+// 三栏的固定宽度。**右格宽度靠它们算出来**（`board_art::pane_width`），
+// 所以改这里就必须同步那份表 —— 不然 New Manual 盘面的 cqmin 会算错。
+pub(crate) const ICON_BAR_W: f32 = 60.;
+pub(crate) const SESSION_LIST_W: f32 = 280.;
+pub(crate) const PRESET_TREE_W: f32 = 224.;
+pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
 
 actions!(nous_desktop, [TogglePinAction]);
 
@@ -153,8 +162,10 @@ pub struct Desktop {
     /// 正在从模板开的那条（防连点 + 状态提示）。
     pub(crate) creating: Option<String>,
     _subs: Vec<Subscription>,
-    /// 「新对话」盘面。盖在三栏之上的一整页（外形照 qrd3wh 的 hb7k3j 页）。
+    /// 「New Manual」盘面。只占右侧聊天区那一格（外形照 qrd3wh 的 hb7k3j 页）。
     pub(crate) newchat: crate::board::NewChat,
+    /// 会话内跳转：按天分组的目录 + 9 号方案的历史抽屉。纯内存的「我眼下看到哪」。
+    pub(crate) nav: SessionNav,
 }
 
 impl Desktop {
@@ -328,6 +339,7 @@ impl Desktop {
             preset_closed: std::collections::HashSet::new(),
             creating: None,
             newchat: crate::board::NewChat::new(window, cx),
+            nav: SessionNav::new(),
             _subs: subs,
         };
         this.bootstrap(cx);
@@ -360,10 +372,10 @@ impl Desktop {
                         this.load_pins(cx);
                         // `/` 面板的技能清单：只在启动时拉一次，失败就认了（面板给提示）。
                         this.load_skills(cx);
-                        // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在新对话盘面上，
+                        // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在 New Manual 盘面上，
                         // 省得每次手点。只是开关，不是功能。
                         if std::env::var("NOUS_OPEN_BOARD").is_ok() {
-                            log::info!("NOUS_OPEN_BOARD：直接开在新对话盘面上");
+                            log::info!("NOUS_OPEN_BOARD：直接开在 New Manual 盘面上");
                             this.newchat.open = true;
                             this.board_load(cx);
                             // 再给一个梯子：直接开在某个弹层上，省得每次手点。
@@ -579,11 +591,20 @@ impl Desktop {
         .detach();
     }
 
+    /// 人在左栏点了一条会话 = 明确离开 New Manual 盘面。
+    /// **只有人点才走这里**：poll / SSE / 停止按钮那些内部刷新仍然直接调
+    /// `select_session`，否则后台每 3 秒一次刷新会把人正在配的盘面悄悄关掉。
+    pub(crate) fn choose_session(&mut self, id: i64, cx: &mut Context<Self>) {
+        self.board_close(cx);
+        self.select_session(id, false, cx);
+    }
+
     pub(crate) fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
         if self.selected == Some(id) && !force {
             return;
         }
         self.selected = Some(id);
+        self.nav.reset();
         self.entries.clear();
         self.entries_error = None;
         self.turn_error = None;
@@ -611,6 +632,15 @@ impl Desktop {
                     Some(Ok(entries)) => {
                         // 引擎给的新的在前，聊天区要旧的在上。
                         this.entries = entries.items.into_iter().rev().collect();
+                        // 目录默认高亮最新一轮：主视图停在底部，别从第一条亮起。
+                        let groups = this.nav_groups();
+                        this.nav.current = groups
+                            .iter()
+                            .flat_map(|g| g.rounds.iter())
+                            .last()
+                            .map(|r| r.index)
+                            .unwrap_or(0);
+                        this.scroll.scroll_to_bottom();
                     }
                     Some(Err(e)) => {
                         this.entries = vec![];
@@ -739,13 +769,13 @@ impl Desktop {
         cx.notify();
         log::info!("技能配置：会话 {id} → {wanted:?}");
 
-        let patch = nous_engine::types::ConfigPatch {
-            skills: Some(wanted),
-            ..Default::default()
-        };
         cx.spawn_in(window, async move |this, cx| {
             let Some(h) = crate::TOKIO.get().cloned() else {
                 return;
+            };
+            let patch = nous_engine::types::ConfigPatch {
+                skills: Some(wanted),
+                ..Default::default()
             };
             let got = h
                 .spawn(async move { engine.config(id, &patch).await })
@@ -859,30 +889,34 @@ impl Desktop {
             let _ = this.update(cx, |this, cx| {
                 this.cfg.loading = false;
                 match got {
-                    Ok((Ok(m), Ok(p), Ok(mc))) => {
-                        log::info!(
-                            "配置面板清单：{} 模型 / {} 模板 / {} 机器",
-                            m.items.len(),
-                            p.prompts.len(),
-                            mc.machines.len()
-                        );
-                        this.cfg.models = Some(m);
-                        this.cfg.prompts = Some(p);
-                        this.cfg.machines = Some(mc);
-                    }
-                    Ok((a, b, c)) => {
-                        // 一份挂了不该把别的拖着一起灰，所以逐条报。
+                    Ok((m, p, mc)) => {
+                        // **逐份独立保存**：以前只在「三份全 Ok」时才落盘，
+                        // 结果内核偶发 502 时成功的那两份也一起丢了，右栏整块变报错。
                         let mut errs: Vec<String> = Vec::new();
-                        if let Err(e) = a {
-                            errs.push(format!("模型：{e}"));
+                        match m {
+                            Ok(m) => {
+                                log::info!("配置面板：模型 {} 个", m.items.len());
+                                this.cfg.models = Some(m);
+                            }
+                            Err(e) => errs.push(format!("模型：{e}")),
                         }
-                        if let Err(e) = b {
-                            errs.push(format!("模板：{e}"));
+                        match p {
+                            Ok(p) => {
+                                log::info!("配置面板：模板 {} 条", p.prompts.len());
+                                this.cfg.prompts = Some(p);
+                            }
+                            Err(e) => errs.push(format!("模板：{e}")),
                         }
-                        if let Err(e) = c {
-                            errs.push(format!("机器：{e}"));
+                        match mc {
+                            Ok(mc) => {
+                                log::info!("配置面板：机器 {} 台", mc.machines.len());
+                                this.cfg.machines = Some(mc);
+                            }
+                            Err(e) => errs.push(format!("机器：{e}")),
                         }
-                        this.cfg.error = Some(format!("清单拉不到 —— {}", errs.join("；")));
+                        // 只留一句话给「那一页」用，别再拿它遮住整块右栏。
+                        this.cfg.error = (!errs.is_empty())
+                            .then(|| format!("清单拉不到 —— {}", errs.join("；")));
                     }
                     Err(e) => this.cfg.error = Some(format!("清单拉不到：{e}")),
                 }
@@ -908,9 +942,9 @@ impl Desktop {
             let _ = this.update(cx, |this, cx| {
                 match got {
                     Ok(Ok(d)) => this.cfg.dirs = Some(d),
-                    // 目录读不到不是致命错：面板留在原地，把那句话说在正文里。
-                    Ok(Err(e)) => this.cfg.error = Some(format!("目录读不到：{e}")),
-                    Err(e) => this.cfg.error = Some(format!("目录读不到：{e}")),
+                    // 目录读不到只影响目录那一页，别把模型那份 error 也污染了。
+                    Ok(Err(e)) => log::warn!("目录读不到：{e}"),
+                    Err(e) => log::warn!("目录读不到：{e}"),
                 }
                 cx.notify();
             });
@@ -1317,6 +1351,10 @@ impl Desktop {
                         // 工具卡片：这一轮调过哪些工具，SSE 里是带名字的（`ToolRun.name`）。
                         // 以前 `Drained.tools` 没人看，所以 `live.rs` 里那两个字段一直是死代码。
                         this.live_tools = drained.tools;
+                        // SSE 首帧带来的时间戳：按天分组目录靠它，不自己编日期。
+                        if let Some(times) = drained.times {
+                            this.nav.times = times;
+                        }
                         this.scroll.scroll_to_bottom();
                         if drained.done {
                             // 一轮结束：交出去，历史以引擎为准重拉一遍。流不关，继续等下一轮。
@@ -1413,7 +1451,7 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(60.))
+            .w(px(ICON_BAR_W))
             .h_full()
             .bg(rgb(SIDEBAR_DARK))
             .items_center()
@@ -1673,7 +1711,7 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(280.))
+            .w(px(SESSION_LIST_W))
             .h_full()
             .bg(rgb(LIST_BG))
             .child(
@@ -1696,7 +1734,7 @@ impl Desktop {
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.board_open(window, cx);
                             }))
-                            .child("+ 新对话"),
+                            .child("+ New Manual"),
                     ),
             )
             .child(div().px(px(12.)).child(self.status_line(cx)))
@@ -1733,6 +1771,7 @@ impl Desktop {
             .into_any_element()
     }
 
+    /// 聊天区：9 号方案的短主视图 + 右侧历史抽屉。目录列由 `render()` 插在它左边。
     fn render_chat(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(id) = self.selected else {
             return div()
@@ -1752,7 +1791,13 @@ impl Desktop {
             .map(|s| s.name.clone())
             .unwrap_or_else(|| format!("会话 {id}"));
 
-        let bubbles: Vec<AnyElement> = if self.entries_loading {
+        // 9 号方案：主视图只留最近 KEEP 条。`nav.main_from` 被抽屉的桥往前推时才会变长，
+        // 顶栏给一颗「收起」把它还原。
+        let from = self.nav.from_of(self.entries.len());
+        let older = from;
+        let short = self.nav.is_short(self.entries.len());
+
+        let status: Vec<AnyElement> = if self.entries_loading {
             vec![
                 div()
                     .p(px(12.))
@@ -1778,46 +1823,32 @@ impl Desktop {
                     .into_any_element(),
             ]
         } else {
-            let mut out: Vec<AnyElement> = self
-                .entries
-                .iter()
-                // 空正文的气泡不画 —— 引擎对「有 entry 没内容」会给空串/null，
-                // 画出来就是一个白方块（坑.md 第 7 条）。
-                .filter(|e| {
-                    e.text
-                        .as_deref()
-                        .map(|t| !t.trim().is_empty())
-                        .unwrap_or(false)
-                })
-                .map(|e| self.bubble(e, cx).into_any_element())
-                .collect();
-            // 正在生成这一轮调的工具：SSE 里带名字，所以是「bash · hostname; pwd」。
-            for t in &self.live_tools {
-                out.push(self.tool_card(&format!("live-{}", t.id), Some(&t.name), &t.output, cx));
-            }
-            // 正在生成的那条：跟助手气泡同一个样子，只是文字还在长。
-            if let Some(live) = &self.live {
-                if !live.is_empty() {
-                    out.push(
-                        div()
-                            .flex()
-                            .justify_start()
-                            .px(px(12.))
-                            .py(px(4.))
-                            .child(
-                                div()
-                                    .max_w(px(480.))
-                                    .px(px(12.))
-                                    .py(px(8.))
-                                    .rounded(px(6.))
-                                    .bg(rgb(BUBBLE_OTHER))
-                                    .child(live.clone()),
-                            )
-                            .into_any_element(),
-                    );
-                }
-            }
-            out
+            vec![]
+        };
+
+        // 主视图的气泡。前面挂「更早 N 条」入口（9 号方案的那扇门）。
+        let mut main_rows: Vec<AnyElement> = Vec::new();
+        if older > 0 && status.is_empty() {
+            main_rows.push(crate::nav_ui::more_bar(older, cx));
+            main_rows.push(
+                div()
+                    .mb(px(12.))
+                    .text_size(px(11.))
+                    .text_color(rgb(0xa0a0a0))
+                    .child("下面是最近几轮 · 旧的都在抽屉里")
+                    .into_any_element(),
+            );
+        }
+        main_rows.extend(status);
+        if self.entries.len() > from {
+            main_rows.extend(self.nav_rows(&self.entries[from..], cx));
+        }
+
+        // 抽屉里的全量正文。只有开着时才画 —— 不然每次重绘都要解析整段历史。
+        let drawer_rows: Vec<AnyElement> = if self.nav.drawer_open {
+            self.nav_rows(&self.entries, cx)
+        } else {
+            vec![]
         };
 
         div()
@@ -1825,8 +1856,7 @@ impl Desktop {
             .flex_col()
             .flex_1()
             // `min_w(0)` 不能省：flex 项默认 `min-width: auto`，历史里只要有一条
-            // 折不开的长行（工具输出整段），这块就被撑得比窗口还宽，
-            // 顶部 `justify_between` 的右半边全跑到窗口外面（症状：按钮"有时候不见了"）。
+            // 折不开的长行（工具输出整段），这块就被撑得比窗口还宽（坑.md 16）。
             .min_w(px(0.))
             .h_full()
             .bg(rgb(CHAT_BG))
@@ -1835,13 +1865,30 @@ impl Desktop {
                     .flex()
                     .h(px(48.))
                     .w_full()
+                    .flex_none()
                     .items_center()
-                    .justify_between()
+                    .gap(px(9.))
                     .px(px(12.))
                     .bg(rgb(LIST_BG))
                     .child(div().flex_none().truncate().child(title))
-                    // 分支：分叉树唯一的入口。激活时变绿 —— 绿 = 左列现在看到的是分支。
-                    .child(self.branch_button(id, cx)),
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(11.))
+                            .text_color(rgb(MUTED))
+                            .child(if self.nav.drawer_open {
+                                "目录指向抽屉里的全量历史".to_string()
+                            } else if short {
+                                format!("主视图最近 {} 条", self.entries.len() - from)
+                            } else {
+                                format!("已展开 {} 条", self.entries.len() - from)
+                            }),
+                    )
+                    .child(div().flex_1())
+                    // 分支：分叉树唯一的入口。激活时变绿。
+                    .child(self.branch_button(id, cx))
+                    .children((!short).then(|| crate::nav_ui::collapse_button(cx)))
+                    .child(crate::nav_ui::history_button(cx)),
             )
             .child(
                 div()
@@ -1854,8 +1901,7 @@ impl Desktop {
                         this.bar_hover(Bar::Chat, *hovered, cx)
                     }))
                     .min_w(px(0.))
-                    // `min_h(0)` 是上面那条 `min_w(0)` 的竖版：不加它，这个「视口」
-                    // 会被内容撑到十几万像素高，内容就不需要滚了，滚动条也不再出现。
+                    // 竖版的 `min_w(0)`：不加它这个「视口」会被内容撑到十几万像素高。
                     .min_h(px(0.))
                     .child(
                         div()
@@ -1865,20 +1911,27 @@ impl Desktop {
                             .id("chat-scroll")
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
+                            .on_scroll(
+                                cx.listener(|this, _e: &ScrollEvent, _, cx| this.nav_spy(cx)),
+                            )
                             .py(px(8.))
-                            .children(bubbles),
+                            .children(main_rows),
                     )
                     .child(scrollbar::overlay(
                         "chat-scrollbar",
                         &self.scroll,
                         self.chat_bar,
                         self.chat_hover,
+                    ))
+                    .child(crate::nav_ui::drawer(
+                        self.nav.drawer_open,
+                        drawer_rows,
+                        &self.nav.drawer_scroll,
+                        cx,
                     )),
             )
             // 这一轮的失败就地显示：红条 + 重试 + 收起。不占左栏那条「连不上引擎」的通道。
-            //
-            // 按钮**左锚**、文字放最后：GPUI 里长文字（不换行）按内容宽度算，
-            // 谁在它右边谁就被顶出屏幕（试过，右端按钮整颗消失）。
+            // 按钮左锚、文字放最后（GPUI 里长文字会把它右边的东西顶出屏幕）。
             .when_some(self.turn_error.clone(), |el, message| {
                 el.child(
                     div()
@@ -1953,6 +2006,272 @@ impl Desktop {
                 self.cfg_first_tool(cx),
             ))
             .into_any_element()
+    }
+
+    /// 把一段 entries 画成气泡列表（含正在生成的工具和半截回答）。
+    /// 主视图和抽屉共用这一套，避免两处渲染长得不一样。
+    fn nav_rows(&self, slice: &[Entry], cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut out: Vec<AnyElement> = slice
+            .iter()
+            // 空正文的气泡不画 —— 引擎对「有 entry 没内容」会给空串/null，
+            // 画出来就是一个白方块（坑.md 第 7 条）。
+            .filter(|e| entry_visible(e))
+            .map(|e| self.bubble(e, cx).into_any_element())
+            .collect();
+        // 正在生成这一轮调的工具：SSE 里带名字，所以是「bash · hostname; pwd」。
+        for t in &self.live_tools {
+            out.push(self.tool_card(&format!("live-{}", t.id), Some(&t.name), &t.output, cx));
+        }
+        // 正在生成的那条：跟助手气泡同一个样子，只是文字还在长。
+        if let Some(live) = &self.live {
+            if !live.is_empty() {
+                out.push(
+                    div()
+                        .flex()
+                        .justify_start()
+                        .px(px(12.))
+                        .py(px(4.))
+                        .child(
+                            div()
+                                .max_w(px(480.))
+                                .px(px(12.))
+                                .py(px(8.))
+                                .rounded(px(6.))
+                                .bg(rgb(BUBBLE_OTHER))
+                                .child(live.clone()),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+        out
+    }
+
+    // ── 会话内跳转：目录 + 历史抽屉（J + 9） ────────────────────────────
+
+    /// 目录按天分组。水位取引擎给的 `readAt`，没给就不标红点。
+    fn nav_groups(&self) -> Vec<crate::session_nav::NavDay> {
+        let (read_at, has_unread) = self
+            .selected
+            .and_then(|id| self.unread.of(id))
+            .map(|s| (s.read_at, s.unread > 0))
+            .unwrap_or((None, false));
+        self.nav.groups(&self.entries, read_at, has_unread)
+    }
+
+    /// 滚动容器里，第 `entry_index` 条历史是第几个孩子。
+    ///
+    /// **不能拿 entry 下标直接当孩子下标**：空正文的气泡被跳过（坑.md 7），
+    /// 主视图前面还挂着「更早 N 条」和一行说明，抽屉前面挂着一条提示。
+    /// 不对齐的话跳转会偏到别的轮次 —— 这是「目录点一下跳歪」的根因。
+    fn nav_child_of(&self, entry_index: usize, drawer: bool) -> Option<usize> {
+        if entry_index >= self.entries.len() || !entry_visible(&self.entries[entry_index]) {
+            return None;
+        }
+        nav_child_index(
+            &self.entries,
+            entry_index,
+            if drawer {
+                0
+            } else {
+                self.nav.from_of(self.entries.len())
+            },
+            drawer,
+            self.entries_loading || self.entries_error.is_some(),
+        )
+    }
+
+    /// 当前高亮该跟着谁：抽屉开着就跟抽屉，否则跟主视图。
+    /// **只允许一个「当前正文」** —— 两套滚动状态各跟各的是这里最容易出的错。
+    pub(crate) fn nav_spy(&mut self, cx: &mut Context<Self>) {
+        let groups = self.nav_groups();
+        if groups.is_empty() {
+            return;
+        }
+        let drawer = self.nav.drawer_open;
+        let from = if drawer {
+            0
+        } else {
+            self.nav.from_of(self.entries.len())
+        };
+        let (offset, bounds, max_offset) = if drawer {
+            (
+                self.nav.drawer_scroll.offset(),
+                self.nav.drawer_scroll.bounds(),
+                self.nav.drawer_scroll.max_offset(),
+            )
+        } else {
+            (
+                self.scroll.offset(),
+                self.scroll.bounds(),
+                self.scroll.max_offset(),
+            )
+        };
+        // 顶部 80px 那条线：最后一个越过它的用户消息就是「正在读的那轮」。
+        // 贴底例外 —— 那时在看最新一轮，而它未必过了那条线。
+        let viewport_h = bounds.size.height.as_f32();
+        let at_bottom = -offset.y.as_f32() + viewport_h >= -max_offset.y.as_f32() - 4.0;
+        let line = -offset.y.as_f32() + 80.0;
+        let mut current = groups[0].rounds[0].index;
+        for (i, e) in self.entries.iter().enumerate().skip(from) {
+            if e.kind != "pi.user" {
+                continue;
+            }
+            let b = self.nav_child_of(i, drawer).and_then(|ix| {
+                if drawer {
+                    self.nav.drawer_scroll.bounds_for_item(ix)
+                } else {
+                    self.scroll.bounds_for_item(ix)
+                }
+            });
+            let Some(b) = b else { continue };
+            if b.top().as_f32() > line {
+                break;
+            }
+            if let Some(r) = groups
+                .iter()
+                .flat_map(|g| g.rounds.iter())
+                .find(|r| r.entry_index == i)
+            {
+                current = r.index;
+            }
+        }
+        if at_bottom && let Some(r) = groups.iter().flat_map(|g| g.rounds.iter()).last() {
+            current = r.index;
+        }
+        let group = groups
+            .iter()
+            .find(|g| g.rounds.iter().any(|r| r.index == current))
+            .map(|g| g.label.clone());
+        let changed = self.nav.current != current;
+        self.nav.current = current;
+        // 自动展开当前组：H 单做时「正文在动、目录里找不到我」的那个坑。
+        if let Some(g) = group {
+            self.nav.reveal(&g);
+        }
+        if changed {
+            // 目录自己别滚离视线：当前那组跟着进视口。
+            if let Some(gi) = groups
+                .iter()
+                .position(|g| g.rounds.iter().any(|r| r.index == current))
+            {
+                self.nav.nav_scroll.scroll_to_top_of_item(gi);
+            }
+            cx.notify();
+        }
+    }
+
+    /// 目录点一行。三个落点：抽屉里定位 / 主视图直接跳 / 打开抽屉定位。
+    /// 用户拍板的是第三条 —— **主视图永远 12 行**，不搞「先加载再跳」。
+    pub(crate) fn nav_jump(&mut self, index: usize, _group: String, cx: &mut Context<Self>) {
+        let groups = self.nav_groups();
+        let Some(r) = groups
+            .iter()
+            .flat_map(|g| g.rounds.iter())
+            .find(|r| r.index == index)
+            .cloned()
+        else {
+            return;
+        };
+        self.nav.current = index;
+        if self.nav.drawer_open {
+            // 抽屉里是全量，但孩子下标要跳过多余行（见 nav_child_of）。
+            if let Some(ix) = self.nav_child_of(r.entry_index, true) {
+                self.nav.drawer_scroll.scroll_to_top_of_item(ix);
+            }
+            cx.notify();
+            return;
+        }
+        let from = self.nav.from_of(self.entries.len());
+        if r.entry_index >= from {
+            if let Some(ix) = self.nav_child_of(r.entry_index, false) {
+                self.scroll.scroll_to_top_of_item(ix);
+            }
+            cx.notify();
+            return;
+        }
+        self.nav_open_drawer(Some(r.entry_index), cx);
+    }
+
+    /// 打开抽屉。`to` 是「滚到哪条 entry」，None = 停在最早那段
+    /// （最近 12 行主视图里已经有了，打开抽屉是为了看旧的）。
+    pub(crate) fn nav_open_drawer(&mut self, to: Option<usize>, cx: &mut Context<Self>) {
+        self.nav.drawer_open = true;
+        if let Some(entry) = to {
+            let ix = self.nav_child_of(entry, true);
+            self.nav.drawer_scroll = ScrollHandle::new();
+            if let Some(ix) = ix {
+                self.nav.drawer_scroll.scroll_to_top_of_item(ix);
+            }
+            self.nav.current = self
+                .nav_groups()
+                .iter()
+                .flat_map(|g| g.rounds.iter())
+                .filter(|r| r.entry_index <= entry)
+                .last()
+                .map(|r| r.index)
+                .unwrap_or(0);
+        } else {
+            self.nav.drawer_scroll = ScrollHandle::new();
+        }
+        // 抽屉开着时目录指向全量正文，第一组先摊开。
+        let groups = self.nav_groups();
+        if let Some(g) = groups.first() {
+            self.nav.reveal(&g.label);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn nav_close_drawer(&mut self, cx: &mut Context<Self>) {
+        self.nav.drawer_open = false;
+        cx.notify();
+    }
+
+    /// 抽屉头上的桥：把「目录当前高亮的那轮」加载进主视图，然后关抽屉。
+    pub(crate) fn nav_to_main(&mut self, cx: &mut Context<Self>) {
+        let groups = self.nav_groups();
+        let entry_index = groups
+            .iter()
+            .flat_map(|g| g.rounds.iter())
+            .find(|r| r.index == self.nav.current)
+            .map(|r| r.entry_index);
+        if let Some(ix) = entry_index {
+            self.nav.main_from = Some(ix.saturating_sub(1));
+        }
+        self.nav.drawer_open = false;
+        self.scroll.scroll_to_bottom();
+        cx.notify();
+    }
+
+    pub(crate) fn nav_collapse(&mut self, cx: &mut Context<Self>) {
+        self.nav.main_from = None;
+        self.scroll.scroll_to_bottom();
+        cx.notify();
+    }
+
+    pub(crate) fn nav_toggle_fold(&mut self, cx: &mut Context<Self>) {
+        let groups = self.nav_groups();
+        let keys: Vec<String> = groups
+            .iter()
+            .take(groups.len().saturating_sub(1))
+            .map(|g| g.label.clone())
+            .collect();
+        let any_open = keys.iter().any(|k| !self.nav.closed.contains(k));
+        for k in keys {
+            if any_open {
+                self.nav.closed.insert(k);
+            } else {
+                self.nav.closed.remove(&k);
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn nav_toggle_group(&mut self, label: String, cx: &mut Context<Self>) {
+        if !self.nav.closed.remove(&label) {
+            self.nav.closed.insert(label);
+        }
+        cx.notify();
     }
 
     // ── 列表 / 气泡 ─────────────────────────────────────────
@@ -2123,7 +2442,7 @@ impl Desktop {
             // `.id()` 把 Div 转成 Stateful<Div>，on_click 只存在于后者。
             .id(ElementId::Name(format!("sess-{id}").into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.select_session(id, false, cx);
+                this.choose_session(id, cx);
             }));
 
         // 右键菜单：置顶 / 取消置顶。菜单项发的是同一个 action，每行自己的 listener
@@ -2594,7 +2913,15 @@ impl Render for Desktop {
         // 不会「看到的」和「选中的」对不上。
         self.refresh_slash(cx);
 
-        let shell = div()
+        // New Manual **顶替**右侧聊天区，不再盖住整窗：左导航和会话列表永远在。
+        // 尺寸基准也因此从整窗 vmin 换成右格 cqmin（见 `board_art::M`）。
+        let right: AnyElement = if self.newchat.open {
+            self.render_board(window, cx)
+        } else {
+            self.render_chat(cx).into_any_element()
+        };
+
+        let shell_root = div()
             .flex()
             .flex_row()
             .size_full()
@@ -2612,36 +2939,140 @@ impl Render for Desktop {
                     .child(self.render_templates(cx))
                     .into_any_element(),
             })
-            .child(self.render_chat(cx));
+            // 会话内跳转目录（J）：只在聊天页、选中了会话、且**盘面没开**时出现。
+            // New Manual 顶替右栏时那一列会把它挤窄，所以一并让开。
+            .children(
+                (self.tab == Tab::Chats && self.selected.is_some() && !self.newchat.open).then(
+                    || {
+                        let groups = self.nav_groups();
+                        if groups.is_empty() {
+                            return div().into_any_element();
+                        }
+                        let from = self.nav.from_of(self.entries.len());
+                        crate::nav_ui::nav_column(
+                            &self.entries,
+                            &groups,
+                            &self.nav,
+                            from,
+                            self.nav.drawer_open,
+                            cx,
+                        )
+                    },
+                ),
+            )
+            // 别人的 New Manual 盘面顶替右栏；没开时才是聊天区。
+            .child(right);
 
-        // 新对话是**一整页**，不是三栏里的一格：那个页面的尺寸全走 vmin、一屏不滚，
-        // 塞进聊天区会把四块象限挤成一团。所以它盖在整窗上，关掉才回到三栏。
+        // 配置面板挂在**整窗**这一层，不塞进输入区：塞进去它是 absolute 浮层，
+        // 超出输入区那 130px 的部分 hitbox 会被裁掉 —— 画得出来、hover 也变色，
+        // 但 on_click 一次都进不来（踩过）。
         div()
             .relative()
             .size_full()
-            .child(shell)
-            // 配置面板挂在**整窗**这一层，不塞进输入区：
-            // 塞进去的话它是 absolute 浮层，超出输入区那 130px 的部分 hitbox 会被裁掉 ——
-            // 画得出来、hover 也变色，但 on_click 一次都进不来（踩过）。
+            .child(shell_root)
             .children(self.cfg_overlay(cx))
-            .children(self.newchat.open.then(|| {
-                // 明确绝对定位：靠子元素的 `size_full` 撑满有时会拿不到父高，
-                // 结果只有 canvas 画上去了、底下的深色没铺 —— 看着像「盘面没开」。
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .child(self.render_board(window, cx))
-            }))
     }
+}
+
+/// 空正文的气泡不画 —— 引擎对「有 entry 没内容」会给空串/null，
+/// 画出来就是一个白方块（坑.md 第 7 条）。
+/// `nav_spy` 和 `render_chat` 共用这一条，保证「滚动容器里的第几个孩子」算得对。
+fn entry_visible(e: &Entry) -> bool {
+    e.text
+        .as_deref()
+        .map(|t| !t.trim().is_empty())
+        .unwrap_or(false)
+}
+
+/// 第 `entry_index` 条历史在滚动容器里是第几个孩子。
+///
+/// 空正文被跳过，主视图前面有「更早」+ 说明两行，抽屉前面有一行提示。
+/// 纯函数（只吃 entries 和几个开关）—— 「目录点一下跳歪」这条最容易错，
+/// 所以拿数字直接钉住单测，不靠肉眼对齐。
+fn nav_child_index(
+    entries: &[Entry],
+    entry_index: usize,
+    from: usize,
+    drawer: bool,
+    loading: bool,
+) -> Option<usize> {
+    if entry_index < from || entry_index >= entries.len() || !entry_visible(&entries[entry_index]) {
+        return None;
+    }
+    let mut n = if drawer {
+        1 // 抽屉里的提示行
+    } else {
+        let mut head = 0;
+        if from > 0 && !loading && !entries.is_empty() {
+            head += 2; // 「更早」条 + 说明
+        }
+        if loading || entries.is_empty() {
+            head += 1; // 状态行
+        }
+        head
+    };
+    for e in &entries[from..entry_index] {
+        if entry_visible(e) {
+            n += 1;
+        }
+    }
+    Some(n)
 }
 
 // 排序写错一次能烦一星期，所以拿数字直接钉住。
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::{order_ids, when_text};
+    use super::{nav_child_index, order_ids, when_text};
+    use nous_engine::types::Entry;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn e(id: i64, kind: &str, text: Option<&str>) -> Entry {
+        Entry {
+            id: json!(id),
+            kind: kind.into(),
+            text: text.map(str::to_string),
+            parent: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    /// 目录点一行，跳的必须是那一行 —— 空正文气泡被跳过 + 前面几行装饰，
+    /// 拿 entry 下标直接当孩子下标会跳歪。
+    #[test]
+    fn 目录跳转的孩子下标要跳过空气泡和装饰行() {
+        let es = vec![
+            e(1, "pi.user", Some("第一句")),
+            e(2, "pi.assistant", None), // 空正文：不画
+            e(3, "pi.user", Some("第二句")),
+            e(4, "pi.assistant", Some("回答")),
+            e(5, "pi.user", Some("第三句")),
+        ];
+        // 抽屉：前面一行提示，空气泡跳过。
+        assert_eq!(nav_child_index(&es, 0, 0, true, false), Some(1));
+        assert_eq!(
+            nav_child_index(&es, 1, 0, true, false),
+            None,
+            "空气泡没画出来"
+        );
+        assert_eq!(nav_child_index(&es, 2, 0, true, false), Some(2));
+        assert_eq!(nav_child_index(&es, 4, 0, true, false), Some(4));
+        // 主视图 from=3：前面「更早」+ 说明两行，从 3 开始数。
+        assert_eq!(nav_child_index(&es, 4, 3, false, false), Some(3));
+        assert_eq!(
+            nav_child_index(&es, 2, 3, false, false),
+            None,
+            "不在主视图里"
+        );
+        // 拉历史中：只有一行状态，没有「更早」。
+        assert_eq!(nav_child_index(&es, 4, 0, false, true), Some(4));
+        assert_eq!(
+            nav_child_index(&es, 2, 3, false, false),
+            None,
+            "不在主视图里"
+        );
+    }
 
     /// 时间列的三档：今天给钟点、昨天给「昨天」、今年更早给月日。
     /// 都拿「现在」往前推，不写死日期 —— 写死的话过一天就红。

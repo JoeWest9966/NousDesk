@@ -164,11 +164,6 @@ impl Panel {
     pub(crate) fn tab(&self) -> Tab {
         self.tab.unwrap_or(Tab::Model)
     }
-
-    /// 七个清单是不是都到位了。没有就继续显示「加载中」。
-    fn ready(&self) -> bool {
-        self.models.is_some() && self.prompts.is_some() && self.machines.is_some()
-    }
 }
 
 // ── 小组件 ───────────────────────────────────────────────────────────
@@ -878,22 +873,26 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
         side = side.child(side_row(t, s, t == tab, hooks));
     }
 
-    // 右栏正文
-    let body: AnyElement = if !p.ready() && tab != Tab::Skills {
-        match &p.error {
-            Some(e) => empty_note(e),
-            None => empty_note("清单加载中…"),
-        }
-    } else {
-        match tab {
-            Tab::Model => page_model(p.models.as_ref().expect("ready() 保证有"), s, hooks, busy),
-            Tab::Level => page_level(s, hooks, busy),
-            Tab::Skills => page_skills(s, skills, hooks, busy),
-            Tab::Template => page_template(s, p.prompts.as_ref(), hooks, busy),
-            Tab::Machine => page_machine(s, p.machines.as_ref(), hooks, busy),
-            Tab::Dir => page_dir(s, p.dirs.as_ref(), hooks),
-            Tab::ReadOnly => page_readonly(s, hooks, busy),
-        }
+    // 右栏正文。**按页单独判**，不看整包 ready()：
+    // 曾经用「三份清单全到位才画」做总闸，结果内核偶发 502 时 `error` 把整块右栏
+    // 换成一屏 HTML 报错 —— 连模型两列铁路图都不画了，而模型那份其实早就拉到了。
+    // 一份挂了不该把别的拖着一起灰（真机截图抓到过）。
+    let body: AnyElement = match tab {
+        Tab::Model => match p.models.as_ref() {
+            Some(m) => page_model(m, s, hooks, busy),
+            None => empty_note(
+                p.error
+                    .as_deref()
+                    .filter(|e| e.contains("模型"))
+                    .unwrap_or("模型清单加载中…"),
+            ),
+        },
+        Tab::Level => page_level(s, hooks, busy),
+        Tab::Skills => page_skills(s, skills, hooks, busy),
+        Tab::Template => page_template(s, p.prompts.as_ref(), hooks, busy),
+        Tab::Machine => page_machine(s, p.machines.as_ref(), hooks, busy),
+        Tab::Dir => page_dir(s, p.dirs.as_ref(), hooks),
+        Tab::ReadOnly => page_readonly(s, hooks, busy),
     };
 
     let main = div()
