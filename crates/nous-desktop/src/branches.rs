@@ -305,7 +305,7 @@ impl Desktop {
             .id(ElementId::Name(format!("branch-{id}").into()))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
-                this.select_session(id, false, cx);
+                this.choose_session(id, cx);
             }))
             .into_any_element()
     }

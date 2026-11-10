@@ -50,6 +50,13 @@ pub(crate) const MUTED: u32 = 0x999999;
 /// 微信的绿：左栏选中图标就是这个颜色。
 pub(crate) const WECHAT_GREEN: u32 = 0x07c160;
 
+// 三栏的固定宽度。**右格宽度靠它们算出来**（`board_art::pane_width`），
+// 所以改这里就必须同步那份表 —— 不然 New Manual 盘面的 cqmin 会算错。
+pub(crate) const ICON_BAR_W: f32 = 60.;
+pub(crate) const SESSION_LIST_W: f32 = 280.;
+pub(crate) const PRESET_TREE_W: f32 = 224.;
+pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
+
 actions!(nous_desktop, [TogglePinAction]);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -149,7 +156,7 @@ pub struct Desktop {
     /// 正在从模板开的那条（防连点 + 状态提示）。
     pub(crate) creating: Option<String>,
     _subs: Vec<Subscription>,
-    /// 「新对话」盘面。盖在三栏之上的一整页（外形照 qrd3wh 的 hb7k3j 页）。
+    /// 「New Manual」盘面。只占右侧聊天区那一格（外形照 qrd3wh 的 hb7k3j 页）。
     pub(crate) newchat: crate::board::NewChat,
 }
 
@@ -334,10 +341,10 @@ impl Desktop {
                         this.load_pins(cx);
                         // `/` 面板的技能清单：只在启动时拉一次，失败就认了（面板给提示）。
                         this.load_skills(cx);
-                        // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在新对话盘面上，
+                        // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在 New Manual 盘面上，
                         // 省得每次手点。只是开关，不是功能。
                         if std::env::var("NOUS_OPEN_BOARD").is_ok() {
-                            log::info!("NOUS_OPEN_BOARD：直接开在新对话盘面上");
+                            log::info!("NOUS_OPEN_BOARD：直接开在 New Manual 盘面上");
                             this.newchat.open = true;
                             this.board_load(cx);
                             // 再给一个梯子：直接开在某个弹层上，省得每次手点。
@@ -551,6 +558,14 @@ impl Desktop {
             }
         })
         .detach();
+    }
+
+    /// 人在左栏点了一条会话 = 明确离开 New Manual 盘面。
+    /// **只有人点才走这里**：poll / SSE / 停止按钮那些内部刷新仍然直接调
+    /// `select_session`，否则后台每 3 秒一次刷新会把人正在配的盘面悄悄关掉。
+    pub(crate) fn choose_session(&mut self, id: i64, cx: &mut Context<Self>) {
+        self.board_close(cx);
+        self.select_session(id, false, cx);
     }
 
     pub(crate) fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
@@ -1077,7 +1092,7 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(60.))
+            .w(px(ICON_BAR_W))
             .h_full()
             .bg(rgb(SIDEBAR_DARK))
             .items_center()
@@ -1337,7 +1352,7 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(280.))
+            .w(px(SESSION_LIST_W))
             .h_full()
             .bg(rgb(LIST_BG))
             .child(
@@ -1360,7 +1375,7 @@ impl Desktop {
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.board_open(window, cx);
                             }))
-                            .child("+ 新对话"),
+                            .child("+ New Manual"),
                     ),
             )
             .child(div().px(px(12.)).child(self.status_line(cx)))
@@ -1786,7 +1801,7 @@ impl Desktop {
             // `.id()` 把 Div 转成 Stateful<Div>，on_click 只存在于后者。
             .id(ElementId::Name(format!("sess-{id}").into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.select_session(id, false, cx);
+                this.choose_session(id, cx);
             }));
 
         // 右键菜单：置顶 / 取消置顶。菜单项发的是同一个 action，每行自己的 listener
@@ -2257,7 +2272,15 @@ impl Render for Desktop {
         // 不会「看到的」和「选中的」对不上。
         self.refresh_slash(cx);
 
-        let shell = div()
+        // New Manual **顶替**右侧聊天区，不再盖住整窗：左导航和会话列表永远在。
+        // 尺寸基准也因此从整窗 vmin 换成右格 cqmin（见 `board_art::M`）。
+        let right: AnyElement = if self.newchat.open {
+            self.render_board(window, cx)
+        } else {
+            self.render_chat(cx).into_any_element()
+        };
+
+        div()
             .flex()
             .flex_row()
             .size_full()
@@ -2275,24 +2298,7 @@ impl Render for Desktop {
                     .child(self.render_templates(cx))
                     .into_any_element(),
             })
-            .child(self.render_chat(cx));
-
-        // 新对话是**一整页**，不是三栏里的一格：那个页面的尺寸全走 vmin、一屏不滚，
-        // 塞进聊天区会把四块象限挤成一团。所以它盖在整窗上，关掉才回到三栏。
-        div()
-            .relative()
-            .size_full()
-            .child(shell)
-            .children(self.newchat.open.then(|| {
-                // 明确绝对定位：靠子元素的 `size_full` 撑满有时会拿不到父高，
-                // 结果只有 canvas 画上去了、底下的深色没铺 —— 看着像「盘面没开」。
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .child(self.render_board(window, cx))
-            }))
+            .child(right)
     }
 }
 
