@@ -79,6 +79,9 @@ pub fn render(
     // 输入区**上方**那张 `/` 技能面板。`None` = 不渲染，也不占高度。
     // 由调用方按输入框内容现算好递进来（composer 自己不读输入框、不存状态）。
     slash_panel: Option<AnyElement>,
+    // 工具行最左边那颗图标。它现在点开「这条对话的设置」，有开关状态、有回调，
+    // 所以不在这里硬编码了 —— 由调用方连状态一起造好递进来。
+    first_tool: AnyElement,
 ) -> impl IntoElement {
     let dimmed = state.streaming;
 
@@ -87,10 +90,11 @@ pub fn render(
         .flex_col()
         .w_full()
         .bg(rgb(WELL_BG))
+        .relative()
         .pt(px(8.))
         .px(px(10.))
         .pb(px(10.))
-        // 面板压在卡片上方：留白跟卡片一致（左右 10、底 6），不额外加边框。
+        // `/` 面板是**跟着输入框走**的：占位、把卡片往上推，跟微信那种一致。
         .children(slash_panel.map(|p| div().px(px(0.)).pb(px(6.)).child(p).into_any_element()))
         .child(
             div()
@@ -151,7 +155,7 @@ pub fn render(
                                 .items_center()
                                 .gap(px(2.))
                                 .when(dimmed, |el| el.opacity(0.4))
-                                .child(tool_icon(IconName::FaceGrinning))
+                                .child(first_tool)
                                 .child(tool_icon(IconName::Hexagon))
                                 .child(tool_icon(IconName::Folder))
                                 .child(tool_icon_with_caret(IconName::Scissors))

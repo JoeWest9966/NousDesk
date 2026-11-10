@@ -30,6 +30,11 @@ pub struct Session {
     pub skills: Vec<String>,
     pub template: Option<String>,
     pub read_only: bool,
+    /// 这条会话的工作目录。内核 `GET /v1/sessions` 每一项都带 —— 面板要显示当前值，
+    /// 不能只从 `extra` 里摸。
+    pub cwd: Option<String>,
+    /// 跑在哪台机器上，`null` = 本机。
+    pub machine: Option<String>,
     /// `"queued" | "running" | <task state kind> | null`，不是布尔。
     pub busy: Option<serde_json::Value>,
     /// 最后一次落库的时刻，epoch **毫秒**。可能是 null：引擎只记自己看着写过的那些，
@@ -412,7 +417,9 @@ impl Prompt {
 
 /// `POST /v1/sessions/:id/config` 的回包。**回的是生效值，不是请求值** ——
 /// 服务端先 `configure` 再读 agent 状态回来，前端拿它重画就不会跟真相分叉。
-/// 这一轮只用 `skills`，其余字段照样解出来（以后 `/model` 那条路直接复用）。
+///
+/// 所以面板改完一项，**必须拿这个回包去覆盖本地会话**，而不是自己把改的值写上去：
+/// 比如换了模型，服务端会把档位按新模型重夹一次，那个结果只能从这里拿到。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
@@ -422,7 +429,44 @@ pub struct SessionConfig {
     pub model: Option<String>,
     pub thinking_level: Option<serde_json::Value>,
     pub template: Option<String>,
+    #[serde(default)]
     pub read_only: bool,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub machine: Option<String>,
+    #[serde(default)]
+    pub extensions: Vec<String>,
+}
+
+/// `POST /v1/sessions/:id/config` 的**请求**体。
+///
+/// 每个字段都是 `Option`，但这里有两层不同的「不传」：
+/// - `Option<String>` / `Option<Vec<_>>` / `Option<bool>`：`None` = 这次不动它。
+/// - `Option<Option<String>>`：内核里 `null` 是**一个有效选择**（模板：明确不要；
+///   机器：回本机；目录：清回缺省）。所以外层 `None` = 不动，`Some(None)` = 传 `null`，
+///   `Some(Some(v))` = 换成 `v`。塌成一层就会把「不要」和「没说」混成一件事 ——
+///   内核那句注释专门写了这个坑。
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigPatch {
+    /// `"provider/modelId"`，比如 `Qoder/DeepSeek-Flash`。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    /// **相对改法**：内核只增删差集，不是把完整数组写回去 ——
+    /// 写完整数组会把这条会话的扩展选择冻住，宿主以后往默认选择里加东西就再也进不来了。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_only: Option<bool>,
 }
 
 /// `GET /v1/machines`。会话跑在哪台机器上，`null` = 本机。

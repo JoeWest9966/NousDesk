@@ -10,6 +10,7 @@ mod board;
 mod board_art;
 mod branches;
 mod composer;
+mod config_panel;
 mod live;
 mod md;
 mod search;

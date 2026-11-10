@@ -10,8 +10,8 @@ use url::Url;
 
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
-    CreateSession, CreatedSession, Device, Dirs, Entries, Forked, Machines, Models, Presets,
-    Prompts, ReadReceipt, SessionConfig, Sessions, Skills, Submission, Unread,
+    ConfigPatch, CreateSession, CreatedSession, Device, Dirs, Entries, Forked, Machines, Models,
+    Presets, Prompts, ReadReceipt, SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -232,15 +232,13 @@ impl EngineClient {
     /// 读当前 extension 名牌 → remove 旧的 / add 新的），不要在本地模拟增减。
     ///
     /// 回包是生效值，调用方拿它覆盖本地会话的 `skills`，别自己乐观地假定写成功了。
-    pub async fn config(&self, id: i64, skills: &[String]) -> Result<SessionConfig, EngineError> {
-        #[derive(Serialize)]
-        struct Body<'a> {
-            skills: &'a [String],
-        }
+    /// 改这条会话的配置。回的是**生效值**，不是请求值 —— 调用方要拿它覆盖本地，
+    /// 而不是自己把改的值写上去（换了模型，服务端会把档位按新模型重夹）。
+    pub async fn config(&self, id: i64, patch: &ConfigPatch) -> Result<SessionConfig, EngineError> {
         let resp = self
             .http
             .post(self.url(&format!("v1/sessions/{id}/config"))?)
-            .json(&Body { skills })
+            .json(patch)
             .send()
             .await?;
         self.json(resp).await

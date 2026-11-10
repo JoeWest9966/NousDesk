@@ -2,6 +2,7 @@
 //!
 //! 微信桌面版的骨头。聊天区的流式（SSE）还没接，先做历史气泡。
 
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,7 +23,7 @@ use gpui_kit::*;
 use nous_engine::EngineClient;
 use nous_engine::pins::PinClient;
 use nous_engine::resolve::resolve_engine;
-use nous_engine::types::{Entry, Session, Unread};
+use nous_engine::types::{ConfigPatch, Entry, Session, Unread};
 use smol::Timer;
 
 pub(crate) mod scrollbar;
@@ -111,6 +112,9 @@ pub struct Desktop {
     skills_loading: bool,
     /// 清单拉失败的一句话。有它就不重试（否则「失败 → notify → 再拉」是个死循环）。
     skills_error: Option<String>,
+    /// 输入区左下角那颗 DNA 图标点开的「这条对话的设置」。
+    /// 这里只放界面状态（看哪页 / 清单 / 在途）；配置值本身在 `sessions` 里，那才是真相。
+    cfg: crate::config_panel::Panel,
     /// 左栏当前页：聊天 / 通讯录（模板）。
     pub(crate) tab: Tab,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
@@ -217,6 +221,24 @@ impl Desktop {
                 {
                     return;
                 }
+                // 配置面板开着时 Esc 收起。它没有 ↑↓ 这类键，只看 Esc，
+                // 也不要求输入框聚焦 —— 面板自己的清单才是焦点可能待着的地方。
+                if key == "escape" {
+                    let closed = weak
+                        .update(app, |this, cx| {
+                            if !this.cfg_visible() {
+                                return false;
+                            }
+                            this.cfg.open = false;
+                            cx.notify();
+                            true
+                        })
+                        .unwrap_or(false);
+                    if closed {
+                        app.stop_propagation();
+                        return;
+                    }
+                }
                 let handled = weak
                     .update(app, |this, cx| {
                         if !this.slash_visible(cx) || this.slash.busy {
@@ -284,6 +306,7 @@ impl Desktop {
             slash_items: vec![],
             skills_loading: false,
             skills_error: None,
+            cfg: crate::config_panel::Panel::default(),
             tab: Tab::Chats,
             focused: true,
             stream_for: None,
@@ -296,7 +319,10 @@ impl Desktop {
             user_stopped: false,
             pins_client: None,
             pins: vec![],
-            sections: [crate::templates::Section::new(0), crate::templates::Section::new(1)],
+            sections: [
+                crate::templates::Section::new(0),
+                crate::templates::Section::new(1),
+            ],
             section: 0,
             preset_cat: None,
             preset_closed: std::collections::HashSet::new(),
@@ -563,6 +589,7 @@ impl Desktop {
         self.turn_error = None;
         self.entries_loading = true;
         self.streaming = false;
+        self.cfg.open = false;
         self.live_tools.clear();
         self.open_tools.clear();
         // 选中就常连：别的写出方（另一个终端、面板页）进这一条，这边会自己长出来。
@@ -712,12 +739,16 @@ impl Desktop {
         cx.notify();
         log::info!("技能配置：会话 {id} → {wanted:?}");
 
+        let patch = nous_engine::types::ConfigPatch {
+            skills: Some(wanted),
+            ..Default::default()
+        };
         cx.spawn_in(window, async move |this, cx| {
             let Some(h) = crate::TOKIO.get().cloned() else {
                 return;
             };
             let got = h
-                .spawn(async move { engine.config(id, &wanted).await })
+                .spawn(async move { engine.config(id, &patch).await })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.slash.busy = false;
@@ -765,6 +796,311 @@ impl Desktop {
             self.slash.error.clone(),
             empty_note.map(str::to_string),
             on_pick,
+        ))
+    }
+
+    // ── 输入区左下角那颗 DNA：这条对话的设置 ───────────────────────
+
+    fn cur_session(&self) -> Option<&Session> {
+        let id = self.selected?;
+        self.sessions.iter().find(|s| s.id == id)
+    }
+
+    /// 面板在不在场。跟 `/` 面板一样：没选会话、或者在新对话盘面上，都不该出现。
+    fn cfg_visible(&self) -> bool {
+        self.cfg.open && self.selected.is_some() && !self.newchat.open
+    }
+
+    /// 开 / 关。打开时顺手拉清单，并把 `/` 那套收掉 —— 两个面板不共存。
+    fn toggle_config(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.cfg.open {
+            self.cfg.open = false;
+            cx.notify();
+            return;
+        }
+        if self.selected.is_none() || self.newchat.open {
+            return;
+        }
+        self.cfg.open = true;
+        // 每开一次都回到第一页：停在上一条会话看过的那页只会让人困惑。
+        self.cfg.tab = None;
+        self.cfg.error = None;
+        self.slash.dismissed = true;
+        self.cfg_load(cx);
+        self.load_skills(cx);
+        // 目录从这条会话自己的 cwd 起，不从面板上次待的地方起。
+        let cwd = self.cur_session().and_then(|s| s.cwd.clone());
+        self.cfg_enter_dir(cwd, cx);
+        cx.notify();
+    }
+
+    /// 拉三个清单（技能跟 `/` 共用 `load_skills`，不重复拉第二遍）。
+    /// 一次只发一批，失败也记一句话不重试 —— 否则 render 里就是「失败 → 重画 → 再拉」。
+    fn cfg_load(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        if self.cfg.loading || self.cfg.models.is_some() {
+            return;
+        }
+        self.cfg.loading = true;
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move {
+                    let models = engine.models().await;
+                    let prompts = engine.prompts().await;
+                    let machines = engine.machines().await;
+                    (models, prompts, machines)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.cfg.loading = false;
+                match got {
+                    Ok((Ok(m), Ok(p), Ok(mc))) => {
+                        log::info!(
+                            "配置面板清单：{} 模型 / {} 模板 / {} 机器",
+                            m.items.len(),
+                            p.prompts.len(),
+                            mc.machines.len()
+                        );
+                        this.cfg.models = Some(m);
+                        this.cfg.prompts = Some(p);
+                        this.cfg.machines = Some(mc);
+                    }
+                    Ok((a, b, c)) => {
+                        // 一份挂了不该把别的拖着一起灰，所以逐条报。
+                        let mut errs: Vec<String> = Vec::new();
+                        if let Err(e) = a {
+                            errs.push(format!("模型：{e}"));
+                        }
+                        if let Err(e) = b {
+                            errs.push(format!("模板：{e}"));
+                        }
+                        if let Err(e) = c {
+                            errs.push(format!("机器：{e}"));
+                        }
+                        this.cfg.error = Some(format!("清单拉不到 —— {}", errs.join("；")));
+                    }
+                    Err(e) => this.cfg.error = Some(format!("清单拉不到：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 进某个目录。`None` = 从这条会话的 cwd 起。
+    fn cfg_enter_dir(&mut self, path: Option<String>, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let want = path.or_else(|| self.cur_session().and_then(|s| s.cwd.clone()));
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move { engine.dirs(want.as_deref()).await })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Ok(Ok(d)) => this.cfg.dirs = Some(d),
+                    // 目录读不到不是致命错：面板留在原地，把那句话说在正文里。
+                    Ok(Err(e)) => this.cfg.error = Some(format!("目录读不到：{e}")),
+                    Err(e) => this.cfg.error = Some(format!("目录读不到：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 把一份 patch 发给内核。回包是**生效值**，拿它覆盖本地会话 ——
+    /// 不能自己把改的值写上去：换模型时服务端会把档位按新模型重夹一次，
+    /// 那个结果只有回包里有。
+    fn cfg_apply(&mut self, patch: ConfigPatch, cx: &mut Context<Self>) {
+        let Some(id) = self.selected else {
+            return;
+        };
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        if self.cfg.busy {
+            return;
+        }
+        self.cfg.busy = true;
+        self.cfg.error = None;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move { engine.config(id, &patch).await })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.cfg.busy = false;
+                match got {
+                    Ok(Ok(back)) => {
+                        if let Some(s) = this.sessions.iter_mut().find(|s| s.id == id) {
+                            s.model = back.model.clone();
+                            s.thinking_level = back.thinking_level.clone();
+                            s.skills = back.skills.clone();
+                            s.template = back.template.clone();
+                            s.read_only = back.read_only;
+                            s.cwd = back.cwd.clone();
+                            s.machine = back.machine.clone();
+                        }
+                        log::info!(
+                            "配置写进去了：会话 {id} → {}",
+                            back.model.as_deref().unwrap_or("—")
+                        );
+                    }
+                    Ok(Err(e)) => this.cfg.error = Some(format!("没写进去：{e}")),
+                    Err(e) => this.cfg.error = Some(format!("没写进去：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 工具行最左边那颗。以前是个死的笑脸图标，这里换成一个真按钮。
+    fn cfg_first_tool(&self, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.cfg_visible();
+        div()
+            .id(ElementId::Name("tool-config".into()))
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(28.))
+            .rounded(px(6.))
+            .when(open, |el| el.bg(rgba(0x07c16022)))
+            .hover(|s| s.cursor_pointer().bg(rgba(0x00000012)))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.toggle_config(window, cx);
+            }))
+            .child(
+                Icon::new(IconName::Dna)
+                    .size(px(18.))
+                    .text_color(rgb(if open { 0x0a7a3f } else { 0x4d5156 })),
+            )
+            .into_any_element()
+    }
+
+    /// 把面板浮在聊天区左下角。挂在**整窗**根节点上，父容器够大，hitbox 不会被裁。
+    fn cfg_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let panel = self.cfg_panel(cx)?;
+        Some(
+            div()
+                .absolute()
+                .left(px(350.))
+                .bottom(px(118.))
+                .child(panel)
+                .into_any_element(),
+        )
+    }
+
+    /// 画面板（或 `None`）。回调全在这里接上，`config_panel` 只管画。
+    fn cfg_panel(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.cfg_visible() {
+            return None;
+        }
+        let s = self.cur_session()?;
+
+        let hooks = crate::config_panel::Hooks {
+            tab: Rc::new(cx.listener(|this, t: &crate::config_panel::Tab, _w, cx| {
+                this.cfg.tab = Some(*t);
+                cx.notify();
+            })),
+            level: Rc::new(cx.listener(|this, v: &String, _w, cx| {
+                this.cfg_apply(
+                    ConfigPatch {
+                        thinking_level: Some(v.clone()),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+            })),
+            model: Rc::new(cx.listener(|this, v: &(String, String), _w, cx| {
+                let (provider, model_id) = v;
+                // 空 modelId = 只换了供应商。模型得跟着换成这家的第一个，
+                // 不然会停在别家的 modelId 上，服务端直接 400。
+                let model_id = if model_id.is_empty() {
+                    this.cfg
+                        .models
+                        .as_ref()
+                        .and_then(|m| m.items.iter().find(|it| &it.provider == provider))
+                        .map(|it| it.model_id.clone())
+                        .unwrap_or_default()
+                } else {
+                    model_id.clone()
+                };
+                if model_id.is_empty() {
+                    return;
+                }
+                this.cfg_apply(
+                    ConfigPatch {
+                        model: Some(format!("{provider}/{model_id}")),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+            })),
+            skill: Rc::new(cx.listener(|this, name: &String, _w, cx| {
+                // 内核对技能是**相对改法**（只增删差集），所以这里传完整目标数组就行，
+                // 不用自己算增删 —— 跟 `/` 面板走的是同一条路。
+                let wanted = crate::slash::toggle(&this.session_skill_names(), name);
+                this.cfg_apply(
+                    ConfigPatch {
+                        skills: Some(wanted),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+            })),
+            template: Rc::new(cx.listener(|this, v: &Option<String>, _w, cx| {
+                this.cfg_apply(
+                    ConfigPatch {
+                        template: Some(v.clone()),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+            })),
+            machine: Rc::new(cx.listener(|this, v: &Option<String>, _w, cx| {
+                this.cfg_apply(
+                    ConfigPatch {
+                        machine: Some(v.clone()),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+            })),
+            dir: Rc::new(cx.listener(|this, path: &String, _w, cx| {
+                // 点目录是**导航**不是写配置：只拉那一层，不动会话的 cwd。
+                this.cfg_enter_dir(Some(path.clone()), cx);
+            })),
+            readonly: Rc::new(cx.listener(|this, on: &bool, _w, cx| {
+                this.cfg_apply(
+                    ConfigPatch {
+                        read_only: Some(*on),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+            })),
+        };
+
+        Some(crate::config_panel::render(
+            &self.cfg,
+            self.skills.as_ref(),
+            s,
+            &hooks,
         ))
     }
 
@@ -1614,6 +1950,7 @@ impl Desktop {
                 }),
                 cx.listener(|this, _: &ClickEvent, _window, cx| this.stop_generation(cx)),
                 self.slash_panel(cx),
+                self.cfg_first_tool(cx),
             ))
             .into_any_element()
     }
@@ -2283,6 +2620,10 @@ impl Render for Desktop {
             .relative()
             .size_full()
             .child(shell)
+            // 配置面板挂在**整窗**这一层，不塞进输入区：
+            // 塞进去的话它是 absolute 浮层，超出输入区那 130px 的部分 hitbox 会被裁掉 ——
+            // 画得出来、hover 也变色，但 on_click 一次都进不来（踩过）。
+            .children(self.cfg_overlay(cx))
             .children(self.newchat.open.then(|| {
                 // 明确绝对定位：靠子元素的 `size_full` 撑满有时会拿不到父高，
                 // 结果只有 canvas 画上去了、底下的深色没铺 —— 看着像「盘面没开」。
