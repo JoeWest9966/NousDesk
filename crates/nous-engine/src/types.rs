@@ -181,11 +181,34 @@ pub struct Preset {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// `GET /v1/presets/:section` 的 `repo` 块 —— **这一段的**仓状态。
+/// `dirty` 按段算（另一段没写完不该让这一段变脏），`ahead` / `behind` 是整仓的。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)] // 字段是契约，客户端现在只画 head / dirty
+pub struct PresetsRepo {
+    /// HEAD 的 sha（短），`null` = 仓读不了。
+    pub head: Option<String>,
+    pub dirty: bool,
+    pub ahead: Option<i64>,
+    pub behind: Option<i64>,
+    /// 仓读不开时引擎给的一句话。
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Presets {
     pub section: String,
     pub title: Option<String>,
     pub presets: Vec<Preset>,
+    /// 这一段**全部**类别路径（词表 ∪ 预设挂着的），引擎已排好序：父在子前、逐段 `localeCompare('zh-CN')`。
+    /// 里面包含零计数的类别 —— 建了就得看得见，客户端不许滤掉。
+    #[serde(default)]
+    pub categories: Vec<String>,
+    /// 这一段的仓状态。整段拉不到时是 `None`，不是错误。
+    #[serde(default)]
+    pub repo: Option<PresetsRepo>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }

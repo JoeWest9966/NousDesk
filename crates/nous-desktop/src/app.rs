@@ -32,6 +32,7 @@ pub(crate) mod scrollbar;
 pub(crate) enum Bar {
     Chat,
     List,
+    Tree,
     Presets,
 }
 
@@ -81,8 +82,10 @@ pub struct Desktop {
     scroll: ScrollHandle,
     /// 左栏会话列表的滚动句柄（列表以前是 `overflow_hidden`，压根不能滚）。
     list_scroll: ScrollHandle,
-    /// 模板页（通讯录）的滚动句柄。
+    /// 模板页（通讯录）列表的滚动句柄。
     pub(crate) presets_scroll: ScrollHandle,
+    /// 通讯录类别树的滚动句柄。
+    pub(crate) tree_scroll: ScrollHandle,
     /// 每个面板两位：鼠标在不在上面 / 滚动条在不在场（淡出那 250ms 里也得在场）。
     chat_hover: bool,
     chat_bar: bool,
@@ -90,6 +93,8 @@ pub struct Desktop {
     list_bar: bool,
     pub(crate) presets_hover: bool,
     pub(crate) presets_bar: bool,
+    pub(crate) tree_hover: bool,
+    pub(crate) tree_bar: bool,
     /// 输入区悬停提示两位：鼠标在不在输入区上 / 提示字在不在场（淡出那 250ms 里也得在场）。
     composer_hover: bool,
     composer_hint: bool,
@@ -122,10 +127,15 @@ pub struct Desktop {
     pins_client: Option<Arc<PinClient>>,
     /// 置顶的会话 id，**顺序就是显示顺序**（来自 `pins.json`）。
     pins: Vec<i64>,
-    /// 模板页数据（`GET /v1/presets/Session-Template`）。
-    pub(crate) presets: Option<nous_engine::types::Presets>,
-    pub(crate) presets_error: Option<String>,
-    pub(crate) presets_loading: bool,
+    /// 通讯录的两个段（同一个私仓，两套词表、两套条目）。
+    /// 索引 0 = 会话模板（`Session-Template`），1 = 终极模板（`Ultimate-Template`）。
+    pub(crate) sections: [crate::templates::Section; 2],
+    /// 当前选中的段。
+    pub(crate) section: usize,
+    /// 通讯录里选中的类别路径。`None` = 全部；`Some("∅")` = 未分类（不是词表里的类别）。
+    pub(crate) preset_cat: Option<String>,
+    /// 折叠着的类别路径。**纯内存**：它不是事实，是「我眼下展开到哪」。
+    pub(crate) preset_closed: std::collections::HashSet<String>,
     /// 正在从模板开的那条（防连点 + 状态提示）。
     pub(crate) creating: Option<String>,
     _subs: Vec<Subscription>,
@@ -194,12 +204,15 @@ impl Desktop {
             scroll: ScrollHandle::new(),
             list_scroll: ScrollHandle::new(),
             presets_scroll: ScrollHandle::new(),
+            tree_scroll: ScrollHandle::new(),
             chat_hover: false,
             chat_bar: false,
             list_hover: false,
             list_bar: false,
             presets_hover: false,
             presets_bar: false,
+            tree_hover: false,
+            tree_bar: false,
             composer_hover: false,
             composer_hint: false,
             search,
@@ -215,9 +228,10 @@ impl Desktop {
             user_stopped: false,
             pins_client: None,
             pins: vec![],
-            presets: None,
-            presets_error: None,
-            presets_loading: false,
+            sections: [crate::templates::Section::new(0), crate::templates::Section::new(1)],
+            section: 0,
+            preset_cat: None,
+            preset_closed: std::collections::HashSet::new(),
             creating: None,
             newchat: crate::board::NewChat::new(window, cx),
             _subs: subs,
@@ -244,6 +258,8 @@ impl Desktop {
                     Ok((engine, sessions)) => {
                         this.engine = Some(engine);
                         this.sessions = sessions;
+                        // 引擎连上之前如果点过通讯录，「还没连上引擎」那句得自己消掉。
+                        this.load_all_sections(false, cx);
                         // 列表是别人的地盘：定时重读，否则只在启动那一秒新鲜。
                         this.start_poll(cx);
                         // 置顶单独去 bjes6b 拿（单源在它那儿）。
@@ -881,6 +897,7 @@ impl Desktop {
         let (hover, shown) = match which {
             Bar::Chat => (&mut self.chat_hover, &mut self.chat_bar),
             Bar::List => (&mut self.list_hover, &mut self.list_bar),
+            Bar::Tree => (&mut self.tree_hover, &mut self.tree_bar),
             Bar::Presets => (&mut self.presets_hover, &mut self.presets_bar),
         };
         if *hover == hovered {
@@ -898,6 +915,7 @@ impl Desktop {
                 let still_hovered = match which {
                     Bar::Chat => this.chat_hover,
                     Bar::List => this.list_hover,
+                    Bar::Tree => this.tree_hover,
                     Bar::Presets => this.presets_hover,
                 };
                 if still_hovered {
@@ -906,6 +924,7 @@ impl Desktop {
                 match which {
                     Bar::Chat => this.chat_bar = false,
                     Bar::List => this.list_bar = false,
+                    Bar::Tree => this.tree_bar = false,
                     Bar::Presets => this.presets_bar = false,
                 }
                 cx.notify();
@@ -2017,7 +2036,15 @@ impl Render for Desktop {
             .child(self.render_icon_bar(cx))
             .child(match self.tab {
                 Tab::Chats => self.render_session_list(cx).into_any_element(),
-                Tab::Templates => self.render_templates(cx),
+                // 通讯录是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
+                Tab::Templates => div()
+                    .flex()
+                    .flex_row()
+                    .h_full()
+                    .min_w(px(0.))
+                    .child(self.render_preset_tree(cx))
+                    .child(self.render_templates(cx))
+                    .into_any_element(),
             })
             .child(self.render_chat(cx));
 

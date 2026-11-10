@@ -260,3 +260,55 @@ fn create_session_body_is_camel_case() {
     assert!(v.get("skills").is_none());
     assert!(v.get("presets").is_none());
 }
+
+#[test]
+fn parse_presets_with_categories_and_repo() {
+    // GET /v1/presets/Session-Template 的真实响应（2026-11-09 实测，条目截到一条）。
+    // 两个字段是通讯录要用的：`categories`（含零计数类别，引擎已排序）+ `repo`（这一段的仓状态）。
+    let json = r#"{
+      "section": "Session-Template",
+      "title": "会话模板",
+      "root": "/opt/Nous-Template/Session-Template",
+      "repo": { "head": "9e4ccd1300c60f154e80fac8d5e5327edc54e87d", "dirty": true,
+                "ahead": 0, "behind": 0,
+                "remote": "https://github.com/JoeWest9966/Nous-Template", "error": null },
+      "presets": [{
+        "name": "weekly-report",
+        "summary": "把一周的提交、聊天、会议整理成一份能直接发出去的周报",
+        "description": "周五收工用。",
+        "category": ["写作", "写作/周报"],
+        "spec": { "v": 1, "template": "demo-weekly" },
+        "specError": null,
+        "tracked": true,
+        "dir": "/opt/Nous-Template/Session-Template/weekly-report",
+        "resolved": { "template": { "state": "ok" } }
+      }],
+      "archived": [],
+      "categories": ["工程", "写作", "写作/周报", "Basics"]
+    }"#;
+
+    let p: nous_engine::types::Presets = serde_json::from_str(json).unwrap();
+    assert_eq!(p.section, "Session-Template");
+    assert_eq!(p.title.as_deref(), Some("会话模板"));
+    // 顺序照引擎给的，客户端不重排；零计数（Basics）也得在。
+    assert_eq!(p.categories, ["工程", "写作", "写作/周报", "Basics"]);
+    let repo = p.repo.as_ref().expect("repo 块不该丢");
+    assert_eq!(repo.head.as_deref().map(|h| &h[..7]), Some("9e4ccd1"));
+    assert!(repo.dirty);
+    assert!(repo.error.is_none());
+    // `archived` / `root` 这类没型号的键进 extra，不炸。
+    assert!(p.extra.contains_key("archived"));
+    let item = &p.presets[0];
+    assert_eq!(item.category, ["写作", "写作/周报"]);
+    assert_eq!(item.spec.as_ref().unwrap()["template"], "demo-weekly");
+}
+
+#[test]
+fn parse_presets_without_repo_or_categories() {
+    // 老引擎 / 仓读不开时这两个键可能整块缺席 —— 不许因此解析失败。
+    let json = r#"{"section":"Ultimate-Template","title":"终极模板","presets":[]}"#;
+    let p: nous_engine::types::Presets = serde_json::from_str(json).unwrap();
+    assert!(p.categories.is_empty());
+    assert!(p.repo.is_none());
+    assert!(p.presets.is_empty());
+}

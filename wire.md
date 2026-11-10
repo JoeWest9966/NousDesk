@@ -148,7 +148,9 @@ body `{ entryId?, name? }`。`entryId` 省略 = **从最后一条分叉**。回 
 
 ### GET /v1/presets/:section
 
-模板（通讯录）那一页的数据。`section` 写死 `Session-Template`。
+模板（通讯录）那一页的数据。**段（section）不是只有一个**：同一个私仓按段放，
+`Session-Template`（会话模板）和 `Ultimate-Template`（终极模板）各自一套端点、一套数据、
+**一套类别词表**（`categories.json` 住在段目录里）。
 
 返回 `{ section, title, repo, presets: [...], archived, categories, ... }`。
 
@@ -158,13 +160,32 @@ body `{ entryId?, name? }`。`entryId` 省略 = **从最后一条分叉**。回 
 { name, summary, description, category, spec, specError, tracked, dir, resolved }
 ```
 
-我们依赖：`name` `summary` `specError` `tracked` `resolved`。
+我们依赖：`name` `summary` `category` `spec` `specError` `tracked` `resolved`
+\+ 顶层的 `categories` `repo`。
 
+- `categories` 是**这一段的全部类别路径**，引擎已排好序（父在子前、逐段 `localeCompare('zh-CN')`），
+  里面**包含零计数的类别**（词表里先建好、还没挂东西的）—— 客户端不许滤掉。
+- `category` 是字符串数组，`/` 表示层级：`写作/周报` 自动蕴含父级 `写作`。一条可以挂多个。
+- `repo` 是**这一段的**仓状态 `{ head, dirty, ahead, behind, error }`；`dirty` 按段算，
+  `ahead`/`behind` 是整仓的。`head` 可能是 `null`（仓读不了）—— 别拿它当字符串硬切。
 - `specError` → 这条自己写坏了，红。
 - `resolved.*.state === "invalid"` → 引用失效，现在开不了。
 - `tracked === false` → 盘上有、仓里没。
 - **能否启动的判据全是引擎算好的**，客户端不自己拼规则。加了规则就等于可以跟引擎吵起来。
+  （唯一客户端自己算的是**类别计数**：引擎不给，算法是「含后代 + 同一条预设按路径去重」。
+  那是派生量，不是第二份事实源。）
 - 能开的行：`POST /v1/sessions { preset: "Session-Template/<name>", name }`，`name` 带时间。
+
+#### 终极模板那一段是另一种东西（`spec` 里长这样）
+
+```
+{ v, name, summary, description, category, trigger, params, session, enabled }
+```
+
+- `trigger` 是触发器名字，`params` 是它的参数（对象：字符串 / 数字 / 布尔）。
+- `session` 指向 `Session-Template` 段里的一条会话模板。
+- **这一段现在只读**：`enabled` 怎么切、`trigger` 用哪个端点启用，协议都还没定。
+  桌面端只显示（`⚡ trigger` / `→ session`），点它什么也不发生。要动它先定端点。
 
 ---
 
@@ -245,6 +266,10 @@ body `{ entryId?, name? }`。`entryId` 省略 = **从最后一条分叉**。回 
 | 删 `last` / 换形状 | 列表预览空了 |
 | `parent` 语义变 | fork 过滤逻辑失效 |
 | 删 `updatedAt` / 单位换成秒 | 列表时间全空，或者每条都显示成 1970 |
+| `categories` 里把零计数的类别滤掉 | 通讯录里「建了但还没挂东西」的类别消失 |
+| `category` 的 `/` 改成另一种分隔符 | 层级树断成一层，父级筛选丢失整枝 |
+| `repo` 整块没了 / `head` 变必填 | 段脚注显示「仓状态未知」，最坏是解析失败 |
+| 终极模板的 `trigger` / `session` 改名 | 那一段的 chip 没了（只是少显示，不报错） |
 | `/v1/unread` 改回 `{items:[]}` / 改成数组 | 未读角标全灭（形状对不上） |
 | `unread` 改成客户端自己数 | 水位退化成条数，fork 之后未读数永久错位 |
 | `POST /v1/read/:id` 语义变（不再推到最新） | 未读点了不消，或者一次点掉不该消的 |
