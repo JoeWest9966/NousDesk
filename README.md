@@ -43,6 +43,22 @@ board = "new1"
 
 启动时从 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎。
 
+## 出包（Linux）
+
+```bash
+scripts/package-linux.sh                  # 编 release + 出 dist/ 下两个包
+scripts/package-linux.sh --no-build       # 复用已有的 target/release/nousdesk
+NOUS_HOST=http://192.168.1.7:4790 scripts/package-linux.sh   # 顺手把宿主地址写进便携包
+```
+
+| 产物 | 怎么用 |
+| --- | --- |
+| `dist/nousdesk-<版本>-linux-x64.tar.gz` | `tar -xzf` 后直接跑 `nousdesk/nousdesk`；二进制旁边放一份 `desktop.toml` 就是这份安装的配置 |
+| `dist/nousdesk_<版本>_amd64.deb` | `sudo apt install ./…deb`：装到 `/usr/bin/nousdesk`，带 `.desktop` 菜单项和 hicolor 图标 |
+
+打 tag `v*` 时 `.github/workflows/linux.yml` 跑同一份脚本并把两个包发到 Release；手动 `workflow_dispatch` 也能出包（不发 Release）。
+包里不带宿主地址：不给 `NOUS_HOST` 就带一份 `desktop.toml.example`，内网地址不进公共产物。
+
 ## 结构
 
 ```

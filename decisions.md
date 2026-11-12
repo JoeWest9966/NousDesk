@@ -115,3 +115,19 @@ main 里起一个 runtime、Handle 存 `OnceLock`，UI 的 `cx.spawn` 里用 `ha
 
 **反悔点**：真有人要 Windows 版时，先把 `windows.yml` 的 `tags: ["v*"]` 加回来，再从 `windows-last`
 往前补验证；`README.md` / `AGENTS.md` 里的平台段一起改。
+
+## 2026-11-12 · Linux 打包用 tar.gz + dpkg-deb，不用 cargo-packager
+
+**为什么**：`cargo-packager` 的 Linux 格式（deb/appimage）还是实验性，msi/nsis 才是它的主场；
+而 `tar -czf` + `dpkg-deb --build` 各二十行、能读能改，产物一眼看得懂。
+出包脚本放仓库里（`scripts/package-linux.sh`），CI 只负责装依赖、跑测试、调它。
+
+**做了什么**：便携 tar.gz（二进制 + `desktop.toml.example` + README/LICENSE + 图标/desktop 文件）、
+`.deb`（`/usr/bin/nousdesk` + `.desktop` + hicolor 256 图标 + doc）；`[profile.release] strip = "symbols"`
+把 66MB 砍到 47MB。宿主地址走 `NOUS_HOST` 环境变量，公共产物里不带内网 IP。
+
+**代价**：依赖列表是手写的（`libvulkan1` / `libegl1` / `libwayland-client0` 都是运行期 dlopen，
+不写死会白屏）；`Installed-Size` 也得自己算。真出问题要拿 `dpkg-shlibdeps` 校一遍，那一步还没做。
+
+**反悔点**：要发 arm64 / AppImage / Flatpak 时，脚本拆成 `package-linux.sh`（共用）+ 每种格式一个函数，
+不要把分支堆进一个脚本里；不再用打包脚本而改回 cargo-packager 时，先量它的 Linux 输出到底能不能用。

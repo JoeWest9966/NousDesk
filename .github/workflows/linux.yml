@@ -1,0 +1,83 @@
+name: linux
+
+# Linux 是主线（2026-11-12，见 decisions.md）。打 tag 出包并发 Release，也可以手动触发。
+# Windows 那条在 windows.yml，冻结成存档、只手动跑。
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # gpui-pre 的 X11/Wayland 后端在**编译期**要 headers（libxkbcommon / wayland / xcb），
+      # 运行期 dlopen 的 libvulkan / libEGL 不装也能编，但装了才好验。
+      - name: 装系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev wayland-protocols \
+            libxcb1-dev libxcb-xkb-dev libx11-xcb-dev \
+            libfontconfig1-dev libfreetype-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev \
+            libasound2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: 缓存 cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: 单测（协议层 + 应用层）
+        # 应用层的测试要两个 md example 先编出来（见 坑.md），跟本机验证过的那套一致。
+        run: |
+          cargo build --examples -p nousdesk
+          cargo test -p nous-engine
+          cargo test -p nousdesk
+
+      - name: clippy（只报告，不挡包）
+        # 老文件上有一批历史告警，新的 clippy 版本还会再加；挡包只会让人习惯性加 `allow`。
+        continue-on-error: true
+        run: cargo clippy -p nousdesk --all-targets
+
+      - name: 出包（tar.gz + deb）
+        env:
+          # 内网地址不进代码：有 secret 就写进便携包的 desktop.toml，没有就带示例文件。
+          NOUS_HOST: ${{ secrets.NOUS_HOST }}
+          NOUS_BOARD: ${{ vars.NOUS_BOARD || 'new1' }}
+        run: scripts/package-linux.sh
+
+      - name: 看看产出了什么
+        run: ls -lh dist/*.tar.gz dist/*.deb && dpkg -I dist/*.deb
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: nousdesk-linux
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+          if-no-files-found: error
+
+      - name: 发 Release（只有打 tag 时）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.deb
+          generate_release_notes: true
