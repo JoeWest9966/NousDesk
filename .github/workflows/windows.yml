@@ -1,12 +1,13 @@
 name: windows
 
-# 只做 Windows —— 这个应用只发布 Windows 版（见 decisions.md）。
-# 手动触发，或者打 tag（v*）时自动出包并发 Release。
+# Windows 是**冻结的存档**，不是发布路径（2026-11-12，见 decisions.md）。
+#
+# 主线只做 Linux（Debian 13 + GNOME Wayland）。这份 workflow 原样保留：要重启 Windows 线，
+# 把 `push: tags` 加回来、在一台 Windows 机器上从 tag `windows-last` 往前补验证即可。
+# 现在只能手动触发，产物只当「这条线还能不能编」的证据。
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
 
 # 发 Release 要写权限；不给的话 softprops 会报 Resource not accessible by integration。
 permissions:

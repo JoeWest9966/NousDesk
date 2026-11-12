@@ -2,6 +2,11 @@
 
 Nous 的**桌面客户端**（微信桌面版的样子）。GPUI + `gpui-kit` 原生应用，不是网页。
 
+> **平台：只做 Linux**（2026-11-12 起）。开发机是 Debian 13 + GNOME **Wayland**。
+> Windows 的源码与打包配置（`windows.yml`、packager 元数据）**原地保留、冻结**：
+> 不删、不改、不再出包；要重启 Windows 线，先把这份文档和 `README.md` 的平台段改回来。
+> 理由见 `decisions.md` 的「2026-11-12 · 只做 Linux」。
+
 > **UI 框架钉死：必须用 [longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)**
 > （`gpui-kit = "0.9"`，crates.io 同名包，Apache-2.0）。
 > **不许换框架、不许绕开它直接用 `gpui-pre-*`、不许把 Tauri / Slint / egui 加进来。**
@@ -17,8 +22,9 @@ Nous 的**桌面客户端**（微信桌面版的样子）。GPUI + `gpui-kit` �
 
 1. **这一块不是块页面。** 没有 `package.json` —— 有了 `scripts.start` 宿主就当它是网站，
    spawn 进程、给空白页、崩了留墓碑。别为此加脚手架。
-2. **这台机器 build 不了。** headless Debian，没有 DISPLAY / Wayland。改代码在这儿，
-   `cargo check` / `clippy` / `cargo test` 在这儿，看得见的东西去你自己的桌面上跑。
+2. **构建/测试在 Linux 上做。** 主力是 Debian 13 + Wayland；headless 机器（ssh 进去的、CI）
+   没 DISPLAY 就只跑 `cargo check` / `clippy` / `test`，看得见的东西去自己的桌面上跑。
+   别再把 Windows 当默认目标。
 3. **地址只有一个来源。** 引擎地址从宿主的 `__nous/resolve/qrd3wh` 拿，配置里只写
    **宿主地址 + board**，禁止把引擎路径写进 `Cargo.toml` / 常量 / 文档示例。
 
@@ -71,8 +77,10 @@ DISPLAY=:99 import -window root /tmp/shot.png   # 截图看
 注意 `CARGO_TARGET_DIR` 在这台机器上全局指向 `/opt/Warehousetui/target`，
 二进制不在项目的 `target/` 里。
 
-配置查找顺序：`NOUS_DESKTOP_CONFIG` → **exe 旁边的 `desktop.toml`**（发布包带的那份）
-→ `%APPDATA%\nousdesk\desktop.toml`。发布包里的 `desktop.toml` 由 CI 从仓库 secret `NOUS_HOST` 生成（见 `.github/workflows/windows.yml`）；
+配置查找顺序：`NOUS_DESKTOP_CONFIG` → **二进制旁边的 `desktop.toml`**（发布包带的那份）
+→ `~/.config/nousdesk/desktop.toml`（旧目录 `~/.config/nous/` 只读兜底）。
+发布包里的 `desktop.toml` 目前是手工放（Linux 出包流程见 `decisions.md`）；
+Windows 那条 CI 还在仓库里，但只手动触发，不再是发布路径。
 源码里的默认值 `DEFAULT_HOST` 是「一个配置文件都没有」时的兜底，现在指向内网 `192.168.1.7:4790`。
 只有两个键：
 

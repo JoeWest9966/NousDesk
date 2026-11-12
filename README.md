@@ -5,20 +5,26 @@ Nous 的桌面客户端。微信桌面版的样子，原生应用，不是网页
 - **引擎**：`qrd3wh`（session 引擎）。这个客户端只做皮 + 一个哑的协议层，不跑 agent。
 - **手机端**：`bjes6b`（Nous-Mobile），同一套引擎，另一个客户端。
 - **技术**：Rust + GPUI，UI 框架是 [longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)（`gpui-kit 0.9`）。没有 webview，没有 PWA。
+- **平台**：只做 **Linux**（开发机：Debian 13 trixie + GNOME **Wayland**，AMD 核显）。
+  Windows 的源码与打包配置**原地保留**（`.github/workflows/windows.yml`、`[package.metadata.packager]`），
+  但不再出包、不保证能跑 —— 要用的话得自己装 Windows 工具链验一遍。
+
+> 2026-11-12 决定：机器都换 Linux 了，Windows 那条从主线降成「冻结存档」，见 `decisions.md`。
 
 ## 跑起来
 
 ```bash
-cargo check          # 只检查，不跑（开发机 headless）
-cargo run            # 自己的桌面上
+cargo check          # 只检查，不跑（开发机 headless 也能跑）
+cargo run            # 自己的桌面上（Wayland 或 X11 都行）
+cargo build --release -p nousdesk   # 出包：target/release/nousdesk
 ```
 
 配置查找顺序（先到先得）：
 
 1. `NOUS_DESKTOP_CONFIG` 环境变量指向的文件（调试用）
-2. **exe 旁边**的 `desktop.toml` —— 发布包里带一份，解压即用
-3. `%APPDATA%\nousdesk\desktop.toml`（Linux `~/.config/nousdesk/desktop.toml`）
-4. `%APPDATA%\nous\desktop.toml` —— 改名前的旧目录，**只读**：老用户的配置还能接上，
+2. **二进制旁边**的 `desktop.toml` —— 发布包里带一份，解压即用
+3. `~/.config/nousdesk/desktop.toml`（= `$XDG_CONFIG_HOME/nousdesk/`；Windows 是 `%APPDATA%\nousdesk\`）
+4. `~/.config/nous/desktop.toml` —— 改名前的旧目录，**只读**：老用户的配置还能接上，
    写回时仍然写回它（不搬家，免得用户以为配置丢了）
 
 ```toml
@@ -34,7 +40,7 @@ board = "new1"
 
 ```
 crates/nous-engine/   协议客户端：/v1/* 的 serde 类型 + SSE 流。UI 一行都不许进。
-crates/nousdesk/  GPUI 应用：三栏布局、会话、输入、置顶。
+crates/nousdesk/      GPUI 应用：三栏布局、会话、输入、置顶。
 ```
 
 分层是硬的：UI 层不碰 HTTP，协议层不碰 GPUI。以后想换 UI（Slint / 别的）只动 `nousdesk`。
@@ -67,9 +73,9 @@ crates/nousdesk/  GPUI 应用：三栏布局、会话、输入、置顶。
 调试两个开关（只为了不用每次手点）：
 
 ```bash
-NOUS_OPEN_BOARD=1 ./nousdesk.exe              # 一启动就开在右格的盘面上
-NOUS_OPEN_BOARD=1 NOUS_OPEN_SHEET=model ./…exe    # 再直接开在某个弹层上
+NOUS_OPEN_BOARD=1 ./target/debug/nousdesk              # 一启动就开在右格的盘面上
+NOUS_OPEN_BOARD=1 NOUS_OPEN_SHEET=model ./target/debug/nousdesk    # 再直接开在某个弹层上
 # sheet ∈ model | skills | prompt | dir | machine
-NOUS_DESKTOP_OPEN=settings ./…exe                 # 一启动就开在左栏底部「≡」的设置页
+NOUS_DESKTOP_OPEN=settings ./target/debug/nousdesk                 # 一启动就开在左栏底部「≡」的设置页
 # menu | settings
 ```

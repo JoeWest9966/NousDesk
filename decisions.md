@@ -96,3 +96,22 @@ main 里起一个 runtime、Handle 存 `OnceLock`，UI 的 `cx.spawn` 里用 `ha
 地址从 `resolve` 拿。坏了 404 响得很明显，好过悄悄分叉。
 **反悔点**：bjes6b 那个接口成了私有依赖、老变，就改成桌面端自己存 `~/.config/nousdesk/pins.json`，
 并在这里写明「两个端置顶不共享，故意的」。
+
+## 2026-11-12 · 只做 Linux，Windows 冻结成存档
+
+**为什么**：手头的机器全换成 Linux 了（Debian 13 + GNOME Wayland，AMD 核显）。同时维护两条线，
+结果是两边都只验一半；而且 Windows 那条线的验证成本（真机 + WiX 下载偶发 504）已经压过了收益。
+
+**做了什么**：
+
+- 发布路径改成 Linux：`cargo build --release -p nousdesk` → `target/release/nousdesk`，
+  旁边放一份 `desktop.toml` 打成 `nousdesk-linux-x64.tar.gz`。`.deb` 等真需要再上（打包脚本比代码脆）。
+- Windows 的东西**一行不删**：`.github/workflows/windows.yml`、`[package.metadata.packager]`、
+  `%APPDATA%\nous` 的兼容读全留着。workflow 只摘掉 `tags: v*` 的触发 —— 源码保留、出包手动。
+- 冻结点：最后一个 Windows 可构建状态打 tag `windows-last`（回滚 `git switch windows-last` 就行）。
+
+**代价**：Wayland 上更脆的三件事（中文输入法 / 剪贴板 / 字体回退）得在这边重新踩一遍，`坑.md` 里的 Windows
+条目不删（那是历史证据，也是将来重启这条线的起点）。
+
+**反悔点**：真有人要 Windows 版时，先把 `windows.yml` 的 `tags: ["v*"]` 加回来，再从 `windows-last`
+往前补验证；`README.md` / `AGENTS.md` 里的平台段一起改。
