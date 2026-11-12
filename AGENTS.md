@@ -82,9 +82,13 @@ Nous 的**桌面客户端**（微信桌面版的样子）。GPUI + `gpui-kit` �
 ## 启动 / 开发
 
 ```bash
-cargo check          # 这台机器上唯一的日常
-cargo run            # 你自己的桌面上
+cargo check                        # 日常
+cargo run                          # 你自己的桌面上（Wayland / X11 都行）
+scripts/package-linux.sh           # 出 dist/ 下的 tar.gz + deb（CI 里跑的就是这一份）
 ```
+
+出包脚本是**唯一**的打包真相：`.github/workflows/linux.yml` 只装依赖、跑测试、调这个脚本。
+别在 workflow 里另写一套 `tar` / `dpkg-deb`。
 
 ### headless 机器上看窗口（本机 99966 已配好）
 

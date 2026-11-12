@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=NousDesk
+GenericName=Nous Desktop Client
+Comment=Nous 桌面客户端 —— 会话、输入、置顶与 New Manual 盘面
+Exec=nousdesk
+TryExec=nousdesk
+Icon=nousdesk
+Terminal=false
+Categories=Network;Chat;InstantMessaging;
+Keywords=nous;nousdesk;chat;ai;agent;
+StartupNotify=true

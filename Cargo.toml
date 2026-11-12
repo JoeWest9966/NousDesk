@@ -23,3 +23,6 @@ smol = "2"
 
 [profile.release]
 lto = "thin"
+# 符号表对用户没用，对包大小有用：66MB → 十几 MB（.deb / tar.gz 都跟着瘦）。
+# 真要调崩，用 dev profile 或单独开 split-debuginfo。
+strip = "symbols"
