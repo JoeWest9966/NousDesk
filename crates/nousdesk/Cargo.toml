@@ -1,6 +1,6 @@
 [package]
-name = "nous-desktop"
-description = "Nous 桌面客户端（微信桌面版的样子）。GPUI + gpui-kit。"
+name = "nousdesk"
+description = "NousDesk 桌面客户端（微信桌面版的样子）。GPUI + gpui-kit。"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -26,14 +26,16 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 
 # cargo-packager 的元数据：出 Windows 安装包用（见 .github/workflows/windows.yml）。
 [package.metadata.packager]
-product_name = "Nous Desktop"
+product_name = "NousDesk"
+# 安装包的升级身份。**改名时刻意不动**：换掉它等于新产品，老版本既升不上来、
+# 也没法覆盖安装（用户得先手动卸载）。要换就单独发一版做迁移。
 identifier = "com.joewest.nous.desktop"
-description = "Nous 桌面客户端"
+description = "NousDesk 桌面客户端"
 publisher = "JoeWest9966"
-homepage = "https://github.com/JoeWest9966/nous-desktop"
+homepage = "https://github.com/JoeWest9966/NousDesk"
 authors = ["JoeWest9966"]
 out_dir = "../../dist"
 icons = ["../../assets/icon.png", "../../assets/icon.ico"]
-binaries = [{ path = "nous-desktop", main = true }]
+binaries = [{ path = "nousdesk", main = true }]
 # msi/nsis 会把 resources 放在 exe 旁边 —— 和便携包一个位置，应用按 current_exe() 找得到。
 resources = [{ src = "../../dist/desktop.toml", target = "desktop.toml" }]

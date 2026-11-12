@@ -60,7 +60,7 @@ pub(crate) const SESSION_LIST_W: f32 = 280.;
 pub(crate) const PRESET_TREE_W: f32 = 224.;
 pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
 
-actions!(nous_desktop, [TogglePinAction]);
+actions!(nousdesk, [TogglePinAction]);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -1812,7 +1812,7 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child("Nous")
+                    .child("NousDesk")
                     // 建会话的唯一入口。以前只能从模板起，现在多一条「从零配」的路。
                     .child(
                         div()
@@ -2865,7 +2865,7 @@ fn pins_board() -> String {
 }
 
 /// 错误原文可能很长（引擎把上游 400 的整段 JSON 递上来）。红条只给人看前 90 个字，
-/// 全文在 `%LOCALAPPDATA%` 下的 `nous/desktop.log` 里。
+/// 全文在 `%LOCALAPPDATA%` 下的 `nousdesk/desktop.log` 里。
 fn short_text(text: &str, max_chars: usize) -> String {
     let mut out: String = text.chars().take(max_chars).collect();
     if out.chars().count() < text.chars().count() {

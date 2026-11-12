@@ -176,7 +176,7 @@ impl Desktop {
                     .flex()
                     .flex_col()
                     .gap(px(2.))
-                    .child(div().text_size(px(13.)).child("Nous Desktop"))
+                    .child(div().text_size(px(13.)).child("NousDesk"))
                     .child(div().text_size(px(11.)).text_color(rgb(color)).child(text)),
             )
             .into_any_element()
@@ -339,7 +339,7 @@ impl Desktop {
             .child(readonly(
                 "配置文件（保存写这里）",
                 target,
-                "查找顺序：NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → %APPDATA%\\nous\\",
+                "查找顺序：NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → %APPDATA%\\nousdesk\\",
             ))
             .children(msg)
             .child(
@@ -364,7 +364,7 @@ impl Desktop {
 
     fn about_pane(&self) -> AnyElement {
         let log_path = dirs::data_local_dir()
-            .map(|d| d.join("nous").join("desktop.log").display().to_string())
+            .map(|d| d.join(crate::config::APP_DIR).join("desktop.log").display().to_string())
             .unwrap_or_else(|| "（拿不到日志目录）".into());
         let cfg_path = Config::path()
             .map(|p| p.display().to_string())

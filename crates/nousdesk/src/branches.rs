@@ -141,7 +141,7 @@ impl Desktop {
             .child(
                 div()
                     .p(px(12.))
-                    .child(div().child("Nous"))
+                    .child(div().child("NousDesk"))
                     .child(
                         div()
                             .text_size(px(13.))

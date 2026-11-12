@@ -6,7 +6,7 @@
 //! 补几个字，就像引擎在吐 token。每一帧开头记一次时间戳，帧间隔就是「这一帧花了多久」——
 //! 因为 gpui 只在被 notify 时重绘，间隔被拉长 = 渲染吃掉了时间。
 //!
-//! 跑：`cargo run -p nous-desktop --example mdstream`（打 8000 字）或者
+//! 跑：`cargo run -p nousdesk --example mdstream`（打 8000 字）或者
 //! `MAX_CHARS=600 cargo run ...`（短消息对照）。
 //!
 //! 判读：间隔稳定在 16~17ms、峰值 < 30ms = 没问题；峰值上百毫秒 = 真流式会卡。

@@ -33,7 +33,7 @@ jobs:
         run: cargo test -p nous-engine
 
       - name: 编译 release
-        run: cargo build --release -p nous-desktop
+        run: cargo build --release -p nousdesk
 
       # ── 便携版：exe + desktop.toml + 说明 ─────────────────────────────
       #
@@ -59,12 +59,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/release/nous-desktop.exe" "dist/NousDesktop.exe"
+          Copy-Item "target/release/nousdesk.exe" "dist/NousDesk.exe"
           Copy-Item "README.md" "dist/README.md"
-          $files = @("dist/NousDesktop.exe","dist/README.md")
+          $files = @("dist/NousDesk.exe","dist/README.md")
           if (Test-Path "dist/desktop.toml") { $files += "dist/desktop.toml" }
           Compress-Archive -Path $files `
-                           -DestinationPath "dist/NousDesktop-windows-x64.zip" -Force
+                           -DestinationPath "dist/NousDesk-windows-x64.zip" -Force
           Get-ChildItem dist
 
       # ── 安装包：cargo-packager 出 msi（cargo-packager 的 wix 格式） ─────────────────────────────────
@@ -88,7 +88,7 @@ jobs:
         shell: pwsh
         run: |
           for ($i = 1; $i -le 3; $i++) {
-            cargo packager -p nous-desktop --release --formats wix
+            cargo packager -p nousdesk --release --formats wix
             if ($LASTEXITCODE -eq 0) { exit 0 }
             Write-Host "第 $i 次失败，等 15 秒重试"
             Start-Sleep -Seconds 15
@@ -113,7 +113,7 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: nous-desktop-windows
+          name: nousdesk-windows
           path: |
             dist/*.zip
             dist/*.msi

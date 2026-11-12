@@ -1,4 +1,4 @@
-# h58ga5 · Nous-Desktop
+# h58ga5 · NousDesk
 
 Nous 的**桌面客户端**（微信桌面版的样子）。GPUI + `gpui-kit` 原生应用，不是网页。
 
@@ -64,7 +64,7 @@ GPUI 能在 Xvfb 里跑，三个坑都踩过了：
 ```bash
 Xvfb :99 -screen 0 1280x800x24 &
 DISPLAY=:99 picom --backend xrender &
-DISPLAY=:99 target/debug/nous-desktop &
+DISPLAY=:99 target/debug/nousdesk &
 DISPLAY=:99 import -window root /tmp/shot.png   # 截图看
 ```
 
@@ -72,7 +72,7 @@ DISPLAY=:99 import -window root /tmp/shot.png   # 截图看
 二进制不在项目的 `target/` 里。
 
 配置查找顺序：`NOUS_DESKTOP_CONFIG` → **exe 旁边的 `desktop.toml`**（发布包带的那份）
-→ `%APPDATA%\nous\desktop.toml`。发布包里的 `desktop.toml` 由 CI 从仓库 secret `NOUS_HOST` 生成（见 `.github/workflows/windows.yml`）；
+→ `%APPDATA%\nousdesk\desktop.toml`。发布包里的 `desktop.toml` 由 CI 从仓库 secret `NOUS_HOST` 生成（见 `.github/workflows/windows.yml`）；
 源码里的默认值 `DEFAULT_HOST` 是「一个配置文件都没有」时的兜底，现在指向内网 `192.168.1.7:4790`。
 只有两个键：
 

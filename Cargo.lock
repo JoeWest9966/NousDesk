@@ -3947,7 +3947,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "nous-desktop"
+name = "nous-engine"
+version = "0.1.10"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "nousdesk"
 version = "0.1.10"
 dependencies = [
  "chrono",
@@ -3962,20 +3976,6 @@ dependencies = [
  "syntect",
  "tokio",
  "toml 0.8.23",
-]
-
-[[package]]
-name = "nous-engine"
-version = "0.1.10"
-dependencies = [
- "bytes",
- "futures-util",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "url",
 ]
 
 [[package]]

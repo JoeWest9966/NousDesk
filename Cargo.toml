@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/nous-engine", "crates/nous-desktop"]
+members = ["crates/nous-engine", "crates/nousdesk"]
 default-members = ["crates/nous-engine"]
 
 [workspace.package]

@@ -5,7 +5,7 @@
 //! 为什么需要它：模型订阅过期的时候没法生成带代码块/表格的回复，而样式这种东西
 //! 靠看代码改不出来 —— 每次都要真消息才能验一遍的话，改一轮字号就等于赌一轮。
 //!
-//! 跑：`cargo run -p nous-desktop --example mdpreview`
+//! 跑：`cargo run -p nousdesk --example mdpreview`
 
 #[path = "../src/md.rs"]
 mod md;

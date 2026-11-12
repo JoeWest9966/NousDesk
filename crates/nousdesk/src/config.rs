@@ -1,4 +1,4 @@
-//! 配置：`~/.config/nous/desktop.toml`（或 `NOUS_DESKTOP_CONFIG` 指的文件）。
+//! 配置：`~/.config/nousdesk/desktop.toml`（或 `NOUS_DESKTOP_CONFIG` 指的文件）。
 //!
 //! 只有两个键。引擎地址**不**写这里 —— 它从宿主的 resolve 现拿。
 //!
@@ -6,6 +6,12 @@
 //! （默认值是「这台机器上的 Nous」，换机器就改那一份文件。）
 
 use std::path::PathBuf;
+
+/// 用户配置 / 日志的目录名（`%APPDATA%\nousdesk\`、`%LOCALAPPDATA%\nousdesk\`）。
+pub const APP_DIR: &str = "nousdesk";
+
+/// 改名前的目录名（`nous`）。**只读不写**：老用户的 `desktop.toml` 还得能读到。
+pub const LEGACY_APP_DIR: &str = "nous";
 
 /// 没有配置文件时用的默认宿主。这是**宿主**地址，不是引擎地址。
 ///
@@ -46,7 +52,8 @@ impl Config {
     /// 查找顺序（先到先得）：
     /// 1. `NOUS_DESKTOP_CONFIG` —— 调试用
     /// 2. **exe 旁边**的 `desktop.toml` —— 便携式。发布包里就带一份，解压即用
-    /// 3. `%APPDATA%\nous\desktop.toml`（Linux 是 `~/.config`）—— 装机后的个人配置
+    /// 3. `%APPDATA%\nousdesk\desktop.toml`（Linux 是 `~/.config`）—— 装机后的个人配置
+    ///    4. `%APPDATA%\nous\desktop.toml` —— 改名前的旧目录，只用来接住老用户
     pub fn load() -> Result<Self, String> {
         let Some(path) = Self::path() else {
             return Ok(Self::default());
@@ -83,7 +90,7 @@ impl Config {
             return Ok(path);
         }
         dirs::config_dir()
-            .map(|dir| dir.join("nous").join("desktop.toml"))
+            .map(|dir| dir.join(APP_DIR).join("desktop.toml"))
             .ok_or_else(|| "找不到配置目录（%APPDATA%）".to_string())
     }
 
@@ -116,7 +123,9 @@ impl Config {
             out.push(dir.join("desktop.toml"));
         }
         if let Some(config) = dirs::config_dir() {
-            out.push(config.join("nous").join("desktop.toml"));
+            out.push(config.join(APP_DIR).join("desktop.toml"));
+            // 改名前的目录：排在后面，新的那份一存在就盖过它。
+            out.push(config.join(LEGACY_APP_DIR).join("desktop.toml"));
         }
         out
     }
@@ -129,7 +138,7 @@ mod tests {
     /// 写回去的文件必须**只有**这两行 —— 多出来的键会让「配置文件就两个键」这句话变成假的。
     #[test]
     fn save_writes_only_host_and_board() {
-        let dir = std::env::temp_dir().join(format!("nous-desktop-cfg-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nousdesk-cfg-{}", std::process::id()));
         let path = dir.join("nested").join("desktop.toml");
         let cfg = Config {
             host: "http://example.test:4790".into(),
