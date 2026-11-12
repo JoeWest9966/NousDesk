@@ -90,6 +90,26 @@ scripts/package-linux.sh           # 出 dist/ 下的 tar.gz + deb（CI 里跑�
 出包脚本是**唯一**的打包真相：`.github/workflows/linux.yml` 只装依赖、跑测试、调这个脚本。
 别在 workflow 里另写一套 `tar` / `dpkg-deb`。
 
+### 中文输入法（IME）怎么验
+
+两段，一段机器验、一段人验 —— 别把两段混成「我这边看着没问题」：
+
+```bash
+scripts/check-ime.sh                 # 协议层：enable / set_cursor_rectangle / commit
+cargo run -p nousdesk --example ime  # 人工：敲拼音，看组字下划线和上屏
+```
+
+- **协议层（自动化）**：`check-ime.sh` 在 `WAYLAND_DEBUG=1` 下起 `examples/ime`，钉住
+  `zwp_text_input_v3.enable()` / `set_cursor_rectangle()` / `commit()` 三个请求。少了 enable
+  输入法根本不认这个窗口；少了矩形，候选框飘到左上角。这两种都不崩，只是打不出中文。
+- **上屏（人工）**：`examples/ime` 是**生产用的那个 `Textarea`** 单独摆出来，终端每变一次打
+  一行 `TEXT: "…"`。切到中文输入法敲 `nihao`，组字时框里该有下划线、终端**不该**多行；
+  按空格上屏后终端出现 `TEXT: "你好"`。
+- **为什么自动化只能到协议层**：Wayland 下没有哪个进程能伪装成输入法（`zwp_text_input_v3`
+  只接受合成器的 `commit_string`），所以上屏这一环只能人敲。
+- **X11 / XWayland** 走 `zed-xim`（XIM），不经过上面那几个 Wayland 请求：查 IME 问题时
+  先分清跑在哪个后端（`WAYLAND_DEBUG=1` 有输出就是 Wayland）。
+
 ### headless 机器上看窗口（本机 99966 已配好）
 
 GPUI 能在 Xvfb 里跑，三个坑都踩过了：
