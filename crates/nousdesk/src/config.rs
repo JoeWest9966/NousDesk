@@ -198,7 +198,10 @@ mod tests {
         // 只有旧的那份：旧目录要能接住。
         assert_eq!(Config::path(), Some(legacy.join("desktop.toml")));
         let cfg = Config::load().expect("旧的配置读得出来");
-        assert_eq!((cfg.host.as_str(), cfg.board.as_str()), ("http://old.test:1", "old"));
+        assert_eq!(
+            (cfg.host.as_str(), cfg.board.as_str()),
+            ("http://old.test:1", "old")
+        );
 
         // 新的那份一存在，优先级就在前面。
         std::fs::create_dir_all(&current).unwrap();
@@ -209,7 +212,10 @@ mod tests {
         .unwrap();
         assert_eq!(Config::path(), Some(current.join("desktop.toml")));
         let cfg = Config::load().expect("新的配置读得出来");
-        assert_eq!((cfg.host.as_str(), cfg.board.as_str()), ("http://new.test:2", "new"));
+        assert_eq!(
+            (cfg.host.as_str(), cfg.board.as_str()),
+            ("http://new.test:2", "new")
+        );
 
         // 一份都没有 → 新建的那份落在新目录，不是旧目录。
         std::fs::remove_dir_all(&root).unwrap();
