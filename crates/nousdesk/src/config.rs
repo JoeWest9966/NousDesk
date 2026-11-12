@@ -135,9 +135,13 @@ impl Config {
 mod tests {
     use super::*;
 
+    /// 改环境变量的测试得串行：`candidates()` 现读 `dirs::config_dir()`。
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// 写回去的文件必须**只有**这两行 —— 多出来的键会让「配置文件就两个键」这句话变成假的。
     #[test]
     fn save_writes_only_host_and_board() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("nousdesk-cfg-{}", std::process::id()));
         let path = dir.join("nested").join("desktop.toml");
         let cfg = Config {
@@ -164,5 +168,58 @@ mod tests {
         assert_eq!(back.board, cfg.board);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 改名迁移：旧的 `%APPDATA%\nous\desktop.toml` 还得读得到，新的那份一出现就盖过它。
+    ///
+    /// 这条钉的是改名时最容易伤的路径 —— `%APPDATA%\nous` → `%APPDATA%\nousdesk`，
+    /// 老用户不该因为换了个名字就被打回默认值（打进内网 IP 才怪）。
+    #[test]
+    fn legacy_config_dir_is_still_read_and_new_one_wins() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let root = std::env::temp_dir().join(format!("nousdesk-migrate-{}", std::process::id()));
+        let legacy = root.join(LEGACY_APP_DIR);
+        let current = root.join(APP_DIR);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(
+            legacy.join("desktop.toml"),
+            "host = \"http://old.test:1\"\nboard = \"old\"\n",
+        )
+        .unwrap();
+
+        // SAFETY: 只在测试里改、且这条与本模块另一条测试用 ENV_LOCK 串行；
+        // 两个都设是了 Linux（XDG）和 Windows（APPDATA）都能跑到同一个临时目录。
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &root);
+            std::env::set_var("APPDATA", &root);
+        }
+
+        // 只有旧的那份：旧目录要能接住。
+        assert_eq!(Config::path(), Some(legacy.join("desktop.toml")));
+        let cfg = Config::load().expect("旧的配置读得出来");
+        assert_eq!((cfg.host.as_str(), cfg.board.as_str()), ("http://old.test:1", "old"));
+
+        // 新的那份一存在，优先级就在前面。
+        std::fs::create_dir_all(&current).unwrap();
+        std::fs::write(
+            current.join("desktop.toml"),
+            "host = \"http://new.test:2\"\nboard = \"new\"\n",
+        )
+        .unwrap();
+        assert_eq!(Config::path(), Some(current.join("desktop.toml")));
+        let cfg = Config::load().expect("新的配置读得出来");
+        assert_eq!((cfg.host.as_str(), cfg.board.as_str()), ("http://new.test:2", "new"));
+
+        // 一份都没有 → 新建的那份落在新目录，不是旧目录。
+        std::fs::remove_dir_all(&root).unwrap();
+        let target = Config::save_target().expect("能算出保存目标");
+        assert_eq!(target, current.join("desktop.toml"));
+
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::remove_var("APPDATA");
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
