@@ -12,6 +12,9 @@
 //! 键盘 Esc 不在这里挂：项目把这个口子放在 `Desktop::new` 的
 //! `cx.intercept_keystrokes`（见 `app.rs` 里 `/` 面板与配置面板那两段），
 //! 由接线那票调 [`PurgeConfirm::on_esc`]。
+//!
+//! 会话 id 是**数字**（`wire.md`：`id` 不是字符串），所以这里直接收 `i64`，
+//! 不存字符串、也不在调用方再 `parse` 一次（那会留下一个永不发生的兜底分支）。
 
 use gpui_kit::*;
 
@@ -24,14 +27,14 @@ fn t() -> crate::theme::Skin {
 /// 确认动作：调用方拿到的唯一可观察结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfirmAction {
-    pub session_id: String,
+    pub session_id: i64,
     pub session_name: String,
 }
 
 /// 弹层状态。`None` = 没开；`Some` = 盖在最上层等用户表态。
 #[derive(Default)]
 pub struct PurgeConfirm {
-    pending: Option<(String, String)>,
+    pending: Option<(i64, String)>,
 }
 
 impl PurgeConfirm {
@@ -40,8 +43,8 @@ impl PurgeConfirm {
     }
 
     /// 请求确认。重复请求覆盖前一条 —— 弹层永远只代表「最后点的那一个」。
-    pub fn request(&mut self, session_id: impl Into<String>, session_name: impl Into<String>) {
-        self.pending = Some((session_id.into(), session_name.into()));
+    pub fn request(&mut self, session_id: i64, session_name: impl Into<String>) {
+        self.pending = Some((session_id, session_name.into()));
     }
 
     pub fn is_open(&self) -> bool {
@@ -53,18 +56,8 @@ impl PurgeConfirm {
         self.pending.as_ref().map(|(_, name)| name.as_str())
     }
 
-    /// 正在确认的那条会话 id。
-    pub fn session_id(&self) -> Option<&str> {
-        self.pending.as_ref().map(|(id, _)| id.as_str())
-    }
-
     /// Esc：只关，不产出动作。
     pub fn on_esc(&mut self) -> Option<ConfirmAction> {
-        self.dismiss()
-    }
-
-    /// 点罩子空白：只关，不产出动作。
-    pub fn on_scrim_click(&mut self) -> Option<ConfirmAction> {
         self.dismiss()
     }
 
@@ -231,7 +224,7 @@ mod tests {
     /// 且重复关 / 关后再点确认也不许凭空冒出一次。
     fn assert_close_path(close: fn(&mut PurgeConfirm) -> Option<ConfirmAction>) {
         let mut dialog = PurgeConfirm::new();
-        dialog.request("s-42", "会话归档怎么设计");
+        dialog.request(42, "会话归档怎么设计");
         assert!(dialog.is_open(), "请求确认后弹层应当在场");
 
         assert_eq!(close(&mut dialog), None, "关闭路径不该产出确认动作");
@@ -250,11 +243,6 @@ mod tests {
     }
 
     #[test]
-    fn scrim_click_closes_without_confirming() {
-        assert_close_path(PurgeConfirm::on_scrim_click);
-    }
-
-    #[test]
     fn cancel_closes_without_confirming() {
         assert_close_path(PurgeConfirm::on_cancel);
     }
@@ -263,12 +251,12 @@ mod tests {
     #[test]
     fn confirming_hands_session_identity_to_caller_exactly_once() {
         let mut dialog = PurgeConfirm::new();
-        dialog.request("s-42", "会话归档怎么设计");
+        dialog.request(42, "会话归档怎么设计");
 
         assert_eq!(
             dialog.on_confirm(),
             Some(ConfirmAction {
-                session_id: "s-42".into(),
+                session_id: 42,
                 session_name: "会话归档怎么设计".into(),
             })
         );
@@ -280,12 +268,12 @@ mod tests {
     #[test]
     fn repeated_request_replaces_the_pending_session() {
         let mut dialog = PurgeConfirm::new();
-        dialog.request("old", "旧会话");
-        dialog.request("new", "新会话");
+        dialog.request(1, "旧会话");
+        dialog.request(2, "新会话");
 
         assert_eq!(
             dialog.on_confirm().map(|a| (a.session_id, a.session_name)),
-            Some(("new".into(), "新会话".into()))
+            Some((2, "新会话".into()))
         );
     }
 

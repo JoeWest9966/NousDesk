@@ -112,29 +112,14 @@ impl ArchiveStatus {
         }
     }
 
-    /// 徽标底下的解释（照 `mcfpqm` 的 `title`）。渲染层眼下只用 `label()`，
-    /// 这一段先留给悬停提示 / 排错（测试扫「彻底删除」也用得着），别在别处重写。
-    #[allow(dead_code)]
-    pub fn hint(self) -> &'static str {
-        match self {
-            ArchiveStatus::Live => "归档过，活库里的原件还在 —— 可以撕掉",
-            ArchiveStatus::Purged => "活库里的原件已经撕了，只剩这份复印件",
-            ArchiveStatus::Restored => "捞回活库了，这份复印件留着没删",
-            ArchiveStatus::Orphan => "复印件在、活库没有、也没墓碑 —— 盘被动过",
-        }
-    }
-
-    /// 四态的全集。眼下只有测试用它穷举（渲染按每条自己的状态走）；
-    /// 留着是给以后的筛选器，别在 UI 里另写一份四个名字。
-    #[allow(dead_code)]
-    pub fn all() -> [ArchiveStatus; 4] {
-        [
-            ArchiveStatus::Live,
-            ArchiveStatus::Purged,
-            ArchiveStatus::Restored,
-            ArchiveStatus::Orphan,
-        ]
-    }
+    /// 四态的全集。排版 / 筛选器真要用的时候再加，别提前摆着等（评审 J3）。
+    #[cfg(test)]
+    const ALL: [ArchiveStatus; 4] = [
+        ArchiveStatus::Live,
+        ArchiveStatus::Purged,
+        ArchiveStatus::Restored,
+        ArchiveStatus::Orphan,
+    ];
 }
 
 /// 一条归档件的状态。**纯函数**，四态的唯一算法。
@@ -193,8 +178,9 @@ pub fn row_actions(
 ///   || (node.parent ? `← #${node.parent.id} 分叉` : (node.entries ? `${node.entries} 条记录` : "空会话"))
 /// ```
 ///
-/// 引擎那几个字段都是 `serde_json::Value`（可以是 null / 数字 / 对象 / 缺席），
-/// 所以这里只认能认的形状，认不出就往下掉，最后一档是「空会话」。
+/// `parent` / `entries` / `last` 的形状由 `nous_engine::types::ArchiveItem` 收，
+/// 这里不猜 JSON（评审 J5：协议形状不许在 UI 层手摸）。认不出就往下掉，
+/// 最后一档是「空会话」。
 pub fn row_summary(item: &ArchiveItem) -> String {
     if let Some(text) = item
         .last
@@ -208,44 +194,17 @@ pub fn row_summary(item: &ArchiveItem) -> String {
             return flat.chars().take(SUMMARY_CHARS).collect();
         }
     }
-    if let Some(id) = item
-        .parent
-        .as_ref()
-        .and_then(|parent| parent.get("id"))
-        .and_then(json_id)
-    {
-        return format!("← #{id} 分叉");
+    if let Some(parent) = &item.parent {
+        return format!("← #{} 分叉", parent.id);
     }
-    if let Some(count) = item
-        .entries
-        .as_ref()
-        .and_then(json_count)
-        .filter(|n| *n > 0)
-    {
-        return format!("{count} 条记录");
+    if item.entries > 0 {
+        return format!("{} 条记录", item.entries);
     }
     "空会话".to_string()
 }
 
 /// 摘要截断长度（`mcfpqm` 的 `slice(0, 72)`）。
 const SUMMARY_CHARS: usize = 72;
-
-/// `id` 可能是数字也可能是字符串，两种都认。
-fn json_id(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::Number(n) => Some(n.to_string()),
-        serde_json::Value::String(s) => Some(s.clone()),
-        _ => None,
-    }
-}
-
-fn json_count(value: &serde_json::Value) -> Option<u64> {
-    match value {
-        serde_json::Value::Number(n) => n.as_u64(),
-        serde_json::Value::String(s) => s.parse().ok(),
-        _ => None,
-    }
-}
 
 // ── 分组标题 ─────────────────────────────────────────────────────────
 
@@ -718,7 +677,9 @@ mod tests {
         NOTE_ERROR_HINT, NOTE_LOADING, PAGE_TITLE, RowKey, gen_group_title, item_status,
         row_actions, row_summary,
     };
-    use nous_engine::types::{ArchiveGen, ArchiveGens, ArchiveItem, ArchiveTombstone};
+    use nous_engine::types::{
+        ArchiveGen, ArchiveGens, ArchiveItem, ArchiveTombstone, SessionParent,
+    };
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -741,7 +702,7 @@ mod tests {
             id,
             name: name.to_string(),
             parent: None,
-            entries: None,
+            entries: 0,
             last: None,
             archived,
             live,
@@ -924,7 +885,10 @@ mod tests {
     #[test]
     fn summary_falls_back_to_parent_branch() {
         let mut it = item(302, "对话 302", true, None);
-        it.parent = Some(json!({"id": 296, "at": 50}));
+        it.parent = Some(SessionParent {
+            id: 296,
+            at: Some(json!(50)),
+        });
         assert_eq!(row_summary(&it), "← #296 分叉");
     }
 
@@ -932,7 +896,7 @@ mod tests {
     #[test]
     fn summary_falls_back_to_entry_count() {
         let mut it = item(302, "对话 302", true, None);
-        it.entries = Some(json!(12));
+        it.entries = 12;
         assert_eq!(row_summary(&it), "12 条记录");
     }
 
@@ -942,7 +906,7 @@ mod tests {
         assert_eq!(row_summary(&item(302, "对话 302", true, None)), "空会话");
 
         let mut zero = item(302, "对话 302", true, None);
-        zero.entries = Some(json!(0));
+        zero.entries = 0;
         assert_eq!(row_summary(&zero), "空会话");
 
         let mut null_last = item(302, "对话 302", true, None);
@@ -974,9 +938,8 @@ mod tests {
             .label(),
             ArchiveAction::Refresh.label(),
         ];
-        for status in ArchiveStatus::all() {
+        for status in ArchiveStatus::ALL {
             texts.push(status.label());
-            texts.push(status.hint());
         }
         for text in texts {
             assert!(
