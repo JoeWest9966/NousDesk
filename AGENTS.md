@@ -90,6 +90,19 @@ scripts/package-linux.sh           # 出 dist/ 下的 tar.gz + deb（CI 里跑�
 出包脚本是**唯一**的打包真相：`.github/workflows/linux.yml` 只装依赖、跑测试、调这个脚本。
 别在 workflow 里另写一套 `tar` / `dpkg-deb`。
 
+### 窗口装饰（Linux）怎么验
+
+```bash
+cargo run                                   # 真桌面上看一眼
+rg 标题栏 ~/.local/share/nousdesk/desktop.log   # 日志里那行「装饰=… 最小化=… 最大化=…」
+```
+
+- GNOME 不给 server-side decorations，所以窗口**必须**由我们画标题栏（`src/chrome.rs`，
+  只在 `target_os = "linux"` 编译）。日志里应该看到 `装饰=Client … 最小化=true 最大化=true`。
+- 日志里是 `装饰=Server`（X11 无 WM 的裸 Xvfb 就是这种）：按钮本来就不画，那是预期。
+- 肉眼要看的四件事：拖动标题栏能不能移窗、双击是不是最大化/还原、三个按钮点了有没有反应、
+  任务栏/概览里窗口名是不是 `NousDesk`（读的是 `WindowOptions.titlebar.title`，不是我们画的那行字）。
+
 ### 中文输入法（IME）怎么验
 
 两段，一段机器验、一段人验 —— 别把两段混成「我这边看着没问题」：

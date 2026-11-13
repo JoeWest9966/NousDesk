@@ -74,7 +74,11 @@ pub fn build_nav(
             cur = Some(NavRound {
                 index: rounds.len(),
                 entry_index: i,
-                text: if text.is_empty() { "（空消息）".into() } else { text },
+                text: if text.is_empty() {
+                    "（空消息）".into()
+                } else {
+                    text
+                },
                 at,
                 tools: 0,
                 codes: 0,
@@ -116,10 +120,13 @@ pub fn build_nav(
         }
     }
     if !earlier.is_empty() {
-        out.insert(0, NavDay {
-            label: "更早".into(),
-            rounds: earlier,
-        });
+        out.insert(
+            0,
+            NavDay {
+                label: "更早".into(),
+                rounds: earlier,
+            },
+        );
     }
     out
 }
@@ -145,7 +152,12 @@ pub fn day_label(at: Option<i64>, now: i64) -> String {
 
 /// 目录里两行截断的话。换行/多余空白压成一个空格。
 pub fn one_line(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(160).collect()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(160)
+        .collect()
 }
 
 /// entry id 的形状是 `serde_json::Value`（引擎有数字也有字符串的可能），统一成字符串。
@@ -194,7 +206,11 @@ mod tests {
         Entry {
             id: json!(id),
             kind: kind.into(),
-            text: if text.is_empty() { None } else { Some(text.into()) },
+            text: if text.is_empty() {
+                None
+            } else {
+                Some(text.into())
+            },
             parent: None,
             extra: HashMap::new(),
         }
@@ -211,7 +227,10 @@ mod tests {
             e(5, "pi.assistant", "```rust\nfn a(){}\n```"),
             e(6, "pi.user", "第三句"),
         ];
-        let times = HashMap::from([("1".into(), 1_700_000_000_000), ("4".into(), 1_700_000_000_001)]);
+        let times = HashMap::from([
+            ("1".into(), 1_700_000_000_000),
+            ("4".into(), 1_700_000_000_001),
+        ]);
         let days = build_nav(&es, &times, Some(1_700_000_000_000), true);
         // 没时间的第三轮被排到最前（「更早」组），所以按轮次号找，不按下标。
         let mut all: Vec<_> = days.iter().flat_map(|g| g.rounds.iter()).collect();

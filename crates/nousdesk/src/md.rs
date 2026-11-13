@@ -264,7 +264,7 @@ pub fn md_style() -> TextViewStyle {
 
 #[cfg(test)]
 mod tests {
-    use super::{hl_cached, split_stable, code_highlighter, highlighter, HL_CACHE_MAX};
+    use super::{HL_CACHE_MAX, code_highlighter, highlighter, hl_cached, split_stable};
 
     fn split(s: &str) -> (String, String) {
         let (stable, tail) = split_stable(s);

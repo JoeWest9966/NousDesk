@@ -3061,8 +3061,7 @@ impl Render for Desktop {
                             self.nav.drawer_open,
                             cx,
                         )
-                    },
-                ),
+                    }),
             )
             // 别人的 New Manual 盘面顶替右栏；没开时才是聊天区。
             .child(right);
@@ -3070,13 +3069,25 @@ impl Render for Desktop {
         // 配置面板挂在**整窗**这一层，不塞进输入区：塞进去它是 absolute 浮层，
         // 超出输入区那 130px 的部分 hitbox 会被裁掉 —— 画得出来、hover 也变色，
         // 但 on_click 一次都进不来（踩过）。
-        div()
+        let body = div()
             .relative()
             .size_full()
             .child(shell_root)
             .children(self.cfg_overlay(cx))
             // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
-            .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
+            .children(self.menu_open.then(|| self.render_menu_overlay(cx)));
+
+        // Linux：内容区上面压一条自绘标题栏（GNOME 不给 SSD，见 `chrome.rs`）。
+        // 其它平台仍然是系统标题栏，这里原样返回。
+        #[cfg(target_os = "linux")]
+        let body = div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(crate::chrome::title_bar(window))
+            .child(div().flex_1().min_h(px(0.)).child(body));
+
+        body
     }
 }
 
