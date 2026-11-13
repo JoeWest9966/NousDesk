@@ -131,3 +131,26 @@ main 里起一个 runtime、Handle 存 `OnceLock`，UI 的 `cx.spawn` 里用 `ha
 
 **反悔点**：要发 arm64 / AppImage / Flatpak 时，脚本拆成 `package-linux.sh`（共用）+ 每种格式一个函数，
 不要把分支堆进一个脚本里；不再用打包脚本而改回 cargo-packager 时，先量它的 Linux 输出到底能不能用。
+
+## 2026-11-13 · Linux 自绘标题栏（用 gpui-kit 的 TitleBar）
+
+**为什么**：GNOME/Wayland **不给 server-side decorations**，GPUI 拿不到 SSD 就退回 client 侧，
+而退回之后它自己不画任何东西 —— 结果窗口没有标题、没有最小化/最大化/关闭，只能靠
+GNOME 概览或快捷键关掉。这是 Linux 版最显眼的一处「不像个应用」。
+
+**做了什么**：`crates/nousdesk/src/chrome.rs`，只在 `target_os = "linux"` 编译；
+`WindowOptions` 在 Linux 上显式要 `WindowDecorations::Client` 并把标题栏交给
+`TitleBar::window_options()`，窗口标题元数据仍写 `NousDesk`（任务栏/概览读的是它）。
+Windows 那条线原样用系统标题栏。
+
+**为什么不自己拿 div 拼**：拖动（`start_window_move`）、双击最大化、右键窗口菜单、
+三个按钮的点击、以及「WM 到底支持哪些按钮」（`window.window_controls()`）都得自己对一遍；
+`TitleBar` 已经把这套和「当前是不是 client 装饰」的判断做完了 —— 在 X11 有 WM 给 SSD 时
+它会自动不画按钮，避免出现两个关闭键。
+
+**代价**：窗口圆角、阴影、边框都得自己画（GPUI 的 CSD 不给）；X11 无 WM（比如裸 Xvfb）
+时装饰报告成 Server，按钮不渲染 —— 那是预期行为，不是 bug。HiDPI 下的标题栏高度
+（34px 是逻辑像素）还没在 150% 缩放下量过。
+
+**反悔点**：什么时候 gpui-kit 的 Linux CSD 自己画标题栏了，就删掉 `chrome.rs` 挂回去；
+或者要走 GNOME 的 adwaita 风格，改用 libadwaita 的 window controls 布局（那要重新量尺寸）。

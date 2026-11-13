@@ -33,7 +33,11 @@ impl Desktop {
     ///
     /// 默认展开两层（根 + 直接子）—— 只展开一层看不出树，全展开又看不完。
     pub(crate) fn enter_branches(&mut self, root: i64, cx: &mut Context<Self>) {
-        log::info!("进分支视图：根 {}，后代 {} 条", root, self.descendant_count(root));
+        log::info!(
+            "进分支视图：根 {}，后代 {} 条",
+            root,
+            self.descendant_count(root)
+        );
         self.branches = true;
         self.branch_of = Some(root);
         let mut expanded = HashSet::new();
@@ -58,7 +62,11 @@ impl Desktop {
             .iter()
             .filter(|s| s.parent.as_ref().map(|p| p.id) == Some(id))
             .collect();
-        kids.sort_by(|a, b| activity_of(b).cmp(&activity_of(a)).then_with(|| b.id.cmp(&a.id)));
+        kids.sort_by(|a, b| {
+            activity_of(b)
+                .cmp(&activity_of(a))
+                .then_with(|| b.id.cmp(&a.id))
+        });
         kids
     }
 
@@ -142,11 +150,7 @@ impl Desktop {
                 div()
                     .p(px(12.))
                     .child(div().child("NousDesk"))
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .child(format!("{name} 的分支")),
-                    )
+                    .child(div().text_size(px(13.)).child(format!("{name} 的分支")))
                     .child(
                         div()
                             .flex()
@@ -221,7 +225,9 @@ impl Desktop {
             .text_size(px(15.))
             .font_weight(FontWeight::BOLD)
             .text_color(rgb(0x333333))
-            .when(kids > 0, |el| el.bg(rgb(0xfdfdfd)).border_1().border_color(rgb(0x8c8c8c)))
+            .when(kids > 0, |el| {
+                el.bg(rgb(0xfdfdfd)).border_1().border_color(rgb(0x8c8c8c))
+            })
             .child(if kids == 0 {
                 String::new()
             } else if open {

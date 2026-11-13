@@ -85,7 +85,10 @@ impl Live {
     pub fn ingest(&self, event: &SseEvent) {
         let mut state = self.0.lock().unwrap();
         match event {
-            SseEvent::Snapshot { generation, entries } => {
+            SseEvent::Snapshot {
+                generation,
+                entries,
+            } => {
                 // 快照里的全量历史带着 `model[].timestamp`。只取时间，不取正文 ——
                 // 历史的真相仍是 GET /v1/entries。
                 let mut times = HashMap::new();
@@ -499,7 +502,10 @@ mod tests {
         // 上游报错时失败事件可能早于我们订阅，之后只剩这一个空 snapshot。
         // UI 靠 idle_snapshot 决定「再等 8 秒就判这一轮没起来」，不然永远停在「停止」。
         let live = Live::new();
-        live.ingest(&SseEvent::Snapshot { generation: None, entries: vec![] });
+        live.ingest(&SseEvent::Snapshot {
+            generation: None,
+            entries: vec![],
+        });
         let d = live.drain().expect("快照也算一次变化");
         assert!(d.idle_snapshot);
         assert!(d.text.is_empty());

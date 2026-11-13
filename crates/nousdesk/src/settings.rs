@@ -92,18 +92,13 @@ impl Desktop {
             .shadow_lg()
             .overflow_hidden()
             .child(self.menu_header())
-            .child(
-                div()
-                    .p(px(6.))
-                    .child(group_label("应用"))
-                    .child(menu_row(
-                        "menu-settings",
-                        IconName::Settings,
-                        "设置",
-                        true,
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
-                    )),
-            )
+            .child(div().p(px(6.)).child(group_label("应用")).child(menu_row(
+                "menu-settings",
+                IconName::Settings,
+                "设置",
+                true,
+                cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
+            )))
             .child(
                 div()
                     .p(px(6.))
@@ -113,7 +108,11 @@ impl Desktop {
                     .child(menu_row(
                         "menu-reconnect",
                         IconName::RefreshCw,
-                        if self.loading { "连接中…" } else { "重新连接" },
+                        if self.loading {
+                            "连接中…"
+                        } else {
+                            "重新连接"
+                        },
                         !self.loading,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.connect(cx)),
                     ))
@@ -131,10 +130,7 @@ impl Desktop {
                     .border_t(px(1.))
                     .border_color(rgb(0xf0f0f0))
                     .child(group_label("关于"))
-                    .child(info_row(
-                        "版本",
-                        format!("v{}", env!("CARGO_PKG_VERSION")),
-                    ))
+                    .child(info_row("版本", format!("v{}", env!("CARGO_PKG_VERSION"))))
                     .child(info_row(
                         "引擎",
                         self.engine_node.clone().unwrap_or_else(|| "未知".into()),
@@ -262,8 +258,7 @@ impl Desktop {
                             .font_weight(FontWeight::SEMIBOLD)
                     })
                     .when(!on, |el| {
-                        el.text_color(rgb(0x555555))
-                            .hover(|h| h.bg(rgb(0xeeeeee)))
+                        el.text_color(rgb(0x555555)).hover(|h| h.bg(rgb(0xeeeeee)))
                     })
                     .child(label)
                     .into_any_element()
@@ -354,7 +349,11 @@ impl Desktop {
                     ))
                     .child(pill(
                         "settings-reconnect",
-                        if self.loading { "连接中…" } else { "重新连接" },
+                        if self.loading {
+                            "连接中…"
+                        } else {
+                            "重新连接"
+                        },
                         false,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.connect(cx)),
                     )),
@@ -364,7 +363,12 @@ impl Desktop {
 
     fn about_pane(&self) -> AnyElement {
         let log_path = dirs::data_local_dir()
-            .map(|d| d.join(crate::config::APP_DIR).join("desktop.log").display().to_string())
+            .map(|d| {
+                d.join(crate::config::APP_DIR)
+                    .join("desktop.log")
+                    .display()
+                    .to_string()
+            })
             .unwrap_or_else(|| "（拿不到日志目录）".into());
         let cfg_path = Config::path()
             .map(|p| p.display().to_string())
@@ -520,7 +524,12 @@ fn info_row(label: &'static str, value: String) -> AnyElement {
         .text_size(px(12.))
         .child(div().text_color(rgb(0x666666)).child(label))
         .child(div().flex_1())
-        .child(div().text_size(px(11.5)).text_color(rgb(MUTED)).child(value))
+        .child(
+            div()
+                .text_size(px(11.5))
+                .text_color(rgb(MUTED))
+                .child(value),
+        )
         .into_any_element()
 }
 
@@ -530,7 +539,12 @@ fn field(label: &'static str, input: impl IntoElement) -> AnyElement {
         .flex_col()
         .gap(px(5.))
         .w_full()
-        .child(div().text_size(px(11.5)).text_color(rgb(0x777777)).child(label))
+        .child(
+            div()
+                .text_size(px(11.5))
+                .text_color(rgb(0x777777))
+                .child(label),
+        )
         .child(div().w_full().child(input))
         .into_any_element()
 }
@@ -540,7 +554,12 @@ fn readonly(label: &'static str, value: String, note: &'static str) -> AnyElemen
         .flex()
         .flex_col()
         .gap(px(5.))
-        .child(div().text_size(px(11.5)).text_color(rgb(0x777777)).child(label))
+        .child(
+            div()
+                .text_size(px(11.5))
+                .text_color(rgb(0x777777))
+                .child(label),
+        )
         .child(
             div()
                 .p(px(8.))
@@ -564,7 +583,12 @@ fn kv(label: &'static str, value: String) -> AnyElement {
         .pb(px(8.))
         .border_b(px(1.))
         .border_color(rgb(0xf0f0f0))
-        .child(div().text_size(px(11.5)).text_color(rgb(0x777777)).child(label))
+        .child(
+            div()
+                .text_size(px(11.5))
+                .text_color(rgb(0x777777))
+                .child(label),
+        )
         .child(div().text_size(px(12.)).child(value))
         .into_any_element()
 }
@@ -572,7 +596,9 @@ fn kv(label: &'static str, value: String) -> AnyElement {
 /// 在文件管理器里打开配置文件所在目录。Windows 只发便携包，`explorer` 够用；
 /// explorer 的退出码不可靠（成功也常常非 0），一律不看结果。
 fn reveal_config() {
-    let Ok(path) = Config::save_target() else { return };
+    let Ok(path) = Config::save_target() else {
+        return;
+    };
     let Some(dir) = path.parent().map(|d| d.to_path_buf()) else {
         return;
     };

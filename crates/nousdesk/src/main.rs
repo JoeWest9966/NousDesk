@@ -9,21 +9,25 @@ mod app;
 mod board;
 mod board_art;
 mod branches;
+// Linux 自绘标题栏（GNOME 不给 server-side decorations）。其它平台不挂这个文件。
+#[cfg(target_os = "linux")]
+mod chrome;
 mod composer;
+mod config;
 mod config_panel;
 mod live;
 mod md;
 mod nav_ui;
 mod search;
-mod slash;
 mod session_nav;
-mod config;
 mod settings;
+mod slash;
 mod templates;
 
 use std::io::Write as _;
 use std::sync::OnceLock;
 
+use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 
 /// GPUI 的 executor 不是 tokio，而 nous-engine 的 HTTP 全在 tokio 上。
@@ -54,7 +58,12 @@ fn init_log() {
             if !self.enabled(record.metadata()) {
                 return;
             }
-            let line = format!("[{}] {} ({})\n", record.level(), record.args(), record.target());
+            let line = format!(
+                "[{}] {} ({})\n",
+                record.level(),
+                record.args(),
+                record.target()
+            );
             if let Ok(mut slot) = self.file.lock()
                 && let Some(file) = slot.as_mut()
             {
@@ -108,26 +117,47 @@ fn main() {
 
     // AllAssets 而不是 Assets：后者只嵌了 106 个「组件自用」的图标，图标名不在那
     // 106 个里就静静地什么都不画（踩过一次）。全量 1830 个 SVG 一共 2.8MB。
-    gpui_kit::application().with_assets(gpui_kit::assets::AllAssets).run(move |cx| {
-        gpui_kit::init(cx);
-        // 窗口：标题 NousDesk，1280x800 居中。桌面聊天应用的第一屏。
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
-            titlebar: Some(TitlebarOptions {
-                // 开发版和「装好的那份」窗口标题一样，任务栏里根本分不出来
-                // （这台机器上还同时开着别人工作区的构建）。debug 构建带上标记。
-                title: Some(if cfg!(debug_assertions) {
-                    "NousDesk（开发版）".into()
-                } else {
-                    "NousDesk".into()
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        gpui_kit::open_window(options, cx, |window, cx| {
-            cx.new(|cx| app::Desktop::new(window, cx))
-        })
-        .expect("Failed to open window");
-    });
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::AllAssets)
+        .run(move |cx| {
+            gpui_kit::init(cx);
+            // 窗口：标题 NousDesk，1280x800 居中。桌面聊天应用的第一屏。
+            //
+            // **Linux 自画标题栏**（见 decisions.md）：GNOME 不给 server-side decorations，
+            // 走 client 侧的话窗口就没标题栏/关闭按钮。所以拿 gpui-kit 的 `TitleBar` 自己画
+            // 一条 —— 拖动、双击最大化、三个窗口按钮都是它自带的（Linux 上走点击，
+            // Windows 上走 `window_control_area`）。Windows 那条线冻结了，仍用系统标题栏。
+            let mut options = WindowOptions {
+                window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
+                ..TitleBar::window_options()
+            };
+            #[cfg(target_os = "linux")]
+            {
+                options.window_decorations = Some(WindowDecorations::Client);
+                // 标题栏是我们自己画的，但**标题这个元数据还得给**：GNOME 的概览 / 任务栏
+                // 读的是它，不是我们画的那行字。给空串的话窗口在任务栏里没有名字。
+                options.titlebar = Some(TitlebarOptions {
+                    title: Some(crate::chrome::BRAND.into()),
+                    appears_transparent: true,
+                    ..Default::default()
+                });
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                options.titlebar = Some(TitlebarOptions {
+                    // 开发版和「装好的那份」窗口标题一样，任务栏里根本分不出来
+                    // （这台机器上还同时开着别人工作区的构建）。debug 构建带上标记。
+                    title: Some(if cfg!(debug_assertions) {
+                        "NousDesk（开发版）".into()
+                    } else {
+                        "NousDesk".into()
+                    }),
+                    ..Default::default()
+                });
+            }
+            gpui_kit::open_window(options, cx, |window, cx| {
+                cx.new(|cx| app::Desktop::new(window, cx))
+            })
+            .expect("Failed to open window");
+        });
 }

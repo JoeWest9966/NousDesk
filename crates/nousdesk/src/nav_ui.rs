@@ -108,19 +108,20 @@ pub fn nav_column(
         .flat_map(|g| g.rounds.iter())
         .filter_map(|r| preview_text(entries, groups, r.index).map(|p| (r.index, p)))
         .collect();
-    let list = div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .id("nav-scroll")
-        .overflow_y_scroll()
-        .track_scroll(&nav.nav_scroll)
-        .px(px(6.))
-        .py(px(8.))
-        .children(groups.iter().enumerate().map(|(gi, g)| {
-            day_group(gi, g, groups, &previews, nav, main_from, drawer_open, cx)
-        }));
+    let list =
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.))
+            .id("nav-scroll")
+            .overflow_y_scroll()
+            .track_scroll(&nav.nav_scroll)
+            .px(px(6.))
+            .py(px(8.))
+            .children(groups.iter().enumerate().map(|(gi, g)| {
+                day_group(gi, g, groups, &previews, nav, main_from, drawer_open, cx)
+            }));
 
     div()
         .flex()
@@ -140,7 +141,12 @@ pub fn nav_column(
                 .py(px(8.))
                 .border_b_1()
                 .border_color(rgb(0xf0f0f0))
-                .child(div().text_size(px(11.5)).text_color(rgb(0x666666)).child("你问过的"))
+                .child(
+                    div()
+                        .text_size(px(11.5))
+                        .text_color(rgb(0x666666))
+                        .child("你问过的"),
+                )
                 .child(
                     div()
                         .text_size(px(11.))
@@ -164,15 +170,31 @@ fn nav_toggles(nav: &SessionNav, cx: &mut Context<crate::app::Desktop>) -> AnyEl
         .py(px(6.))
         .border_b_1()
         .border_color(rgb(0xf0f0f0))
-        .child(toggle("折叠旧组", fold_on, cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.nav_toggle_fold(cx);
-        })))
-        .child(toggle("自动展开", true, cx.listener(|_: &mut crate::app::Desktop, _: &ClickEvent, _, _| {})))
-        .child(toggle("悬停预览", true, cx.listener(|_: &mut crate::app::Desktop, _: &ClickEvent, _, _| {})))
+        .child(toggle(
+            "折叠旧组",
+            fold_on,
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.nav_toggle_fold(cx);
+            }),
+        ))
+        .child(toggle(
+            "自动展开",
+            true,
+            cx.listener(|_: &mut crate::app::Desktop, _: &ClickEvent, _, _| {}),
+        ))
+        .child(toggle(
+            "悬停预览",
+            true,
+            cx.listener(|_: &mut crate::app::Desktop, _: &ClickEvent, _, _| {}),
+        ))
         .into_any_element()
 }
 
-fn toggle(label: &str, on: bool, action: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> AnyElement {
+fn toggle(
+    label: &str,
+    on: bool,
+    action: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     div()
         .id(ElementId::Name(format!("nav-toggle-{label}").into()))
         .flex_none()
@@ -224,8 +246,18 @@ fn day_group(
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.nav_toggle_group(label.clone(), cx);
                 }))
-                .child(div().text_size(px(10.)).text_color(rgb(DAY_MUTED)).child(if closed { "▸" } else { "▾" }))
-                .child(div().text_size(px(11.5)).text_color(rgb(DAY_MUTED)).child(g.label.clone()))
+                .child(
+                    div()
+                        .text_size(px(10.))
+                        .text_color(rgb(DAY_MUTED))
+                        .child(if closed { "▸" } else { "▾" }),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.5))
+                        .text_color(rgb(DAY_MUTED))
+                        .child(g.label.clone()),
+                )
                 .child(
                     div()
                         .ml_auto()
@@ -236,7 +268,16 @@ fn day_group(
         )
         .when(!closed, |el| {
             el.children(g.rounds.iter().map(|r| {
-                nav_row(r, g, groups, previews, nav.current, main_from, drawer_open, cx)
+                nav_row(
+                    r,
+                    g,
+                    groups,
+                    previews,
+                    nav.current,
+                    main_from,
+                    drawer_open,
+                    cx,
+                )
             }))
         })
         .into_any_element()
@@ -334,8 +375,18 @@ fn nav_row(
                         .child(pill("悬停预览"))
                         .child(pill(where_to)),
                 )
-                .child(div().mb(px(5.)).text_color(rgb(0x1a1a1a)).child(format!("{} · {}", idx + 1, text)))
-                .child(div().mb(px(7.)).text_color(rgb(0x666666)).child(preview.clone().unwrap_or_else(|| "（这一轮还没有回答）".into())))
+                .child(div().mb(px(5.)).text_color(rgb(0x1a1a1a)).child(format!(
+                    "{} · {}",
+                    idx + 1,
+                    text
+                )))
+                .child(
+                    div().mb(px(7.)).text_color(rgb(0x666666)).child(
+                        preview
+                            .clone()
+                            .unwrap_or_else(|| "（这一轮还没有回答）".into()),
+                    ),
+                )
                 .child(
                     div()
                         .pt(px(6.))
@@ -482,7 +533,12 @@ pub fn drawer(
                         .border_b_1()
                         .border_color(rgb(0xeeeeee))
                         .child(div().text_size(px(12.5)).child("全量历史"))
-                        .child(div().text_size(px(11.)).text_color(rgb(DAY_MUTED)).child("按时间"))
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(rgb(DAY_MUTED))
+                                .child("按时间"),
+                        )
                         .child(
                             div()
                                 .id("nav-to-main")
@@ -497,7 +553,9 @@ pub fn drawer(
                                 .text_color(rgb(0x2a8a4c))
                                 .cursor_pointer()
                                 .hover(|el| el.bg(rgb(SOFT_GREEN)))
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_to_main(cx)))
+                                .on_click(
+                                    cx.listener(|this, _: &ClickEvent, _, cx| this.nav_to_main(cx)),
+                                )
                                 .child("把这一轮加载进主视图"),
                         )
                         .child(
@@ -506,16 +564,16 @@ pub fn drawer(
                                 .cursor_pointer()
                                 .text_size(px(12.))
                                 .text_color(rgb(0x8a8a8a))
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_close_drawer(cx)))
+                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.nav_close_drawer(cx)
+                                }))
                                 .child("关闭 ✕"),
                         ),
                 )
                 .child(
                     div()
                         .id("nav-drawer-body")
-                        .on_scroll(cx.listener(|this, _e: &ScrollEvent, _, cx| {
-                            this.nav_spy(cx)
-                        }))
+                        .on_scroll(cx.listener(|this, _e: &ScrollEvent, _, cx| this.nav_spy(cx)))
                         .flex_1()
                         .min_h(px(0.))
                         .overflow_y_scroll()
@@ -533,7 +591,9 @@ pub fn drawer(
                                 .border_color(rgb(0xf0f0f0))
                                 .text_size(px(11.))
                                 .text_color(rgb(0xa5a5a5))
-                                .child("左边那列目录现在指向这里 —— 点任一轮，我滚到它；不用关抽屉。"),
+                                .child(
+                                    "左边那列目录现在指向这里 —— 点任一轮，我滚到它；不用关抽屉。",
+                                ),
                         )
                         .children(children),
                 ),
@@ -582,6 +642,9 @@ pub fn history_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
 /// 目录行的浮窗要的那句回答首行。用一个静态钩子从 `Desktop` 拿，
 /// 避免把整个 `Context<Desktop>` 塞进 `HoverCard` 的 `'static` content 闭包。
 pub fn preview_text(entries: &[Entry], groups: &[NavDay], idx: usize) -> Option<String> {
-    let round = groups.iter().flat_map(|g| g.rounds.iter()).find(|r| r.index == idx)?;
+    let round = groups
+        .iter()
+        .flat_map(|g| g.rounds.iter())
+        .find(|r| r.index == idx)?;
     answer_preview(entries, round, groups)
 }
