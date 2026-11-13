@@ -154,3 +154,19 @@ Windows 那条线原样用系统标题栏。
 
 **反悔点**：什么时候 gpui-kit 的 Linux CSD 自己画标题栏了，就删掉 `chrome.rs` 挂回去；
 或者要走 GNOME 的 adwaita 风格，改用 libadwaita 的 window controls 布局（那要重新量尺寸）。
+
+## 2026-11-13 · deb 的 `Depends` 由 dpkg-shlibdeps 现算
+
+**为什么**：手写依赖列表会漂 —— 校对时发现漏了 `libssl3t64`（GPUI 的 TLS 走 openssl，
+二进制 `NEEDED` 里就有），装到最小系统上直接起不来；同时多列了两个不含符号的库。
+`dpkg-shlibdeps` 按 symbols 文件算到最低版本，换工具链 / 换依赖时自动跟着变。
+
+**做了什么**：`scripts/package-linux.sh` 出包前在临时 `debian/control` 里跑
+`dpkg-shlibdeps -O -e <二进制>`，把 `shlibs:Depends` 拼进 control；只剩运行期 dlopen
+（`libvulkan1` / `libegl1` / `libgl1` / `libwayland-client0`）手写保留 —— 那几个不在
+`NEEDED` 里，工具看不见，缺了只白屏不报错。缺 `dpkg-dev` 时脚本直接失败，不静默手抄。
+
+**代价**：出包机多一个 `dpkg-dev`（CI 的 ubuntu-24.04 自带 `dpkg-dev`）；交叉编 arm64 时
+本机 shlibs/symbols 是 amd64 的，得在目标架构的容器里跑这一步。
+
+**反悔点**：真要发 arm64 包、发现这一步挡路时，改成「目标架构容器里出包」，别退回去手抄。

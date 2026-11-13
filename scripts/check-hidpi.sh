@@ -43,26 +43,29 @@ sleep 1
 export DISPLAY="$DISPLAY_NUM"
 unset WAYLAND_DISPLAY
 # 让日志落进临时目录，别污染用户的 ~/.local/share/nousdesk/desktop.log。
+# 每轮用独立的 XDG_DATA_HOME：desktop.log 是 append 的，混在一起会把上一轮的
+# 「缩放=1.00」也捞进来，让 1.5 / 2 那两轮误判成通过。
 TMP="$(mktemp -d)"
-trap 'kill "$XVFB_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/home" "$TMP/config" "$TMP/data"
+trap 'kill "$XVFB_PID" 2>/dev/null || true; cp -r "$TMP"/logs /tmp/nousdesk-check-hidpi.logs 2>/dev/null || true; rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/home" "$TMP/config" "$TMP/logs"
 
 cargo build --quiet -p nousdesk
 BIN="$ROOT/target/debug/nousdesk"
+rm -rf /tmp/nousdesk-check-hidpi.logs
 
 fail=0
 for scale in 1 1.5 2; do
-  LOG="$TMP/scale-$scale.log"
-  HOME="$TMP/home" XDG_CONFIG_HOME="$TMP/config" XDG_DATA_HOME="$TMP/data" \
+  DATA="$TMP/data-$scale"
+  mkdir -p "$DATA"
+  # debug 构建同时打控制台，所以直接读 stdout；release 版才只看 desktop.log。
+  LOG="$TMP/logs/scale-$scale.log"
+  HOME="$TMP/home" XDG_CONFIG_HOME="$TMP/config" XDG_DATA_HOME="$DATA" \
     GPUI_X11_SCALE_FACTOR="$scale" timeout 8 "$BIN" >"$LOG" 2>&1 || true
+  cat "$DATA/nousdesk/desktop.log" >>"$LOG" 2>/dev/null || true
 
   printf '缩放 %s：' "$scale"
-  # 写进 desktop.log（GUI 子系统不打控制台），从那里读。
-  APP_LOG="$TMP/data/nousdesk/desktop.log"
-  cp "$APP_LOG" "$LOG" 2>/dev/null || true
-
-  if ! grep -Fq "窗口：缩放=${scale}" "$LOG" && \
-     ! grep -Fq "窗口：缩放=$(printf '%.2f' "$scale")" "$LOG"; then
+  EXPECTED="$(printf '%.2f' "$scale")"
+  if ! grep -Fq "窗口：缩放=${EXPECTED}" "$LOG"; then
     echo "❌ GPUI 没拿到这个倍率"
     fail=1
     continue
@@ -77,8 +80,7 @@ for scale in 1 1.5 2; do
 done
 
 if [ "$fail" != 0 ]; then
-  echo "失败：日志留在 /tmp/nousdesk-check-hidpi.log" >&2
-  cp "$TMP"/scale-*.log /tmp/nousdesk-check-hidpi.log 2>/dev/null || true
+  echo "失败：日志留在 /tmp/nousdesk-check-hidpi.logs/" >&2
   exit 1
 fi
 echo "通过：X11 后端的 scale_factor 1 / 1.5 / 2 都认，窗口按逻辑像素居中且被小屏裁小。"
