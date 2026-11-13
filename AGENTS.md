@@ -110,6 +110,23 @@ cargo run -p nousdesk --example ime  # 人工：敲拼音，看组字下划线�
 - **X11 / XWayland** 走 `zed-xim`（XIM），不经过上面那几个 Wayland 请求：查 IME 问题时
   先分清跑在哪个后端（`WAYLAND_DEBUG=1` 有输出就是 Wayland）。
 
+### 剪贴板怎么验
+
+```bash
+scripts/check-clipboard.sh                # 读 + 粘贴（自动）
+cargo run -p nousdesk --example clipboard # 写（人工）：Ctrl+A、Ctrl+C，再 wl-paste
+```
+
+- **读 + 粘贴**：脚本先 `wl-copy` 一段带中文的哨兵，再起 `examples/clipboard`，断言日志里出现
+  `READ1: Some("…")`（平台读通）和 `TEXT: "…"`（组件把读到的插进了输入框）。
+- **写**：`set_selection` 在 Wayland 上**必须带最近一次输入事件的 serial**。脚本里没有真实输入，
+  合成器会直接丢掉请求 —— 表现出来就是「写剪贴板坏了」，其实是测试方式不对。所以写只能人工：
+  窗口里 `Ctrl+A` 选中、`Ctrl+C` 复制，然后终端跑 `wl-paste` 看。
+- **排查顺序**：`wl-paste` 有内容 → 平台写没问题；`wl-paste` 空 → 看程序是不是压根没拿到焦点
+  （Wayland 里没有焦点就没有 serial）。别一上来怀疑 `Textarea`。
+- **mime 类型**：我们只声明 `text/plain;charset=utf-8` / `UTF8_STRING` / `text/plain`，
+  也只接受前两种。中文被截成乱码/空，先怀疑这条，不是渲染。
+
 ### headless 机器上看窗口（本机 99966 已配好）
 
 GPUI 能在 Xvfb 里跑，三个坑都踩过了：
