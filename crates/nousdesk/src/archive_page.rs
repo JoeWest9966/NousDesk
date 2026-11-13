@@ -29,26 +29,19 @@ use gpui_kit::*;
 
 use nous_engine::types::{ArchiveGen, ArchiveGens, ArchiveItem};
 
-// ── 外观（照 settings.rs / config_panel.rs：模块自己的 const + 裸 px）───────
+// ── 外观 ─────────────────────────────────────────────────────────────
+//
+// 颜色 / 字号 / 圆角 / 间距全走主题 token（`crate::theme`），模块里不再存一份
+// `const` 颜色 —— 换皮时这一页要跟着变，写死的字面量会漏下来。
 
-const FG: u32 = 0x2b2b2b; // 正文
-const FG_2: u32 = 0x666666; // 次一级文字
-const MUTED: u32 = 0x999999; // 次要说明
-const FAINT: u32 = 0xaaaaaa; // 更淡的说明 / 列头
-const LINE: u32 = 0xeeeeee; // 分隔线
-const PANEL: u32 = 0xffffff; // 页面底
-const LIST_BG: u32 = 0xf7f7f7; // 页头底 / 「已捞回」徽标底
-const HOVER: u32 = 0xf2f2f2; // hover 底
-const SELECTED: u32 = 0xe8f7ee; // 选中行底
-const GOOD_FG: u32 = 0x0a7a3f; // 绿字（「原件在」）
-const GOOD_SOFT: u32 = 0xe8f7ee; // 绿的浅底
-const BAD: u32 = 0xd32f2f; // 错误 / 撕原件
-const BAD_SOFT: u32 = 0xfff1f0; // 错误的浅底
-const WARN: u32 = 0xc77700; // 警告（「无墓碑」）
-const WARN_SOFT: u32 = 0xfff8ee; // 警告的浅底
-const LINK: u32 = 0x0b6bcb; // 链接 / 打捞
+/// 这一帧的皮。和 `settings.rs` / `archive_confirm.rs` 同一个写法 —— 渲染层不自己
+/// 存主题，统一从帧内快照取，换皮时才不会有一块漏掉。
+fn t() -> crate::theme::Skin {
+    crate::theme::cur()
+}
 
 /// 状态那格 / 动作那格的宽度（列头和行共用，别各写各的）。
+/// 列宽本身是**布局常量**，不是间距 —— 用的时候包一层 `t().d(..)` 让它跟着密度缩放。
 const STATUS_W: f32 = 64.;
 const ACT_W: f32 = 88.;
 
@@ -357,7 +350,7 @@ pub fn render_archive_page(
         .flex_col()
         .flex_1()
         .size_full()
-        .bg(rgb(PANEL))
+        .bg(rgb(t().p.panel))
         .child(header(state, on_action.clone(), on_back))
         .child(column_head())
         .child(body(state, on_action, on_select))
@@ -380,13 +373,13 @@ fn header(state: &ArchivePageState, on_action: OnAction, on_back: OnBack) -> Any
     div()
         .flex()
         .items_center()
-        .gap(px(10.))
-        .h(px(48.))
+        .gap(t().d(10.))
+        .h(t().d(48.))
         .flex_none()
-        .px(px(14.))
-        .bg(rgb(LIST_BG))
-        .border_b(px(1.))
-        .border_color(rgb(LINE))
+        .px(t().d(14.))
+        .bg(rgb(t().p.list_bg))
+        .border_b(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
         .child(
             // 返回：右栏回到聊天区。左栏列表一直在，这里只收起这一页。
             div()
@@ -394,28 +387,28 @@ fn header(state: &ArchivePageState, on_action: OnAction, on_back: OnBack) -> Any
                 .on_click(move |ev, window, cx| on_back(ev, window, cx))
                 .flex()
                 .items_center()
-                .gap(px(4.))
-                .px(px(6.))
-                .py(px(4.))
-                .rounded(px(5.))
-                .text_size(px(12.))
-                .text_color(rgb(FG_2))
+                .gap(t().d(4.))
+                .px(t().d(6.))
+                .py(t().d(4.))
+                .rounded(t().r(5.))
+                .text_size(t().fs(12.))
+                .text_color(rgb(t().p.text_2))
                 .cursor_pointer()
-                .hover(|el| el.bg(rgb(HOVER)))
-                .child(Icon::new(IconName::ArrowLeft).with_size(Size::Size(px(14.))))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child(Icon::new(IconName::ArrowLeft).with_size(Size::Size(t().d(14.))))
                 .child("返回聊天"),
         )
-        .child(div().w(px(8.)))
+        .child(div().w(t().d(8.)))
         .child(
             div()
-                .text_size(px(13.))
+                .text_size(t().fs(13.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(PAGE_TITLE),
         )
         .child(
             div()
-                .text_size(px(11.5))
-                .text_color(rgb(MUTED))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.muted))
                 .child(count),
         )
         .child(div().flex_1())
@@ -433,17 +426,17 @@ fn column_head() -> AnyElement {
     div()
         .flex()
         .items_center()
-        .h(px(26.))
+        .h(t().d(26.))
         .flex_none()
-        .px(px(14.))
-        .bg(rgb(PANEL))
-        .border_b(px(1.))
-        .border_color(rgb(LINE))
-        .text_size(px(10.5))
-        .text_color(rgb(FAINT))
+        .px(t().d(14.))
+        .bg(rgb(t().p.panel))
+        .border_b(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
+        .text_size(t().fs(10.5))
+        .text_color(rgb(t().p.faint))
         .child(div().flex_1().child("会话"))
-        .child(div().w(px(STATUS_W)).flex_none().child("状态"))
-        .child(div().w(px(ACT_W)).flex_none().child("操作"))
+        .child(div().w(t().d(STATUS_W)).flex_none().child("状态"))
+        .child(div().w(t().d(ACT_W)).flex_none().child("操作"))
         .into_any_element()
 }
 
@@ -478,7 +471,7 @@ fn body(state: &ArchivePageState, on_action: OnAction, on_select: OnSelect) -> A
         .flex()
         .flex_col()
         .flex_1()
-        .min_h(px(0.))
+        .min_h(t().d(0.))
         .overflow_y_scroll()
         .children(rows)
         .into_any_element()
@@ -489,21 +482,21 @@ fn group_head(group: &ArchiveGen) -> AnyElement {
     div()
         .flex()
         .items_center()
-        .gap(px(8.))
+        .gap(t().d(8.))
         .flex_none()
-        .px(px(14.))
-        .pt(px(14.))
-        .pb(px(6.))
+        .px(t().d(14.))
+        .pt(t().d(14.))
+        .pb(t().d(6.))
         .child(
             div()
-                .text_size(px(11.5))
-                .text_color(rgb(FG_2))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.text_2))
                 .child(gen_group_title(&group.r#gen)),
         )
         .child(
             div()
-                .text_size(px(10.5))
-                .text_color(rgb(FAINT))
+                .text_size(t().fs(10.5))
+                .text_color(rgb(t().p.faint))
                 .child(format!("{} 条", group.items.len())),
         )
         .child(div().flex_1())
@@ -559,39 +552,39 @@ fn row(
         .flex()
         .items_center()
         .flex_none()
-        .px(px(14.))
-        .py(px(7.))
-        .border_b(px(1.))
-        .border_color(rgb(LINE))
-        .bg(rgb(if selected { SELECTED } else { PANEL }))
+        .px(t().d(14.))
+        .py(t().d(7.))
+        .border_b(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
+        .bg(rgb(if selected { t().p.accent_soft } else { t().p.panel }))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(if selected { SELECTED } else { HOVER })))
+        .hover(|el| el.bg(rgb(if selected { t().p.accent_soft } else { t().p.hover })))
         .on_click(move |ev, window, cx| select(ev, window, cx))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .flex_1()
-                .min_w(px(0.))
-                .gap(px(1.))
+                .min_w(t().d(0.))
+                .gap(t().d(1.))
                 .child(
                     div()
                         .truncate()
-                        .text_size(px(12.))
-                        .text_color(rgb(FG))
+                        .text_size(t().fs(12.))
+                        .text_color(rgb(t().p.text))
                         .child(name),
                 )
                 .child(
                     div()
                         .truncate()
-                        .text_size(px(10.5))
-                        .text_color(rgb(FAINT))
+                        .text_size(t().fs(10.5))
+                        .text_color(rgb(t().p.faint))
                         .child(row_summary(item)),
                 ),
         )
         .child(
             div()
-                .w(px(STATUS_W))
+                .w(t().d(STATUS_W))
                 .flex_none()
                 .flex()
                 .items_center()
@@ -599,36 +592,36 @@ fn row(
         )
         .child(
             div()
-                .w(px(ACT_W))
+                .w(t().d(ACT_W))
                 .flex_none()
                 .flex()
                 .items_center()
                 .justify_end()
-                .gap(px(10.))
+                .gap(t().d(10.))
                 .children(acts),
         )
         .into_any_element()
 }
 
-/// 状态徽标。底色/字色取文件头那组 `const`。
+/// 状态徽标。底色/字色取主题的语义槽（`accent_soft` / `danger_soft` / `warn_soft`）。
 fn badge(status: ArchiveStatus) -> AnyElement {
     div()
         .flex_none()
-        .px(px(6.))
-        .py(px(1.))
-        .rounded(px(4.))
+        .px(t().d(6.))
+        .py(t().d(1.))
+        .rounded(t().r(4.))
         .bg(rgb(match status {
-            ArchiveStatus::Live => GOOD_SOFT,
-            ArchiveStatus::Purged => BAD_SOFT,
-            ArchiveStatus::Restored => LIST_BG,
-            ArchiveStatus::Orphan => WARN_SOFT,
+            ArchiveStatus::Live => t().p.accent_soft,
+            ArchiveStatus::Purged => t().p.danger_soft,
+            ArchiveStatus::Restored => t().p.list_bg,
+            ArchiveStatus::Orphan => t().p.warn_soft,
         }))
-        .text_size(px(10.5))
+        .text_size(t().fs(10.5))
         .text_color(rgb(match status {
-            ArchiveStatus::Live => GOOD_FG,
-            ArchiveStatus::Purged => BAD,
-            ArchiveStatus::Restored => MUTED,
-            ArchiveStatus::Orphan => WARN,
+            ArchiveStatus::Live => t().p.accent_fg,
+            ArchiveStatus::Purged => t().p.danger,
+            ArchiveStatus::Restored => t().p.muted,
+            ArchiveStatus::Orphan => t().p.warn,
         }))
         .child(status.label())
         .into_any_element()
@@ -645,13 +638,13 @@ fn link_button(
         .id(id)
         .on_click(move |ev, window, cx| handler(ev, window, cx))
         .flex_none()
-        .px(px(6.))
-        .py(px(2.))
-        .rounded(px(4.))
-        .text_size(px(11.5))
-        .text_color(rgb(if is_danger { BAD } else { LINK }))
+        .px(t().d(6.))
+        .py(t().d(2.))
+        .rounded(t().r(4.))
+        .text_size(t().fs(11.5))
+        .text_color(rgb(if is_danger { t().p.danger } else { t().p.link }))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(HOVER)))
+        .hover(|el| el.bg(rgb(t().p.hover)))
         .child(label)
         .into_any_element()
 }
@@ -670,10 +663,10 @@ fn act(action: ArchiveAction, on: &OnAction) -> OnClick {
 
 fn note(text: &'static str) -> AnyElement {
     div()
-        .px(px(14.))
-        .pt(px(14.))
-        .text_size(px(12.))
-        .text_color(rgb(MUTED))
+        .px(t().d(14.))
+        .pt(t().d(14.))
+        .text_size(t().fs(12.))
+        .text_color(rgb(t().p.muted))
         .child(text)
         .into_any_element()
 }
@@ -683,24 +676,24 @@ fn error_box(err: &str) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(4.))
-        .mx(px(14.))
-        .mt(px(14.))
-        .p(px(10.))
-        .rounded(px(6.))
-        .bg(rgb(BAD_SOFT))
-        .border(px(1.))
-        .border_color(rgb(BAD))
+        .gap(t().d(4.))
+        .mx(t().d(14.))
+        .mt(t().d(14.))
+        .p(t().d(10.))
+        .rounded(t().r(6.))
+        .bg(rgb(t().p.danger_soft))
+        .border(t().d(1.))
+        .border_color(rgb(t().p.danger))
         .child(
             div()
-                .text_size(px(11.5))
-                .text_color(rgb(BAD))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.danger))
                 .child(err.to_string()),
         )
         .child(
             div()
-                .text_size(px(10.5))
-                .text_color(rgb(MUTED))
+                .text_size(t().fs(10.5))
+                .text_color(rgb(t().p.muted))
                 .child(NOTE_ERROR_HINT),
         )
         .into_any_element()
