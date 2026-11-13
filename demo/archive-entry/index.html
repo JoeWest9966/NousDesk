@@ -1,0 +1,1191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会话归档 · 入口方案（桌面端 + 移动端）</title>
+<style>
+  /* ===== 页面外壳 ===== */
+  :root{
+    --page:#f4f4f5; --card:#fff; --ink:#1b1b1b; --sub:#6b6b70; --line:#e4e4e7;
+    --accent:#07c160; --danger:#fa5151; --amber:#fa9d3b;
+    /* NousDesk 真机配色（app.rs 的常量） */
+    --desk-rail:#2e2e2e; --desk-list:#f7f7f7; --desk-chat:#ededed;
+    --desk-me:#95ec69; --desk-you:#fff; --desk-muted:#999;
+    /* 手机端 bjes6b 的皮（app.css 的变量） */
+    --wx-bg:#ededed; --wx-card:#fff; --wx-green:#07c160; --wx-text:#191919;
+    --wx-sub:#9a9a9a; --wx-line:rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; background:var(--page); color:var(--ink);
+    font:14px/1.5 -apple-system,"Noto Sans CJK SC","Source Han Sans SC","Microsoft YaHei",sans-serif}
+  a{color:inherit}
+  header.top{position:sticky; top:0; z-index:40; background:rgba(244,244,245,.92);
+    backdrop-filter:blur(8px); border-bottom:1px solid var(--line); padding:14px 20px 0}
+  h1{font-size:16px; margin:0 0 2px}
+  .lead{margin:0 0 10px; color:var(--sub); font-size:12.5px}
+  .lead b{color:var(--ink)}
+  nav.tabs{display:flex; gap:2px; overflow-x:auto}
+  nav.tabs button{appearance:none; border:0; background:transparent; color:var(--sub);
+    font:inherit; font-size:13px; padding:9px 14px; border-radius:8px 8px 0 0; cursor:pointer;
+    white-space:nowrap; position:relative}
+  nav.tabs button[aria-selected="true"]{background:var(--card); color:var(--ink); font-weight:600;
+    box-shadow:0 -1px 0 var(--line) inset, 1px 0 0 var(--line) inset, -1px 0 0 var(--line) inset}
+  nav.tabs button .n{color:var(--desk-muted); font-weight:400; margin-left:4px; font-size:11.5px}
+  main{padding:20px; max-width:1180px; margin:0 auto}
+  section[data-panel]{display:grid; gap:18px; grid-template-columns:repeat(auto-fill,minmax(430px,1fr))}
+  section[hidden]{display:none !important}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    display:flex; flex-direction:column}
+  .card > .head{padding:13px 15px 11px; border-bottom:1px solid var(--line)}
+  .card h2{font-size:14px; margin:0 0 3px; display:flex; align-items:center; gap:7px; flex-wrap:wrap}
+  .tag{font-size:10.5px; font-weight:600; color:#fff; background:var(--desk-rail); padding:1.5px 6px;
+    border-radius:5px; letter-spacing:.2px}
+  .tag.pick{background:var(--accent)}
+  .tag.warn{background:var(--amber)}
+  .card .why{margin:0; color:var(--sub); font-size:12px}
+  .card .body{padding:14px; flex:1; display:flex; align-items:center; justify-content:center;
+    background:#fafafa}
+  .card .foot{padding:10px 15px 13px; border-top:1px solid var(--line); font-size:12px; color:var(--sub)}
+  .card .foot b{color:var(--ink)}
+  .card .foot .bad{color:#c0392b}
+  .card .foot .good{color:#1a7f4b}
+  .hint{font-size:11.5px; color:var(--sub); background:#fff8e6; border:1px solid #f2e2b8;
+    border-radius:7px; padding:5px 8px; margin:0 0 9px}
+
+  /* ===== 桌面端 mock（NousDesk） ===== */
+  .desk{width:100%; max-width:660px; height:404px; display:flex; border-radius:10px; overflow:hidden;
+    box-shadow:0 6px 22px rgba(0,0,0,.14); background:var(--desk-chat); user-select:none;
+    font-size:12.5px; color:#202020; position:relative}
+  .rail{width:52px; background:var(--desk-rail); display:flex; flex-direction:column;
+    align-items:center; padding:10px 0; gap:6px; flex:0 0 52px}
+  .rail .av{width:30px; height:30px; border-radius:7px; background:#4a4a4a; color:#cfcfcf;
+    display:grid; place-items:center; font-size:13px; margin-bottom:4px}
+  .rail .ic{width:32px; height:32px; border-radius:8px; display:grid; place-items:center;
+    color:#9a9a9a; font-size:15px; cursor:pointer}
+  .rail .ic:hover{background:#3a3a3a; color:#e8e8e8}
+  .rail .ic.on{background:#3d3d3d; color:#fff}
+  .rail .sp{flex:1}
+  .list{width:232px; flex:0 0 232px; background:var(--desk-list); display:flex; flex-direction:column;
+    border-right:1px solid #e2e2e2; position:relative}
+  .list .ltop{height:34px; display:flex; align-items:center; justify-content:space-between;
+    padding:0 10px; border-bottom:1px solid #e6e6e6}
+  .list .ltop .ttl{font-weight:600; font-size:12.5px; color:#333}
+  .list .ltop .add{color:#7a7a7a; font-size:15px; cursor:pointer; padding:0 4px}
+  .rows{flex:1; overflow:hidden}
+  .row{height:52px; padding:7px 10px; display:flex; gap:8px; align-items:center;
+    cursor:pointer; position:relative; border-bottom:1px solid #ededed}
+  .row:hover{background:#ececec}
+  .row.on{background:#e2e2e2}
+  .row .av{width:30px; height:30px; border-radius:6px; background:#c9c9c9; flex:0 0 30px;
+    display:grid; place-items:center; color:#fff; font-size:12px}
+  .row .mid{flex:1; min-width:0}
+  .row .nm{font-size:12.5px; color:#282828; display:flex; align-items:center; gap:4px}
+  .row .pv{font-size:11.5px; color:#9a9a9a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .row .tm{font-size:10.5px; color:#b0b0b0; align-self:flex-start; padding-top:2px}
+  .row .pin{font-size:9.5px; color:#8a8a8a}
+  .row .dots{position:absolute; right:6px; top:6px; width:20px; height:20px; border-radius:5px;
+    display:none; place-items:center; color:#777; background:rgba(255,255,255,.9); font-size:13px;
+    cursor:pointer; border:1px solid #ddd}
+  .desk.showdots .row .dots{display:grid; opacity:.32; transition:opacity .12s}
+  .desk.showdots .row:hover .dots{opacity:1}
+  .desk.bulk .row .ck{width:15px; height:15px; border-radius:4px; border:1.5px solid #bbb;
+    display:none; flex:0 0 15px; place-items:center; font-size:10px; color:#fff}
+  .desk.bulk .row .ck{display:grid}
+  .desk.bulk .row.sel .ck{background:var(--accent); border-color:var(--accent)}
+  .desk.bulk .row.sel{background:#e6f6ec}
+  .chat{flex:1; display:flex; flex-direction:column; min-width:0}
+  .chat .ctop{height:38px; border-bottom:1px solid #dedede; display:flex; align-items:center;
+    padding:0 12px; gap:8px; background:#f4f4f4}
+  .chat .ctop .nm{font-weight:600; font-size:12.5px}
+  .chat .ctop .sp{flex:1}
+  .chat .ctop .k{color:#777; font-size:14px; cursor:pointer; padding:2px 5px; border-radius:5px}
+  .chat .ctop .k:hover{background:#e4e4e4}
+  .chat .body-c{flex:1; padding:12px; display:flex; flex-direction:column; gap:10px;
+    overflow:hidden; background:var(--desk-chat)}
+  .bub{max-width:78%; padding:7px 10px; border-radius:7px; font-size:12px; line-height:1.45;
+    box-shadow:0 1px 1px rgba(0,0,0,.04)}
+  .bub.you{background:var(--desk-you); align-self:flex-start}
+  .bub.me{background:var(--desk-me); align-self:flex-end}
+  .chat .cin{height:44px; border-top:1px solid #dedede; background:#f7f7f7; display:flex;
+    align-items:center; padding:0 10px; color:#aaa; font-size:12px}
+  .bulkbar{position:absolute; left:52px; right:0; bottom:0; height:40px; background:#2f2f2f;
+    color:#eee; display:none; align-items:center; padding:0 14px; gap:10px; font-size:12px;
+    z-index:3}
+  .desk.bulk .bulkbar{display:flex}
+  .bulkbar .sp{flex:1}
+  .bulkbar button{appearance:none; border:1px solid #555; background:#3b3b3b; color:#eee;
+    font:inherit; font-size:11.5px; padding:4px 10px; border-radius:6px; cursor:pointer}
+  .bulkbar button.dng{background:#8a2b2b; border-color:#a33}
+  .dropzone{position:absolute; left:6px; bottom:52px; width:40px; height:40px; border-radius:10px;
+    border:1.5px dashed #8f8f8f; color:#cfcfcf; display:grid; place-items:center; font-size:16px;
+    background:rgba(255,255,255,.06)}
+  .dropzone.hot{background:rgba(7,193,96,.25); border-color:var(--accent); color:#fff}
+
+  /* 菜单（桌面端） */
+  .ctx{position:fixed; z-index:100; min-width:172px; background:#fff; border:1px solid #dcdcdc;
+    border-radius:8px; padding:4px; box-shadow:0 8px 26px rgba(0,0,0,.18); font-size:12.5px;
+    display:none}
+  .ctx.on{display:block}
+  .ctx .it{padding:5px 10px; line-height:1.35; border-radius:5px; display:flex; align-items:center; gap:8px;
+    cursor:pointer; white-space:nowrap}
+  .ctx .it:hover{background:#f1f1f1}
+  .ctx .it .k{margin-left:auto; color:#aaa; font-size:11px}
+  .ctx .it.dng{color:#c0392b}
+  .ctx .it.dng:hover{background:#fdeeee}
+  .ctx .it.dis{color:#b6b6b6; cursor:default}
+  .ctx .it.dis:hover{background:transparent}
+  .ctx .sep{height:1px; background:#ececec; margin:4px 2px}
+  .ctx .cap{font-size:10.5px; color:#9a9a9a; padding:5px 10px 3px; letter-spacing:.3px}
+  .ctx .it .sub{color:#9a9a9a; margin-left:auto; font-size:11px}
+
+  /* ===== 移动端 mock（bjes6b） ===== */
+  .phone{width:290px; height:500px; border-radius:30px; background:var(--wx-bg); position:relative;
+    overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.18); border:7px solid #1b1b1b;
+    display:flex; flex-direction:column; user-select:none; font-size:13px; color:var(--wx-text)}
+  .ph-top{height:38px; background:#ededed; display:flex; align-items:center; padding:0 12px;
+    border-bottom:.5px solid var(--wx-line); font-size:13.5px; font-weight:600; gap:8px}
+  .ph-top .sp{flex:1}
+  .ph-top .k{color:#4a4a4a; font-size:15px; padding:2px 4px; cursor:pointer}
+  .ph-rows{flex:1; overflow:hidden; background:var(--wx-card)}
+  .ph-row{height:60px; padding:9px 12px; display:flex; gap:10px; align-items:center;
+    border-bottom:.5px solid var(--wx-line); position:relative; background:var(--wx-card);
+    will-change:transform}
+  .ph-row .ac{width:40px; height:40px; border-radius:6px; background:#c9c9c9; flex:0 0 40px;
+    display:grid; place-items:center; color:#fff; font-size:14px}
+  .ph-row .mid{flex:1; min-width:0}
+  .ph-row .nm{font-size:13.5px; font-weight:500}
+  .ph-row .pv{font-size:11.5px; color:var(--wx-sub); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; margin-top:2px}
+  .ph-row .tm{font-size:10.5px; color:#b2b2b2; align-self:flex-start; padding-top:3px}
+  .ph-row.hold{background:#e8e8e8}
+  .swipe-acts{position:absolute; inset:0 0 0 auto; display:flex; width:0; overflow:hidden}
+  .swipe-acts button{appearance:none; border:0; font:inherit; font-size:12px; color:#fff;
+    width:64px; background:#8e8e93; cursor:pointer}
+  .swipe-acts button.dng{background:var(--danger); width:76px}
+  .swipe-wrap{position:relative; overflow:hidden}
+  .sheet{position:absolute; left:0; right:0; bottom:0; background:#f2f2f2; border-radius:14px 14px 0 0;
+    transform:translateY(110%); transition:transform .18s ease; z-index:6;
+    box-shadow:0 -6px 24px rgba(0,0,0,.16)}
+  .sheet.on{transform:translateY(0)}
+  .sheet .sh{background:#fff; border-radius:14px 14px 0 0; overflow:hidden}
+  .sheet .si{padding:15px 16px; text-align:center; font-size:14.5px; border-bottom:.5px solid var(--wx-line);
+    background:#fff; cursor:pointer}
+  .sheet .si.dng{color:var(--danger)}
+  .sheet .si.cap{color:var(--wx-sub); font-size:12px; cursor:default; padding:10px 16px}
+  .sheet .si:last-child{border-bottom:0}
+  .sheet .cancel{margin:7px 0 9px; border-radius:12px; background:#fff; padding:15px 16px;
+    text-align:center; font-size:14.5px; cursor:pointer}
+  .ph-mask{position:absolute; inset:0; background:rgba(0,0,0,.28); opacity:0; pointer-events:none;
+    transition:opacity .18s; z-index:5}
+  .ph-mask.on{opacity:1; pointer-events:auto}
+
+  /* ===== 对话框 / 确认 ===== */
+  .dlg{background:#fff; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.22); width:330px;
+    overflow:hidden; font-size:13px; color:#202020}
+  .dlg .d-head{padding:16px 18px 6px; font-weight:600; font-size:14px}
+  .dlg .d-body{padding:0 18px 16px; color:#4a4a4a; line-height:1.55; font-size:12.5px}
+  .dlg .d-body ul{margin:8px 0 0; padding-left:18px; color:#5a5a5a}
+  .dlg .d-body li{margin:3px 0}
+  .dlg .d-foot{display:flex; gap:8px; justify-content:flex-end; padding:12px 16px;
+    background:#fafafa; border-top:1px solid #eee}
+  .dlg button{appearance:none; font:inherit; font-size:12.5px; padding:7px 14px; border-radius:7px;
+    border:1px solid #ddd; background:#fff; cursor:pointer; color:#333}
+  .dlg button.pri{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+  .dlg button.dng{background:var(--danger); border-color:var(--danger); color:#fff; font-weight:600}
+  .dlg .field{margin-top:12px}
+  .dlg .field input{width:100%; font:inherit; padding:7px 9px; border:1px solid #ddd; border-radius:7px}
+  .dlg .field label{display:block; font-size:11.5px; color:#6b6b70; margin-bottom:4px}
+  .dlg .warnbox{background:#fff4f2; border:1px solid #f6cfc8; color:#8a2f22; border-radius:8px;
+    padding:8px 10px; font-size:12px; margin-top:10px}
+
+  /* 归档库表 */
+  .lib{width:100%; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden;
+    font-size:12px}
+  .lib .lh{display:flex; padding:8px 12px; background:#fafafa; border-bottom:1px solid var(--line);
+    color:#6b6b70; font-size:11.5px; gap:10px}
+  .lib .lg{padding:7px 12px; color:#8a8a8a; font-size:11.5px; background:#f6f9fb;
+    border-bottom:1px solid #eef2f5}
+  .lib .lr{display:flex; align-items:center; gap:10px; padding:9px 12px;
+    border-bottom:1px solid #f0f0f0}
+  .lib .lr:last-child{border-bottom:0}
+  .lib .lr .nm{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .lib .st{font-size:10.5px; padding:1px 6px; border-radius:5px; background:#eef2f5; color:#5a6b78}
+  .lib .st.dead{background:#fdeeee; color:#b03a2e}
+  .lib .st.live{background:#eaf7ee; color:#1a7f4b}
+  .lib .act{font-size:11.5px; color:#2b6cb0; cursor:pointer}
+  .lib .act.dng{color:var(--danger)}
+  .muted{color:var(--sub)}
+
+  .toolbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px}
+  .toolbar .b{appearance:none; font:inherit; font-size:12px; padding:5px 11px; border-radius:7px;
+    border:1px solid var(--line); background:#fff; cursor:pointer; color:#333}
+  .toolbar .b:hover{background:#f7f7f8}
+  .toolbar .b.pri{background:#fff; border-color:var(--accent); color:#0b7a43}
+  .toolbar .lbl{font-size:11.5px; color:var(--sub)}
+  .kbd{font:11px/1 ui-monospace,monospace; border:1px solid #d6d6da; border-bottom-width:2px;
+    border-radius:4px; padding:1px 4px; color:#5a5a60; background:#fafafb}
+  footer.end{max-width:1180px; margin:6px auto 40px; padding:0 20px; color:var(--sub); font-size:12px}
+  footer.end b{color:var(--ink)}
+  @media (max-width:520px){
+    section[data-panel]{grid-template-columns:1fr}
+    main{padding:12px} header.top{padding:12px 12px 0}
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>会话归档 · 入口方案</h1>
+  <p class="lead">
+    内核已具备 <b>归档</b>（复印进归档库，可捞回）/ <b>撕原件</b>（真删，必须先归档）/ <b>打捞</b>。
+    这里只挑<b>客户端入口怎么放</b>和<b>点下去问不问一句</b>。带 <span class="tag pick">推荐</span> 的只是我的倾向，都能换。<b>我的组合</b>：桌面 C（悬停 ⋯）+ A（右键兼容）+ E（清测试会话）+ 确认 1（归档不弹）与 2（撕原件必弹）；手机 H + 确认 2。
+  </p>
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true"  data-tab="desk">桌面端入口<span class="n">6</span></button>
+    <button role="tab" aria-selected="false" data-tab="mobile">移动端入口<span class="n">4</span></button>
+    <button role="tab" aria-selected="false" data-tab="confirm">确认交互<span class="n">3</span></button>
+    <button role="tab" aria-selected="false" data-tab="library">归档库页面<span class="n">2</span></button>
+  </nav>
+</header>
+
+<main>
+  <section data-panel="desk" id="p-desk"></section>
+  <section data-panel="mobile" id="p-mobile" hidden></section>
+  <section data-panel="confirm" id="p-confirm" hidden></section>
+  <section data-panel="library" id="p-library" hidden></section>
+</main>
+
+<footer class="end">
+  这个页面是静态稿，不进构建。真的实现走 <b>NousDesk</b>（GPUI）和 <b>bjes6b</b>（手机端）各自的规矩。
+  菜单文案与硬条件以内核为准：<span class="muted">归档 = 复印 + 墓碑；撕原件要先归档、会话闲置、分支里没有活后代；打捞 = 插回活库。</span>
+</footer>
+
+<script>
+/* ============================================================
+   0 · 小工具
+   ============================================================ */
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+const SESSIONS = [
+  { av: "会", name: "会话归档怎么设计", pv: "先定入口，再谈确认", tm: "14:20", pin: true },
+  { av: "模", name: "模型编目对账", pv: "Qoder 那个供应商又挂了", tm: "13:02" },
+  { av: "触", name: "触发器调度器", pv: "每分钟 tick，fire 了起会话", tm: "11:48" },
+  { av: "探", name: "zz-探针（可删）", pv: "bash · ls -la", tm: "昨天" },
+  { av: "探", name: "zz-探针（可删）2", pv: "空", tm: "昨天" },
+  { av: "技", name: "技能变体怎么绑", pv: "本名@id 就是另一个可装载名", tm: "周三" },
+];
+const DESKS = [];   /* 每个 mock 的句柄，用来统一关菜单/清理 */
+
+/* 菜单：支持多层（右键 → 更多 → 子菜单）。每一层是一个独立 div，关最上层不动下面。 */
+const ctxMenu = (() => {
+  const stack = [];
+  const remove = (m) => { const i = stack.indexOf(m); if (i >= 0) stack.splice(i, 1); m.remove(); };
+  const closeAll = () => { while (stack.length) stack.pop().remove(); };
+  const closeTop = () => { const m = stack.pop(); if (m) m.remove(); };
+  document.addEventListener("pointerdown", (e) => {
+    if (!stack.some((m) => m.contains(e.target))) closeAll();
+  }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+  const place = (m, x, y) => {
+    m.classList.add("on");
+    const r = m.getBoundingClientRect();
+    m.style.left = Math.max(6, Math.min(x, innerWidth - r.width - 8)) + "px";
+    m.style.top  = Math.max(6, Math.min(y, innerHeight - r.height - 8)) + "px";
+  };
+  return {
+    close: closeAll,
+    closeTop,
+    /** 开一层菜单。anchorY 用来判断子菜单往左还是往右。x<0 = 贴右边。 */
+    open(x, y, build) {
+      if (stack.length > 1) closeTop();          /* 主菜单重开时先收子菜单 */
+      let m = stack[0];
+      if (!m) { m = el("div", "ctx"); document.body.append(m); stack.push(m); }
+      m.innerHTML = "";
+      build(m, closeAll);
+      place(m, x, y);
+      return m;
+    },
+    /** 在某个菜单项旁边开子菜单（父菜单保持开着）。 */
+    openChild(anchor, build) {
+      const m = el("div", "ctx");
+      document.body.append(m);
+      stack.push(m);
+      build(m, closeAll);
+      const a = anchor.getBoundingClientRect();
+      const need = m.getBoundingClientRect().width + a.right + 12;
+      place(m, need > innerWidth ? a.left - m.getBoundingClientRect().width - 2 : a.right + 2, a.top);
+      return m;
+    },
+  };
+})();
+const item = (label, opts = {}) => {
+  const it = el("div", "it" + (opts.danger ? " dng" : "") + (opts.disabled ? " dis" : ""), label);
+  if (opts.hint) { const k = el("span", "k", opts.hint); it.append(k); }
+  if (opts.sub) { const s = el("span", "sub", opts.sub); it.append(s); }
+  if (!opts.disabled && opts.run) {
+    it.addEventListener("click", () => { if (!opts.noClose) ctxMenu.close(); opts.run(); });
+  }
+  return it;
+};
+const sep = () => el("div", "sep");
+const cap = (t) => el("div", "cap", t);
+
+/* 轻提示 */
+const toast = (() => {
+  let t = null, timer = 0;
+  return (msg, danger) => {
+    if (!t) {
+      t = el("div");
+      Object.assign(t.style, {
+        position: "fixed", left: "50%", bottom: "26px", transform: "translateX(-50%)",
+        zIndex: 200, padding: "9px 16px", borderRadius: "9px", fontSize: "12.5px",
+        color: "#fff", background: "rgba(28,28,30,.92)", boxShadow: "0 8px 24px rgba(0,0,0,.25)",
+        transition: "opacity .18s", opacity: "0", pointerEvents: "none", maxWidth: "78vw",
+      });
+      document.body.append(t);
+    }
+    t.textContent = msg;
+    t.style.background = danger ? "rgba(176,43,34,.95)" : "rgba(28,28,30,.92)";
+    t.style.opacity = "1";
+    clearTimeout(timer);
+    timer = setTimeout(() => (t.style.opacity = "0"), 1900);
+  };
+})();
+
+/* 通用对话框 */
+function dialog({ title, body, confirm, danger, cancel = "取消", extra, onConfirm }) {
+  const wrap = el("div");
+  Object.assign(wrap.style, {
+    position: "fixed", inset: "0", zIndex: 300, display: "grid", placeItems: "center",
+    background: "rgba(20,20,22,.34)", backdropFilter: "blur(1.5px)",
+  });
+  const d = el("div", "dlg");
+  d.append(el("div", "d-head", title));
+  const b = el("div", "d-body");
+  if (typeof body === "string") b.append(document.createTextNode(body));
+  else b.append(body);
+  if (extra) b.append(extra);
+  d.append(b);
+  const f = el("div", "d-foot");
+  const c = el("button", "", cancel);
+  const ok = el("button", danger ? "dng" : "pri", confirm);
+  c.addEventListener("click", () => wrap.remove());
+  ok.addEventListener("click", () => { wrap.remove(); onConfirm && onConfirm(); });
+  f.append(c, ok);
+  d.append(f);
+  wrap.append(d);
+  wrap.addEventListener("pointerdown", (e) => { if (e.target === wrap) wrap.remove(); });
+  document.body.append(wrap);
+  return wrap;
+}
+
+/* ============================================================
+   1 · 桌面端 mock
+   ============================================================ */
+function deskMock(opts) {
+  const desk = el("div", "desk" + (opts.dots ? " showdots" : "") + (opts.bulk ? " bulk" : ""));
+  desk.innerHTML = "";
+
+  /* 左导航条 */
+  const rail = el("div", "rail");
+  rail.append(el("div", "av", "N"));
+  ["💬", "👥", "⚡"].forEach((g, i) => {
+    const ic = el("div", "ic" + (i === 0 ? " on" : ""), g);
+    rail.append(ic);
+  });
+  rail.append(el("div", "sp"));
+  if (opts.dragTo) {
+    const dz = el("div", "dropzone", "🗃");
+    dz.dataset.dropzone = "1";
+    rail.append(dz);
+  }
+  rail.append(el("div", "ic", "≡"));
+  desk.append(rail);
+
+  /* 会话列表 */
+  const list = el("div", "list");
+  const ltop = el("div", "ltop");
+  ltop.append(el("div", "ttl", "会话"));
+  const add = el("div", "add", "＋");
+  ltop.append(add);
+  list.append(ltop);
+
+  const rows = el("div", "rows");
+  const rowEls = SESSIONS.map((s, i) => {
+    const r = el("div", "row" + (i === 0 ? " on" : ""));
+    r.dataset.i = i;
+    if (opts.bulk) r.append(el("span", "ck", "✓"));
+    r.append(el("div", "av", s.av));
+    const mid = el("div", "mid");
+    const nm = el("div", "nm");
+    nm.append(document.createTextNode(s.name));
+    if (s.pin) nm.append(el("span", "pin", "📌"));
+    mid.append(nm, el("div", "pv", s.pv));
+    r.append(mid, el("div", "tm", s.tm));
+    if (opts.dots) {
+      const d = el("div", "dots", "⋯");
+      d.dataset.dots = "1";
+      r.append(d);
+      d.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const b = e.currentTarget.getBoundingClientRect();
+        ctxMenu.open(b.left - 140, b.bottom + 4, (m, close) => rowMenu(m, close, s, { sub: opts.submenu }));
+      });
+    }
+    rows.append(r);
+    return r;
+  });
+  list.append(rows);
+  desk.append(list);
+
+  /* 聊天区 */
+  const chat = el("div", "chat");
+  const ctop = el("div", "ctop");
+  ctop.append(el("div", "nm", SESSIONS[0].name));
+  ctop.append(el("div", "sp"));
+  if (opts.headerMenu) {
+    const k = el("div", "k", "⋯");
+    k.dataset.header = "1";
+    k.title = "这条对话";
+    ctop.append(k);
+    k.addEventListener("click", (e) => {
+      const b = e.currentTarget.getBoundingClientRect();
+      ctxMenu.open(b.right - 174, b.bottom + 4, (m, close) => {
+        m.append(cap("这条对话"));
+        m.append(item("重命名", { run: () => toast("（demo）重命名") }));
+        m.append(item("分叉", { hint: "Ctrl+D", run: () => toast("（demo）分叉") }));
+        m.append(sep());
+        m.append(item("归档该聊天…", { run: () => archiveFlow(s0(), false) }));
+        m.append(item("撕原件…", { sub: "先归档", run: () => purgeBlocked() }));
+        m.append(sep());
+        m.append(item("复制会话 id", { run: () => toast("（demo）已复制 710") }));
+      });
+    });
+  }
+  ctop.append(el("div", "k", "🧬"));
+  chat.append(ctop);
+
+  const cb = el("div", "body-c");
+  const b1 = el("div", "bub you", "归档入口你想放哪？");
+  const b2 = el("div", "bub me", "右键、悬停 ⋯、会话头部 ⋯ 都行 —— 我给你画出来挑。");
+  const b3 = el("div", "bub you", "那就都做，我挑一个。");
+  cb.append(b1, b2, b3);
+  chat.append(cb);
+  chat.append(el("div", "cin", "输入消息…"));
+  desk.append(chat);
+
+  /* 批量条 */
+  if (opts.bulk) {
+    const bar = el("div", "bulkbar");
+    const cnt = el("span", "", "已选 0 条");
+    bar.append(cnt);
+    bar.append(el("div", "sp"));
+    const bArch = el("button", "", "归档");
+    const bPurge = el("button", "dng", "撕原件");
+    const bCancel = el("button", "", "取消");
+    bar.append(bArch, bPurge, bCancel);
+    desk.append(bar);
+    const selected = new Set();
+    const refresh = () => {
+      cnt.textContent = `已选 ${selected.size} 条`;
+      bArch.disabled = bPurge.disabled = selected.size === 0;
+      bArch.style.opacity = bPurge.style.opacity = selected.size ? 1 : .5;
+      bPurge.textContent = selected.size ? `撕原件（${selected.size}）` : "撕原件";
+    };
+    rowEls.forEach((r, i) => {
+      r.addEventListener("click", () => {
+        if (selected.has(i)) { selected.delete(i); r.classList.remove("sel"); }
+        else { selected.add(i); r.classList.add("sel"); }
+        refresh();
+      });
+    });
+    bCancel.addEventListener("click", () => { selected.clear(); rowEls.forEach(r => r.classList.remove("sel")); refresh(); });
+    bArch.addEventListener("click", () => { if (selected.size) archiveFlow(`${selected.size} 条会话`, true); });
+    bPurge.addEventListener("click", () => {
+      if (!selected.size) return;
+      dialog({
+        title: `撕原件：${selected.size} 条会话`,
+        body: "真删。列表里看不见了，归档库里的复印件也一起销毁 —— 这个动作没有撤销。",
+        confirm: "撕掉原件", danger: true,
+        extra: warnBox("其中 2 条还没归档过，会被拒绝（先归档再撕）。"),
+        onConfirm: () => { toast(`（demo）不会真删：${selected.size} 条里能撕的走 purge，其余 409`, true); },
+      });
+    });
+    refresh();
+  }
+
+  /* 右键：主方案 */
+  rowEls.forEach((r, i) => {
+    r.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      ctxMenu.open(e.clientX, e.clientY, (m, close) => rowMenu(m, close, SESSIONS[i], { sub: opts.submenu, scheme: opts.scheme }));
+    });
+  });
+
+  /* 拖到归档图标 */
+  if (opts.dragTo) {
+    rowEls.forEach((r, i) => {
+      r.draggable = true;
+      r.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", String(i)); });
+    });
+    const dz = rail.querySelector("[data-dropzone]");
+    dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("hot"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("hot"));
+    dz.addEventListener("drop", (e) => {
+      e.preventDefault(); dz.classList.remove("hot");
+      archiveFlow(SESSIONS[Number(e.dataTransfer.getData("text/plain"))], false);
+    });
+    desk.addEventListener("dragend", () => dz.classList.remove("hot"));
+  }
+
+  const handle = { desk, rowEls, preview: () => {
+    if (opts.headerMenu) { desk.querySelector("[data-header]").click(); return; }
+    const row = rowEls[3] || rowEls[0];
+    if (opts.dots) { row.querySelector("[data-dots]").click(); return; }
+    const r = row.getBoundingClientRect();
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 90, clientY: r.top + 26 }));
+  } };
+  DESKS.push(handle);
+  return handle;
+}
+const s0 = () => SESSIONS[0];
+const warnBox = (t) => { const d = el("div", "warnbox", t); return d; };
+
+/* 右键菜单：三种组织方式 */
+function rowMenu(m, close, s, { sub = false, scheme = "flat" } = {}) {
+  m.append(cap(s.name));
+  m.append(item("打开", { run: () => toast("（demo）打开会话") }));
+  m.append(item(s.pin ? "取消置顶" : "置顶该聊天", { run: () => toast(s.pin ? "（demo）取消置顶" : "（demo）置顶") }));
+  m.append(sep());
+
+  if (scheme === "nested") {
+    /* 方案 B：一个「更多」子菜单（hover 或点都行；父菜单不关） */
+    const more = item("更多", { sub: "›", noClose: true, run: () => {} });
+    let opened = null;
+    const showSub = () => {
+      if (opened) return;
+      opened = ctxMenu.openChild(more, (mm) => {
+        mm.append(item("归档该聊天…", { run: () => archiveFlow(s, false) }));
+        mm.append(item("撕原件…", { sub: "先归档", run: () => purgeBlocked() }));
+        mm.append(sep());
+        mm.append(item("复制会话 id", { run: () => toast("（demo）已复制 710") }));
+      });
+      opened.dataset.child = "1";
+    };
+    more.addEventListener("pointerenter", showSub);
+    more.addEventListener("click", showSub);
+    more.addEventListener("pointerleave", () => {
+      setTimeout(() => {
+        const child = document.querySelector('.ctx[data-child="1"]');
+        if (!child) return;
+        if (child.matches(":hover") || more.matches(":hover")) return;
+        child.remove(); opened = null;
+      }, 260);
+    });
+    m.append(more);
+  } else if (scheme === "grouped") {
+    /* 方案 F：分组标题 */
+    m.append(cap("归档"));
+    m.append(item("归档该聊天…", { run: () => archiveFlow(s, false) }));
+    m.append(item("归档库…", { run: () => toast("（demo）打开归档库页") }));
+  } else {
+    m.append(item("归档该聊天…", { run: () => archiveFlow(s, false) }));
+    m.append(item("撕原件…", { sub: "先归档", run: () => purgeBlocked() }));
+  }
+  m.append(sep());
+  m.append(item("重命名", { run: () => toast("（demo）重命名") }));
+  m.append(item("复制名字", { run: () => toast("（demo）已复制") }));
+}
+
+/* 点「归档」后：三种确认风格之一（默认与「确认交互」第 1、2 条一致） */
+function archiveFlow(target, multi) {
+  const name = typeof target === "string" ? target : target.name;
+  dialog({
+    title: `归档「${name}」`,
+    body: [
+      "归档 = 复印一份进归档库，列表里不再显示，随时可以捞回来。",
+      "不会删任何东西，也不用停会话。",
+    ].join(""),
+    confirm: "归档",
+    onConfirm: () => toast(`（demo）归档的是「${name}」—— 真的会 POST /v1/sessions/:id/archive`),
+  });
+}
+function purgeBlocked() {
+  dialog({
+    title: "撕原件要先归档",
+    body: "它还活着，归档库里也没有复印件。先「归档该聊天」，再回归档库撕原件。",
+    confirm: "知道了", cancel: "取消",
+    onConfirm: () => {},
+  });
+}
+
+/* ============================================================
+   2 · 移动端 mock
+   ============================================================ */
+function phoneMock(opts) {
+  const ph = el("div", "phone");
+
+  const top = el("div", "ph-top");
+  top.append(el("span", "", "‹"));
+  top.append(el("span", "", opts.title || "微信"));
+  top.append(el("div", "sp"));
+  const k = el("div", "k", "⋯");
+  top.append(k);
+  ph.append(top);
+
+  const rows = el("div", "ph-rows");
+  const mk = (s, i) => {
+    const wrap = el("div", "swipe-wrap");
+    if (opts.swipe) {
+      const acts = el("div", "swipe-acts");
+      const a1 = el("button", "", "归档");
+      const a2 = el("button", "dng", "撕原件");
+      acts.append(a1, a2);
+      wrap.append(acts);
+      a1.addEventListener("click", () => { reset(); archiveFlow(s, false); });
+      a2.addEventListener("click", () => { reset(); purgeBlocked(); });
+    }
+    const r = el("div", "ph-row");
+    r.append(el("div", "ac", s.av));
+    const mid = el("div", "mid");
+    mid.append(el("div", "nm", s.name), el("div", "pv", s.pv));
+    r.append(mid, el("div", "tm", s.tm));
+    wrap.append(r);
+    rows.append(wrap);
+    return { wrap, row: r };
+  };
+  const made = SESSIONS.map(mk);
+  ph.append(rows);
+
+  /* 底部动作面板（长按用） */
+  const mask = el("div", "ph-mask");
+  const sheet = el("div", "sheet");
+  const sh = el("div", "sh");
+  const hide = () => { sheet.classList.remove("on"); mask.classList.remove("on"); };
+  const si = (label, cls, run) => {
+    const b = el("div", "si" + (cls ? " " + cls : ""), label);
+    if (run) b.addEventListener("click", () => { hide(); run(); });
+    sh.append(b);
+    return b;
+  };
+  sh.append(el("div", "si cap", opts.sheetTarget || SESSIONS[3].name));
+  sh.append(el("div", "si", "置顶该聊天"));
+  si("归档该聊天…", "", () => archiveFlow(opts._target || SESSIONS[3], false));
+  si("撕原件…", "dng", () => purgeBlocked());
+  sheet.append(sh);
+  const cancel = el("div", "cancel", "取消");
+  cancel.addEventListener("click", hide);
+  sheet.append(cancel);
+  ph.append(mask, sheet);
+  mask.addEventListener("click", hide);
+
+  const reset = () => made.forEach(({ wrap, row }) => {
+    row.style.transform = "";
+    const acts = wrap.querySelector(".swipe-acts");
+    if (acts) acts.style.width = "0";
+  });
+
+  /* 长按/演示：长按之后发生什么（面板或浮层） */
+  const openFor = (i, row) => {
+    opts._target = SESSIONS[i];
+    const capEl = sheet.querySelector(".si.cap");
+    if (capEl) capEl.textContent = SESSIONS[i].name;
+    if (opts.sheet) { sheet.classList.add("on"); mask.classList.add("on"); }
+    else {
+      const bb = row.getBoundingClientRect();
+      ctxMenu.open(bb.left + 10, bb.top + 8, (m) => {
+        m.append(cap(SESSIONS[i].name));
+        m.append(item("置顶该聊天", { run: () => toast("（demo）置顶") }));
+        m.append(item("归档该聊天…", { run: () => archiveFlow(SESSIONS[i], false) }));
+        m.append(item("撕原件…", { sub: "先归档", run: () => purgeBlocked() }));
+      });
+    }
+  };
+
+  /* 长按：520ms */
+  made.forEach(({ row }, i) => {
+    let timer = 0, moved = false, sx = 0, sy = 0, longPressed = false;
+    row.addEventListener("pointerdown", (e) => {
+      moved = false; longPressed = false; sx = e.clientX; sy = e.clientY;
+      row.classList.add("hold");
+      if (opts.longPress) {
+        timer = setTimeout(() => {
+          longPressed = true;
+          row.classList.remove("hold");
+          if (navigator.vibrate) navigator.vibrate(8);
+          openFor(i, row);
+        }, 520);
+      }
+      if (opts.swipe) { row._sx = e.clientX; row._x0 = 0; }
+    });
+    row.addEventListener("pointermove", (e) => {
+      if (Math.abs(e.clientX - sx) > 6 || Math.abs(e.clientY - sy) > 6) { moved = true; clearTimeout(timer); }
+      if (!opts.swipe || longPressed) return;
+      if (!row._sx && row._sx !== 0) return;
+      const dx = Math.min(0, e.clientX - row._sx);
+      if (dx < -4) {
+        const acts = row.parentElement.querySelector(".swipe-acts");
+        const w = Math.min(140, -dx);
+        row.style.transform = `translateX(${-w}px)`;
+        acts.style.width = w + "px";
+      }
+    });
+    const end = (e) => {
+      clearTimeout(timer);
+      row.classList.remove("hold");
+      if (opts.swipe) {
+        const acts = row.parentElement.querySelector(".swipe-acts");
+        const t = row.style.transform.match(/-?[\d.]+/);
+        const cur = t ? Math.abs(Number(t[0])) : 0;
+        const open = cur > 50;
+        const w = open ? 140 : 0;
+        row.style.transform = open ? "translateX(-140px)" : "";
+        acts.style.width = w + "px";
+        if (open) return;
+      }
+      if (!longPressed && !moved) {
+        /* 单击 = 打开会话（demo 只提示） */
+        toast(`（demo）打开「${SESSIONS[i].name}」`);
+      }
+      longPressed = false;
+    };
+    row.addEventListener("pointerup", end);
+    row.addEventListener("pointercancel", end);
+    row.addEventListener("pointerleave", () => { if (!longPressed) clearTimeout(timer); row.classList.remove("hold"); });
+  });
+
+  /* 会话页右上 ⋯ */
+  k.addEventListener("click", (e) => {
+    const b = e.currentTarget.getBoundingClientRect();
+    ctxMenu.open(b.right - 180, b.bottom + 6, (m) => {
+      m.append(cap("这条对话"));
+      m.append(item("置顶", { run: () => toast("（demo）置顶") }));
+      m.append(sep());
+      m.append(item("归档该聊天…", { run: () => archiveFlow(SESSIONS[0], false) }));
+      m.append(item("撕原件…", { sub: "先归档", run: () => purgeBlocked() }));
+    });
+  });
+
+  return {
+    ph, hide,
+    /* 「演示一下」按钮用：不真的长按，直接出结果 */
+    demo: (i = 3) => {
+      if (opts.kOnly) { k.click(); return; }
+      openFor(i, made[i].row);
+    },
+    swipeDemo: (i = 0) => {
+      const { wrap, row } = made[i];
+      row.style.transform = "translateX(-140px)";
+      const acts = wrap.querySelector(".swipe-acts");
+      if (acts) acts.style.width = "140px";
+    },
+  };
+}
+
+
+
+/* ============================================================
+   3 · 卡片工厂
+   ============================================================ */
+function card({ title, tags = [], why, hint, body, foot, tools }) {
+  const c = el("div", "card");
+  const h = el("div", "head");
+  const h2 = el("h2", "", title);
+  tags.forEach(t => {
+    const cls = t === "推荐" ? "pick" : (t === "慎用" ? "warn" : "");
+    h2.append(el("span", "tag " + cls, t));
+  });
+  h.append(h2);
+  if (why) h.append(el("p", "why", why));
+  c.append(h);
+  const b = el("div", "body");
+  if (hint) { const w = el("div"); w.style.width = "100%"; w.style.alignSelf = "flex-start";
+    w.append(el("p", "hint", hint)); w.append(body); b.append(w); }
+  else b.append(body);
+  c.append(b);
+  if (foot || tools) {
+    const f = el("div", "foot");
+    if (foot) f.append(foot);
+    if (tools) { const tb = el("div", "toolbar"); tools.forEach(x => tb.append(x)); f.append(tb); }
+    c.append(f);
+  }
+  return c;
+}
+const b = (label, run, pri) => { const x = el("button", "b" + (pri ? " pri" : ""), label); x.addEventListener("click", run); return x; };
+const lbl = (t) => el("span", "lbl", t);
+
+/* ============================================================
+   4 · 桌面端 6 个方案
+   ============================================================ */
+const deskPanel = document.getElementById("p-desk");
+
+/* A · 右键菜单（平铺） */
+{
+  const d = deskMock({ scheme: "flat" });
+  deskPanel.append(card({
+    title: "A · 右键菜单（平铺）", tags: ["推荐", "最省事"],
+    why: "桌面端已经有右键菜单（置顶就住这儿），加两项不加层级。",
+    hint: "点会话右键试试；手机上没有右键，所以这是桌面专属。",
+    body: d.desk,
+    foot: "优点：零新控件、和「置顶」同一处、键盘手最顺。代价：发现性一般（新用户不知道能右键），且菜单会从 2 项涨到 6 项。",
+    tools: [b("先看菜单长什么样", () => d.preview())],
+  }));
+}
+/* B · 右键 + 「更多」子菜单 */
+{
+  const d = deskMock({ scheme: "nested" });
+  deskPanel.append(card({
+    title: "B · 右键 + 「更多」子菜单", tags: [],
+    why: "主菜单只留高频两项，归档/撕原件收到「更多 ›」里。",
+    hint: "右键 → 更多 ›（子菜单里才是归档 / 撕原件）。",
+    body: d.desk,
+    foot: "优点：主菜单不变长，置顶还是熟悉的位置。代价：多一跳；「更多」在桌面端是弱入口（没人会去点它）。",
+    tools: [b("先看菜单长什么样", () => d.preview())],
+  }));
+}
+/* C · 悬停 ⋯ */
+{
+  const d = deskMock({ dots: true });
+  deskPanel.append(card({
+    title: "C · 行内悬停 ⋯", tags: ["推荐"],
+    why: "鼠标移到会话行，右上角浮出 ⋯，整份菜单都在那儿。",
+    hint: "把鼠标移到任意一行，点右上角出现的 ⋯。",
+    body: d.desk,
+    foot: "优点：看得见、不占版面、不用记手势。代价：hover 才出现（触控板/平板上等于没有）；和行本身的点击要抢位置。",
+    tools: [b("先看 ⋯ 菜单", () => d.preview())],
+  }));
+}
+/* D · 会话头部 ⋯ */
+{
+  const d = deskMock({ headerMenu: true });
+  deskPanel.append(card({
+    title: "D · 会话头部 ⋯", tags: [],
+    why: "进入会话后，右上 ⋯ 管「这条对话」—— 和 DNA 那颗改配置的图标挨着。",
+    hint: "点聊天区顶栏右侧的 ⋯。",
+    body: d.desk,
+    foot: "优点：语义最正（这条对话的操作都在这儿），和 DNA 图标分工清楚。代价：只能操作「当前打开的那条」，清测试会话要一条条点进去。",
+    tools: [b("先看头部 ⋯ 菜单", () => d.preview())],
+  }));
+}
+/* E · 批量选择 */
+{
+  const d = deskMock({ bulk: true });
+  deskPanel.append(card({
+    title: "E · 多选 + 底部批量条", tags: ["适合清测试会话", "慎用"],
+    why: "左栏进多选模式，勾几条一起归档 / 一起撕。",
+    hint: "点几行勾上，再看底部那条。撕原件会弹危险确认。",
+    body: d.desk,
+    foot: "优点：一次收拾几十条探针会话最省事。代价：多一层模式（进出都要记），批量真删是这一页最危险的一个动作。",
+  }));
+}
+/* F · 拖到归档图标 */
+{
+  const d = deskMock({ dragTo: true });
+  deskPanel.append(card({
+    title: "F · 拖到左栏底部「归档」图标", tags: ["慎用"],
+    why: "把会话行拖到左导航底部的归档筐里，松手即归档。",
+    hint: "拖任意一行到左下角虚线筐里（⋮ 左上角那颗）。",
+    body: d.desk,
+    foot: "优点：手感好、动作明确、不误触。代价：发现性最差（不看文档不知道能拖）；桌面端目前没有任何拖拽交互，为一件事引一套 DnD。",
+  }));
+}
+/* G · 右键分组（方案 F 的变体：只加分组标题，不加子菜单） */
+{
+  const d = deskMock({ scheme: "grouped" });
+  deskPanel.append(card({
+    title: "G · 右键菜单分组（不加层级）", tags: [],
+    why: "还是平铺，但用一条灰色小标题「归档」把新项和置顶分开。",
+    hint: "右键任意会话。",
+    body: d.desk,
+    foot: "优点：比 B 少一跳、比 A 更好读（一眼看出哪些是危险/少见动作）。代价：菜单变长，分组标题在小菜单里有点重。",
+    tools: [b("先看菜单长什么样", () => d.preview())],
+  }));
+}
+
+/* ============================================================
+   5 · 移动端 4 个方案
+   ============================================================ */
+const mobilePanel = document.getElementById("p-mobile");
+
+{
+  const p = phoneMock({ longPress: true, sheet: true });
+  mobilePanel.append(card({
+    title: "H · 长按 → 底部动作面板", tags: ["推荐", "微信习惯"],
+    why: "按住会话 0.5 秒，底部滑出面板：置顶 / 归档 / 撕原件。",
+    hint: "按住任意一条会话不放（鼠标按住也行），等面板滑出来。",
+    body: p.ph,
+    foot: "优点：微信用户零学习成本、手指够得着、危险项可以标红。代价：一步变两步；面板里塞超过 5 项就要滚。",
+    tools: [b("演示长按 → 底部面板", () => p.demo(3), true)],
+  }));
+}
+{
+  const p = phoneMock({ longPress: true, sheet: false });
+  mobilePanel.append(card({
+    title: "I · 长按 → 就地浮层菜单", tags: [],
+    why: "长按后在那一行旁边浮出小菜单（就是手机端现在右键菜单的样子）。",
+    hint: "按住任意一条会话 0.5 秒，菜单出在行旁边。",
+    body: p.ph,
+    foot: "优点：不用铺满屏，位置贴着那条会话。代价：手指正按着那一行，浮层容易被手挡住；小屏上点起来比底部面板难。",
+    tools: [b("演示长按 → 浮层菜单", () => p.demo(3), true)],
+  }));
+}
+{
+  const p = phoneMock({ swipe: true });
+  mobilePanel.append(card({
+    title: "J · 左滑露出按钮", tags: ["慎用"],
+    why: "会话行往左滑，露出「归档」和「撕原件」两颗。",
+    hint: "用鼠标按住一行往左拖（手机上就是左滑）。",
+    body: p.ph,
+    foot: "优点：最快（一步到按钮），列表视觉零变化。代价：和「左滑返回」抢手势；误滑很常见；两个红灰按钮紧挨着，撕原件容易被划到。",
+    tools: [b("演示左滑", () => p.swipeDemo(0), true)],
+  }));
+}
+{
+  const p = phoneMock({ longPress: false, sheet: false, kOnly: true, title: "会话" });
+  mobilePanel.append(card({
+    title: "K · 会话页右上 ⋯", tags: [],
+    why: "打开会话后，顶部右边 ⋯ 里放归档 / 撕原件。",
+    hint: "点模拟手机右上角的 ⋯。",
+    body: p.ph,
+    foot: "优点：位置固定、看得见、不和列表手势冲突。代价：只能处理当前这条；且手机上「删聊天」通常藏在长按里，这里会是两套入口。",
+    tools: [b("演示右上 ⋯", () => p.demo(0), true)],
+  }));
+}
+
+/* ============================================================
+   6 · 确认交互 3 种
+   ============================================================ */
+const confirmPanel = document.getElementById("p-confirm");
+
+const mkConfirmCard = (title, tags, why, bodyBuilder, foot, btnLabel = "点这里看效果", demo) => {
+  const stage = el("div");
+  stage.style.minHeight = "150px";
+  stage.style.display = "grid";
+  stage.style.placeItems = "center";
+  stage.style.width = "100%";
+  const run = () => { stage.innerHTML = ""; stage.append(bodyBuilder()); };
+  stage.append(el("div", "muted", "点右下角按钮 —— 这一档的交互会直接弹出来"));
+  confirmPanel.append(card({ title, tags, why, body: stage, foot, tools: [b(btnLabel, demo || run, true)] }));
+};
+
+/* 1 · 不确认（归档可捞回） */
+mkConfirmCard(
+  "1 · 归档不问，直接做 + 轻提示",
+  ["推荐", "归档用这个"],
+  "归档是可逆的（归档库里有复印件，随时捞回），不打断。",
+  () => {
+    const w = el("div");
+    w.style.textAlign = "center";
+    w.append(el("div", "", "点按钮后：列表里那一行淡出，底部一条轻提示，可点「撤销」。"));
+    const t = el("div");
+    t.style.cssText = "margin-top:16px; display:flex; gap:10px; justify-content:center; align-items:center";
+    t.append(b("归档该聊天", () => toast("已归档 · 可在归档库捞回"), true));
+    t.append(b("看轻提示样式", () => toast("已归档 · 可在归档库捞回")));
+    w.append(t);
+    return w;
+  },
+  "优点：日常动作零打断。代价：要有一处「刚才那条去哪了」的答案（提示 + 归档库入口）。",
+  "点这里看轻提示",
+  () => toast("已归档「会话归档怎么设计」· 可在归档库捞回")
+);
+
+/* 2 · 二次确认（撕原件用） */
+mkConfirmCard(
+  "2 · 撕原件 → 危险确认弹窗",
+  ["推荐", "撕原件必须"],
+  "真删、不可逆，必须问一句，并且把后果写在按钮旁边。",
+  () => {
+    const w = el("div");
+    w.style.cssText = "display:grid; gap:14px; justify-items:center";
+    w.append(el("div", "muted", "点下面的按钮看弹窗"));
+    w.append(b("撕原件…", () => dialog({
+      title: "撕原件：会话归档怎么设计",
+      body: "这一条会被真删。归档库里那份复印件也一起销毁。",
+      confirm: "撕掉原件", danger: true,
+      extra: warnBox("撕完不能撤销，只能重新把会话跑一遍。"),
+      onConfirm: () => toast("（demo）POST /v1/sessions/:id/purge", true),
+    }), true));
+    return w;
+  },
+  "优点：最稳，误触也删不掉。代价：每天删几个测试会话会觉得烦（这也是为什么归档不弹）。",
+  "点这里看危险确认",
+  () => dialog({
+    title: "撕原件：会话归档怎么设计",
+    body: "这一条会被真删。归档库里那份复印件也一起销毁。",
+    confirm: "撕掉原件", danger: true,
+    extra: warnBox("撕完不能撤销，只能重新把会话跑一遍。"),
+    onConfirm: () => toast("（demo）POST /v1/sessions/:id/purge", true),
+  })
+);
+
+/* 3 · 输入名字才放行 */
+mkConfirmCard(
+  "3 · 撕原件 → 必须打出会话名才放行",
+  ["慎用", "最防误触"],
+  "和 GitHub 删仓库一个套路：输入名字才亮红按钮。",
+  () => {
+    const w = el("div");
+    w.style.cssText = "display:grid; gap:14px; justify-items:center";
+    w.append(el("div", "muted", "点下面的按钮看弹窗"));
+    w.append(b("撕原件…", () => {
+      const field = el("div", "field");
+      field.append(el("label", "", "输入会话名「会话归档怎么设计」确认"));
+      const inp = el("input");
+      inp.placeholder = "会话归档怎么设计";
+      field.append(inp);
+      const dlg = dialog({
+        title: "撕原件",
+        body: "真删，不可逆。",
+        confirm: "撕掉原件",
+        danger: true,
+        extra: field,
+        onConfirm: () => {
+          if (inp.value.trim() !== "会话归档怎么设计") { toast("名字不匹配，没撕", true); return; }
+          toast("（demo）purge 已发", true);
+        },
+      });
+      setTimeout(() => inp.focus(), 0);
+    }, true));
+    return w;
+  },
+  "优点：手滑一次绝对不会删掉。代价：清 20 条测试会话时想砸键盘 —— 只有「归档」也能接受时才这么干。",
+  "点这里看输入确认",
+  () => {
+    const field = el("div", "field");
+    field.append(el("label", "", "输入会话名「会话归档怎么设计」确认"));
+    const inp = el("input");
+    inp.placeholder = "会话归档怎么设计";
+    field.append(inp);
+    dialog({
+      title: "撕原件", body: "真删，不可逆。", confirm: "撕掉原件", danger: true, extra: field,
+      onConfirm: () => {
+        if (inp.value.trim() !== "会话归档怎么设计") { toast("名字不匹配，没撕", true); return; }
+        toast("（demo）purge 已发", true);
+      },
+    });
+    setTimeout(() => inp.focus(), 0);
+  }
+);
+
+/* ============================================================
+   7 · 归档库页面（入口点进去之后去哪儿）
+   ============================================================ */
+const libPanel = document.getElementById("p-library");
+
+{
+  const box = el("div");
+  box.style.width = "100%";
+  box.style.alignSelf = "flex-start";
+  const lib = el("div", "lib");
+  const lh = el("div", "lh");
+  lh.append(el("span", "", "会话"), el("span", "st", "状态"), el("span", "", "操作"));
+  lh.firstChild.style.flex = "1";
+  lib.append(lh);
+
+  const group = (day, rows) => {
+    lib.append(el("div", "lg", day));
+    rows.forEach(([name, st, cls, acts]) => {
+      const r = el("div", "lr");
+      r.append(el("span", "nm", name));
+      r.append(el("span", "st " + cls, st));
+      acts.forEach(a => {
+        const s = el("span", "act" + (a.danger ? " dng" : ""), a.label);
+        s.addEventListener("click", a.run);
+        r.append(s);
+      });
+      lib.append(r);
+    });
+  };
+  group("11月10日 · gen-20261110.sqlite", [
+    ["zz-探针（可删）", "原件在", "live", [{ label: "打捞", run: () => toast("（demo）restore") }, { label: "撕原件", danger: true, run: () => dialog({ title: "撕原件", body: "真删这份原件，复印件保留但会标成「已销毁」。", confirm: "撕掉", danger: true, onConfirm: () => toast("（demo）purge", true) }) }]],
+    ["旧探针 2", "已销毁", "dead", [{ label: "只能打捞", run: () => toast("（demo）restore") }]],
+  ]);
+  group("11月07日 · gen-20261107.sqlite", [
+    ["一次失败的尝试", "原件在", "live", [{ label: "打捞", run: () => toast("（demo）restore") }, { label: "撕原件", danger: true, run: () => toast("（demo）purge", true) }]],
+  ]);
+  box.append(lib);
+  libPanel.append(card({
+    title: "L · 归档库（桌面端整页）", tags: ["必须有"],
+    why: "入口点「归档」之后去哪儿 —— 按天分组，一行一眼看清「原件还在不在」。",
+    body: box,
+    foot: "撕原件和打捞只在这一页给（主列表永远不出现「彻底删除」）。这是内核与面板页 mcfpqm 已有的形状，桌面端照抄就行。",
+  }));
+}
+{
+  const p = phoneMock({ longPress: false, sheet: false, title: "归档库" });
+  /* 把列表换成归档行 */
+  const rows = p.ph.querySelector(".ph-rows");
+  rows.innerHTML = "";
+  [
+    ["11月10日", null],
+    ["zz-探针（可删）", "原件在"],
+    ["旧探针 2", "已销毁"],
+    ["11月07日", null],
+    ["一次失败的尝试", "原件在"],
+    ["本月还有 12 条…", null],
+  ].forEach(([t, st]) => {
+    if (!st) { const g = el("div", "", t); g.style.cssText = "padding:8px 12px;font-size:11.5px;color:#9a9a9a;background:#f7f7f7";
+      rows.append(g); return; }
+    const r = el("div", "ph-row");
+    r.append(el("div", "ac", "🗃"));
+    const mid = el("div", "mid");
+    mid.append(el("div", "nm", t));
+    mid.append(el("div", "pv", st));
+    r.append(mid);
+    const acts = el("div");
+    acts.style.cssText = "display:flex;gap:10px";
+    const a1 = el("span", "", "打捞");
+    a1.style.cssText = "font-size:12px;color:#2b6cb0";
+    a1.addEventListener("click", (e) => { e.stopPropagation(); toast("（demo）restore"); });
+    acts.append(a1);
+    if (st === "原件在") {
+      const a2 = el("span", "", "撕");
+      a2.style.cssText = "font-size:12px;color:#fa5151";
+      a2.addEventListener("click", (e) => { e.stopPropagation(); dialog({ title: "撕原件", body: "真删，不可逆。", confirm: "撕掉", danger: true, onConfirm: () => toast("（demo）purge", true) }); });
+      acts.append(a2);
+    }
+    r.append(acts);
+    rows.append(r);
+  });
+  libPanel.append(card({
+    title: "M · 归档库（手机端）", tags: ["必须有"],
+    why: "手机上的归档库：按天分组，行尾「打捞 / 撕」。",
+    body: p.ph,
+    foot: "和桌面端同一份数据（GET /v1/archive），只是版面从表格变列表行。",
+  }));
+}
+
+/* ============================================================
+   8 · Tab 切换
+   ============================================================ */
+const tabs = [...document.querySelectorAll("nav.tabs button")];
+const panels = {
+  desk: document.getElementById("p-desk"),
+  mobile: document.getElementById("p-mobile"),
+  confirm: document.getElementById("p-confirm"),
+  library: document.getElementById("p-library"),
+};
+const show = (key) => {
+  tabs.forEach(t => t.setAttribute("aria-selected", String(t.dataset.tab === key)));
+  Object.entries(panels).forEach(([k, p]) => { p.hidden = k !== key; });
+  ctxMenu.close();
+  location.hash = "#" + key;
+  window.scrollTo({ top: 0 });
+};
+tabs.forEach(t => t.addEventListener("click", () => show(t.dataset.tab)));
+const params = new URLSearchParams(location.search);
+const initial = params.get("tab") || location.hash.replace("#", "");
+show(panels[initial] ? initial : "desk");
+/* 自检用：?auto=menu 自动把第一张桌面卡的菜单打开（截图核对定位） */
+if (params.get("auto") === "menu") DESKS[0]?.preview?.();
+if (params.get("auto") === "dialog") document.querySelector("#p-confirm .card:nth-child(2) .toolbar .b")?.click();
+if (params.get("auto") === "phone") document.querySelector("#p-mobile .card:nth-child(1) .toolbar .b")?.click();
+</script>
+</body>
+</html>
