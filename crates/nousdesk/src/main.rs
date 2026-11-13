@@ -7,6 +7,7 @@
 
 mod app;
 mod archive_confirm;
+mod archive_page;
 mod board;
 mod board_art;
 mod branches;
