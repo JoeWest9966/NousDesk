@@ -2,6 +2,10 @@
 //!
 //! 微信桌面版的骨头。聊天区的流式（SSE）还没接，先做历史气泡。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,10 +51,14 @@ use crate::md::{chat_md, code_copy_button, code_highlighter, md_style, strip_har
 //
 // ⚠️ 这几个是「默认主题」的取值：`theme.rs` 的 `Theme::DEFAULT` 抄了同样的数字，
 // 并有测试钉住两边一致。只在这里改色 = 主题卡片的色块和界面不符。
+#[allow(dead_code)]
 pub(crate) const SIDEBAR_DARK: u32 = 0x2e2e2e;
 pub(crate) const LIST_BG: u32 = 0xf7f7f7;
+#[allow(dead_code)]
 pub(crate) const CHAT_BG: u32 = 0xededed;
+#[allow(dead_code)]
 pub(crate) const BUBBLE_ME: u32 = 0x95ec69;
+#[allow(dead_code)]
 pub(crate) const BUBBLE_OTHER: u32 = 0xffffff;
 pub(crate) const MUTED: u32 = 0x999999;
 /// 微信的绿：左栏选中图标就是这个颜色。
@@ -58,9 +66,17 @@ pub(crate) const WECHAT_GREEN: u32 = 0x07c160;
 
 // 三栏的固定宽度。**右格宽度靠它们算出来**（`board_art::pane_width`），
 // 所以改这里就必须同步那份表 —— 不然 New Manual 盘面的 cqmin 会算错。
+//
+// ⚠️ 这四个是「默认主题」的栏宽：`theme.rs` 的 `Skin::DEFAULT` 抄了同样
+// 的数字并有测试钉住。渲染层已经改成读 `t().rail_w` 等 token，这些常量
+// 只留作测试基准，别再在别处引用。
+#[allow(dead_code)]
 pub(crate) const ICON_BAR_W: f32 = 60.;
+#[allow(dead_code)]
 pub(crate) const SESSION_LIST_W: f32 = 280.;
+#[allow(dead_code)]
 pub(crate) const PRESET_TREE_W: f32 = 224.;
+#[allow(dead_code)]
 pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
 
 actions!(nousdesk, [TogglePinAction]);
@@ -135,8 +151,9 @@ pub struct Desktop {
     pub(crate) settings_open: bool,
     /// 设置页左边选的那一项。
     pub(crate) settings_tab: crate::settings::SettingsTab,
-    /// 当前主题。启动时从 `theme.toml` 读，设置页里改完立刻落盘。
-    /// 现在只有「默认」一套，所以渲染层还没按它取色（见 `theme.rs` 的模块注释）。
+    /// 当前主题。启动时从 `theme.toml` 读进 `theme::ActiveSkin` 这个 Global；
+    /// 这里留一份只是给设置页判断「哪张卡片在选中态」用。
+    /// **渲染层不读这个字段**，一律 `crate::theme::cur()` 取帧内快照。
     pub(crate) theme_name: crate::theme::ThemeName,
     /// 设置页底部的一行反馈：文案 + 是不是错。
     pub(crate) settings_msg: Option<(String, bool)>,
@@ -1088,17 +1105,17 @@ impl Desktop {
             .flex()
             .items_center()
             .justify_center()
-            .size(px(28.))
-            .rounded(px(6.))
-            .when(open, |el| el.bg(rgba(0x07c16022)))
-            .hover(|s| s.cursor_pointer().bg(rgba(0x00000012)))
+            .size(t().d(28.))
+            .rounded(t().r(6.))
+            .when(open, |el| el.bg(rgba(t().p.accent_tint)))
+            .hover(|s| s.cursor_pointer().bg(rgba(t().p.scrim)))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.toggle_config(window, cx);
             }))
             .child(
                 Icon::new(IconName::Dna)
-                    .size(px(18.))
-                    .text_color(rgb(if open { 0x0a7a3f } else { 0x4d5156 })),
+                    .size(t().d(18.))
+                    .text_color(rgb(if open { t().p.accent_fg } else { t().p.text_2 })),
             )
             .into_any_element()
     }
@@ -1109,8 +1126,8 @@ impl Desktop {
         Some(
             div()
                 .absolute()
-                .left(px(350.))
-                .bottom(px(118.))
+                .left(t().d(350.))
+                .bottom(t().d(118.))
                 .child(panel)
                 .into_any_element(),
         )
@@ -1528,12 +1545,12 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(ICON_BAR_W))
+            .w(px(t().rail_w))
             .h_full()
-            .bg(rgb(SIDEBAR_DARK))
+            .bg(rgb(t().p.sidebar))
             .items_center()
-            .py(px(10.))
-            .gap(px(6.))
+            .py(t().d(10.))
+            .gap(t().d(6.))
             .child(self.tab_button(IconName::MessageCircle, Tab::Chats, cx))
             .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
             .child(div().flex_1())
@@ -1549,14 +1566,14 @@ impl Desktop {
             .flex()
             .items_center()
             .justify_center()
-            .size(px(40.))
-            .rounded(px(8.))
-            .when(open, |el| el.bg(rgb(0x3f3f3f)))
-            .hover(|el| el.bg(rgb(0x3a3a3a)))
+            .size(t().d(40.))
+            .rounded(t().r(8.))
+            .when(open, |el| el.bg(rgb(t().p.sidebar_open)))
+            .hover(|el| el.bg(rgb(t().p.sidebar_hover)))
             .child(
                 Icon::new(IconName::Menu)
-                    .with_size(Size::Size(px(20.)))
-                    .text_color(rgb(if open { 0xffffff } else { 0x9a9a9a })),
+                    .with_size(Size::Size(t().d(20.)))
+                    .text_color(rgb(if open { t().p.on_accent } else { t().p.muted })),
             )
     }
 
@@ -1574,13 +1591,13 @@ impl Desktop {
             .flex()
             .items_center()
             .justify_center()
-            .size(px(40.))
-            .rounded(px(8.))
-            .hover(|el| el.bg(rgb(0x3a3a3a)))
+            .size(t().d(40.))
+            .rounded(t().r(8.))
+            .hover(|el| el.bg(rgb(t().p.sidebar_hover)))
             .child(
                 Icon::new(name)
-                    .with_size(Size::Size(px(22.)))
-                    .text_color(rgb(if active { WECHAT_GREEN } else { 0x9a9a9a })),
+                    .with_size(Size::Size(t().d(22.)))
+                    .text_color(rgb(if active { t().p.accent } else { t().p.muted })),
             )
     }
 
@@ -1669,8 +1686,8 @@ impl Desktop {
             .cleanable(true)
             .prefix(
                 Icon::new(IconName::Search)
-                    .text_color(rgb(0xaaaaaa))
-                    .size(px(14.)),
+                    .text_color(rgb(t().p.faint))
+                    .size(t().d(14.)),
             )
             .into_any_element()
     }
@@ -1706,17 +1723,17 @@ impl Desktop {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(4.))
-                    .px(px(10.))
-                    .pt(px(10.))
-                    .pb(px(4.))
-                    .text_size(px(11.))
-                    .text_color(rgb(0xaaaaaa))
+                    .gap(t().d(4.))
+                    .px(t().d(10.))
+                    .pt(t().d(10.))
+                    .pb(t().d(4.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.faint))
                     .when(g == Group::Pinned, |el| {
                         el.child(
                             Icon::new(IconName::Pin)
-                                .size(px(11.))
-                                .text_color(rgb(0x2e7d32)),
+                                .size(t().d(11.))
+                                .text_color(rgb(t().p.ok_fg)),
                         )
                     })
                     .child(format!("{} · {}", g.label(), items.len()))
@@ -1728,9 +1745,9 @@ impl Desktop {
             out.push(
                 div()
                     .w_full()
-                    .py(px(28.))
-                    .text_size(px(12.))
-                    .text_color(rgb(0xaaaaaa))
+                    .py(t().d(28.))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(t().p.faint))
                     .text_center()
                     .child("没有找到相关会话")
                     .into_any_element(),
@@ -1751,25 +1768,25 @@ impl Desktop {
         if q.trim().is_empty() {
             let mut el = div().truncate();
             if let Some(s) = size {
-                el = el.text_size(px(s));
+                el = el.text_size(t().fs(s));
             }
             if let Some(c) = color {
                 el = el.text_color(rgb(c));
             }
             return el.child(text.to_string()).into_any_element();
         }
-        let mut row = div().flex().min_w(px(0.)).overflow_hidden();
+        let mut row = div().flex().min_w(t().d(0.)).overflow_hidden();
         for (part, hot) in crate::search::runs(text, q) {
             let mut seg = div().flex_none().whitespace_nowrap();
             if let Some(s) = size {
-                seg = seg.text_size(px(s));
+                seg = seg.text_size(t().fs(s));
             }
             if let Some(c) = color {
                 seg = seg.text_color(rgb(c));
             }
             if hot {
                 // 高亮的底色 / 字色跟 demo 一致（淡绿底 + 深绿字）。
-                seg = seg.bg(rgb(0xc8f0d8)).text_color(rgb(0x0a7a3f));
+                seg = seg.bg(rgb(t().p.accent_soft)).text_color(rgb(t().p.accent_fg));
             }
             row = row.child(seg.child(part));
         }
@@ -1810,35 +1827,41 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(SESSION_LIST_W))
+            .w(px(t().list_w))
             .h_full()
-            .bg(rgb(LIST_BG))
+            .bg(rgb(t().p.list_bg))
             .child(
                 div()
-                    .p(px(12.))
+                    .p(t().d(12.))
                     .flex()
                     .items_center()
-                    .justify_between()
+                    .gap(t().d(6.))
+                    // NoRail 收掉图标条之后，菜单入口得在列表里接回来 —— 否则「≡ 更多」
+                    // 跟着图标条一起没了，设置就点不开了。
+                    .children(
+                        (t().layout == crate::theme::Layout::NoRail).then(|| self.more_button(cx)),
+                    )
                     .child("NousDesk")
+                    .child(div().flex_1())
                     // 建会话的唯一入口。以前只能从模板起，现在多一条「从零配」的路。
                     .child(
                         div()
                             .id("new-chat-btn")
-                            .px(px(8.))
-                            .py(px(3.))
-                            .rounded(px(4.))
-                            .text_size(px(12.))
-                            .text_color(rgb(WECHAT_GREEN))
-                            .hover(|s| s.bg(rgb(0xe8f8ee)))
+                            .px(t().d(8.))
+                            .py(t().d(3.))
+                            .rounded(t().r(4.))
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(t().p.accent))
+                            .hover(|s| s.bg(rgb(t().p.accent_soft)))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.board_open(window, cx);
                             }))
                             .child("+ New Manual"),
                     ),
             )
-            .child(div().px(px(12.)).child(self.status_line(cx)))
+            .child(div().px(t().d(12.)).child(self.status_line(cx)))
             // 搜索框：常驻在列表顶上（方案 6）。空着就是一行灰字，不占额外的排。
-            .child(div().px(px(12.)).pb(px(8.)).child(self.render_search_box()))
+            .child(div().px(t().d(12.)).pb(t().d(8.)).child(self.render_search_box()))
             .child(
                 div()
                     .id("session-scroll-area")
@@ -1846,7 +1869,7 @@ impl Desktop {
                     .flex_1()
                     // `min_h(0)`：flex 项默认 `min-height: auto`，不加这行这个「视口」
                     // 会被内容撑到真实几万像素高，永远不需要滚（滚动条也就不会出现）。
-                    .min_h(px(0.))
+                    .min_h(t().d(0.))
                     .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                         this.bar_hover(Bar::List, *hovered, cx)
                     }))
@@ -1899,25 +1922,25 @@ impl Desktop {
         let status: Vec<AnyElement> = if self.entries_loading {
             vec![
                 div()
-                    .p(px(12.))
-                    .text_size(px(12.))
+                    .p(t().d(12.))
+                    .text_size(t().fs(12.))
                     .child("拉历史中…")
                     .into_any_element(),
             ]
         } else if let Some(e) = &self.entries_error {
             vec![
                 div()
-                    .p(px(12.))
-                    .text_size(px(12.))
-                    .text_color(rgb(0xd32f2f))
+                    .p(t().d(12.))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(t().p.danger))
                     .child(format!("拉历史失败：{e}"))
                     .into_any_element(),
             ]
         } else if self.entries.is_empty() {
             vec![
                 div()
-                    .p(px(12.))
-                    .text_size(px(12.))
+                    .p(t().d(12.))
+                    .text_size(t().fs(12.))
                     .child("还没消息，先从模板开一条。")
                     .into_any_element(),
             ]
@@ -1931,9 +1954,9 @@ impl Desktop {
             main_rows.push(crate::nav_ui::more_bar(older, cx));
             main_rows.push(
                 div()
-                    .mb(px(12.))
-                    .text_size(px(11.))
-                    .text_color(rgb(0xa0a0a0))
+                    .mb(t().d(12.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.faint))
                     .child("下面是最近几轮 · 旧的都在抽屉里")
                     .into_any_element(),
             );
@@ -1956,25 +1979,25 @@ impl Desktop {
             .flex_1()
             // `min_w(0)` 不能省：flex 项默认 `min-width: auto`，历史里只要有一条
             // 折不开的长行（工具输出整段），这块就被撑得比窗口还宽（坑.md 16）。
-            .min_w(px(0.))
+            .min_w(t().d(0.))
             .h_full()
-            .bg(rgb(CHAT_BG))
+            .bg(rgb(t().p.chat_bg))
             .child(
                 div()
                     .flex()
-                    .h(px(48.))
+                    .h(t().d(48.))
                     .w_full()
                     .flex_none()
                     .items_center()
-                    .gap(px(9.))
-                    .px(px(12.))
-                    .bg(rgb(LIST_BG))
+                    .gap(t().d(9.))
+                    .px(t().d(12.))
+                    .bg(rgb(t().p.list_bg))
                     .child(div().flex_none().truncate().child(title))
                     .child(
                         div()
                             .flex_none()
-                            .text_size(px(11.))
-                            .text_color(rgb(MUTED))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
                             .child(if self.nav.drawer_open {
                                 "目录指向抽屉里的全量历史".to_string()
                             } else if short {
@@ -1999,9 +2022,9 @@ impl Desktop {
                     .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                         this.bar_hover(Bar::Chat, *hovered, cx)
                     }))
-                    .min_w(px(0.))
+                    .min_w(t().d(0.))
                     // 竖版的 `min_w(0)`：不加它这个「视口」会被内容撑到十几万像素高。
-                    .min_h(px(0.))
+                    .min_h(t().d(0.))
                     .child(
                         div()
                             .flex()
@@ -2013,7 +2036,7 @@ impl Desktop {
                             .on_scroll(
                                 cx.listener(|this, _e: &ScrollEvent, _, cx| this.nav_spy(cx)),
                             )
-                            .py(px(8.))
+                            .py(t().d(8.))
                             .children(main_rows),
                     )
                     .child(scrollbar::overlay(
@@ -2036,23 +2059,23 @@ impl Desktop {
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(8.))
+                        .gap(t().d(8.))
                         .w_full()
-                        .px(px(12.))
-                        .py(px(8.))
-                        .bg(rgb(0xfff1f0))
-                        .border_t(px(1.))
-                        .border_color(rgb(0xf3c9c6))
+                        .px(t().d(12.))
+                        .py(t().d(8.))
+                        .bg(rgb(t().p.danger_soft))
+                        .border_t(t().d(1.))
+                        .border_color(rgb(t().p.danger_soft))
                         .child(
                             div()
                                 .id("turn-error-retry")
                                 .flex_shrink_0()
-                                .px(px(10.))
-                                .py(px(4.))
-                                .rounded(px(4.))
-                                .bg(rgb(0xc0392b))
-                                .text_size(px(12.))
-                                .text_color(rgb(0xffffff))
+                                .px(t().d(10.))
+                                .py(t().d(4.))
+                                .rounded(t().r(4.))
+                                .bg(rgb(t().p.danger_fg))
+                                .text_size(t().fs(12.))
+                                .text_color(rgb(t().p.on_accent))
                                 .cursor_pointer()
                                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                     this.retry_last(window, cx)
@@ -2063,10 +2086,10 @@ impl Desktop {
                             div()
                                 .id("turn-error-dismiss")
                                 .flex_shrink_0()
-                                .px(px(6.))
-                                .py(px(4.))
-                                .text_size(px(12.))
-                                .text_color(rgb(0x8a6d6a))
+                                .px(t().d(6.))
+                                .py(t().d(4.))
+                                .text_size(t().fs(12.))
+                                .text_color(rgb(t().p.danger_fg))
                                 .cursor_pointer()
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                                     this.turn_error = None;
@@ -2077,11 +2100,11 @@ impl Desktop {
                         .child(
                             div()
                                 .flex_1()
-                                .min_w(px(0.))
+                                .min_w(t().d(0.))
                                 .overflow_hidden()
                                 .text_ellipsis()
-                                .text_size(px(12.))
-                                .text_color(rgb(0xc0392b))
+                                .text_size(t().fs(12.))
+                                .text_color(rgb(t().p.danger_fg))
                                 .child(short_text(&message, 90)),
                         ),
                 )
@@ -2128,15 +2151,15 @@ impl Desktop {
                     div()
                         .flex()
                         .justify_start()
-                        .px(px(12.))
-                        .py(px(4.))
+                        .px(t().d(12.))
+                        .py(t().d(4.))
                         .child(
                             div()
-                                .max_w(px(480.))
-                                .px(px(12.))
-                                .py(px(8.))
-                                .rounded(px(6.))
-                                .bg(rgb(BUBBLE_OTHER))
+                                .max_w(t().d(480.))
+                                .px(t().d(12.))
+                                .py(t().d(8.))
+                                .rounded(t().r(6.))
+                                .bg(rgb(t().p.bubble_other))
                                 .child(live.clone()),
                         )
                         .into_any_element(),
@@ -2377,7 +2400,7 @@ impl Desktop {
 
     fn status_line(&self, _cx: &mut Context<Self>) -> impl IntoElement {
         if self.loading {
-            return div().text_size(px(12.)).child("连引擎中…");
+            return div().text_size(t().fs(12.)).child("连引擎中…");
         }
         if let Some(e) = &self.error {
             // 连不上就告诉用户「改哪个文件」，别让他猜。
@@ -2396,18 +2419,18 @@ impl Desktop {
             return div()
                 .flex()
                 .flex_col()
-                .gap(px(4.))
-                .text_size(px(12.))
-                .text_color(rgb(0xd32f2f))
+                .gap(t().d(4.))
+                .text_size(t().fs(12.))
+                .text_color(rgb(t().p.danger))
                 .child(format!("连不上：{e}"))
                 .child(
                     div()
-                        .text_size(px(11.))
-                        .text_color(rgb(0x777777))
+                        .text_size(t().fs(11.))
+                        .text_color(rgb(t().p.muted))
                         .child(hint),
                 );
         }
-        div().text_size(px(12.)).child(format!(
+        div().text_size(t().fs(12.)).child(format!(
             "{} 个会话",
             self.sessions.iter().filter(|s| s.parent.is_none()).count()
         ))
@@ -2434,13 +2457,13 @@ impl Desktop {
             .flex_col()
             .justify_center()
             // 固定下限：没有预览的行（新会话、只有工具输出的）也跟别人一样高，列表才成一列节奏。
-            .min_h(px(56.))
-            .px(px(10.))
-            .py(px(6.))
-            .gap(px(2.))
-            .border_b(px(1.))
-            .border_color(rgb(0xe0e0e0))
-            .when(selected, |el| el.bg(rgb(0xd9d9d9)))
+            .min_h(t().d(56.))
+            .px(t().d(10.))
+            .py(t().d(6.))
+            .gap(t().d(2.))
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_strong))
+            .when(selected, |el| el.bg(rgb(t().p.selected)))
             // 一行里三样东西：📌 / 名字 / 分支角标 / 时间。左半边 `flex_1` 占满并 truncate，
             // 右半边 `flex_none` 顶到右边 —— 谁都不会被谁顶出去（比 absolute 好使，也不会重叠）。
             .child(
@@ -2448,19 +2471,19 @@ impl Desktop {
                     .flex()
                     .w_full()
                     .items_center()
-                    .gap(px(6.))
+                    .gap(t().d(6.))
                     // 📌 用 lucide 的 Pin（AllAssets 里有）
                     .when(pinned, |el| {
                         el.child(
                             Icon::new(IconName::Pin)
-                                .text_color(rgb(0x2e7d32))
-                                .size(px(13.)),
+                                .text_color(rgb(t().p.ok_fg))
+                                .size(t().d(13.)),
                         )
                     })
                     .child(
                         div()
                             .flex_1()
-                            .min_w(px(0.))
+                            .min_w(t().d(0.))
                             .child(Self::hl_line(&s.name, q, None, None)),
                     )
                     // 搜的时候多一个小标签：这一条是名字命中的还是内容命中的。
@@ -2469,12 +2492,12 @@ impl Desktop {
                         el.children(crate::search::hit(s, q).map(|w| {
                             div()
                                 .flex_none()
-                                .px(px(3.))
-                                .rounded(px(3.))
-                                .border(px(1.))
-                                .border_color(rgb(0xeeeeee))
-                                .text_size(px(10.))
-                                .text_color(rgb(0xaaaaaa))
+                                .px(t().d(3.))
+                                .rounded(t().r(3.))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.line_soft))
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.faint))
                                 .child(w.label())
                         }))
                     })
@@ -2483,17 +2506,17 @@ impl Desktop {
                         el.child(
                             div()
                                 .flex_none()
-                                .text_size(px(11.))
-                                .text_color(rgb(WECHAT_GREEN))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.accent))
                                 .child(format!("{} 分支", self.descendant_count(id))),
                         )
                     })
-                    .children(when_text(s.updated_at).map(|t| {
+                    .children(when_text(s.updated_at).map(|when| {
                         div()
                             .flex_none()
-                            .text_size(px(11.))
-                            .text_color(rgb(MUTED))
-                            .child(t)
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .child(when)
                     })),
             )
             // 第二行只有一个出口：左边是「正在输入…」或预览（`flex_1` + truncate），
@@ -2506,34 +2529,34 @@ impl Desktop {
                     .flex()
                     .w_full()
                     .items_center()
-                    .gap(px(6.))
+                    .gap(t().d(6.))
                     .child(if busy {
                         // 忙闲：微信那句「正在输入…」+ 一个小圆点。比一个「忙」字可读。
                         div()
                             .flex_1()
-                            .min_w(px(0.))
+                            .min_w(t().d(0.))
                             .flex()
                             .items_center()
-                            .gap(px(4.))
+                            .gap(t().d(4.))
                             .child(
                                 div()
                                     .flex_none()
-                                    .size(px(6.))
-                                    .rounded(px(3.))
-                                    .bg(rgb(WECHAT_GREEN)),
+                                    .size(t().d(6.))
+                                    .rounded(t().r(3.))
+                                    .bg(rgb(t().p.accent)),
                             )
                             .child(
                                 div()
-                                    .text_size(px(12.))
-                                    .text_color(rgb(WECHAT_GREEN))
+                                    .text_size(t().fs(12.))
+                                    .text_color(rgb(t().p.accent))
                                     .child("正在输入…"),
                             )
                             .into_any_element()
                     } else {
                         div()
                             .flex_1()
-                            .min_w(px(0.))
-                            .child(Self::hl_line(&preview, q, Some(12.), Some(MUTED)))
+                            .min_w(t().d(0.))
+                            .child(Self::hl_line(&preview, q, Some(12.), Some(t().p.muted)))
                             .into_any_element()
                     })
                     .children(self.unread_badge(id)),
@@ -2578,16 +2601,16 @@ impl Desktop {
         Some(
             div()
                 .flex_none()
-                .min_w(px(18.))
-                .h(px(18.))
-                .px(px(5.))
-                .rounded(px(9.))
-                .bg(rgb(0xfa5151))
+                .min_w(t().d(18.))
+                .h(t().d(18.))
+                .px(t().d(5.))
+                .rounded(t().r(9.))
+                .bg(rgb(t().p.badge))
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(11.))
-                .text_color(rgb(0xffffff))
+                .text_size(t().fs(11.))
+                .text_color(rgb(t().p.on_accent))
                 .child(if n > 99 {
                     "99+".to_string()
                 } else {
@@ -2614,18 +2637,18 @@ impl Desktop {
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(5.))
-            .px(px(10.))
-            .h(px(28.))
-            .rounded(px(6.))
+            .gap(t().d(5.))
+            .px(t().d(10.))
+            .h(t().d(28.))
+            .rounded(t().r(6.))
             .border_1()
-            .border_color(rgb(if on { WECHAT_GREEN } else { 0xd0d0d0 }))
-            .bg(rgb(if on { WECHAT_GREEN } else { 0xffffff }))
-            .text_size(px(13.))
-            .text_color(rgb(if on { 0xffffff } else { 0x333333 }))
+            .border_color(rgb(if on { t().p.accent } else { t().p.line_strong }))
+            .bg(rgb(if on { t().p.accent } else { t().p.panel }))
+            .text_size(t().fs(13.))
+            .text_color(rgb(if on { t().p.on_accent } else { t().p.text_2 }))
             .id(ElementId::Name("branch-toggle".into()))
             .cursor_pointer()
-            .hover(|el| el.bg(rgb(if on { 0x06a854 } else { 0xf2f2f2 })))
+            .hover(|el| el.bg(rgb(if on { t().p.accent_hover } else { t().p.hover })))
             .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                 if this.branches {
                     this.exit_branches(cx);
@@ -2635,18 +2658,18 @@ impl Desktop {
             }))
             .child(
                 Icon::new(IconName::GitBranch)
-                    .with_size(Size::Size(px(15.)))
-                    .text_color(rgb(if on { 0xffffff } else { 0x555555 })),
+                    .with_size(Size::Size(t().d(15.)))
+                    .text_color(rgb(if on { t().p.on_accent } else { t().p.text_2 })),
             )
             .child("分支")
             .children(if n > 0 {
                 Some(
                     div()
                         .flex_none()
-                        .px(px(5.))
-                        .rounded(px(8.))
-                        .bg(rgb(if on { 0x0aa85a } else { 0xededed }))
-                        .text_size(px(11.))
+                        .px(t().d(5.))
+                        .rounded(t().r(8.))
+                        .bg(rgb(if on { t().p.accent_hover } else { t().p.chat_bg }))
+                        .text_size(t().fs(11.))
                         .child(format!("{n}")),
                 )
             } else {
@@ -2688,25 +2711,25 @@ impl Desktop {
             .flex()
             .flex_col()
             .items_start()
-            .px(px(12.))
-            .py(px(4.))
+            .px(t().d(12.))
+            .py(t().d(4.))
             .child(
                 div().flex().flex_row().child(
                     div()
                         .id(ElementId::Name(format!("tool-{key}").into()))
                         .flex()
                         .items_center()
-                        .gap(px(7.))
+                        .gap(t().d(7.))
                         // 不收宽度上限：长标题会被外层挤成一条缝。`max_w` 是给整条卡片的。
-                        .max_w(px(520.))
-                        .px(px(10.))
-                        .py(px(5.))
-                        .rounded(px(5.))
+                        .max_w(t().d(520.))
+                        .px(t().d(10.))
+                        .py(t().d(5.))
+                        .rounded(t().r(5.))
                         .border_1()
-                        .border_color(rgb(0xe3e3e3))
-                        .bg(rgb(0xffffff))
+                        .border_color(rgb(t().p.line_soft))
+                        .bg(rgb(t().p.panel))
                         .cursor_pointer()
-                        .hover(|el| el.bg(rgb(0xfafafa)))
+                        .hover(|el| el.bg(rgb(t().p.panel_alt)))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                             let opened = this.open_tools.insert(k.clone());
                             if !opened {
@@ -2718,23 +2741,23 @@ impl Desktop {
                         .child(
                             div()
                                 .flex_none()
-                                .text_size(px(10.))
-                                .text_color(rgb(MUTED))
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.muted))
                                 .child(if open { "▾" } else { "▸" }),
                         )
                         .child(
                             div()
                                 .flex_none()
-                                .size(px(6.))
-                                .rounded(px(3.))
-                                .bg(rgb(if failed { 0xfa5151 } else { WECHAT_GREEN })),
+                                .size(t().d(6.))
+                                .rounded(t().r(3.))
+                                .bg(rgb(if failed { t().p.badge } else { t().p.accent })),
                         )
-                        .child(div().flex_none().text_size(px(12.5)).child(title))
+                        .child(div().flex_none().text_size(t().fs(12.5)).child(title))
                         .child(
                             div()
                                 .flex_none()
-                                .text_size(px(11.))
-                                .text_color(rgb(MUTED))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.muted))
                                 .child(if failed && lines == 1 {
                                     "失败".to_string()
                                 } else if failed {
@@ -2749,13 +2772,13 @@ impl Desktop {
                             div()
                                 .id(ElementId::Name(format!("copy-{key}").into()))
                                 .flex_none()
-                                .px(px(6.))
-                                .py(px(1.))
-                                .rounded(px(4.))
-                                .text_size(px(11.))
-                                .text_color(rgb(WECHAT_GREEN))
+                                .px(t().d(6.))
+                                .py(t().d(1.))
+                                .rounded(t().r(4.))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.accent))
                                 .cursor_pointer()
-                                .hover(|el| el.bg(rgb(0xe8f7ee)))
+                                .hover(|el| el.bg(rgb(t().p.accent_soft)))
                                 .on_click(cx.listener(move |_this, _: &ClickEvent, _w, cx| {
                                     // 不拦的话这一下会连带把卡片展开/收起
                                     cx.stop_propagation();
@@ -2772,23 +2795,23 @@ impl Desktop {
                 el.child(
                     div()
                         .id(ElementId::Name(format!("tool-body-{key}").into()))
-                        .mt(px(2.))
+                        .mt(t().d(2.))
                         // 宽高都用**固定值**，不用 `max_*`：`max_*` 在「内容比它大」时扛不住，
                         // 一行 487 行的代码能直接铺满整个聊天区（gpui 里 `min-width:auto`
                         // 那一套，见坑.md 16）。
-                        .w(px(560.))
-                        .h(px(190.))
+                        .w(t().d(560.))
+                        .h(t().d(190.))
                         .overflow_y_scroll()
                         // 不折行：等宽代码一折行缩进就全乱了，宁可让它在块里横向滚
                         .whitespace_nowrap()
-                        .px(px(10.))
-                        .py(px(8.))
+                        .px(t().d(10.))
+                        .py(t().d(8.))
                         .border_l_2()
-                        .border_color(rgb(0xcfcfcf))
-                        .bg(rgb(0xfbfbfb))
+                        .border_color(rgb(t().p.line_strong))
+                        .bg(rgb(t().p.panel_alt))
                         .font_family("Consolas")
-                        .text_size(px(11.5))
-                        .text_color(rgb(0x3c3c3c))
+                        .text_size(t().fs(11.5))
+                        .text_color(rgb(t().p.text_2))
                         .child(selectable_code(&format!("tb-{key}"), &text)),
                 )
             })
@@ -2801,42 +2824,42 @@ impl Desktop {
             "pi.user" => div()
                 .flex()
                 .justify_end()
-                .px(px(12.))
-                .py(px(4.))
+                .px(t().d(12.))
+                .py(t().d(4.))
                 .child(
                     div()
-                        .max_w(px(480.))
-                        .min_w(px(0.))
-                        .px(px(12.))
-                        .py(px(8.))
-                        .rounded(px(6.))
-                        .bg(rgb(BUBBLE_ME))
-                        .child(selectable(&format!("u-{}", e.id), &text, 0x1a1a1a)),
+                        .max_w(t().d(480.))
+                        .min_w(t().d(0.))
+                        .px(t().d(12.))
+                        .py(t().d(8.))
+                        .rounded(t().r(6.))
+                        .bg(rgb(t().p.bubble_me))
+                        .child(selectable(&format!("u-{}", e.id), &text, t().p.text)),
                 )
                 .into_any_element(),
             "pi.assistant" => div()
                 .flex()
                 .justify_start()
-                .px(px(12.))
-                .py(px(4.))
+                .px(t().d(12.))
+                .py(t().d(4.))
                 .child(
                     div()
-                        .max_w(px(480.))
-                        .min_w(px(0.))
-                        .px(px(12.))
-                        .py(px(8.))
-                        .rounded(px(6.))
-                        .bg(rgb(BUBBLE_OTHER))
-                        .child(selectable(&format!("a-{}", e.id), &text, 0x1a1a1a)),
+                        .max_w(t().d(480.))
+                        .min_w(t().d(0.))
+                        .px(t().d(12.))
+                        .py(t().d(8.))
+                        .rounded(t().r(6.))
+                        .bg(rgb(t().p.bubble_other))
+                        .child(selectable(&format!("a-{}", e.id), &text, t().p.text)),
                 )
                 .into_any_element(),
             "pi.tool-result" => self.tool_card(&e.id.to_string(), None, &text, cx),
             _ => div()
                 .flex()
                 .justify_center()
-                .px(px(12.))
-                .py(px(4.))
-                .child(div().text_size(px(11.)).text_color(rgb(MUTED)).child(text))
+                .px(t().d(12.))
+                .py(t().d(4.))
+                .child(div().text_size(t().fs(11.)).text_color(rgb(t().p.muted)).child(text))
                 .into_any_element(),
         }
     }
@@ -2932,7 +2955,7 @@ pub(crate) fn activity_of(s: &Session) -> i64 {
 fn selectable(id: &str, text: &str, color: u32) -> TextView {
     TextView::markdown(ElementId::Name(format!("t-{id}").into()), chat_md(text))
         .selectable(true)
-        .text_size(px(13.5))
+        .text_size(t().fs(13.5))
         .text_color(rgb(color))
         .style(md_style())
         .code_block_actions(code_copy_button)
@@ -2950,9 +2973,9 @@ fn selectable_code(id: &str, text: &str) -> TextView {
         fenced_code(text),
     )
     .selectable(true)
-    .text_size(px(11.5))
+    .text_size(t().fs(11.5))
     .font_family("Consolas")
-    .text_color(rgb(0x3c3c3c))
+    .text_color(rgb(t().p.text_2))
 }
 
 /// 包成代码块（围栏比内容里最长的那串反引号还长）。
@@ -3014,6 +3037,21 @@ fn sig_of(s: &Session) -> (i64, String, Option<i64>, Option<String>, bool) {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 每帧把当前皮拍进帧内快照 —— 下面 50 多个自由函数（pill / nav_row /
+        // theme_thumb…）拿不到 cx，统一 `crate::theme::cur()` 取。
+        // GPUI 的 text_style_stack 也是这个套路；快照不是第二个真相，每帧重取。
+        crate::theme::begin_frame(cx);
+        // md.rs 是样品间共用的模块（example 也 #[path] 引它），不认识 crate::theme；
+        // 每帧把当前皮的 md 相关色拆成裸值灌进去。
+        {
+            let s = crate::theme::cur();
+            crate::md::set_md_skin(
+                s.p.accent, s.p.muted, s.p.accent_soft, s.p.accent_fg,
+                s.p.code_bg, s.p.line, s.p.text, s.p.text_2, s.p.panel,
+                s.type_scale, s.dark,
+            );
+        }
+
         // 面板的过滤快照只在 render 里算一次：键盘 ↵ 和鼠标点都认这一份，
         // 不会「看到的」和「选中的」对不上。
         self.refresh_slash(cx);
@@ -3029,12 +3067,22 @@ impl Render for Desktop {
             self.render_chat(cx).into_any_element()
         };
 
+        let skin = crate::theme::cur();
         let shell_root = div()
             .flex()
             .flex_row()
             .size_full()
-            .bg(rgb(CHAT_BG))
-            .child(self.render_icon_bar(cx))
+            // 字体族 / 行高只在皮显式指定时才注入。默认皮两项都留空 ——
+            // 强行套 `.SystemUIFont` 会让整片文本加载不到字体而消失（踩过）。
+            // 字号走各处的 `t().fs(..)`，默认倍率 1.0 不动观感。
+            .when(!skin.font.is_empty(), |el| el.font_family(skin.font))
+            .when(skin.line_height > 0., |el| el.line_height(px(skin.lh().as_f32())))
+            .bg(rgb(skin.p.chat_bg))
+            .children(match skin.layout {
+                crate::theme::Layout::Classic => Some(self.render_icon_bar(cx).into_any_element()),
+                // NoRail：图标条收掉，菜单折进会话列表标题行（demo 09）。
+                crate::theme::Layout::NoRail => None,
+            })
             .child(match self.tab {
                 Tab::Chats => self.render_session_list(cx).into_any_element(),
                 // 通讯录是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
@@ -3042,7 +3090,7 @@ impl Render for Desktop {
                     .flex()
                     .flex_row()
                     .h_full()
-                    .min_w(px(0.))
+                    .min_w(t().d(0.))
                     .child(self.render_preset_tree(cx))
                     .child(self.render_templates(cx))
                     .into_any_element(),
@@ -3092,7 +3140,7 @@ impl Render for Desktop {
             .flex_col()
             .size_full()
             .child(crate::chrome::title_bar(window))
-            .child(div().flex_1().min_h(px(0.)).child(body));
+            .child(div().flex_1().min_h(t().d(0.)).child(body));
 
         body
     }
@@ -3336,7 +3384,6 @@ x
     fn 没有置顶就保持原顺序() {
         assert_eq!(order_ids(&[3, 2, 1], &[]), vec![3, 2, 1]);
     }
-
     #[test]
     fn 重复置顶不会重复出现() {
         assert_eq!(order_ids(&[1, 2], &[2, 2]), vec![2, 1]);

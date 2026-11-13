@@ -3,6 +3,59 @@
 //! 单独成文件是为了让 `examples/mdpreview` 能拿同一份代码 —— 样式这种东西
 //! 必须看着改，样品间要是自己抄一遍，看到的就不是真的那个了。
 
+// 主题接线：md.rs 既被 bin 引用，又被 mdpreview / mdstream 这两个 example
+// 用 #[path] 单独引（它们的 crate root 里没有 mod theme / mod app）。
+// 所以这里不引用 crate::theme，改为自带一份极简 Skin：bin 里 cur() 给它灌值，
+// example 里就是出厂默认值。字段只覆盖本模块真正用到的那些。
+#[derive(Clone, Copy)]
+struct MdSkin { p: MdPalette, scale: f32, dark: bool }
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct MdPalette {
+    accent: u32, muted: u32, accent_soft: u32, accent_fg: u32,
+    code_bg: u32, line: u32, text: u32, text_2: u32, panel: u32,
+}
+impl MdSkin {
+    fn fs(self, n: f32) -> gpui_kit::Pixels { gpui_kit::px(n * self.scale) }
+    fn d(self, n: f32) -> gpui_kit::Pixels { gpui_kit::px(n) }
+    fn r(self, n: f32) -> gpui_kit::Pixels { gpui_kit::px(n) }
+}
+fn t() -> MdSkin {
+    // 不引用 crate::theme：mdpreview / mdstream 是 #[path] 单引本文件的 example，
+    // 它们的 crate root 里没有 mod theme。bin 里由 `Desktop::render` 每帧调
+    // `set_md_skin()` 把当前皮灌进来；example 没灌，就是出厂默认值。
+    MD_SKIN.with(|cell| cell.get())
+}
+
+thread_local! {
+    static MD_SKIN: std::cell::Cell<MdSkin> = const {
+        std::cell::Cell::new(MdSkin {
+            p: MdPalette {
+                accent: 0x07c160, muted: 0x9a9a9a,
+                accent_soft: 0xe8f7ee, accent_fg: 0x0a7a3f,
+                code_bg: 0xf4f4f4, line: 0xe6e6e6,
+                text: 0x1a1a1a, text_2: 0x333333, panel: 0xffffff,
+            },
+            scale: 1.0,
+            dark: false,
+        })
+    };
+}
+
+/// bin 每帧调一次：把当前皮的 md 相关色灌进样品间共用的那份皮肤。
+/// 参数是拆开的裸值，不引用 `crate::theme::Skin` —— example 的 crate root
+/// 里没有那个模块，签名里出现它就编译不过。
+#[allow(clippy::too_many_arguments, dead_code)]
+pub fn set_md_skin(
+    accent: u32, muted: u32, accent_soft: u32, accent_fg: u32,
+    code_bg: u32, line: u32, text: u32, text_2: u32, panel: u32, scale: f32, dark: bool,
+) {
+    MD_SKIN.set(MdSkin {
+        p: MdPalette { accent, muted, accent_soft, accent_fg, code_bg, line, text, text_2, panel },
+        scale,
+        dark,
+    });
+}
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
@@ -10,7 +63,8 @@ use gpui_kit::base::text::{CodeBlock, TextViewStyle};
 use gpui_kit::*;
 
 /// 微信绿（复制按钮用）。md.rs 得能单独被 example 编进来，所以颜色自己带一份。
-const COPY_GREEN: u32 = 0x07c160;
+/// 原 `COPY_GREEN = 0x07c160`；由 accent 这个语义槽接管。
+fn copy_green() -> u32 { t().p.accent }
 
 /// 聊天内容进渲染器前的一道加工：剥掉 harness 壳 + 把单换行变成硬换行。
 pub fn chat_md(text: &str) -> String {
@@ -63,16 +117,16 @@ pub fn code_copy_button(code: &CodeBlock, _w: &mut Window, _a: &mut App) -> AnyE
     div()
         .flex()
         .items_center()
-        .gap(px(6.))
-        .children(lang.map(|l| div().text_size(px(11.)).text_color(rgb(0x9a9a9a)).child(l)))
+        .gap(t().d(6.))
+        .children(lang.map(|l| div().text_size(t().fs(11.)).text_color(rgb(t().p.muted)).child(l)))
         .id(ElementId::Name(format!("code-copy-{key:x}").into()))
-        .px(px(6.))
-        .py(px(1.))
-        .rounded(px(4.))
-        .text_size(px(11.))
-        .text_color(rgb(COPY_GREEN))
+        .px(t().d(6.))
+        .py(t().d(1.))
+        .rounded(t().r(4.))
+        .text_size(t().fs(11.))
+        .text_color(rgb(copy_green()))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(0xe8f7ee)))
+        .hover(|el| el.bg(rgb(t().p.accent_soft)))
         .on_click(move |_: &ClickEvent, _w, cx| {
             cx.stop_propagation();
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
@@ -254,12 +308,28 @@ pub fn strip_harness(raw: &str) -> String {
 /// 2. 代码块**不折行、横向滚动**。折行会把缩进吃掉、把一行命令拆成两行，
 ///    长行还会把气泡撑宽（同一个病根：内容比容器大时容器扛不住）。
 pub fn md_style() -> TextViewStyle {
+    let t = t();
     let mut code = StyleRefinement::default();
     code.overflow.x = Some(Overflow::Scroll);
     code.text.white_space = Some(WhiteSpace::Nowrap);
+    // **不能直接用 `TextViewStyle::default()`** —— 那个是浅色（白底黑字）。
+    // 深色皮上整块代码、行内代码会变成白砖，字还看不见（真踩过）。
+    // 这里有几项就得从当前皮里拿几项。
     TextViewStyle::default()
         .with_paragraph_gap(rems(0.42))
         .with_code_block(code)
+        .with_foreground(rgb(t.p.text).into())
+        .with_muted_foreground(rgb(t.p.muted).into())
+        .with_link(rgb(t.p.accent).into())
+        .with_selection(rgb(t.p.accent_soft).into())
+        .with_code_background(rgb(t.p.code_bg).into())
+        .with_border(rgb(t.p.line).into())
+        .with_inline_code(HighlightStyle {
+            background_color: Some(rgb(t.p.accent_soft).into()),
+            color: Some(rgb(t.p.accent_fg).into()),
+            ..Default::default()
+        })
+        .with_dark(t.dark)
 }
 
 #[cfg(test)]
@@ -326,7 +396,6 @@ mod tests {
             &code_highlighter()
         ));
     }
-
     #[test]
     fn 缓存有上限_流式流久了也不会一直涨() {
         for i in 0..(HL_CACHE_MAX * 3) {

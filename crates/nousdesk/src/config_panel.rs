@@ -10,6 +10,10 @@
 //!
 //! 这个模块不碰网络、不存数据，只画。谁拉数据、谁发请求，都在 `app.rs`。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use std::rc::Rc;
 
 use gpui_kit::assets::IconName;
@@ -25,13 +29,20 @@ const PANEL_H: f32 = 400.;
 const SIDE_W: f32 = 158.;
 
 // 外观
-const LINE: u32 = 0xeeeeee;
-const SIDE_BG: u32 = 0xfafafb;
-const FG: u32 = 0x333333;
-const MUTED: u32 = 0x999999;
-const FAINT: u32 = 0xb0b0b8;
-const HOT: u32 = 0x07c160;
-const HOT_BG: u32 = 0xf0fbf4;
+/// 原 `LINE = 0xeeeeee`；由 line_soft 这个语义槽接管。
+fn line() -> u32 { t().p.line_soft }
+/// 原 `SIDE_BG = 0xfafafb`；由 panel_alt 这个语义槽接管。
+fn side_bg() -> u32 { t().p.panel_alt }
+/// 原 `FG = 0x333333`；由 text_2 这个语义槽接管。
+fn fg() -> u32 { t().p.text_2 }
+/// 原 `MUTED = 0x999999`；由 muted 这个语义槽接管。
+fn muted() -> u32 { t().p.muted }
+/// 原 `FAINT = 0xb0b0b8`；由 faint 这个语义槽接管。
+fn faint() -> u32 { t().p.faint }
+/// 原 `HOT = 0x07c160`；由 accent 这个语义槽接管。
+fn hot() -> u32 { t().p.accent }
+/// 原 `HOT_BG = 0xf0fbf4`；由 accent_soft 这个语义槽接管。
+fn hot_bg() -> u32 { t().p.accent_soft }
 const MONO: &str = "Consolas";
 
 /// 左栏七项。顺序就是左栏从上到下的顺序。
@@ -178,31 +189,31 @@ fn side_row(tab: Tab, s: &Session, active: bool, hooks: &Hooks) -> AnyElement {
         .id(ElementId::Name(format!("cfg-side-{:?}", tab).into()))
         .flex()
         .items_center()
-        .gap(px(8.))
-        .px(px(9.))
-        .py(px(7.))
-        .rounded(px(7.))
+        .gap(t().d(8.))
+        .px(t().d(9.))
+        .py(t().d(7.))
+        .rounded(t().r(7.))
         .cursor_pointer()
-        .text_size(px(12.5))
-        .when(active, |el| el.bg(rgb(HOT_BG)).text_color(rgb(0x0a7a3f)))
-        .when(!active, |el| el.text_color(rgb(0x444444)))
-        .hover(|s| s.bg(rgb(0xf0f0f3)))
+        .text_size(t().fs(12.5))
+        .when(active, |el| el.bg(rgb(hot_bg())).text_color(rgb(t().p.accent_fg)))
+        .when(!active, |el| el.text_color(rgb(t().p.text_2)))
+        .hover(|s| s.bg(rgb(t().p.hover)))
         .on_click(move |_, window, cx| on_tab(&tab, window, cx))
         .child(icon(
             tab.icon(),
             16.,
-            if active { 0x0a7a3f } else { 0x8a8f96 },
+            if active { t().p.accent_fg } else { t().p.faint },
         ))
         .child(div().flex_none().child(tab.title()))
         .child(
             div()
                 .ml_auto()
                 .flex_none()
-                .max_w(px(58.))
+                .max_w(t().d(58.))
                 .truncate()
                 .font_family(MONO)
-                .text_size(px(10.))
-                .text_color(rgb(if active { 0x3d9a68 } else { FAINT }))
+                .text_size(t().fs(10.))
+                .text_color(rgb(if active { t().p.accent_fg } else { faint() }))
                 .child(tab.value(s)),
         )
         .into_any_element()
@@ -225,74 +236,74 @@ fn item_row(
         .id(ElementId::Name(id.into()))
         .flex()
         .items_start()
-        .gap(px(9.))
+        .gap(t().d(9.))
         .w_full()
-        .px(px(13.))
-        .py(px(7.))
+        .px(t().d(13.))
+        .py(t().d(7.))
         // 选中/悬停上底色；行本身铺白，整行都是可点区域。
-        .bg(rgb(if on { HOT_BG } else { 0xffffff }))
+        .bg(rgb(if on { hot_bg() } else { t().p.panel }))
         .cursor_pointer()
-        .hover(|s| s.bg(rgb(0xf7f7f8)))
+        .hover(|s| s.bg(rgb(t().p.hover)))
         .on_click(move |ev, window, cx| on_click(ev, window, cx))
         .child(
             div()
-                .mt(px(2.))
+                .mt(t().d(2.))
                 .flex_none()
-                .size(px(15.))
+                .size(t().d(15.))
                 .rounded(px(if round { 7.5 } else { 4. }))
                 .border_1()
-                .border_color(rgb(if on { HOT } else { 0xcfcfd6 }))
-                .when(on, |el| el.bg(rgb(HOT)))
+                .border_color(rgb(if on { hot() } else { t().p.line_strong }))
+                .when(on, |el| el.bg(rgb(hot())))
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(9.))
-                .line_height(px(9.))
-                .text_color(rgb(0xffffff))
+                .text_size(t().fs(9.))
+                .line_height(t().d(9.))
+                .text_color(rgb(t().p.on_accent))
                 .child(mark),
         )
         .child(
             div()
                 .flex_1()
-                .min_w(px(0.))
+                .min_w(t().d(0.))
                 .flex()
                 .flex_col()
                 .child(
                     div()
                         .truncate()
                         .font_family(MONO)
-                        .text_size(px(12.5))
-                        .text_color(rgb(if busy { 0xb0b0b8 } else { FG }))
+                        .text_size(t().fs(12.5))
+                        .text_color(rgb(if busy { t().p.faint } else { fg() }))
                         .child(name),
                 )
                 .child(
                     div()
                         .truncate()
-                        .text_size(px(11.5))
-                        .text_color(rgb(0x8f8f97))
+                        .text_size(t().fs(11.5))
+                        .text_color(rgb(t().p.faint))
                         .child(desc),
                 )
-                .when_some(trailing, |el, t| {
+                .when_some(trailing, |el, tail| {
                     el.child(
                         div()
                             .truncate()
                             .font_family(MONO)
-                            .text_size(px(10.))
-                            .text_color(rgb(FAINT))
-                            .child(t),
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(faint()))
+                            .child(tail),
                     )
                 }),
         )
-        .children(tag.map(|t| {
+        .children(tag.map(|tag_text| {
             div()
                 .flex_none()
-                .mt(px(3.))
-                .px(px(5.))
-                .rounded(px(4.))
-                .bg(rgb(0xeaf9f0))
-                .text_size(px(9.5))
-                .text_color(rgb(0x0a7a3f))
-                .child(t)
+                .mt(t().d(3.))
+                .px(t().d(5.))
+                .rounded(t().r(4.))
+                .bg(rgb(t().p.accent_soft))
+                .text_size(t().fs(9.5))
+                .text_color(rgb(t().p.accent_fg))
+                .child(tag_text)
         }))
         .into_any_element()
 }
@@ -302,25 +313,25 @@ fn group_head(text: String, count: usize, sub: bool) -> AnyElement {
     div()
         .flex()
         .items_center()
-        .gap(px(7.))
-        .pt(px(9.))
-        .pb(px(4.))
-        .when(sub, |el| el.pl(px(24.)))
-        .when(!sub, |el| el.px(px(13.)))
+        .gap(t().d(7.))
+        .pt(t().d(9.))
+        .pb(t().d(4.))
+        .when(sub, |el| el.pl(t().d(24.)))
+        .when(!sub, |el| el.px(t().d(13.)))
         .text_size(px(if sub { 10.5 } else { 11. }))
         .font_weight(if sub {
             FontWeight::NORMAL
         } else {
             FontWeight::SEMIBOLD
         })
-        .text_color(rgb(if sub { 0xb0b0b8 } else { 0x9a9aa2 }))
+        .text_color(rgb(if sub { t().p.faint } else { t().p.faint }))
         .child(if sub { format!("└ {text}") } else { text })
         .child(
             div()
                 .ml_auto()
                 .font_family(MONO)
                 .font_weight(FontWeight::NORMAL)
-                .text_color(rgb(0xbcbcc4))
+                .text_color(rgb(t().p.faint))
                 .child(count.to_string()),
         )
         .into_any_element()
@@ -328,11 +339,11 @@ fn group_head(text: String, count: usize, sub: bool) -> AnyElement {
 
 fn empty_note(text: &str) -> AnyElement {
     div()
-        .py(px(26.))
+        .py(t().d(26.))
         .w_full()
         .text_center()
-        .text_size(px(12.))
-        .text_color(rgb(FAINT))
+        .text_size(t().fs(12.))
+        .text_color(rgb(faint()))
         .child(text.to_string())
         .into_any_element()
 }
@@ -374,8 +385,8 @@ fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool) -> AnyElement 
     let xs = [0., col[0]];
 
     let mut layer = div().relative().h(px(height)).w_full();
-    let trunk = rgb(0xe2e2e6);
-    let hot = rgb(HOT);
+    let trunk = rgb(t().p.line);
+    let hot = rgb(hot());
 
     let columns: [(&[&str], usize); 2] = [(&providers, 0), (&models, 1)];
     for (items, ci) in columns {
@@ -387,7 +398,7 @@ fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool) -> AnyElement 
                     .absolute()
                     .left(px(x + 12.))
                     .top(px(PAD + PITCH / 2.))
-                    .w(px(1.))
+                    .w(t().d(1.))
                     .h(px(PITCH * (n as f32 - 1.)))
                     .bg(trunk),
             );
@@ -405,7 +416,7 @@ fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool) -> AnyElement 
                         .absolute()
                         .left(px(x + 10.))
                         .top(px(y + PITCH / 2. - 2.))
-                        .size(px(5.))
+                        .size(t().d(5.))
                         .rounded_full()
                         .bg(if sel { hot } else { trunk }),
                 )
@@ -414,8 +425,8 @@ fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool) -> AnyElement 
                         .absolute()
                         .left(px(x + 17.))
                         .top(px(y + PITCH / 2.))
-                        .w(px(7.))
-                        .h(px(1.))
+                        .w(t().d(7.))
+                        .h(t().d(1.))
                         .bg(if sel { hot } else { trunk }),
                 );
 
@@ -432,17 +443,17 @@ fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool) -> AnyElement 
                     .h(px(PITCH - 6.))
                     .flex()
                     .items_center()
-                    .px(px(8.))
-                    .rounded(px(5.))
+                    .px(t().d(8.))
+                    .rounded(t().r(5.))
                     .border_1()
-                    .border_color(if sel { hot } else { rgb(0xe6e6ea) })
-                    .bg(if sel { rgb(HOT_BG) } else { rgb(0xfafafb) })
-                    .text_size(px(10.5))
-                    .text_color(rgb(if sel { 0x0a7a3f } else { 0x444444 }))
+                    .border_color(if sel { hot } else { rgb(t().p.line_soft) })
+                    .bg(if sel { rgb(hot_bg()) } else { rgb(t().p.panel_alt) })
+                    .text_size(t().fs(10.5))
+                    .text_color(rgb(if sel { t().p.accent_fg } else { t().p.text_2 }))
                     .truncate()
                     .font_family(MONO)
                     .when(!busy, |el| {
-                        el.cursor_pointer().hover(|s| s.bg(rgb(0xf0f0f3)))
+                        el.cursor_pointer().hover(|s| s.bg(rgb(t().p.hover)))
                     })
                     .on_click(move |_, window, cx| {
                         if !busy {
@@ -462,8 +473,8 @@ fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool) -> AnyElement 
 
     div()
         .w_full()
-        .px(px(8.))
-        .py(px(6.))
+        .px(t().d(8.))
+        .py(t().d(6.))
         .child(layer)
         .into_any_element()
 }
@@ -744,20 +755,20 @@ fn page_dir(s: &Session, dirs: Option<&Dirs>, hooks: &Hooks) -> AnyElement {
                 .id(ElementId::Name("cfg-dir-up".into()))
                 .flex()
                 .items_center()
-                .gap(px(9.))
-                .px(px(13.))
-                .py(px(6.))
-                .hover(|s| s.bg(rgb(0xf7f7f8)))
+                .gap(t().d(9.))
+                .px(t().d(13.))
+                .py(t().d(6.))
+                .hover(|s| s.bg(rgb(t().p.hover)))
                 .cursor_pointer()
                 .font_family(MONO)
-                .text_size(px(12.))
+                .text_size(t().fs(12.))
                 .on_click(move |_, window, cx| on_dir(&target, window, cx))
-                .child(div().text_color(rgb(MUTED)).child(".."))
+                .child(div().text_color(rgb(muted())).child(".."))
                 .child(
                     div()
                         .flex_1()
                         .truncate()
-                        .text_color(rgb(MUTED))
+                        .text_color(rgb(muted()))
                         .child(label),
                 ),
         );
@@ -776,19 +787,19 @@ fn page_dir(s: &Session, dirs: Option<&Dirs>, hooks: &Hooks) -> AnyElement {
                 .id(ElementId::Name(format!("cfg-dir-{i}").into()))
                 .flex()
                 .items_center()
-                .gap(px(9.))
-                .px(px(13.))
-                .py(px(6.))
-                .rounded(px(6.))
+                .gap(t().d(9.))
+                .px(t().d(13.))
+                .py(t().d(6.))
+                .rounded(t().r(6.))
                 .border_1()
-                .border_color(if selected { rgb(HOT) } else { rgba(0x00000000) })
-                .when(selected, |el| el.bg(rgb(HOT_BG)))
-                .hover(|s| s.bg(rgb(0xf7f7f8)))
+                .border_color(if selected { rgb(hot()) } else { rgba(t().p.transparent) })
+                .when(selected, |el| el.bg(rgb(hot_bg())))
+                .hover(|s| s.bg(rgb(t().p.hover)))
                 .cursor_pointer()
                 .font_family(MONO)
-                .text_size(px(12.))
+                .text_size(t().fs(12.))
                 .on_click(move |_, window, cx| on_dir(&path, window, cx))
-                .child(div().text_color(rgb(MUTED)).child("›"))
+                .child(div().text_color(rgb(muted())).child("›"))
                 .child(div().flex_1().truncate().child(d.name.clone())),
         );
     }
@@ -802,24 +813,24 @@ fn page_readonly(s: &Session, hooks: &Hooks, busy: bool) -> AnyElement {
     let on_ro = hooks.readonly.clone();
     div()
         .w_full()
-        .p(px(14.))
+        .p(t().d(14.))
         .flex()
         .flex_col()
-        .gap(px(9.))
+        .gap(t().d(9.))
         .child(
             div()
                 .flex()
                 .items_center()
-                .gap(px(10.))
-                .child(div().text_size(px(13.)).text_color(rgb(FG)).child("只读"))
+                .gap(t().d(10.))
+                .child(div().text_size(t().fs(13.)).text_color(rgb(fg())).child("只读"))
                 .child(
                     div()
                         .id(ElementId::Name("cfg-ro-switch".into()))
                         .ml_auto()
-                        .w(px(34.))
-                        .h(px(20.))
-                        .rounded(px(10.))
-                        .bg(rgb(if on { HOT } else { 0xd9d9de }))
+                        .w(t().d(34.))
+                        .h(t().d(20.))
+                        .rounded(t().r(10.))
+                        .bg(rgb(if on { hot() } else { t().p.disabled }))
                         .relative()
                         .cursor_pointer()
                         .on_click(move |_, window, cx| {
@@ -830,19 +841,19 @@ fn page_readonly(s: &Session, hooks: &Hooks, busy: bool) -> AnyElement {
                         .child(
                             div()
                                 .absolute()
-                                .top(px(2.))
+                                .top(t().d(2.))
                                 .left(px(if on { 16. } else { 2. }))
-                                .size(px(16.))
+                                .size(t().d(16.))
                                 .rounded_full()
-                                .bg(rgb(0xffffff)),
+                                .bg(rgb(t().p.panel)),
                         ),
                 ),
         )
         .child(
             div()
-                .text_size(px(11.5))
-                .line_height(px(18.))
-                .text_color(rgb(0x8f8f97))
+                .text_size(t().fs(11.5))
+                .line_height(t().d(18.))
+                .text_color(rgb(t().p.faint))
                 .child(
                     "只读不是「拦住」写操作，是根本不把会写的工具递给模型 —— \
                      它压根不知道自己有这能力。",
@@ -862,13 +873,13 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
         .w(px(SIDE_W))
         .flex_none()
         .h_full()
-        .bg(rgb(SIDE_BG))
+        .bg(rgb(side_bg()))
         .border_r_1()
-        .border_color(rgb(LINE))
-        .p(px(6.))
+        .border_color(rgb(line()))
+        .p(t().d(6.))
         .flex()
         .flex_col()
-        .gap(px(1.));
+        .gap(t().d(1.));
     for t in Tab::ALL {
         side = side.child(side_row(t, s, t == tab, hooks));
     }
@@ -900,7 +911,7 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
         .flex_none()
         .h_full()
         // 面板是白的，右栏也铺白。
-        .bg(rgb(0xffffff))
+        .bg(rgb(t().p.panel))
         .flex()
         .flex_col()
         .child(
@@ -908,25 +919,25 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
                 .flex_none()
                 .flex()
                 .items_center()
-                .gap(px(7.))
-                .px(px(13.))
-                .py(px(9.))
+                .gap(t().d(7.))
+                .px(t().d(13.))
+                .py(t().d(9.))
                 .border_b_1()
-                .border_color(rgb(LINE))
+                .border_color(rgb(line()))
                 .child(
                     div()
-                        .text_size(px(12.))
-                        .text_color(rgb(MUTED))
+                        .text_size(t().fs(12.))
+                        .text_color(rgb(muted()))
                         .child(tab.title()),
                 )
                 .child(
                     div()
                         .ml_auto()
-                        .max_w(px(260.))
+                        .max_w(t().d(260.))
                         .truncate()
-                        .text_size(px(12.))
+                        .text_size(t().fs(12.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(if tab == Tab::Model { 0x0a7a3f } else { FG }))
+                        .text_color(rgb(if tab == Tab::Model { t().p.accent_fg } else { fg() }))
                         .font_family(if tab == Tab::Model {
                             MONO
                         } else {
@@ -939,7 +950,7 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
             div()
                 .id(ElementId::Name("cfg-body".into()))
                 .flex_1()
-                .min_h(px(0.))
+                .min_h(t().d(0.))
                 .w_full()
                 .overflow_y_scroll()
                 .child(body),
@@ -953,16 +964,15 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
         .h(px(PANEL_H))
         .flex()
         .flex_row()
-        .bg(rgb(0xffffff))
-        .rounded(px(12.))
+        .bg(rgb(t().p.panel))
+        .rounded(t().r(12.))
         .border_1()
-        .border_color(rgba(0x00000014))
+        .border_color(rgba(t().p.shadow))
         .overflow_hidden()
         .child(side)
         .child(main)
         .into_any_element()
 }
-
 /// 右栏标题右侧那个值。比左栏长，因为这里放得下。
 fn full_value(tab: Tab, s: &Session) -> String {
     match tab {
