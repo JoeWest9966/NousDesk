@@ -107,6 +107,26 @@ fn open_log_file() -> Option<std::fs::File> {
         .ok()
 }
 
+/// 把显示器清单打进日志（HiDPI / 多显示器排查用）。
+///
+/// 只记「有几块屏、每块逻辑尺寸和位置」，不记序列号之类的标识。GPUI 的
+/// `PlatformDisplay` **不给每块屏的 scale_factor**（只有 `Window::scale_factor()`，
+/// 而且它随窗口当前所在屏变），所以缩放单独在窗口里记，别在这儿猜。
+fn log_display_env(cx: &mut App) {
+    let displays = cx.displays();
+    log::info!("显示器：{} 块", displays.len());
+    for d in displays {
+        let b = d.bounds();
+        log::info!(
+            "  显示区域=({:.0},{:.0}) {:.0}×{:.0} 逻辑像素",
+            b.origin.x.as_f32(),
+            b.origin.y.as_f32(),
+            b.size.width.as_f32(),
+            b.size.height.as_f32(),
+        );
+    }
+}
+
 fn main() {
     init_log();
 
@@ -121,6 +141,10 @@ fn main() {
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            // 显示环境打一行日志：缩放 / 多显示器出问题时，先知道当时有几块屏、
+            // 各自的逻辑尺寸和位置，别靠猜。Wayland 下 scale_factor 由窗口所在屏决定，
+            // 窗口拖到另一块屏会变 —— 这里记的是启动那一刻的主屏值。
+            log_display_env(cx);
             // 窗口：标题 NousDesk，1280x800 居中。桌面聊天应用的第一屏。
             //
             // **Linux 自画标题栏**（见 decisions.md）：GNOME 不给 server-side decorations，
@@ -156,6 +180,12 @@ fn main() {
                 });
             }
             gpui_kit::open_window(options, cx, |window, cx| {
+                log::info!(
+                    "窗口：缩放={:.2} 视口={:.0}×{:.0} 逻辑像素",
+                    window.scale_factor(),
+                    window.viewport_size().width.as_f32(),
+                    window.viewport_size().height.as_f32(),
+                );
                 cx.new(|cx| app::Desktop::new(window, cx))
             })
             .expect("Failed to open window");

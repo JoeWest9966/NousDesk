@@ -94,15 +94,39 @@ install -m644 LICENSE "$DEB/usr/share/doc/nousdesk/LICENSE"
 # Installed-Size 的单位是 KiB 且按 1KiB 向上取整 —— dpkg-deb 自己不查，lintian 会。
 INSTALLED_KIB="$(( ($(du -sk "$DEB/usr" | cut -f1)) ))"
 
-# 运行期依赖全是 dlopen 或直接链接的：libvulkan / libEGL / libwayland 是 GPUI 运行时才 dlopen
-# （所以它们只是 Recommends 级别也能起，但缺了会白屏，索性写进 Depends）。
+# 运行期依赖分两类，别混在一起手抄：
+#
+# 1) 二进制直接 NEEDED 的共享库 —— 交给 dpkg-shlibdeps 从二进制现算。它会按 symbols
+#    文件精确到「哪个符号、最低哪个版本」，而且跟着依赖走。手抄的列表一定漂：这一版
+#    手抄就漏了 libssl3t64（GPUI 的 TLS 走 openssl，readelf -d 里明晃晃的 libssl.so.3），
+#    装到没装 libssl3 的最小系统上直接起不来；同时多抄了并不需要的 libstdc++6 / libxcb-xkb1。
+#
+# 2) 运行时才 dlopen 的 —— dpkg-shlibdeps 看不见（没进 NEEDED），只能手写。
+#    libvulkan / libEGL / libwayland 属于这一类：缺了不报错，只是白屏或没有窗口，
+#    所以按 Depends 写死，宁多勿漏。换 GPUI 后端时记得回头改这一行。
+RUNTIME_DLOPEN_DEPS="libvulkan1, libegl1, libgl1, libwayland-client0"
+
+command -v dpkg-shlibdeps >/dev/null || {
+  echo "缺 dpkg-shlibdeps（Debian/Ubuntu 上装 dpkg-dev）—— 依赖不能靠手抄" >&2
+  exit 1
+}
+
+SHLIBS_TMP="$(mktemp -d)"
+trap 'rm -rf "$SHLIBS_TMP"' EXIT
+mkdir -p "$SHLIBS_TMP/debian"
+# dpkg-shlibdeps 要在有 debian/control 的目录里跑；这份 control 只是给它定位 shlibs/symbols。
+printf 'Source: nousdesk\n\nPackage: nousdesk\nArchitecture: any\n' > "$SHLIBS_TMP/debian/control"
+SHLIBS_DEPS="$(cd "$SHLIBS_TMP" && dpkg-shlibdeps -O -e"$BIN" 2>/dev/null | sed -n 's/^shlibs:Depends=//p')"
+[ -n "$SHLIBS_DEPS" ] || { echo "dpkg-shlibdeps 算不出 $BIN 的依赖" >&2; exit 1; }
+DEPENDS="$SHLIBS_DEPS, $RUNTIME_DLOPEN_DEPS"
+
 cat > "$DEB/DEBIAN/control" <<CONTROL
 Package: nousdesk
 Version: $VERSION
 Architecture: $ARCH_DEB
 Maintainer: JoeWest9966 <JoeWest9966@users.noreply.github.com>
 Installed-Size: $INSTALLED_KIB
-Depends: libc6, libgcc-s1, libstdc++6, libxkbcommon0, libxkbcommon-x11-0, libxcb1, libxcb-xkb1, libvulkan1, libegl1, libgl1, libwayland-client0
+Depends: $DEPENDS
 Recommends: fonts-noto-cjk
 Section: net
 Priority: optional
