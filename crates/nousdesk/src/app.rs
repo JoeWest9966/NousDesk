@@ -44,11 +44,14 @@ use crate::live::Live;
 use crate::md::{chat_md, code_copy_button, code_highlighter, md_style, strip_harness};
 
 // 微信桌面版的几个固定色。
-const SIDEBAR_DARK: u32 = 0x2e2e2e;
+//
+// ⚠️ 这几个是「默认主题」的取值：`theme.rs` 的 `Theme::DEFAULT` 抄了同样的数字，
+// 并有测试钉住两边一致。只在这里改色 = 主题卡片的色块和界面不符。
+pub(crate) const SIDEBAR_DARK: u32 = 0x2e2e2e;
 pub(crate) const LIST_BG: u32 = 0xf7f7f7;
-const CHAT_BG: u32 = 0xededed;
-const BUBBLE_ME: u32 = 0x95ec69;
-const BUBBLE_OTHER: u32 = 0xffffff;
+pub(crate) const CHAT_BG: u32 = 0xededed;
+pub(crate) const BUBBLE_ME: u32 = 0x95ec69;
+pub(crate) const BUBBLE_OTHER: u32 = 0xffffff;
 pub(crate) const MUTED: u32 = 0x999999;
 /// 微信的绿：左栏选中图标就是这个颜色。
 pub(crate) const WECHAT_GREEN: u32 = 0x07c160;
@@ -132,6 +135,9 @@ pub struct Desktop {
     pub(crate) settings_open: bool,
     /// 设置页左边选的那一项。
     pub(crate) settings_tab: crate::settings::SettingsTab,
+    /// 当前主题。启动时从 `theme.toml` 读，设置页里改完立刻落盘。
+    /// 现在只有「默认」一套，所以渲染层还没按它取色（见 `theme.rs` 的模块注释）。
+    pub(crate) theme_name: crate::theme::ThemeName,
     /// 设置页底部的一行反馈：文案 + 是不是错。
     pub(crate) settings_msg: Option<(String, bool)>,
     /// 启动时读到的配置（保存后跟着换）。
@@ -333,6 +339,7 @@ impl Desktop {
             menu_open: open_at_start == "menu",
             settings_open: open_at_start == "settings",
             settings_tab: crate::settings::SettingsTab::Connection,
+            theme_name: crate::theme::ThemeName::load(),
             settings_msg: None,
             conn,
             host_input,

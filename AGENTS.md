@@ -172,6 +172,10 @@ host = "http://192.168.1.7:4790"
 board = "new1"
 ```
 
+主题（设置页第三项）**不在这份文件里**：存 `~/.config/nousdesk/theme.toml` 的
+`theme = "default"`。理由见 `decisions.md`（便携包的那份 `desktop.toml` 在 exe 旁边，
+可能只读；再说它只有 host / board 两个键）。加一套皮只改 `crates/nousdesk/src/theme.rs`。
+
 启动时打一次 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎。
 引擎版本进日志 + About 面板 —— 以后「怎么突然坏了」先看是不是引擎先动的。
 
