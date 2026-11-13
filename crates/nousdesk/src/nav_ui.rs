@@ -6,6 +6,10 @@
 //! 布局：会话列表 280px 不动 → 目录列 240px → 聊天区。
 //! 抽屉只盖聊天区，**不盖目录列**：抽屉开着时目录仍然指向抽屉里的全量正文。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use std::collections::{HashMap, HashSet};
 
 use gpui_kit::component::hover_card::HoverCard;
@@ -18,8 +22,10 @@ use crate::session_nav::{NavDay, NavRound, answer_preview, build_nav, main_from,
 
 const NAV_W: f32 = 240.;
 const DRAWER_W: f32 = 0.86;
-const DAY_MUTED: u32 = 0x9a9a9a;
-const SOFT_GREEN: u32 = 0xe8f6ec;
+/// 原 `DAY_MUTED = 0x9a9a9a`；由 muted 这个语义槽接管。
+fn day_muted() -> u32 { t().p.muted }
+/// 原 `SOFT_GREEN = 0xe8f6ec`；由 accent_soft 这个语义槽接管。
+fn soft_green() -> u32 { t().p.accent_soft }
 
 /// 目录 + 抽屉的全部状态。都是**纯内存**的「我眼下看到哪」，不是事实。
 #[derive(Default)]
@@ -113,12 +119,12 @@ pub fn nav_column(
             .flex()
             .flex_col()
             .flex_1()
-            .min_h(px(0.))
+            .min_h(t().d(0.))
             .id("nav-scroll")
             .overflow_y_scroll()
             .track_scroll(&nav.nav_scroll)
-            .px(px(6.))
-            .py(px(8.))
+            .px(t().d(6.))
+            .py(t().d(8.))
             .children(groups.iter().enumerate().map(|(gi, g)| {
                 day_group(gi, g, groups, &previews, nav, main_from, drawer_open, cx)
             }));
@@ -129,28 +135,28 @@ pub fn nav_column(
         .w(px(NAV_W))
         .h_full()
         .flex_none()
-        .bg(rgb(0xfbfbfb))
+        .bg(rgb(t().p.panel_alt))
         .border_r_1()
-        .border_color(rgb(0xececec))
+        .border_color(rgb(t().p.line_soft))
         .child(
             div()
                 .flex()
                 .items_center()
-                .gap(px(6.))
-                .px(px(12.))
-                .py(px(8.))
+                .gap(t().d(6.))
+                .px(t().d(12.))
+                .py(t().d(8.))
                 .border_b_1()
-                .border_color(rgb(0xf0f0f0))
+                .border_color(rgb(t().p.line_soft))
                 .child(
                     div()
-                        .text_size(px(11.5))
-                        .text_color(rgb(0x666666))
+                        .text_size(t().fs(11.5))
+                        .text_color(rgb(t().p.text_2))
                         .child("你问过的"),
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
-                        .text_color(rgb(DAY_MUTED))
+                        .text_size(t().fs(11.))
+                        .text_color(rgb(day_muted()))
                         .child(format!("按天 · {total} 条")),
                 ),
         )
@@ -165,11 +171,11 @@ fn nav_toggles(nav: &SessionNav, cx: &mut Context<crate::app::Desktop>) -> AnyEl
     div()
         .flex()
         .flex_wrap()
-        .gap(px(5.))
-        .px(px(8.))
-        .py(px(6.))
+        .gap(t().d(5.))
+        .px(t().d(8.))
+        .py(t().d(6.))
         .border_b_1()
-        .border_color(rgb(0xf0f0f0))
+        .border_color(rgb(t().p.line_soft))
         .child(toggle(
             "折叠旧组",
             fold_on,
@@ -198,16 +204,16 @@ fn toggle(
     div()
         .id(ElementId::Name(format!("nav-toggle-{label}").into()))
         .flex_none()
-        .px(px(6.))
-        .py(px(2.))
-        .rounded(px(10.))
+        .px(t().d(6.))
+        .py(t().d(2.))
+        .rounded(t().r(10.))
         .border_1()
-        .border_color(rgb(if on { 0xbfe5ca } else { 0xe4e4e4 }))
-        .bg(rgb(if on { SOFT_GREEN } else { 0xffffff }))
-        .text_size(px(10.5))
-        .text_color(rgb(if on { 0x2a8a4c } else { 0x777777 }))
+        .border_color(rgb(if on { t().p.accent_soft } else { t().p.line_soft }))
+        .bg(rgb(if on { soft_green() } else { t().p.panel }))
+        .text_size(t().fs(10.5))
+        .text_color(rgb(if on { t().p.accent_fg } else { t().p.muted }))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(if on { 0xd8f0e0 } else { 0xf2f2f2 })))
+        .hover(|el| el.bg(rgb(if on { t().p.accent_soft_hover } else { t().p.hover })))
         .on_click(action)
         .child(label.to_string())
         .into_any_element()
@@ -230,39 +236,39 @@ fn day_group(
     div()
         .flex()
         .flex_col()
-        .mb(px(4.))
+        .mb(t().d(4.))
         .child(
             div()
                 .id(ElementId::Name(format!("nav-group-{gi}").into()))
                 .flex()
                 .items_center()
-                .gap(px(6.))
+                .gap(t().d(6.))
                 .w_full()
-                .px(px(8.))
-                .py(px(6.))
-                .rounded(px(4.))
+                .px(t().d(8.))
+                .py(t().d(6.))
+                .rounded(t().r(4.))
                 .cursor_pointer()
-                .hover(|el| el.bg(rgb(0xf2f2f2)))
+                .hover(|el| el.bg(rgb(t().p.hover)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.nav_toggle_group(label.clone(), cx);
                 }))
                 .child(
                     div()
-                        .text_size(px(10.))
-                        .text_color(rgb(DAY_MUTED))
+                        .text_size(t().fs(10.))
+                        .text_color(rgb(day_muted()))
                         .child(if closed { "▸" } else { "▾" }),
                 )
                 .child(
                     div()
-                        .text_size(px(11.5))
-                        .text_color(rgb(DAY_MUTED))
+                        .text_size(t().fs(11.5))
+                        .text_color(rgb(day_muted()))
                         .child(g.label.clone()),
                 )
                 .child(
                     div()
                         .ml_auto()
-                        .text_size(px(10.5))
-                        .text_color(rgb(0xc0c0c0))
+                        .text_size(t().fs(10.5))
+                        .text_color(rgb(t().p.faint))
                         .child(count.to_string()),
                 ),
         )
@@ -315,36 +321,36 @@ fn nav_row(
         .id(ElementId::Name(format!("nav-round-{idx}").into()))
         .flex()
         .items_center()
-        .gap(px(7.))
+        .gap(t().d(7.))
         .w_full()
-        .px(px(8.))
-        .py(px(6.))
-        .rounded(px(4.))
+        .px(t().d(8.))
+        .py(t().d(6.))
+        .rounded(t().r(4.))
         // 透明**必须**用 rgba：`rgb(0x00000000)` 会被当成不透明白->黑
         // （gpui 的 rgb 只吃 24 位），真踩过：目录里半数列变成黑块。
-        .when(on, |el| el.bg(rgb(SOFT_GREEN)))
+        .when(on, |el| el.bg(rgb(soft_green())))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(if on { 0xdcf0e3 } else { 0xf0f0f0 })))
+        .hover(|el| el.bg(rgb(if on { t().p.accent_soft_hover } else { t().p.hover })))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.nav_jump(idx, label.clone(), cx);
         }))
         .child(
             div()
                 .flex_none()
-                .w(px(18.))
-                .text_size(px(11.))
-                .text_color(rgb(if on { WECHAT_GREEN } else { 0xc4c4c4 }))
+                .w(t().d(18.))
+                .text_size(t().fs(11.))
+                .text_color(rgb(if on { WECHAT_GREEN } else { t().p.faint }))
                 .child(format!("{}", idx + 1)),
         )
         .child(
             div()
                 .flex_1()
-                .min_w(px(0.))
+                .min_w(t().d(0.))
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .text_size(px(12.5))
-                .text_color(rgb(if on || !old { 0x333333 } else { 0xa6a6a6 }))
+                .text_size(t().fs(12.5))
+                .text_color(rgb(if on || !old { t().p.text_2 } else { t().p.faint }))
                 .child(one_line(&r.text)),
         )
         .children(marks);
@@ -360,28 +366,28 @@ fn nav_row(
         .trigger(trigger)
         .content(move |_state, _window, _cx| {
             div()
-                .w(px(310.))
-                .p(px(11.))
-                .bg(rgb(0xffffff))
-                .rounded(px(6.))
+                .w(t().d(310.))
+                .p(t().d(11.))
+                .bg(rgb(t().p.panel))
+                .rounded(t().r(6.))
                 .border_1()
-                .border_color(rgb(0xe6e6e6))
-                .text_size(px(12.))
+                .border_color(rgb(t().p.line))
+                .text_size(t().fs(12.))
                 .child(
                     div()
-                        .mb(px(6.))
+                        .mb(t().d(6.))
                         .flex()
-                        .gap(px(6.))
+                        .gap(t().d(6.))
                         .child(pill("悬停预览"))
                         .child(pill(where_to)),
                 )
-                .child(div().mb(px(5.)).text_color(rgb(0x1a1a1a)).child(format!(
+                .child(div().mb(t().d(5.)).text_color(rgb(t().p.text)).child(format!(
                     "{} · {}",
                     idx + 1,
                     text
                 )))
                 .child(
-                    div().mb(px(7.)).text_color(rgb(0x666666)).child(
+                    div().mb(t().d(7.)).text_color(rgb(t().p.text_2)).child(
                         preview
                             .clone()
                             .unwrap_or_else(|| "（这一轮还没有回答）".into()),
@@ -389,11 +395,11 @@ fn nav_row(
                 )
                 .child(
                     div()
-                        .pt(px(6.))
+                        .pt(t().d(6.))
                         .border_t_1()
-                        .border_color(rgb(0xf0f0f0))
-                        .text_size(px(10.5))
-                        .text_color(rgb(0xa0a0a0))
+                        .border_color(rgb(t().p.line_soft))
+                        .text_size(t().fs(10.5))
+                        .text_color(rgb(t().p.faint))
                         .child(meta.clone()),
                 )
         })
@@ -403,12 +409,12 @@ fn nav_row(
 fn pill(text: &str) -> AnyElement {
     div()
         .flex_none()
-        .px(px(5.))
-        .py(px(1.))
-        .rounded(px(3.))
-        .bg(rgb(SOFT_GREEN))
-        .text_size(px(10.))
-        .text_color(rgb(0x2a8a4c))
+        .px(t().d(5.))
+        .py(t().d(1.))
+        .rounded(t().r(3.))
+        .bg(rgb(soft_green()))
+        .text_size(t().fs(10.))
+        .text_color(rgb(t().p.accent_fg))
         .child(text.to_string())
         .into_any_element()
 }
@@ -441,9 +447,9 @@ fn marks(r: &NavRound) -> Vec<AnyElement> {
         out.push(
             div()
                 .flex_none()
-                .size(px(5.))
-                .rounded(px(3.))
-                .bg(rgb(0xfa5151))
+                .size(t().d(5.))
+                .rounded(t().r(3.))
+                .bg(rgb(t().p.badge))
                 .into_any_element(),
         );
     }
@@ -453,12 +459,12 @@ fn marks(r: &NavRound) -> Vec<AnyElement> {
 fn mark(text: String) -> AnyElement {
     div()
         .flex_none()
-        .px(px(3.))
-        .py(px(1.))
-        .rounded(px(3.))
-        .bg(rgb(0xf4f4f4))
-        .text_size(px(10.))
-        .text_color(rgb(0x9a9a9a))
+        .px(t().d(3.))
+        .py(t().d(1.))
+        .rounded(t().r(3.))
+        .bg(rgb(t().p.code_bg))
+        .text_size(t().fs(10.))
+        .text_color(rgb(t().p.muted))
         .child(text)
         .into_any_element()
 }
@@ -469,29 +475,29 @@ pub fn more_bar(older: usize, cx: &mut Context<crate::app::Desktop>) -> AnyEleme
         .id("nav-more")
         .flex()
         .items_center()
-        .gap(px(9.))
+        .gap(t().d(9.))
         .w_full()
-        .px(px(11.))
-        .py(px(7.))
-        .mb(px(10.))
-        .rounded(px(5.))
+        .px(t().d(11.))
+        .py(t().d(7.))
+        .mb(t().d(10.))
+        .rounded(t().r(5.))
         .border_1()
-        .border_color(rgb(0xd8e6dc))
-        .bg(rgb(0xf4faf6))
+        .border_color(rgb(t().p.accent_soft))
+        .bg(rgb(t().p.accent_soft))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(SOFT_GREEN)))
+        .hover(|el| el.bg(rgb(soft_green())))
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_open_drawer(None, cx)))
         .child(
             div()
-                .text_size(px(12.))
-                .text_color(rgb(0x2a8a4c))
+                .text_size(t().fs(12.))
+                .text_color(rgb(t().p.accent_fg))
                 .child(format!("更早的 {older} 条 · 打开历史")),
         )
         .child(
             div()
                 .ml_auto()
-                .text_size(px(11.))
-                .text_color(rgb(0x8ab89c))
+                .text_size(t().fs(11.))
+                .text_color(rgb(t().p.ok_fg))
                 .child("主视图只留最近几轮 →"),
         )
         .into_any_element()
@@ -510,7 +516,7 @@ pub fn drawer(
     div()
         .absolute()
         .inset_0()
-        .bg(rgba(0x0000002a))
+        .bg(rgba(t().p.scrim))
         .child(
             div()
                 .absolute()
@@ -518,41 +524,41 @@ pub fn drawer(
                 .top_0()
                 .bottom_0()
                 .w(relative(DRAWER_W))
-                .bg(rgb(0xffffff))
+                .bg(rgb(t().p.panel))
                 .shadow_md()
                 .flex()
                 .flex_col()
                 .child(
                     div()
                         .flex_none()
-                        .h(px(40.))
+                        .h(t().d(40.))
                         .flex()
                         .items_center()
-                        .gap(px(10.))
-                        .px(px(14.))
+                        .gap(t().d(10.))
+                        .px(t().d(14.))
                         .border_b_1()
-                        .border_color(rgb(0xeeeeee))
-                        .child(div().text_size(px(12.5)).child("全量历史"))
+                        .border_color(rgb(t().p.line_soft))
+                        .child(div().text_size(t().fs(12.5)).child("全量历史"))
                         .child(
                             div()
-                                .text_size(px(11.))
-                                .text_color(rgb(DAY_MUTED))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(day_muted()))
                                 .child("按时间"),
                         )
                         .child(
                             div()
                                 .id("nav-to-main")
                                 .ml_auto()
-                                .px(px(9.))
-                                .py(px(3.))
-                                .rounded(px(12.))
+                                .px(t().d(9.))
+                                .py(t().d(3.))
+                                .rounded(t().r(12.))
                                 .border_1()
-                                .border_color(rgb(0xe0e0e0))
-                                .bg(rgb(0xf7fbf8))
-                                .text_size(px(11.5))
-                                .text_color(rgb(0x2a8a4c))
+                                .border_color(rgb(t().p.line_strong))
+                                .bg(rgb(t().p.accent_soft))
+                                .text_size(t().fs(11.5))
+                                .text_color(rgb(t().p.accent_fg))
                                 .cursor_pointer()
-                                .hover(|el| el.bg(rgb(SOFT_GREEN)))
+                                .hover(|el| el.bg(rgb(soft_green())))
                                 .on_click(
                                     cx.listener(|this, _: &ClickEvent, _, cx| this.nav_to_main(cx)),
                                 )
@@ -562,8 +568,8 @@ pub fn drawer(
                             div()
                                 .id("nav-drawer-close")
                                 .cursor_pointer()
-                                .text_size(px(12.))
-                                .text_color(rgb(0x8a8a8a))
+                                .text_size(t().fs(12.))
+                                .text_color(rgb(t().p.faint))
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.nav_close_drawer(cx)
                                 }))
@@ -575,22 +581,22 @@ pub fn drawer(
                         .id("nav-drawer-body")
                         .on_scroll(cx.listener(|this, _e: &ScrollEvent, _, cx| this.nav_spy(cx)))
                         .flex_1()
-                        .min_h(px(0.))
+                        .min_h(t().d(0.))
                         .overflow_y_scroll()
                         .track_scroll(scroll)
-                        .px(px(16.))
-                        .py(px(10.))
+                        .px(t().d(16.))
+                        .py(t().d(10.))
                         .child(
                             div()
-                                .mb(px(12.))
-                                .px(px(9.))
-                                .py(px(5.))
-                                .rounded(px(4.))
-                                .bg(rgb(0xfafafa))
+                                .mb(t().d(12.))
+                                .px(t().d(9.))
+                                .py(t().d(5.))
+                                .rounded(t().r(4.))
+                                .bg(rgb(t().p.panel_alt))
                                 .border_1()
-                                .border_color(rgb(0xf0f0f0))
-                                .text_size(px(11.))
-                                .text_color(rgb(0xa5a5a5))
+                                .border_color(rgb(t().p.line_soft))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.faint))
                                 .child(
                                     "左边那列目录现在指向这里 —— 点任一轮，我滚到它；不用关抽屉。",
                                 ),
@@ -606,16 +612,16 @@ pub fn collapse_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
     div()
         .id("nav-collapse")
         .flex_none()
-        .px(px(10.))
-        .py(px(3.))
-        .rounded(px(12.))
+        .px(t().d(10.))
+        .py(t().d(3.))
+        .rounded(t().r(12.))
         .border_1()
-        .border_color(rgb(0xf0dcc0))
-        .bg(rgb(0xfff8ee))
-        .text_size(px(11.5))
-        .text_color(rgb(0xa97428))
+        .border_color(rgb(t().p.warn_soft))
+        .bg(rgb(t().p.warn_soft))
+        .text_size(t().fs(11.5))
+        .text_color(rgb(t().p.warn))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(0xfdefd8)))
+        .hover(|el| el.bg(rgb(t().p.warn_soft)))
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_collapse(cx)))
         .child("收起，回到最近")
         .into_any_element()
@@ -626,19 +632,18 @@ pub fn history_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
     div()
         .id("nav-history")
         .flex_none()
-        .px(px(10.))
-        .py(px(3.))
-        .rounded(px(12.))
+        .px(t().d(10.))
+        .py(t().d(3.))
+        .rounded(t().r(12.))
         .bg(rgb(WECHAT_GREEN))
-        .text_size(px(11.5))
-        .text_color(rgb(0xffffff))
+        .text_size(t().fs(11.5))
+        .text_color(rgb(t().p.on_accent))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(0x06ad56)))
+        .hover(|el| el.bg(rgb(t().p.accent_hover)))
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_open_drawer(None, cx)))
         .child("历史与目录")
         .into_any_element()
 }
-
 /// 目录行的浮窗要的那句回答首行。用一个静态钩子从 `Desktop` 拿，
 /// 避免把整个 `Context<Desktop>` 塞进 `HoverCard` 的 `'static` content 闭包。
 pub fn preview_text(entries: &[Entry], groups: &[NavDay], idx: usize) -> Option<String> {

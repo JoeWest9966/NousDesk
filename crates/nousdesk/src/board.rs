@@ -15,6 +15,10 @@
 //! - **单选不关窗、多选也不关窗**：模型点一下就收（它是单值、也没有别的要看）；
 //!   技能要勾好几下，勾完按「完成」—— 在「点了就关」的窗口里做多选是做不了的事。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use std::collections::BTreeSet;
 
 use gpui_kit::component::input::{Textarea, TextareaState};
@@ -458,7 +462,7 @@ impl Desktop {
         let body = div()
             .relative()
             .flex_1()
-            .min_h(px(0.))
+            .min_h(t().d(0.))
             .px(m.v(1.6))
             .pb(m.v(1.6))
             .child(self.board_canvas(&m))
@@ -471,7 +475,7 @@ impl Desktop {
             .flex_col()
             .flex_1()
             // flex 项不写 min_w(0)、h_full 会被内容撑到比右格还宽（坑 16）。
-            .min_w(px(0.))
+            .min_w(t().d(0.))
             .h_full()
             .bg(rgb(art::BG))
             .text_color(rgb(art::FG))
@@ -718,7 +722,7 @@ impl Desktop {
                 if let Ok(path) = tint.build() {
                     window.paint_path(path, rgb(art::S5).opacity(art::HUB_ALPHA));
                 }
-                let mut edge = PathBuilder::stroke(px(1.)).dash_array(&[px(3.), px(3.)]);
+                let mut edge = PathBuilder::stroke(t().d(1.)).dash_array(&[t().d(3.), t().d(3.)]);
                 edge.add_polygon(&pts, true);
                 let edge_color: Hsla = rgb(art::BORDER).into();
                 if let Ok(path) = edge.build() {
@@ -770,7 +774,7 @@ impl Desktop {
                     .bg(rgb(art::PANEL))
                     .border_1()
                     .border_color(rgb(art::BORDER))
-                    .rounded(px(6.))
+                    .rounded(t().r(6.))
                     .text_size(m.f(1.5, 11., 13.5))
                     .child(
                         Textarea::new(&b.name_input)
@@ -802,7 +806,7 @@ impl Desktop {
                     .px(m.v(1.6))
                     .py(m.v(0.5))
                     .bg(rgb(art::PANEL))
-                    .rounded(px(6.))
+                    .rounded(t().r(6.))
                     .border_1()
                     .border_color(rgb(art::BORDER))
                     .text_size(m.f(1.6, 11., 14.5))
@@ -858,7 +862,7 @@ impl Desktop {
             .bg(rgb(art::PANEL))
             .border_1()
             .border_color(rgb(art::BORDER))
-            .rounded(px(6.))
+            .rounded(t().r(6.))
             .when(enabled, |el| {
                 el.hover(|s| s.border_color(rgb(art::FAINT)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
@@ -920,7 +924,7 @@ impl Desktop {
             .flex()
             .items_center()
             .justify_center()
-            .bg(rgba(0x100f0f8c))
+            .bg(rgba(t().p.scrim))
             .id(ElementId::Name("board-scrim".into()))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.newchat.sheet = None;
@@ -940,7 +944,7 @@ impl Desktop {
                         .bg(rgb(art::PANEL))
                         .border_1()
                         .border_color(rgb(art::BORDER))
-                        .rounded(px(14.))
+                        .rounded(t().r(14.))
                         .overflow_hidden()
                         .child(
                             div()
@@ -950,7 +954,7 @@ impl Desktop {
                                 .px(m.v(1.8))
                                 .pt(m.v(1.6))
                                 .pb(m.v(1.2))
-                                .border_b(px(1.))
+                                .border_b(t().d(1.))
                                 .border_color(rgb(art::BORDER))
                                 .child(
                                     div()
@@ -974,7 +978,7 @@ impl Desktop {
                                 .justify_between()
                                 .px(m.v(1.8))
                                 .py(m.v(1.))
-                                .border_t(px(1.))
+                                .border_t(t().d(1.))
                                 .border_color(rgb(art::BORDER))
                                 .child(
                                     div()
@@ -988,7 +992,7 @@ impl Desktop {
                                         .id(ElementId::Name("board-sheet-done".into()))
                                         .px(m.v(1.1))
                                         .py(m.v(0.35))
-                                        .rounded(px(6.))
+                                        .rounded(t().r(6.))
                                         .border_1()
                                         .border_color(rgb(art::ACCENT))
                                         .bg(rgb(art::ACCENT).opacity(0.18))
@@ -1066,7 +1070,7 @@ impl Desktop {
                         .absolute()
                         .left(px(x))
                         .top(px(8. + pitch / 2.))
-                        .w(px(1.))
+                        .w(t().d(1.))
                         .h(px(pitch * (n.saturating_sub(1)) as f32))
                         .bg(trunk)
                         .into_any_element(),
@@ -1085,7 +1089,7 @@ impl Desktop {
                         .absolute()
                         .left(px(x - 2.))
                         .top(px(y + pitch / 2. - 2.))
-                        .size(px(5.))
+                        .size(t().d(5.))
                         .rounded_full()
                         .bg(if selected { hot } else { trunk })
                         .into_any_element(),
@@ -1095,8 +1099,8 @@ impl Desktop {
                         .absolute()
                         .left(px(x + 8.))
                         .top(px(y + pitch / 2.))
-                        .w(px(6.))
-                        .h(px(1.))
+                        .w(t().d(6.))
+                        .h(t().d(1.))
                         .bg(if selected { hot } else { trunk })
                         .into_any_element(),
                 );
@@ -1121,8 +1125,8 @@ impl Desktop {
                         .h(px(pitch - 6.))
                         .flex()
                         .items_center()
-                        .px(px(8.))
-                        .rounded(px(4.))
+                        .px(t().d(8.))
+                        .rounded(t().r(4.))
                         .border_1()
                         .border_color(if selected { hot } else { rgb(art::BORDER) })
                         .bg(if selected {
@@ -1163,7 +1167,7 @@ impl Desktop {
         div()
             .id(ElementId::Name("board-model-body".into()))
             .flex_1()
-            .min_h(px(0.))
+            .min_h(t().d(0.))
             .overflow_y_scroll()
             .track_scroll(&self.newchat.sheet_scroll)
             .child(div().relative().h(px(total_h)).w_full().children(layers))
@@ -1214,12 +1218,12 @@ impl Desktop {
                     .w_full()
                     .px(m.v(0.8))
                     .py(m.v(0.55))
-                    .rounded(px(6.))
+                    .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
                         rgb(art::ACCENT)
                     } else {
-                        rgba(0x00000000)
+                        rgba(t().p.transparent)
                     })
                     .when(picked, |el| el.bg(rgb(art::ACCENT).opacity(0.14)))
                     .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
@@ -1234,9 +1238,9 @@ impl Desktop {
                     })
                     .child(
                         div()
-                            .mt(px(2.))
+                            .mt(t().d(2.))
                             .size(m.f(1.1, 10., 14.))
-                            .rounded(px(3.))
+                            .rounded(t().r(3.))
                             .border_1()
                             .border_color(if picked {
                                 rgb(art::ACCENT)
@@ -1253,7 +1257,7 @@ impl Desktop {
                     .child(
                         div()
                             .flex_1()
-                            .min_w(px(0.))
+                            .min_w(t().d(0.))
                             .child(
                                 div()
                                     .font_family(art::MONO)
@@ -1316,12 +1320,12 @@ impl Desktop {
                     .w_full()
                     .px(m.v(0.8))
                     .py(m.v(0.55))
-                    .rounded(px(6.))
+                    .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
                         rgb(art::ACCENT)
                     } else {
-                        rgba(0x00000000)
+                        rgba(t().p.transparent)
                     })
                     .when(picked, |el| el.bg(rgb(art::ACCENT).opacity(0.14)))
                     .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
@@ -1340,7 +1344,7 @@ impl Desktop {
                     // 圆框 = 一次只能选一个。形状本身就在说这事。
                     .child(
                         div()
-                            .mt(px(2.))
+                            .mt(t().d(2.))
                             .size(m.f(1.1, 10., 14.))
                             .rounded_full()
                             .border_1()
@@ -1355,13 +1359,13 @@ impl Desktop {
                             .child(div().size(m.f(0.5, 5., 7.)).rounded_full().bg(if picked {
                                 rgb(art::ACCENT)
                             } else {
-                                rgba(0x00000000)
+                                rgba(t().p.transparent)
                             })),
                     )
                     .child(
                         div()
                             .flex_1()
-                            .min_w(px(0.))
+                            .min_w(t().d(0.))
                             .child(
                                 div()
                                     .font_family(art::MONO)
@@ -1411,7 +1415,7 @@ impl Desktop {
                     .w_full()
                     .px(m.v(0.8))
                     .py(m.v(0.5))
-                    .rounded(px(6.))
+                    .rounded(t().r(6.))
                     .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
                     .on_click(cx.listener({
                         let up = up.clone();
@@ -1429,7 +1433,7 @@ impl Desktop {
                     .child(
                         div()
                             .flex_1()
-                            .min_w(px(0.))
+                            .min_w(t().d(0.))
                             .truncate()
                             .font_family(art::MONO)
                             .text_size(m.f(1.4, 10., 13.))
@@ -1453,12 +1457,12 @@ impl Desktop {
                     .w_full()
                     .px(m.v(0.8))
                     .py(m.v(0.5))
-                    .rounded(px(6.))
+                    .rounded(t().r(6.))
                     .border_1()
                     .border_color(if selected {
                         rgb(art::ACCENT)
                     } else {
-                        rgba(0x00000000)
+                        rgba(t().p.transparent)
                     })
                     .when(selected, |el| el.bg(rgb(art::ACCENT).opacity(0.14)))
                     .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
@@ -1475,7 +1479,7 @@ impl Desktop {
                     .child(
                         div()
                             .flex_1()
-                            .min_w(px(0.))
+                            .min_w(t().d(0.))
                             .truncate()
                             .font_family(art::MONO)
                             .text_size(m.f(1.4, 10., 13.))
@@ -1526,12 +1530,12 @@ impl Desktop {
                     .w_full()
                     .px(m.v(0.8))
                     .py(m.v(0.55))
-                    .rounded(px(6.))
+                    .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
                         rgb(art::ACCENT)
                     } else {
-                        rgba(0x00000000)
+                        rgba(t().p.transparent)
                     })
                     .when(picked, |el| el.bg(rgb(art::ACCENT).opacity(0.14)))
                     .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
@@ -1541,7 +1545,7 @@ impl Desktop {
                     }))
                     .child(
                         div()
-                            .mt(px(1.))
+                            .mt(t().d(1.))
                             .size(m.f(1.1, 10., 14.))
                             .rounded_full()
                             .border_1()
@@ -1556,13 +1560,13 @@ impl Desktop {
                             .child(div().size(m.f(0.5, 5., 7.)).rounded_full().bg(if picked {
                                 rgb(art::ACCENT)
                             } else {
-                                rgba(0x00000000)
+                                rgba(t().p.transparent)
                             })),
                     )
                     .child(
                         div()
                             .flex_1()
-                            .min_w(px(0.))
+                            .min_w(t().d(0.))
                             .child(
                                 div()
                                     .font_family(art::MONO)
@@ -1590,7 +1594,7 @@ impl Desktop {
         if rows.is_empty() {
             return div()
                 .flex_1()
-                .min_h(px(120.))
+                .min_h(t().d(120.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1605,18 +1609,17 @@ impl Desktop {
             .id(ElementId::Name("board-sheet-list".into()))
             .flex()
             .flex_col()
-            .gap(px(2.))
+            .gap(t().d(2.))
             .px(m.v(1.2))
             .py(m.v(1.))
             .flex_1()
-            .min_h(px(0.))
+            .min_h(t().d(0.))
             .overflow_y_scroll()
             .track_scroll(&self.newchat.sheet_scroll)
             .children(rows)
             .into_any_element()
     }
 }
-
 /// 模型清单里有几个供应商。
 fn providers_of(models: &Models) -> usize {
     let mut seen: Vec<&str> = Vec::new();
