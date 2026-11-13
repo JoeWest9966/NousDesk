@@ -24,10 +24,10 @@ use gpui_kit::prelude::FluentBuilder as _;
 // `on_hover` / `on_click` 这些不是 Div 自带的方法，是这条 trait 给的，得显式拿进来。
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
-use nous_engine::EngineClient;
 use nous_engine::pins::PinClient;
 use nous_engine::resolve::resolve_engine;
 use nous_engine::types::{ConfigPatch, Entry, Session, Unread};
+use nous_engine::{EngineClient, EngineError};
 use smol::Timer;
 
 use crate::nav_ui::SessionNav;
@@ -79,12 +79,64 @@ pub(crate) const PRESET_TREE_W: f32 = 224.;
 #[allow(dead_code)]
 pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
 
-actions!(nousdesk, [TogglePinAction]);
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
     Chats,
     Templates,
+}
+
+/// 轻提示的性质：成功绿 / 失败红。
+///
+/// 用枚举而不是 `bool`：两个调用点都写 `true` / `false` 的时候，谁也看不出来
+/// 那个 flag 是什么意思（评审 J1）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoticeKind {
+    /// 做成了 / 只是告知（绿）。
+    Info,
+    /// 失败了（红）。
+    Error,
+}
+
+/// 全局轻提示的状态：文案 + 性质 + 一个代号。
+///
+/// 自动收起是「每弹一条挂一个 4 秒定时器」，难点在**连弹两条**：第一条的定时器
+/// 不许在第二条头上把提示收掉。所以每条提示带一个代号，定时器只收自己等的那一条。
+#[derive(Debug, Default)]
+pub(crate) struct NoticeState {
+    shown: Option<(String, NoticeKind)>,
+    token: u64,
+}
+
+impl NoticeState {
+    /// 弹一条，返回这次定时器该等的代号。旧定时器回来时代号对不上，什么都不做。
+    pub(crate) fn show(&mut self, text: impl Into<String>, kind: NoticeKind) -> u64 {
+        self.shown = Some((text.into(), kind));
+        self.token += 1;
+        self.token
+    }
+
+    /// 定时器到点：收掉自己等的那一条，返回收没收。
+    pub(crate) fn expire(&mut self, token: u64) -> bool {
+        if token != self.token || self.shown.is_none() {
+            return false;
+        }
+        self.shown = None;
+        true
+    }
+
+    /// 眼下在场的那条（文案 + 性质）。
+    pub(crate) fn current(&self) -> Option<&(String, NoticeKind)> {
+        self.shown.as_ref()
+    }
+}
+
+/// 一次引擎调用的失败：引擎回了 `{error}`，还是任务本身挂了（tokio 那边）。
+///
+/// 两类的文案来源不同 —— 前者是引擎原文（一个字都不许改），后者是我们自己的
+/// 「任务挂了」—— 所以由调用方决定画到哪（轻提示 / 归档库页头）。
+enum EngineFailure {
+    Engine(EngineError),
+    Task(String),
 }
 
 pub struct Desktop {
@@ -157,6 +209,14 @@ pub struct Desktop {
     pub(crate) theme_name: crate::theme::ThemeName,
     /// 设置页底部的一行反馈：文案 + 是不是错。
     pub(crate) settings_msg: Option<(String, bool)>,
+    /// 归档库页开着没有（右栏整页）。优先级：设置 > 归档库 > New Manual > 聊天。
+    pub(crate) archive_open: bool,
+    /// 归档库页的状态（数据 / 载入中 / 错误原文 / 选中行）。
+    pub(crate) archive: crate::archive_page::ArchivePageState,
+    /// 「撕原件」危险确认的状态机（票 #3）。本票只负责把它接到引擎上。
+    pub(crate) purge_confirm: crate::archive_confirm::PurgeConfirm,
+    /// 全局轻提示（最上层）。自动收起靠定时器 + 代号，见 [`NoticeState`]。
+    pub(crate) notice: NoticeState,
     /// 启动时读到的配置（保存后跟着换）。
     ///
     /// 不叫 `cfg` —— 那个名字已经被 `config_panel` 的界面状态占了。
@@ -294,6 +354,27 @@ impl Desktop {
                 // 配置面板开着时 Esc 收起。它没有 ↑↓ 这类键，只看 Esc，
                 // 也不要求输入框聚焦 —— 面板自己的清单才是焦点可能待着的地方。
                 if key == "escape" {
+                    // 盖在最上面的两层先拿 Esc：「撕原件」确认只关不撕；归档库页只收页。
+                    // 都走 `stop_propagation`，不让 Esc 再落到下面去关别的面板。
+                    let closed = weak
+                        .update(app, |this, cx| {
+                            if this.purge_confirm.is_open() {
+                                this.purge_confirm.on_esc();
+                                cx.notify();
+                                return true;
+                            }
+                            if this.archive_open {
+                                this.archive_open = false;
+                                cx.notify();
+                                return true;
+                            }
+                            false
+                        })
+                        .unwrap_or(false);
+                    if closed {
+                        app.stop_propagation();
+                        return;
+                    }
                     let closed = weak
                         .update(app, |this, cx| {
                             if !this.cfg_visible() {
@@ -358,6 +439,10 @@ impl Desktop {
             settings_tab: crate::settings::SettingsTab::Connection,
             theme_name: crate::theme::ThemeName::load(),
             settings_msg: None,
+            archive_open: false,
+            archive: crate::archive_page::ArchivePageState::new(),
+            purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
+            notice: NoticeState::default(),
             conn,
             host_input,
             board_input,
@@ -1538,6 +1623,367 @@ impl Desktop {
         }
     }
 
+    // ── 归档 / 撕原件 / 轻提示（票 #6）──────────────────────
+
+    /// 弹一条轻提示：做成的事绿、失败红，4 秒后自己收。
+    ///
+    /// 只在这里点火，**不在 `render` 里点火** —— 否则就是「重画 → 再点火」的死循环。
+    fn notify(&mut self, text: impl Into<String>, kind: NoticeKind, cx: &mut Context<Self>) {
+        let token = self.notice.show(text, kind);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            Timer::after(Duration::from_secs(4)).await;
+            let _ = this.update(cx, |this, cx| {
+                // 期间又弹了一条：代号对不上，让它自己等。
+                if this.notice.expire(token) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 引擎报错的提示：`message` 原文逐字，不加前缀、不翻译、不截断。
+    fn notify_error(&mut self, err: &EngineError, cx: &mut Context<Self>) {
+        self.notify(error_notice(err), NoticeKind::Error, cx);
+    }
+
+    /// 一段引擎调用的骨架：起任务 → 等 → 三种结局分开。
+    ///
+    /// 归档 / 撕原件 / 打捞 / 拉归档库四处原先各抄一遍同样的
+    /// `Ok(Ok(_)) / Ok(Err(e)) / Err(e)` + `log::warn!` + `update`，
+    /// 改一处忘三处（评审 J4）。这里只统一「怎么等、怎么区分两类失败、失败一定留日志」；
+    /// 成功之后刷什么、失败画到哪（轻提示 / 归档库页头红字），由调用方注入 ——
+    /// 四处在这些地方本来就不一样，别为了少写一行把它们抹平。
+    ///
+    /// `failed` / `task_failed` 是两句日志的固定部分（各站点主语不同，原样保留）。
+    fn run_engine<T, Fut, OnOk, OnErr>(
+        &mut self,
+        cx: &mut Context<Self>,
+        failed: &str,
+        task_failed: &str,
+        work: Fut,
+        on_ok: OnOk,
+        on_err: OnErr,
+    ) where
+        T: Send + 'static,
+        Fut: std::future::Future<Output = std::result::Result<T, EngineError>> + Send + 'static,
+        OnOk: FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
+        OnErr: FnOnce(&mut Self, EngineFailure, &mut Context<Self>) + 'static,
+    {
+        let Some(handle) = crate::TOKIO.get().cloned() else {
+            return;
+        };
+        let failed = failed.to_owned();
+        let task_failed = task_failed.to_owned();
+        cx.spawn(async move |this, cx| {
+            let got = handle.spawn(work).await;
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Ok(Ok(value)) => on_ok(this, value, cx),
+                    Ok(Err(e)) => {
+                        log::warn!("{failed}：{e}");
+                        on_err(this, EngineFailure::Engine(e), cx);
+                    }
+                    Err(e) => {
+                        log::warn!("{task_failed}：{e}");
+                        on_err(this, EngineFailure::Task(e.to_string()), cx);
+                    }
+                }
+                // 成功要重画（刷新过的列表），失败也要（红字 / 页头错误）。
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 走轻提示的失败出口（归档 / 撕原件 / 打捞共用）。
+    fn notify_engine_failure(&mut self, failure: EngineFailure, cx: &mut Context<Self>) {
+        match failure {
+            EngineFailure::Engine(e) => self.notify_error(&e, cx),
+            EngineFailure::Task(e) => {
+                self.notify(format!("任务挂了：{e}"), NoticeKind::Error, cx)
+            }
+        }
+    }
+
+    /// 打开归档库（右栏整页）。入口在「≡ 更多」菜单里。
+    pub(crate) fn open_archive(&mut self, cx: &mut Context<Self>) {
+        self.menu_open = false;
+        self.settings_open = false;
+        self.archive_open = true;
+        self.archive_page_load(cx);
+        cx.notify();
+    }
+
+    /// 收起归档库，右栏回到聊天区。
+    pub(crate) fn close_archive(&mut self, cx: &mut Context<Self>) {
+        if self.archive_open {
+            self.archive_open = false;
+            cx.notify();
+        }
+    }
+
+    /// 拉 `GET /v1/archive`。数据留着，只在页头标「刷新中」——
+    /// 刷新时把整页清空，看着像「东西没了」。
+    fn archive_page_load(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            self.archive.error = Some("还没连上引擎 —— 去「≡ 更多」里重新连接".to_string());
+            cx.notify();
+            return;
+        };
+        // 没有 tokio 就别把页头挂成「刷新中」—— 那个状态永远等不到回调去收。
+        if crate::TOKIO.get().is_none() {
+            return;
+        }
+        self.archive.loading = true;
+        self.archive.error = None;
+        cx.notify();
+        self.run_engine(
+            cx,
+            "归档库拉不到",
+            "归档库任务挂了",
+            async move { engine.archive_list().await },
+            |this, data, _cx| {
+                this.archive.loading = false;
+                this.archive.data = data;
+                // 刷新后选中的那行可能已经不在了（打捞 / 撕原件之后）：
+                // 别留一个指向空气的高亮。
+                let selected_gone = this.archive.selected.as_ref().is_some_and(|key| {
+                    !this.archive.data.gens.iter().any(|g| {
+                        g.r#gen == key.r#gen && g.items.iter().any(|i| i.id == key.id)
+                    })
+                });
+                if selected_gone {
+                    this.archive.clear_selection();
+                }
+            },
+            |this, failure, _cx| {
+                // 归档库里失败画在**页头**，不弹轻提示：整页都在讲这件事，
+                // 再飘一条红的会重复，而且关掉以后就找不到原因了。
+                this.archive.loading = false;
+                this.archive.error = Some(match failure {
+                    EngineFailure::Engine(e) => error_notice(&e),
+                    EngineFailure::Task(e) => format!("任务挂了：{e}"),
+                });
+            },
+        );
+    }
+
+    /// 重拉 `/v1/sessions`（排序照 `start_poll` 那套，不另拼一份），落进 `self.sessions`。
+    ///
+    /// `archived`：刚归档 / 刚撕掉的那条。若它正是当前打开的会话，就按
+    /// [`next_selection_after_archive`] 退到最近一条；退无可退回空态（真停 SSE），
+    /// 绝不留一个「选着一条已经不存在的会话」的空壳。
+    ///
+    /// **故意不走 [`Self::run_engine`]**：拉列表失败是常态（轮询会再拉一次），
+    /// 这里一个字都不该弹给用户，和那四处的「失败必须可见」是两种要求。
+    fn reload_sessions(&mut self, archived: Option<i64>, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let Some(handle) = crate::TOKIO.get().cloned() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let got = handle.spawn(async move { engine.sessions().await }).await;
+            let _ = this.update(cx, |this, cx| {
+                let Ok(Ok(list)) = got else {
+                    // 拉失败就交给下一次轮询，不把半截状态写进列表。
+                    return;
+                };
+                let mut next = list.items;
+                sort_sessions(&mut next);
+                this.sessions = next;
+                if let Some(gone) = archived.filter(|id| this.selected == Some(*id)) {
+                    match next_selection_after_archive(&this.sessions, gone) {
+                        Some(id) => this.select_session(id, true, cx),
+                        None => this.leave_empty(cx),
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 没有可退的会话：右栏回空态，并且**真的停掉** SSE（不是只把名单清空）。
+    fn leave_empty(&mut self, cx: &mut Context<Self>) {
+        self.selected = None;
+        self.entries.clear();
+        self.entries_loading = false;
+        self.entries_error = None;
+        self.turn_error = None;
+        self.live = None;
+        self.live_state = Live::new();
+        self.stream_for = None;
+        self.streaming = false;
+        self.nav.reset();
+        cx.notify();
+    }
+
+    /// `归档该聊天…`：复印进归档库 + 写墓碑。
+    ///
+    /// 成功后重拉主列表（那一行自己消失）、刷新开着的归档库、弹一条绿提示。
+    /// 失败弹引擎 `{error}` 原文（409 会列出活分支，那些字不动）。
+    fn archive_session(&mut self, id: i64, name: &str, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        log::info!("归档会话：{name}（#{id}）");
+        self.run_engine(
+            cx,
+            &format!("归档没成：{id}"),
+            &format!("归档任务挂了：{id}"),
+            async move { engine.archive(id).await },
+            move |this, _done, cx| {
+                this.notify("已归档 · 可在归档库捞回", NoticeKind::Info, cx);
+                this.reload_sessions(Some(id), cx);
+                if this.archive_open {
+                    this.archive_page_load(cx);
+                }
+            },
+            Self::notify_engine_failure,
+        );
+    }
+
+    /// 确认之后真撕。**不可撤销**，所以只能从 [`PurgeConfirm::on_confirm`] 走到这里。
+    fn purge_session(&mut self, id: i64, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        log::info!("撕原件：#{id}");
+        self.run_engine(
+            cx,
+            &format!("撕原件没成：{id}"),
+            &format!("撕原件任务挂了：{id}"),
+            async move { engine.purge(id).await },
+            move |this, _done, cx| {
+                this.notify("已撕掉原件", NoticeKind::Info, cx);
+                // 撕掉的要是正开着的那条，同样退让；不在列表里就只是重拉一次。
+                this.reload_sessions(Some(id), cx);
+                if this.archive_open {
+                    this.archive_page_load(cx);
+                }
+            },
+            Self::notify_engine_failure,
+        );
+    }
+
+    /// 危险确认里按了「撕掉原件」：拿到 `(id, name)` 才真的发请求。
+    fn confirm_purge(&mut self, cx: &mut Context<Self>) {
+        let Some(action) = self.purge_confirm.on_confirm() else {
+            cx.notify();
+            return;
+        };
+        cx.notify();
+        // 会话 id 是**数字**（`wire.md`）：确认层存的就是 `i64`，这里不 parse、
+        // 也没有「不是数字」的兜底分支（评审 J2）。
+        self.purge_session(action.session_id, cx);
+    }
+
+    /// 打捞：`POST /v1/archive/:id/restore`。成功后归档库 + 主列表都刷新 ——
+    /// 只刷一边会让人以为没生效（徽标还是「已销毁」，或者列表里没回来）。
+    fn restore_session(&mut self, id: i64, r#gen: String, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        log::info!("打捞：#{id}（gen {gen}）");
+        self.run_engine(
+            cx,
+            &format!("打捞没成：{id}"),
+            &format!("打捞任务挂了：{id}"),
+            async move { engine.restore(id, &r#gen).await },
+            move |this, _done, cx| {
+                this.notify("已捞回 · 会话回到主列表", NoticeKind::Info, cx);
+                this.archive_page_load(cx);
+                this.reload_sessions(None, cx);
+            },
+            Self::notify_engine_failure,
+        );
+    }
+
+    /// 归档库页的出口：这一页只产出动作，真正干什么在这里。
+    fn archive_on_action(
+        &mut self,
+        action: &crate::archive_page::ArchiveAction,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::archive_page::ArchiveAction as A;
+        match action {
+            A::Refresh => self.archive_page_load(cx),
+            A::Restore { id, r#gen } => self.restore_session(*id, r#gen.clone(), cx),
+            A::Purge { id, name } => {
+                // 危险动作：先弹 #3 的红框，真删在 `confirm_purge`。
+                self.purge_confirm.request(*id, name.clone());
+                cx.notify();
+            }
+        }
+    }
+
+    /// 画归档库整页（右栏）。三个回调全在这里接，`archive_page` 只管画。
+    fn render_archive(&self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::archive_page::{ArchiveAction, OnAction, OnClick, OnSelect, RowKey};
+        let on_action: OnAction = Rc::new(cx.listener(|this, action: &ArchiveAction, _, cx| {
+            this.archive_on_action(action, cx);
+        }));
+        let on_select: OnSelect = Rc::new(cx.listener(|this, key: &RowKey, _, cx| {
+            this.archive.select(key.clone());
+            cx.notify();
+        }));
+        let on_back: OnClick =
+            Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| this.close_archive(cx)));
+        crate::archive_page::render_archive_page(&self.archive, on_action, on_select, on_back)
+    }
+
+    /// 「撕原件」危险确认，挂在整窗这一层（和菜单 / 配置面板同一层）。
+    fn purge_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.purge_confirm.is_open() {
+            return None;
+        }
+        let close = Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.purge_confirm.on_cancel();
+            cx.notify();
+        }));
+        let close_handler = close.clone();
+        Some(crate::archive_confirm::render_purge_confirm(
+            &self.purge_confirm,
+            cx.listener(|this, _: &ClickEvent, _, cx| this.confirm_purge(cx)),
+            move |ev, window, cx| close_handler(ev, window, cx),
+        ))
+    }
+
+    /// 最上层的轻提示。没有就 `None`（`children` 吃掉 `Option` 不花钱）。
+    fn render_notice(&self) -> Option<AnyElement> {
+        let (text, kind) = self.notice.current()?;
+        let (bg, fg) = match kind {
+            NoticeKind::Error => (t().p.danger_soft, t().p.danger_fg),
+            NoticeKind::Info => (t().p.accent_soft, t().p.accent_fg),
+        };
+        Some(
+            div()
+                .absolute()
+                .left(t().d(0.))
+                .right(t().d(0.))
+                .bottom(t().d(28.))
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .max_w(t().d(620.))
+                        .px(t().d(14.))
+                        .py(t().d(9.))
+                        .rounded(t().r(7.))
+                        .bg(rgb(bg))
+                        .shadow_lg()
+                        .text_size(t().fs(12.5))
+                        .text_color(rgb(fg))
+                        .child(text.clone()),
+                )
+                .into_any_element(),
+        )
+    }
+
     // ── 三个栏 ──────────────────────────────────────────────
 
     fn render_icon_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2450,7 +2896,9 @@ impl Desktop {
         let busy = s.busy.is_some();
         let id = s.id;
         let pinned = self.pins.contains(&id);
-        let can_pin = self.pins_client.is_some();
+        // 置顶要 bjes6b（`pins_client`），归档只要 qrd3wh。两件事的门不能串在一起：
+        // 置顶服务没连上时菜单照样要挂上，只是那一项画成禁用态（见 `archive_menu`）。
+        let pins_available = self.pins_client.is_some();
 
         let row = div()
             .flex()
@@ -2567,26 +3015,79 @@ impl Desktop {
                 this.choose_session(id, cx);
             }));
 
-        // 右键菜单：置顶 / 取消置顶。菜单项发的是同一个 action，每行自己的 listener
-        // 捕获自己的 id，所以 action 不用带参数。
+        // 右键菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字。
+        // 「更多」里的归档 / 撕原件是**独立一层**的子菜单（见 `archive_menu.rs`），
+        // 条目顺序、文案、动作映射都在那个模块里；这里只把产出的动作送回 `Desktop`。
+        //
+        // 菜单**永远挂上**：归档 / 撕原件 / 复制都走 qrd3wh，和置顶服务无关 ——
+        // 早先按 `pins_client` 判了一刀，bjes6b 一挂就整摞菜单（含「更多 › 归档」）
+        // 跟着消失（评审必修 1）。置顶不可用时由 `archive_menu` 把那一条画成禁用态。
         //
         // 只能在链尾分支：`context_menu()` 返回的是 `ContextMenu<Stateful<Div>>`，
         // 换个类型就没法再串 `when`（类型对不上）。
-        if can_pin {
-            row.on_action(cx.listener(move |this, _: &TogglePinAction, _window, cx| {
-                this.toggle_pin(id, cx);
-            }))
-            .context_menu(move |menu, _window, _cx| {
-                let label = if pinned {
-                    "取消置顶"
-                } else {
-                    "置顶该聊天"
-                };
-                menu.menu(label, Box::new(TogglePinAction))
-            })
-            .into_any_element()
-        } else {
-            row.into_any_element()
+        let this = cx.entity().downgrade();
+        let target = crate::archive_menu::SessionTarget::new(id, s.name.clone());
+        row.context_menu(move |menu, window, cx| {
+            let this = this.clone();
+            crate::archive_menu::build_menu(
+                menu,
+                window,
+                cx,
+                &target,
+                pinned,
+                pins_available,
+                move |action, cx| {
+                    let _ = this.update(cx, |this, cx| this.on_session_menu(action, cx));
+                },
+            )
+        })
+        .into_any_element()
+    }
+
+    /// 会话行右键菜单的出口（票 #5 / #6）。
+    ///
+    /// 每一项点下去都必须有可见结果（AGENTS：「按钮点下去没反应…都算 bug」）：
+    /// 打开换会话、置顶写穿 bjes6b、归档 / 撕原件走引擎、复制写剪贴板后弹确认。
+    /// 重命名是唯一还没端点的项（`wire.md` 里没有改名路由），点它给一句说明，
+    /// 不偷偷发请求、也不静默吞掉。
+    pub(crate) fn on_session_menu(
+        &mut self,
+        action: crate::archive_menu::SessionMenuAction,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::archive_menu::SessionMenuAction as A;
+        match action {
+            A::Open { id } => self.choose_session(id, cx),
+            A::TogglePin { id } => self.toggle_pin(id, cx),
+            A::CopyName { name } => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(name.clone()));
+                log::info!("复制会话名字：{name}");
+                // 写剪贴板本身没有可见结果（Wayland 上还可能被合成器丢掉），
+                // 所以必须给一句确认 —— 否则就是「点下去像没反应」。
+                self.notify("已复制会话名字", NoticeKind::Info, cx);
+            }
+            A::CopyId { id } => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(id.to_string()));
+                log::info!("复制会话 id：{id}");
+                self.notify("已复制会话 id", NoticeKind::Info, cx);
+            }
+            A::Archive { id, name } => self.archive_session(id, &name, cx),
+            A::Purge { id, name } => {
+                // 危险动作一律先过 #3 的红框；真撕在 `confirm_purge`。
+                self.purge_confirm.request(id, name);
+                cx.notify();
+            }
+            A::Rename { id } => {
+                // spec 要求菜单里保留这一项，但 `wire.md` 里**没有**改名端点
+                // （`POST /v1/sessions/0/rename` 和 `config` 一样先查会话，404 分不出
+                // 路由在不在）。所以点了要给一句说明，不能静默（AGENTS「算 bug」）。
+                log::info!("菜单：重命名 #{id} —— 协议端点还没有");
+                self.notify(
+                    "重命名端点还没接：wire.md 里没有这条",
+                    NoticeKind::Info,
+                    cx,
+                );
+            }
         }
     }
 
@@ -2668,7 +3169,11 @@ impl Desktop {
                         .flex_none()
                         .px(t().d(5.))
                         .rounded(t().r(8.))
-                        .bg(rgb(if on { t().p.accent_hover } else { t().p.chat_bg }))
+                        .bg(rgb(if on {
+                            t().p.accent_hover
+                        } else {
+                            t().p.chat_bg
+                        }))
                         .text_size(t().fs(11.))
                         .child(format!("{n}")),
                 )
@@ -2924,6 +3429,25 @@ async fn load_engine(
     Ok((Arc::new(engine), sessions, node, url.as_str().to_string()))
 }
 
+/// 归档掉 `gone` 之后，右栏该退到哪一条。
+///
+/// `sessions` 是**已经排好序**的列表（`sort_sessions` + 置顶那一套，跟左栏看到的一致），
+/// 取第一条不是它的 = 「最近一条能说话的」。`busy` 的不排除：在跑的会话也能看。
+/// 取不到就 `None`，调用方据此回空态（清 entries + 停 SSE）。
+pub(crate) fn next_selection_after_archive(sessions: &[Session], gone: i64) -> Option<i64> {
+    sessions.iter().find(|s| s.id != gone).map(|s| s.id)
+}
+
+/// 引擎错误的提示语：[`EngineError::Engine`] 的 `message` **原文**逐字给用户
+/// （409 会列出活分支，那些字有用），不加前缀、不翻译、不截断。
+/// 网络 / URL 层没有引擎的 `message`，用 `Display` —— 那种错误没有「原文」可言。
+pub(crate) fn error_notice(err: &EngineError) -> String {
+    match err {
+        EngineError::Engine { message, .. } => message.clone(),
+        other => other.to_string(),
+    }
+}
+
 /// 会话排序：按 `last.id` 倒序 = 最后说话的那条在最上面。
 ///
 /// `EntryId` 是全局单调的（durable 的 `conversation-tails` 就靠这条），实测也成立：
@@ -3061,6 +3585,8 @@ impl Render for Desktop {
         // 设置页也顶替右栏，但它优先级更高：正在改连接时别把盘面盖在上面。
         let right: AnyElement = if self.settings_open {
             self.render_settings(cx)
+        } else if self.archive_open {
+            self.render_archive(cx)
         } else if self.newchat.open {
             self.render_board(window, cx)
         } else {
@@ -3101,7 +3627,8 @@ impl Render for Desktop {
                 (self.tab == Tab::Chats
                     && self.selected.is_some()
                     && !self.newchat.open
-                    && !self.settings_open)
+                    && !self.settings_open
+                    && !self.archive_open)
                     .then(|| {
                         let groups = self.nav_groups();
                         if groups.is_empty() {
@@ -3130,7 +3657,11 @@ impl Render for Desktop {
             .child(shell_root)
             .children(self.cfg_overlay(cx))
             // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
-            .children(self.menu_open.then(|| self.render_menu_overlay(cx)));
+            .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
+            // 「撕原件」确认（盖在菜单之上）
+            .children(self.purge_overlay(cx))
+            // 轻提示：最后一层，永远看得见。
+            .children(self.render_notice());
 
         // Linux：内容区上面压一条自绘标题栏（GNOME 不给 SSD，见 `chrome.rs`）。
         // 其它平台仍然是系统标题栏，这里原样返回。
@@ -3195,8 +3726,12 @@ fn nav_child_index(
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::{nav_child_index, order_ids, when_text};
-    use nous_engine::types::Entry;
+    use super::{
+        NoticeKind, NoticeState, error_notice, nav_child_index, next_selection_after_archive,
+        order_ids, when_text,
+    };
+    use nous_engine::EngineError;
+    use nous_engine::types::{Entry, Session};
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -3387,5 +3922,80 @@ x
     #[test]
     fn 重复置顶不会重复出现() {
         assert_eq!(order_ids(&[1, 2], &[2, 2]), vec![2, 1]);
+    }
+
+    // ── 票 #6：归档接线（只测纯函数缝）──────────────────────────────
+
+    /// 一条会话的最小形状。`last` 决定它在列表里的活跃度，跟引擎的真 JSON 同形。
+    fn s(id: i64, last: Option<i64>) -> Session {
+        serde_json::from_value(json!({
+            "id": id,
+            "name": format!("对话 {id}"),
+            "parent": null,
+            "owner": null,
+            "model": null,
+            "thinkingLevel": null,
+            "thinkingLevels": [],
+            "skills": [],
+            "template": null,
+            "readOnly": false,
+            "cwd": null,
+            "machine": null,
+            "busy": null,
+            "updatedAt": null,
+            "last": last.map(|l| json!({"id": l, "kind": "pi.user", "text": "嗯"})),
+        }))
+        .expect("会话 JSON 要能解析")
+    }
+
+    /// 归档掉的正是当前打开的那条：退到**列表顺序**里的下一条
+    /// （= 最近一条能说话的），不是 id 最大 / 最小的那条。
+    #[test]
+    fn 归档当前会话后退到列表里的下一条() {
+        let list = vec![s(3, Some(30)), s(2, Some(20)), s(1, Some(10))];
+        assert_eq!(next_selection_after_archive(&list, 3), Some(2));
+        assert_eq!(
+            next_selection_after_archive(&list, 1),
+            Some(3),
+            "退让看列表顺序，不是 id 大小"
+        );
+    }
+
+    /// 一条都不剩：返回 `None`，调用方据此回空态（清 entries + 停 SSE），别留空壳。
+    #[test]
+    fn 归档最后一条会话后没有可退的() {
+        assert_eq!(next_selection_after_archive(&[s(7, None)], 7), None);
+        assert_eq!(next_selection_after_archive(&[], 7), None);
+    }
+
+    /// 连弹两条提示时，第一条的定时器回来对不上号 —— 不许把第二条提前收掉。
+    #[test]
+    fn 旧定时器不会收掉后弹的提示() {
+        let mut notice = NoticeState::default();
+        let first = notice.show("已归档 · 可在归档库捞回", NoticeKind::Info);
+        let second = notice.show("会话还有活分支：304、305", NoticeKind::Error);
+
+        assert!(!notice.expire(first), "第一条的定时器不该收掉第二条");
+        assert_eq!(
+            notice.current().map(|(text, kind)| (text.as_str(), *kind)),
+            Some(("会话还有活分支：304、305", NoticeKind::Error)),
+            "第二条要原样在场"
+        );
+
+        assert!(notice.expire(second), "第二条自己的定时器才收得掉它");
+        assert!(notice.current().is_none(), "收掉之后不留空壳");
+    }
+
+    /// 引擎 409 的 `{error}` 原文逐字进提示：不加前缀、不翻译、不截断
+    /// （里面那些活分支名字是用户唯一能看到的线索）。
+    #[test]
+    fn 引擎错误原文逐字进提示() {
+        let message = "会话 302 还有活分支：304「改路由」、305「补测试」";
+        let err = EngineError::Engine {
+            status: 409,
+            message: message.to_string(),
+        };
+
+        assert_eq!(error_notice(&err), message);
     }
 }

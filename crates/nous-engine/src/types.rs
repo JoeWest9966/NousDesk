@@ -3,6 +3,7 @@
 //! 纪律：
 //! - 未知字段用 `#[serde(flatten)] extra` 收着，原样透传，**不** `deny_unknown_fields`。
 //! - 这里只有引擎回的形状，没有业务规则。能否启动、是否生效，引擎都算好了，别在这里再算一遍。
+//! - `gen` 是 Rust 2024 的保留字，键名仍是 `"gen"`，代码里写 `r#gen`。
 
 use std::collections::HashMap;
 
@@ -41,6 +42,10 @@ pub struct Session {
     /// 重启前的老会话就是空的。null 就是「不知道」，别拿文件 mtime 之类冒充。
     pub updated_at: Option<i64>,
     pub last: Option<SessionLast>,
+    /// 归档墓碑。可为 `null` / 对象；老引擎整个字段缺席时也是 `None`。
+    /// `?archived=1` 的全量会话树每一项都带，别拿它当布尔。
+    #[serde(default)]
+    pub archived: Option<ArchiveTombstone>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -57,6 +62,75 @@ pub struct SessionLast {
     pub id: serde_json::Value,
     pub kind: String,
     pub text: Option<String>,
+}
+
+// ── 归档库（`GET /v1/archive` 与会话树上的墓碑）──────────────────────────
+//
+// 全部字段用 Option / #[serde(default)] 兜底：引擎加字段 / 缺字段 / 给 null 都不许解析炸。
+// 这里是哑类型，四态（原件在 / 已销毁 / 已捞回 / 无墓碑）由调用方按引擎给的值推，
+// 不在这层算业务规则。
+
+/// `GET /v1/archive`：`{ gens: [{ gen, items: [...] }] }`。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ArchiveGens {
+    #[serde(default)]
+    pub gens: Vec<ArchiveGen>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// 一批归档（`gen-YYYYMMDD.sqlite`）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ArchiveGen {
+    /// 日期串，如 `"20261110"`。`gen` 是 Rust 2024 保留字，字段写作 `r#gen`。
+    #[serde(default)]
+    pub r#gen: String,
+    #[serde(default)]
+    pub items: Vec<ArchiveItem>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// 归档库里的一条会话复印件。
+///
+/// `parent` / `entries` 用和 `/v1/sessions` 同一套形状（`SessionParent` / 数字），
+/// 不在 UI 层再从裸 `Value` 猜（评审 J5）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ArchiveItem {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub name: String,
+    /// 分叉来源（`{id, at}`），`null` / 缺席 = 不是分支。
+    #[serde(default)]
+    pub parent: Option<SessionParent>,
+    /// 复印下来的消息条数，不是布尔。缺字段 / 没有条目都按 0。
+    #[serde(default)]
+    pub entries: u64,
+    /// 最后一句摘要，可为 null / 对象 / 缺席。
+    #[serde(default)]
+    pub last: Option<serde_json::Value>,
+    /// 墓碑：`null` = 没归档过；对象 = 归档/撕原件的记录。
+    #[serde(default)]
+    pub archived: Option<ArchiveTombstone>,
+    /// 原件是否还在（引擎算好的，客户端不推）。
+    #[serde(default)]
+    pub live: bool,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// 归档墓碑：`{ gen, purged, at }`。`at` 可为 null；三个键都可能整块缺席。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ArchiveTombstone {
+    #[serde(default)]
+    pub r#gen: String,
+    #[serde(default)]
+    pub purged: bool,
+    #[serde(default)]
+    pub at: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// `GET /v1/sessions/:id/entries` 返回的历史。**新的在前**，客户端要翻正。
