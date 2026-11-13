@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[dev-dependencies]
+# HTTP 假服务：`tokio::net::TcpListener` + 异步读写（归档端点测试用，不打活引擎）。
+tokio = { workspace = true, features = ["net"] }
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
