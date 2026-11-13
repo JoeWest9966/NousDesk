@@ -52,20 +52,21 @@ pub fn overlay(id: &'static str, handle: &ScrollHandle, shown: bool, hovered: bo
                 .axis(ScrollbarAxis::Vertical)
                 .mode(ScrollbarMode::Always)
                 .styles(|s| {
+                    let t = crate::theme::cur();
                     s
                         // 没有轨道。macOS 那根就是这样：只有滑块，没有一条槽。
                         .track(|t| t.bg(hsla(0., 0., 0., 0.)))
                         .track_hover(|t| t.bg(hsla(0., 0., 0., 0.)))
-                        .thumb(|t| {
-                            t.bg(rgba(0x00000047)) // 黑 28%
-                                .width(px(7.))
-                                .inset(px(3.))
-                                .radius(px(3.5))
+                        .thumb(|el| {
+                            el.bg(rgba(t.p.scrim)) // 主题给的半透明墨色
+                                .width(t.d(7.))
+                                .inset(t.d(3.))
+                                .radius(t.r(3.5))
                                 // 内容再长也留 28px 抓得住，不然会话一多滑块细成一根线点不着。
-                                .min_length(px(28.))
+                                .min_length(t.d(28.))
                         })
-                        .thumb_hover(|t| t.bg(rgba(0x00000066))) // 黑 40%
-                        .thumb_active(|t| t.bg(rgba(0x00000080))) // 黑 50%，拖的时候最深
+                        .thumb_hover(|el| el.bg(rgba(t.p.shadow)))
+                        .thumb_active(|el| el.bg(rgba(t.p.scrim)))
                 })
                 .viewport_bounds(handle.bounds()),
         )
