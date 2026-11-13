@@ -9,6 +9,10 @@
 //!
 //! 展开状态只存在内存里：它不是事实，是"我眼下看到哪"，重启就重置。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use std::collections::HashSet;
 
 use gpui_kit::prelude::FluentBuilder as _;
@@ -128,8 +132,8 @@ impl Desktop {
         if total == 0 {
             rows.push(
                 div()
-                    .p(px(24.))
-                    .text_size(px(12.))
+                    .p(t().d(24.))
+                    .text_size(t().fs(12.))
                     .text_color(rgb(MUTED))
                     .child("还没有分支")
                     .into_any_element(),
@@ -143,20 +147,20 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(280.))
+            .w(t().d(280.))
             .h_full()
             .bg(rgb(LIST_BG))
             .child(
                 div()
-                    .p(px(12.))
+                    .p(t().d(12.))
                     .child(div().child("NousDesk"))
-                    .child(div().text_size(px(13.)).child(format!("{name} 的分支")))
+                    .child(div().text_size(t().fs(13.)).child(format!("{name} 的分支")))
                     .child(
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(6.))
-                            .text_size(px(12.))
+                            .gap(t().d(6.))
+                            .text_size(t().fs(12.))
                             .text_color(rgb(MUTED))
                             .child(format!("{total} 条（含更深层）"))
                             .child(
@@ -164,7 +168,7 @@ impl Desktop {
                                     // 全展开/全收起是文字按钮，别用图标让人猜。
                                     .id(ElementId::Name("expand-all".into()))
                                     .cursor_pointer()
-                                    .text_color(rgb(0x0b6bcb))
+                                    .text_color(rgb(t().p.link))
                                     .child("全展开")
                                     .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
                                         this.expand_all(cx)
@@ -174,7 +178,7 @@ impl Desktop {
                                 div()
                                     .id(ElementId::Name("collapse-all".into()))
                                     .cursor_pointer()
-                                    .text_color(rgb(0x0b6bcb))
+                                    .text_color(rgb(t().p.link))
                                     .child("全收起")
                                     .on_click(cx.listener(|this, _: &ClickEvent, _w, cx| {
                                         this.collapse_all(cx)
@@ -222,11 +226,11 @@ impl Desktop {
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(15.))
+            .text_size(t().fs(15.))
             .font_weight(FontWeight::BOLD)
-            .text_color(rgb(0x333333))
+            .text_color(rgb(t().p.text_2))
             .when(kids > 0, |el| {
-                el.bg(rgb(0xfdfdfd)).border_1().border_color(rgb(0x8c8c8c))
+                el.bg(rgb(t().p.panel)).border_1().border_color(rgb(t().p.line_strong))
             })
             .child(if kids == 0 {
                 String::new()
@@ -249,7 +253,7 @@ impl Desktop {
         if kids > 0 {
             caret = caret
                 .cursor_pointer()
-                .hover(|el| el.bg(rgb(0xe0e0e0)))
+                .hover(|el| el.bg(rgb(t().p.line_strong)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _w, cx| {
                     // 圆钮只管展开；点行才是打开会话。别让事件冒到行上去。
                     cx.stop_propagation();
@@ -267,30 +271,29 @@ impl Desktop {
             Some(t) => format!("↳ 从 {from} 分叉 · {t}"),
             None => format!("↳ 从 {from} 分叉"),
         };
-
         div()
             .flex()
             .items_center()
             .min_h(px(ROW_H))
-            .py(px(4.))
-            .pr(px(10.))
-            .border_b(px(1.))
-            .border_color(rgb(0xe0e0e0))
-            .when(selected, |el| el.bg(rgb(0xd9d9d9)))
+            .py(t().d(4.))
+            .pr(t().d(10.))
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_strong))
+            .when(selected, |el| el.bg(rgb(t().p.selected)))
             .child(div().flex_none().w(px(indent)))
             .child(caret)
             .child(
                 div()
                     .flex_1()
-                    .min_w(px(0.))
+                    .min_w(t().d(0.))
                     .flex()
                     .flex_col()
-                    .gap(px(2.))
+                    .gap(t().d(2.))
                     .child(div().truncate().child(s.name.clone()))
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(12.))
+                            .text_size(t().fs(12.))
                             .text_color(rgb(MUTED))
                             .child(sub),
                     ),
@@ -299,12 +302,12 @@ impl Desktop {
                 el.child(
                     div()
                         .flex_none()
-                        .ml(px(6.))
-                        .px(px(6.))
-                        .rounded(px(8.))
-                        .bg(rgb(0xfff1cf))
-                        .text_size(px(11.))
-                        .text_color(rgb(0x8a5a00))
+                        .ml(t().d(6.))
+                        .px(t().d(6.))
+                        .rounded(t().r(8.))
+                        .bg(rgb(t().p.warn_soft))
+                        .text_size(t().fs(11.))
+                        .text_color(rgb(t().p.warn))
                         .child(format!("+{kids}")),
                 )
             })

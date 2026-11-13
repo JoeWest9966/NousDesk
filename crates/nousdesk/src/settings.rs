@@ -7,20 +7,29 @@
 //! 设置里只有 `host` 和 `board` 两个可编辑项。引擎地址**不**给输入框：
 //! 它只能从 `__nous/resolve` 拿，写进配置就有了第二个真相。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::app::{Desktop, WECHAT_GREEN};
+use crate::app::Desktop;
 use crate::config::Config;
 
-const MUTED: u32 = 0x999999;
-const FAINT: u32 = 0xaaaaaa;
-const BAD: u32 = 0xd32f2f;
-const GOOD: u32 = 0x079c50;
-const RAIL_DARK: u32 = 0x2e2e2e;
+/// 原 `MUTED = 0x999999`；由 muted 这个语义槽接管。
+fn muted() -> u32 { t().p.muted }
+/// 原 `FAINT = 0xaaaaaa`；由 faint 这个语义槽接管。
+fn faint() -> u32 { t().p.faint }
+/// 原 `BAD = 0xd32f2f`；由 danger 这个语义槽接管。
+fn bad() -> u32 { t().p.danger }
+/// 原 `GOOD = 0x079c50`；由 ok 这个语义槽接管。
+fn good() -> u32 { t().p.ok }
+/// 原 `RAIL_DARK = 0x2e2e2e`；由 sidebar 这个语义槽接管。
+fn rail_dark() -> u32 { t().p.sidebar }
 
 /// 设置页左边那几项。
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -82,19 +91,19 @@ impl Desktop {
     fn menu_body(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .absolute()
-            .left(px(58.))
-            .bottom(px(14.))
-            .w(px(266.))
+            .left(t().d(58.))
+            .bottom(t().d(14.))
+            .w(t().d(266.))
             .flex()
             .flex_col()
-            .bg(rgb(0xffffff))
-            .rounded(px(9.))
-            .border(px(1.))
-            .border_color(rgb(0xe6e6e6))
+            .bg(rgb(t().p.panel))
+            .rounded(t().r(9.))
+            .border(t().d(1.))
+            .border_color(rgb(t().p.line))
             .shadow_lg()
             .overflow_hidden()
             .child(self.menu_header())
-            .child(div().p(px(6.)).child(group_label("应用")).child(menu_row(
+            .child(div().p(t().d(6.)).child(group_label("应用")).child(menu_row(
                 "menu-settings",
                 IconName::Settings,
                 "设置",
@@ -103,9 +112,9 @@ impl Desktop {
             )))
             .child(
                 div()
-                    .p(px(6.))
-                    .border_t(px(1.))
-                    .border_color(rgb(0xf0f0f0))
+                    .p(t().d(6.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(t().p.line_soft))
                     .child(group_label("连接"))
                     .child(menu_row(
                         "menu-reconnect",
@@ -128,9 +137,9 @@ impl Desktop {
             )
             .child(
                 div()
-                    .p(px(6.))
-                    .border_t(px(1.))
-                    .border_color(rgb(0xf0f0f0))
+                    .p(t().d(6.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(t().p.line_soft))
                     .child(group_label("关于"))
                     .child(info_row("版本", format!("v{}", env!("CARGO_PKG_VERSION"))))
                     .child(info_row(
@@ -143,39 +152,39 @@ impl Desktop {
 
     fn menu_header(&self) -> AnyElement {
         let (text, color) = if self.loading {
-            ("连接中…".to_string(), MUTED)
+            ("连接中…".to_string(), muted())
         } else if self.error.is_some() {
-            ("连不上 · 去设置看看".to_string(), BAD)
+            ("连不上 · 去设置看看".to_string(), bad())
         } else {
-            (format!("已连接 · {}", self.conn.board), GOOD)
+            (format!("已连接 · {}", self.conn.board), good())
         };
 
         div()
             .flex()
             .items_center()
-            .gap(px(10.))
-            .p(px(14.))
-            .bg(rgb(0xf7f7f7))
-            .border_b(px(1.))
-            .border_color(rgb(0xeeeeee))
+            .gap(t().d(10.))
+            .p(t().d(14.))
+            .bg(rgb(t().p.list_bg))
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .justify_center()
-                    .size(px(36.))
-                    .rounded(px(6.))
-                    .bg(rgb(RAIL_DARK))
-                    .text_color(rgb(0xffffff))
+                    .size(t().d(36.))
+                    .rounded(t().r(6.))
+                    .bg(rgb(rail_dark()))
+                    .text_color(rgb(t().p.on_accent))
                     .child("N"),
             )
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(2.))
-                    .child(div().text_size(px(13.)).child("NousDesk"))
-                    .child(div().text_size(px(11.)).text_color(rgb(color)).child(text)),
+                    .gap(t().d(2.))
+                    .child(div().text_size(t().fs(13.)).child("NousDesk"))
+                    .child(div().text_size(t().fs(11.)).text_color(rgb(color)).child(text)),
             )
             .into_any_element()
     }
@@ -188,13 +197,13 @@ impl Desktop {
             .flex_col()
             .flex_1()
             .size_full()
-            .bg(rgb(0xffffff))
+            .bg(rgb(t().p.panel))
             .child(self.settings_header(cx))
             .child(
                 div()
                     .flex()
                     .flex_1()
-                    .min_h(px(0.))
+                    .min_h(t().d(0.))
                     .child(self.settings_nav(cx))
                     .child(self.settings_pane(cx)),
             )
@@ -205,13 +214,13 @@ impl Desktop {
         div()
             .flex()
             .items_center()
-            .gap(px(10.))
-            .h(px(48.))
+            .gap(t().d(10.))
+            .h(t().d(48.))
             .flex_none()
-            .px(px(14.))
-            .bg(rgb(0xf7f7f7))
-            .border_b(px(1.))
-            .border_color(rgb(0xe2e2e2))
+            .px(t().d(14.))
+            .bg(rgb(t().p.list_bg))
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
             .child(
                 // 返回：回到聊天区。左栏列表一直在，这里只收起右栏这一页。
                 div()
@@ -219,18 +228,18 @@ impl Desktop {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_settings(cx)))
                     .flex()
                     .items_center()
-                    .gap(px(4.))
-                    .px(px(6.))
-                    .py(px(4.))
-                    .rounded(px(5.))
-                    .text_size(px(12.))
-                    .text_color(rgb(0x666666))
-                    .hover(|el| el.bg(rgb(0xeeeeee)))
-                    .child(Icon::new(IconName::ArrowLeft).with_size(Size::Size(px(14.))))
+                    .gap(t().d(4.))
+                    .px(t().d(6.))
+                    .py(t().d(4.))
+                    .rounded(t().r(5.))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(t().p.text_2))
+                    .hover(|el| el.bg(rgb(t().p.line_soft)))
+                    .child(Icon::new(IconName::ArrowLeft).with_size(Size::Size(t().d(14.))))
                     .child("返回聊天"),
             )
-            .child(div().w(px(8.)))
-            .child(div().text_size(px(13.)).child("设置"))
+            .child(div().w(t().d(8.)))
+            .child(div().text_size(t().fs(13.)).child("设置"))
             .child(div().flex_1())
             .into_any_element()
     }
@@ -251,17 +260,17 @@ impl Desktop {
                         this.settings_tab = tab;
                         cx.notify();
                     }))
-                    .px(px(10.))
-                    .py(px(8.))
-                    .rounded(px(6.))
-                    .text_size(px(12.5))
+                    .px(t().d(10.))
+                    .py(t().d(8.))
+                    .rounded(t().r(6.))
+                    .text_size(t().fs(12.5))
                     .when(on, |el| {
-                        el.bg(rgb(0xe8f7ee))
-                            .text_color(rgb(GOOD))
+                        el.bg(rgb(t().p.accent_soft))
+                            .text_color(rgb(t().p.accent))
                             .font_weight(FontWeight::SEMIBOLD)
                     })
                     .when(!on, |el| {
-                        el.text_color(rgb(0x555555)).hover(|h| h.bg(rgb(0xeeeeee)))
+                        el.text_color(rgb(t().p.text_2)).hover(|h| h.bg(rgb(t().p.line_soft)))
                     })
                     .child(label)
                     .into_any_element()
@@ -271,13 +280,13 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .gap(px(2.))
-            .w(px(170.))
+            .gap(t().d(2.))
+            .w(t().d(170.))
             .flex_none()
-            .p(px(10.))
-            .bg(rgb(0xfafafa))
-            .border_r(px(1.))
-            .border_color(rgb(0xeeeeee))
+            .p(t().d(10.))
+            .bg(rgb(t().p.panel_alt))
+            .border_r(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
             .children(items)
             .into_any_element()
     }
@@ -293,10 +302,10 @@ impl Desktop {
             .flex()
             .flex_col()
             .flex_1()
-            .min_w(px(0.))
+            .min_w(t().d(0.))
             .id(ElementId::Name("settings-scroll".into()))
             .overflow_y_scroll()
-            .p(px(22.))
+            .p(t().d(22.))
             .child(body)
             .into_any_element()
     }
@@ -306,18 +315,18 @@ impl Desktop {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|e| e);
 
-        let msg = self.message_view();
+        let msg = self.message_view(crate::theme::cur());
 
         div()
             .flex()
             .flex_col()
-            .gap(px(14.))
-            .max_w(px(460.))
-            .child(div().text_size(px(15.)).child("连接"))
+            .gap(t().d(14.))
+            .max_w(t().d(460.))
+            .child(div().text_size(t().fs(15.)).child("连接"))
             .child(
                 div()
-                    .text_size(px(11.5))
-                    .text_color(rgb(MUTED))
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(muted()))
                     .child("改完保存会写到下面那个文件，然后重新 resolve 一次。"),
             )
             .child(field("宿主地址 host", Input::new(&self.host_input)))
@@ -338,7 +347,7 @@ impl Desktop {
             .child(
                 div()
                     .flex()
-                    .gap(px(8.))
+                    .gap(t().d(8.))
                     .child(pill(
                         "settings-save",
                         "保存并重连",
@@ -360,11 +369,11 @@ impl Desktop {
     }
 
     /// 设置页底部那行反馈。连接页和主题页都要显示，所以抽出来。
-    fn message_view(&self) -> Option<AnyElement> {
+    fn message_view(&self, t: crate::theme::Skin) -> Option<AnyElement> {
         self.settings_msg.as_ref().map(|(text, bad)| {
             div()
-                .text_size(px(11.5))
-                .text_color(rgb(if *bad { BAD } else { GOOD }))
+                .text_size(t.fs(11.5))
+                .text_color(rgb(if *bad { t.p.danger } else { t.p.ok }))
                 .child(text.clone())
                 .into_any_element()
         })
@@ -372,30 +381,37 @@ impl Desktop {
 
     /// 「主题」页：把 `ThemeName::ALL` 铺成卡片。加一套皮只改 `theme.rs`，这里不动。
     fn theme_pane(&self, cx: &mut Context<Self>) -> AnyElement {
+        let t = crate::theme::cur();
         let cards: Vec<AnyElement> = crate::theme::ThemeName::ALL
             .iter()
             .copied()
-            .map(|name| self.theme_card(name, cx))
+            .map(|name| self.theme_card(name, t, cx))
             .collect();
 
         div()
             .flex()
             .flex_col()
-            .gap(px(14.))
-            .max_w(px(600.))
-            .child(div().text_size(px(15.)).child("主题"))
+            .gap(t.d(14.))
+            .max_w(t.d(600.))
+            .child(div().text_size(t.fs(15.)).child("主题"))
             .child(
                 div()
-                    .text_size(px(11.5))
-                    .text_color(rgb(MUTED))
-                    .child("一套主题就是一整套配色。现在只有「默认」；新皮做好会长在下面，点一下即生效。"),
+                    .text_size(t.fs(11.5))
+                    .text_color(rgb(t.p.muted))
+                    .child("一套主题就是一整套配色与排版。点一下即生效；新皮做好会长在下面。"),
             )
-            .child(div().flex().flex_wrap().gap(px(12.)).children(cards))
-            .children(self.message_view())
             .child(
                 div()
-                    .text_size(px(10.5))
-                    .text_color(rgb(FAINT))
+                    .flex()
+                    .flex_wrap()
+                    .gap(t.d(12.))
+                    .children(cards),
+            )
+            .children(self.message_view(t))
+            .child(
+                div()
+                    .text_size(t.fs(10.5))
+                    .text_color(rgb(t.p.faint))
                     .child("主题存在 ~/.config/nousdesk/theme.toml，不写进 desktop.toml。"),
             )
             .into_any_element()
@@ -404,9 +420,10 @@ impl Desktop {
     fn theme_card(
         &self,
         name: crate::theme::ThemeName,
+        skin: crate::theme::Skin,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let theme = name.theme();
+        let card = name.skin();
         let on = self.theme_name == name;
 
         div()
@@ -414,29 +431,29 @@ impl Desktop {
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_theme(name, cx)))
             .flex()
             .flex_col()
-            .gap(px(8.))
-            .w(px(196.))
-            .p(px(10.))
-            .rounded(px(8.))
-            .bg(rgb(0xffffff))
-            .border(px(2.))
-            .border_color(rgb(if on { theme.accent } else { 0xf0f0f0 }))
+            .gap(skin.d(8.))
+            .w(skin.d(196.))
+            .p(skin.d(10.))
+            .rounded(skin.r(8.))
+            .bg(rgb(skin.p.panel))
+            .border(skin.d(2.))
+            .border_color(rgb(if on { card.p.accent } else { skin.p.line_soft }))
             .hover(move |el| {
-                el.border_color(rgb(if on { theme.accent } else { 0xd8d8d8 }))
+                el.border_color(rgb(if on { card.p.accent } else { skin.p.line_strong }))
             })
-            .child(theme_thumb(theme))
+            .child(theme_thumb(card, skin))
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(6.))
-                    .child(div().text_size(px(12.)).child(name.label()))
+                    .gap(skin.d(6.))
+                    .child(div().text_size(skin.fs(12.)).child(name.label()))
                     .child(div().flex_1())
                     .children(if on {
                         Some(
                             div()
-                                .text_size(px(10.5))
-                                .text_color(rgb(theme.ok))
+                                .text_size(skin.fs(10.5))
+                                .text_color(rgb(card.p.ok))
                                 .child("使用中"),
                         )
                     } else {
@@ -446,11 +463,13 @@ impl Desktop {
             .into_any_element()
     }
 
-    /// 选一套皮：落盘 + 立刻记在内存里。写不进去就只报错、不换 —— 否则重启又跳回去。
+    /// 选一套皮：落盘 → 换 Global（会刷新所有窗口）。
+    /// 写不进去就只报错、不换 —— 否则重启又跳回去，比不换更糟。
     pub(crate) fn pick_theme(&mut self, name: crate::theme::ThemeName, cx: &mut Context<Self>) {
         match name.save() {
             Ok(path) => {
                 self.theme_name = name;
+                crate::theme::ActiveSkin::set(cx, name);
                 self.settings_msg = Some((
                     format!("主题：{}（写入 {}）", name.label(), path.display()),
                     false,
@@ -477,13 +496,13 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .gap(px(14.))
-            .max_w(px(520.))
-            .child(div().text_size(px(15.)).child("关于"))
+            .gap(t().d(14.))
+            .max_w(t().d(520.))
+            .child(div().text_size(t().fs(15.)).child("关于"))
             .child(
                 div()
-                    .text_size(px(11.5))
-                    .text_color(rgb(MUTED))
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(muted()))
                     .child("引擎版本来自 GET /v1/device 的 node —— 出问题先对版本。"),
             )
             .child(kv("客户端", format!("v{}", env!("CARGO_PKG_VERSION"))))
@@ -552,49 +571,50 @@ impl Desktop {
 ///
 /// 全部颜色从 `Theme` 取 —— 这是主题色目前唯一真正被用到的地方（渲染层还没接），
 /// 所以加一套皮时，这张图就是第一眼能看出区别的东西。
-fn theme_thumb(theme: crate::theme::Theme) -> AnyElement {
+fn theme_thumb(card: crate::theme::Skin, t: crate::theme::Skin) -> AnyElement {
+    let p = card.p;
     div()
         .flex()
         .w_full()
-        .h(px(84.))
-        .rounded(px(4.))
+        .h(t.d(84.))
+        .rounded(t.r(4.))
         .overflow_hidden()
-        .child(div().w(px(14.)).h_full().bg(rgb(theme.sidebar)))
+        .child(div().w(t.d(14.)).h_full().bg(rgb(p.sidebar)))
         .child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(3.))
-                .w(px(52.))
+                .gap(t.d(3.))
+                .w(t.d(52.))
                 .h_full()
-                .p(px(5.))
-                .bg(rgb(theme.list_bg))
-                .child(div().h(px(4.)).w_full().rounded(px(2.)).bg(rgb(theme.line)))
-                .child(div().h(px(4.)).w_full().rounded(px(2.)).bg(rgb(theme.line)))
-                .child(div().h(px(4.)).w(px(28.)).rounded(px(2.)).bg(rgb(theme.accent))),
+                .p(t.d(5.))
+                .bg(rgb(p.list_bg))
+                .child(div().h(t.d(4.)).w_full().rounded(t.r(2.)).bg(rgb(p.line)))
+                .child(div().h(t.d(4.)).w_full().rounded(t.r(2.)).bg(rgb(p.line)))
+                .child(div().h(t.d(4.)).w(t.d(28.)).rounded(t.r(2.)).bg(rgb(p.accent))),
         )
         .child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(5.))
+                .gap(t.d(5.))
                 .flex_1()
                 .h_full()
-                .p(px(6.))
-                .bg(rgb(theme.chat_bg))
+                .p(t.d(6.))
+                .bg(rgb(p.chat_bg))
                 .child(
                     div()
-                        .h(px(10.))
-                        .w(px(36.))
-                        .rounded(px(4.))
-                        .bg(rgb(theme.bubble_other)),
+                        .h(t.d(10.))
+                        .w(t.d(36.))
+                        .rounded(t.r(4.))
+                        .bg(rgb(p.bubble_other)),
                 )
                 .child(
                     div()
-                        .h(px(10.))
-                        .w(px(30.))
-                        .rounded(px(4.))
-                        .bg(rgb(theme.bubble_me)),
+                        .h(t.d(10.))
+                        .w(t.d(30.))
+                        .rounded(t.r(4.))
+                        .bg(rgb(p.bubble_me)),
                 ),
         )
         .into_any_element()
@@ -607,9 +627,9 @@ fn pill(
     handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let (bg, fg, hover) = if primary {
-        (WECHAT_GREEN, 0xffffff, 0x06ad56)
+        (t().p.accent, t().p.panel, t().p.accent_hover)
     } else {
-        (0xf0f0f0, 0x444444, 0xe4e4e4)
+        (t().p.hover, t().p.text_2, t().p.line_soft)
     };
     div()
         .id(ElementId::Name(id.into()))
@@ -617,12 +637,12 @@ fn pill(
         .flex()
         .items_center()
         .justify_center()
-        .h(px(30.))
-        .px(px(14.))
-        .rounded(px(5.))
+        .h(t().d(30.))
+        .px(t().d(14.))
+        .rounded(t().r(5.))
         .bg(rgb(bg))
         .text_color(rgb(fg))
-        .text_size(px(12.))
+        .text_size(t().fs(12.))
         .hover(move |el| el.bg(rgb(hover)))
         .child(label.into())
         .into_any_element()
@@ -630,11 +650,11 @@ fn pill(
 
 fn group_label(text: &'static str) -> AnyElement {
     div()
-        .px(px(10.))
-        .pt(px(4.))
-        .pb(px(5.))
-        .text_size(px(10.))
-        .text_color(rgb(FAINT))
+        .px(t().d(10.))
+        .pt(t().d(4.))
+        .pb(t().d(5.))
+        .text_size(t().fs(10.))
+        .text_color(rgb(faint()))
         .child(text)
         .into_any_element()
 }
@@ -649,20 +669,20 @@ fn menu_row(
     div()
         .id(ElementId::Name(id.into()))
         .when(enabled, |el| el.on_click(handler))
-        .when(enabled, |el| el.hover(|h| h.bg(rgb(0xf2f2f2))))
+        .when(enabled, |el| el.hover(|h| h.bg(rgb(t().p.hover))))
         .flex()
         .items_center()
-        .gap(px(10.))
-        .h(px(32.))
-        .px(px(10.))
-        .rounded(px(6.))
+        .gap(t().d(10.))
+        .h(t().d(32.))
+        .px(t().d(10.))
+        .rounded(t().r(6.))
         .when(!enabled, |el| el.opacity(0.45))
         .child(
             Icon::new(icon)
-                .with_size(Size::Size(px(15.)))
-                .text_color(rgb(0x777777)),
+                .with_size(Size::Size(t().d(15.)))
+                .text_color(rgb(t().p.muted)),
         )
-        .child(div().text_size(px(12.5)).child(label.into()))
+        .child(div().text_size(t().fs(12.5)).child(label.into()))
         .into_any_element()
 }
 
@@ -670,16 +690,16 @@ fn info_row(label: &'static str, value: String) -> AnyElement {
     div()
         .flex()
         .items_center()
-        .gap(px(10.))
-        .h(px(30.))
-        .px(px(10.))
-        .text_size(px(12.))
-        .child(div().text_color(rgb(0x666666)).child(label))
+        .gap(t().d(10.))
+        .h(t().d(30.))
+        .px(t().d(10.))
+        .text_size(t().fs(12.))
+        .child(div().text_color(rgb(t().p.text_2)).child(label))
         .child(div().flex_1())
         .child(
             div()
-                .text_size(px(11.5))
-                .text_color(rgb(MUTED))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(muted()))
                 .child(value),
         )
         .into_any_element()
@@ -689,12 +709,12 @@ fn field(label: &'static str, input: impl IntoElement) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(5.))
+        .gap(t().d(5.))
         .w_full()
         .child(
             div()
-                .text_size(px(11.5))
-                .text_color(rgb(0x777777))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.muted))
                 .child(label),
         )
         .child(div().w_full().child(input))
@@ -705,25 +725,25 @@ fn readonly(label: &'static str, value: String, note: &'static str) -> AnyElemen
     div()
         .flex()
         .flex_col()
-        .gap(px(5.))
+        .gap(t().d(5.))
         .child(
             div()
-                .text_size(px(11.5))
-                .text_color(rgb(0x777777))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.muted))
                 .child(label),
         )
         .child(
             div()
-                .p(px(8.))
-                .rounded(px(5.))
-                .bg(rgb(0xf6f6f6))
-                .border(px(1.))
-                .border_color(rgb(0xdddddd))
-                .text_size(px(11.))
-                .text_color(rgb(0x666666))
+                .p(t().d(8.))
+                .rounded(t().r(5.))
+                .bg(rgb(t().p.surface))
+                .border(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .text_size(t().fs(11.))
+                .text_color(rgb(t().p.text_2))
                 .child(value),
         )
-        .child(div().text_size(px(10.5)).text_color(rgb(FAINT)).child(note))
+        .child(div().text_size(t().fs(10.5)).text_color(rgb(faint())).child(note))
         .into_any_element()
 }
 
@@ -731,17 +751,17 @@ fn kv(label: &'static str, value: String) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(3.))
-        .pb(px(8.))
-        .border_b(px(1.))
-        .border_color(rgb(0xf0f0f0))
+        .gap(t().d(3.))
+        .pb(t().d(8.))
+        .border_b(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
         .child(
             div()
-                .text_size(px(11.5))
-                .text_color(rgb(0x777777))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.muted))
                 .child(label),
         )
-        .child(div().text_size(px(12.)).child(value))
+        .child(div().text_size(t().fs(12.)).child(value))
         .into_any_element()
 }
 
@@ -755,7 +775,6 @@ fn reveal_config() {
         return;
     };
     let _ = std::fs::create_dir_all(&dir);
-
     #[cfg(target_os = "windows")]
     let _ = std::process::Command::new("explorer").arg(&dir).spawn();
     #[cfg(target_os = "macos")]
