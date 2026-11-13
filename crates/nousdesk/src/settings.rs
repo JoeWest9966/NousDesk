@@ -57,6 +57,7 @@ impl Desktop {
 
     pub(crate) fn open_settings(&mut self, cx: &mut Context<Self>) {
         self.menu_open = false;
+        self.archive_open = false;
         self.settings_open = true;
         self.settings_msg = None;
         cx.notify();
@@ -103,13 +104,25 @@ impl Desktop {
             .shadow_lg()
             .overflow_hidden()
             .child(self.menu_header())
-            .child(div().p(t().d(6.)).child(group_label("应用")).child(menu_row(
-                "menu-settings",
-                IconName::Settings,
-                "设置",
-                true,
-                cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
-            )))
+            .child(
+                div()
+                    .p(t().d(6.))
+                    .child(group_label("应用"))
+                    .child(menu_row(
+                        "menu-settings",
+                        IconName::Settings,
+                        "设置",
+                        true,
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
+                    ))
+                    .child(menu_row(
+                        "menu-archive",
+                        IconName::Archive,
+                        "归档库",
+                        true,
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.open_archive(cx)),
+                    )),
+            )
             .child(
                 div()
                     .p(t().d(6.))

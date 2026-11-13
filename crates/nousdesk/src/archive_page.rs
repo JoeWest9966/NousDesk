@@ -17,10 +17,6 @@
 //! 页头 + 列头（会话 / 状态 / 操作）+ 按天分组，每组一行日期标题，每行「名字 + 摘要 + 状态徽标 + 动作」。
 //! 容器形状照 `settings::render_settings`（右栏整页，左栏列表不动）。
 
-// 这一页还没挂到 `Desktop` 上（入口在票 #6）：在那之前编译器看这里全是死代码。
-// 接线那天把下面这句删掉 —— 它只是别让整页的 pub 项刷一屏 warning。
-#![allow(dead_code)]
-
 use std::rc::Rc;
 
 use gpui_kit::assets::IconName;
@@ -116,7 +112,9 @@ impl ArchiveStatus {
         }
     }
 
-    /// 徽标底下的解释（照 `mcfpqm` 的 `title`）。
+    /// 徽标底下的解释（照 `mcfpqm` 的 `title`）。渲染层眼下只用 `label()`，
+    /// 这一段先留给悬停提示 / 排错（测试扫「彻底删除」也用得着），别在别处重写。
+    #[allow(dead_code)]
     pub fn hint(self) -> &'static str {
         match self {
             ArchiveStatus::Live => "归档过，活库里的原件还在 —— 可以撕掉",
@@ -126,6 +124,9 @@ impl ArchiveStatus {
         }
     }
 
+    /// 四态的全集。眼下只有测试用它穷举（渲染按每条自己的状态走）；
+    /// 留着是给以后的筛选器，别在 UI 里另写一份四个名字。
+    #[allow(dead_code)]
     pub fn all() -> [ArchiveStatus; 4] {
         [
             ArchiveStatus::Live,
