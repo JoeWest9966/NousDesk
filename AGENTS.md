@@ -187,3 +187,17 @@ board = "new1"
 - `坑.md` —— **开发中踩的每个坑**。症状 / 根因 / 解，三行以内。踩到新的就加。
 - `验证.md` —— **哪些东西真机验过**（带日期和怎么验的），以及还没验的清单。
   **动手前先看一眼：验过的别再验**，除非用户主动要求、或者你改了它依赖的那段代码。
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues（`JoeWest9966/NousDesk`，用 `gh` CLI）。See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+五个 canonical 角色名与仓库标签同名（`ready-for-agent` 等）。See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+single-context；领域词表以根目录 `AGENTS.md` / `wire.md` / `decisions.md` 为准。See `docs/agents/domain.md`.
