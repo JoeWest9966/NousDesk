@@ -25,10 +25,15 @@
 ```
 { id, name, parent: {id, at} | null, owner, model: "provider/modelId",
   thinkingLevel, thinkingLevels: string[], skills: string[], template: string|null,
-  readOnly: bool, busy, updatedAt: number | null, last: {id, kind, text} | null }
+  readOnly: bool, busy, updatedAt: number | null, last: {id, kind, text} | null,
+  archived: null | {at, gen, purged} }
 ```
 
-我们依赖：`id` `name` `parent` `model` `thinkingLevel` `readOnly` `busy` `updatedAt` `last`。
+我们依赖：`id` `name` `parent` `model` `thinkingLevel` `readOnly` `busy` `updatedAt` `last` `archived`。
+
+- `archived` 是**归档墓碑**，`null` = 没归档过（捞回之后也回到 `null`），对象 = `{at, gen, purged}`，
+  `at` 是 epoch **毫秒**。老引擎整个字段缺席时也是 `null` —— 别当布尔用，也别拿它判断
+  「这一行要不要显示」（那个由引擎默认藏掉，见下面 `archive`）。
 
 - `updatedAt` 是这条会话**最后一次落库**的时刻，epoch **毫秒**，可能是 `null`。
   `null` 不是 bug：引擎只记「自己看着它写的那些」，重启前的老会话就是空的 ——
@@ -145,6 +150,68 @@ body `{ entryId?, name? }`。`entryId` 省略 = **从最后一条分叉**。回 
 
 - 分出来的会话在列表里带 `parent: {id, at}`。
 - 名字不给就沿用引擎的默认名（「对话 44」这种），要区分就自己带 `name`。
+
+### 会话归档：`archive` / `purge` / 归档库 / `restore`
+
+**这一版引擎起有**：内核 2026-11-10 起（ADR 0001）；客户端 v0.4.0 起接。
+归档 = 把会话复印进 `data/archives/gen-YYYYMMDD.sqlite` + 写墓碑，**不是删**；
+撕原件 = 真删（活库那行 + 那份复印件）。四个方法在 `crates/nous-engine` 里都有
+（`archive` / `purge` / `archive_list` / `restore`），UI 层一行 HTTP 都不碰。
+
+#### POST /v1/sessions/:id/archive
+
+body 空。回 200 `{"gen":"20261113","ids":[699],"rows":17}`。
+
+- `gen` 是 8 位 `YYYYMMDD`，`rows` 是复印进去的条数。**客户端不读回包**（`Value` 收着），
+  刷新靠重拉 `/v1/sessions` 和 `/v1/archive` —— 别拿回包自己改本地列表。
+- 归档后 `/v1/sessions` **默认不返回**该会话（那一行自己消失）；`?archived=1` 才给全量，
+  每条带 `archived` 墓碑。「归档后行消失」只有这一个来源，客户端不许自己滤。
+- 失败：忙 / 分支里还有活后代 → 409 `{error}`，正文会列出活分支。原样显示，别改写。
+
+#### POST /v1/sessions/:id/purge
+
+body 空。回 200 `{"purged":[699],"gen":"20261113","rows":6}`。**真删**，不可撤销。
+
+- **必须先归档**；会话闲置、分支里没有活后代也是引擎的前置条件。不满足返回 409 / 400，
+  形状还是 `{error}`，照原文显示。
+
+#### GET /v1/archive
+
+回 `{"gens":[{"gen":"YYYYMMDD","items":[…]}]}`，一个 `gen` = 一份 `gen-YYYYMMDD.sqlite`，
+组标题就写 `11月10日 · gen-20261110.sqlite`。item 形状：
+
+```
+{ id, parent: {id, at} | null, entries: number, last: {id, kind, text} | null,
+  name, archived: null | {at, gen, purged}, live: bool }
+```
+
+我们依赖：`id` `name` `archived` `live` `parent` `entries` `last`。
+
+- `archived` 为 `null` ⇔ **没有墓碑**（捞回之后被抹掉）；有对象才谈「归档过 / 撕过」。
+- `live` 是「活库里这行还在」，**引擎算好的**，客户端不推。
+- 四态判据（客户端依赖它，照面板页 `mcfpqm` 的 `stateOf`；四态在真引擎上都实测出现过）：
+
+| 判据（按顺序判） | 态 | 界面 | 给什么动作 |
+|---|---|---|---|
+| `archived.purged` | 已销毁 | 「已销毁」 | 打捞 |
+| `live && archived` | 原件在 | 「原件在」 | 撕原件 |
+| `live && !archived` | 已捞回 | 「已捞回」 | 无 |
+| 其余 | 无墓碑 | 「无墓碑」 | 打捞 |
+
+`purged` 必须**先判**：已销毁那条 `live` 也是 false 且 `archived` 也在，顺序反了会推成「无墓碑」。
+四态**只看 item 自己**，别拿「id 在不在主列表里」当判据 —— 两份判据一定会分叉。
+
+#### POST /v1/archive/:id/restore
+
+body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
+回 200 `{"restored":[699],"gen":"20261113","rows":17}`。
+
+- 捞回来之后 `/v1/sessions` 里那条**真的回来了**；`/v1/archive` 里它的 `archived` 变 `null`、
+  `live` 仍是 true（「已捞回」）。
+- **对「原件还在」（`here`）的会话返回 500，不是 409**：
+  `{"error":"会话 699 已经在活库里 —— 不用捞"}`。所以 UI 只在「已销毁 / 无墓碑」上给「打捞」——
+  这个约束是引擎强制的，不是产品挑的。
+- 四个动作的回包都是同一形状 `{<动作过去分词>: [ids], gen, rows}`，客户端一律不读。
 
 ### GET /v1/presets/:section
 
@@ -276,5 +343,10 @@ body `{ entryId?, name? }`。`entryId` 省略 = **从最后一条分叉**。回 
 | SSE 事件改名 / `changes[]` 换结构 | 气泡不更新，流式死掉，症状是「能发出去但一个字不出来」 |
 | `requestId` 幂等被去掉 | 重发会答两遍 |
 | `/v1/selection` 语义变 | 三栏高亮错位 |
+| `archive` 不再从 `/v1/sessions` 藏掉 | 归档后那一行不消失，看着像没成功（我们不在本地滤） |
+| `archived` 墓碑字段没了 / 恒为 `null` | 四态全退化成「无墓碑」，「原件在」和「已销毁」都认不出来 |
+| `archived.purged` 改名 / 换语义 | 撕过的显示成「原件在」，会让人重复撕 |
+| `live` 没了 / 恒为 true | 「已捞回」和「无墓碑」颠倒，该给「打捞」的不给 |
+| `restore` 收 `gen` 改成收别的 | 打捞 400，归档库页点了没反应 |
 
 所以：启动时打 `GET /v1/device` 记引擎版本，About 里显示，出问题先对版本。
