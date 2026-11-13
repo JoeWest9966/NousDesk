@@ -22,10 +22,12 @@ const BAD: u32 = 0xd32f2f;
 const GOOD: u32 = 0x079c50;
 const RAIL_DARK: u32 = 0x2e2e2e;
 
-/// 设置页左边那两项。
+/// 设置页左边那几项。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsTab {
     Connection,
+    /// 一套皮。现在只有「默认」，卡片由 `theme::ThemeName::ALL` 生成。
+    Theme,
     About,
 }
 
@@ -236,6 +238,7 @@ impl Desktop {
     fn settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
         let tabs = [
             (SettingsTab::Connection, "连接"),
+            (SettingsTab::Theme, "主题"),
             (SettingsTab::About, "关于"),
         ];
         let items: Vec<AnyElement> = tabs
@@ -282,6 +285,7 @@ impl Desktop {
     fn settings_pane(&self, cx: &mut Context<Self>) -> AnyElement {
         let body: AnyElement = match self.settings_tab {
             SettingsTab::Connection => self.connection_pane(cx),
+            SettingsTab::Theme => self.theme_pane(cx),
             SettingsTab::About => self.about_pane(),
         };
 
@@ -302,13 +306,7 @@ impl Desktop {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|e| e);
 
-        let msg = self.settings_msg.as_ref().map(|(text, bad)| {
-            div()
-                .text_size(px(11.5))
-                .text_color(rgb(if *bad { BAD } else { GOOD }))
-                .child(text.clone())
-                .into_any_element()
-        });
+        let msg = self.message_view();
 
         div()
             .flex()
@@ -359,6 +357,108 @@ impl Desktop {
                     )),
             )
             .into_any_element()
+    }
+
+    /// 设置页底部那行反馈。连接页和主题页都要显示，所以抽出来。
+    fn message_view(&self) -> Option<AnyElement> {
+        self.settings_msg.as_ref().map(|(text, bad)| {
+            div()
+                .text_size(px(11.5))
+                .text_color(rgb(if *bad { BAD } else { GOOD }))
+                .child(text.clone())
+                .into_any_element()
+        })
+    }
+
+    /// 「主题」页：把 `ThemeName::ALL` 铺成卡片。加一套皮只改 `theme.rs`，这里不动。
+    fn theme_pane(&self, cx: &mut Context<Self>) -> AnyElement {
+        let cards: Vec<AnyElement> = crate::theme::ThemeName::ALL
+            .iter()
+            .copied()
+            .map(|name| self.theme_card(name, cx))
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .max_w(px(600.))
+            .child(div().text_size(px(15.)).child("主题"))
+            .child(
+                div()
+                    .text_size(px(11.5))
+                    .text_color(rgb(MUTED))
+                    .child("一套主题就是一整套配色。现在只有「默认」；新皮做好会长在下面，点一下即生效。"),
+            )
+            .child(div().flex().flex_wrap().gap(px(12.)).children(cards))
+            .children(self.message_view())
+            .child(
+                div()
+                    .text_size(px(10.5))
+                    .text_color(rgb(FAINT))
+                    .child("主题存在 ~/.config/nousdesk/theme.toml，不写进 desktop.toml。"),
+            )
+            .into_any_element()
+    }
+
+    fn theme_card(
+        &self,
+        name: crate::theme::ThemeName,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = name.theme();
+        let on = self.theme_name == name;
+
+        div()
+            .id(ElementId::Name(format!("theme-card-{}", name.id()).into()))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_theme(name, cx)))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .w(px(196.))
+            .p(px(10.))
+            .rounded(px(8.))
+            .bg(rgb(0xffffff))
+            .border(px(2.))
+            .border_color(rgb(if on { theme.accent } else { 0xf0f0f0 }))
+            .hover(move |el| {
+                el.border_color(rgb(if on { theme.accent } else { 0xd8d8d8 }))
+            })
+            .child(theme_thumb(theme))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(div().text_size(px(12.)).child(name.label()))
+                    .child(div().flex_1())
+                    .children(if on {
+                        Some(
+                            div()
+                                .text_size(px(10.5))
+                                .text_color(rgb(theme.ok))
+                                .child("使用中"),
+                        )
+                    } else {
+                        None
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// 选一套皮：落盘 + 立刻记在内存里。写不进去就只报错、不换 —— 否则重启又跳回去。
+    pub(crate) fn pick_theme(&mut self, name: crate::theme::ThemeName, cx: &mut Context<Self>) {
+        match name.save() {
+            Ok(path) => {
+                self.theme_name = name;
+                self.settings_msg = Some((
+                    format!("主题：{}（写入 {}）", name.label(), path.display()),
+                    false,
+                ));
+            }
+            Err(e) => self.settings_msg = Some((e, true)),
+        }
+        cx.notify();
     }
 
     fn about_pane(&self) -> AnyElement {
@@ -448,6 +548,58 @@ impl Desktop {
 /// 设置页的按钮。不用 `component::button::Button` —— 它的 variant 会把自定义底色
 /// 压成淡色（实测 `#07c160` 出来是 20% 透明的一层淡绿），而这个项目的皮本来
 /// 就是 div 手搭的，颜色自己拿着更省事。
+/// 主题卡片里那张缩略图：最左图标条 + 会话列表 + 聊天区两个气泡。
+///
+/// 全部颜色从 `Theme` 取 —— 这是主题色目前唯一真正被用到的地方（渲染层还没接），
+/// 所以加一套皮时，这张图就是第一眼能看出区别的东西。
+fn theme_thumb(theme: crate::theme::Theme) -> AnyElement {
+    div()
+        .flex()
+        .w_full()
+        .h(px(84.))
+        .rounded(px(4.))
+        .overflow_hidden()
+        .child(div().w(px(14.)).h_full().bg(rgb(theme.sidebar)))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .w(px(52.))
+                .h_full()
+                .p(px(5.))
+                .bg(rgb(theme.list_bg))
+                .child(div().h(px(4.)).w_full().rounded(px(2.)).bg(rgb(theme.line)))
+                .child(div().h(px(4.)).w_full().rounded(px(2.)).bg(rgb(theme.line)))
+                .child(div().h(px(4.)).w(px(28.)).rounded(px(2.)).bg(rgb(theme.accent))),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(5.))
+                .flex_1()
+                .h_full()
+                .p(px(6.))
+                .bg(rgb(theme.chat_bg))
+                .child(
+                    div()
+                        .h(px(10.))
+                        .w(px(36.))
+                        .rounded(px(4.))
+                        .bg(rgb(theme.bubble_other)),
+                )
+                .child(
+                    div()
+                        .h(px(10.))
+                        .w(px(30.))
+                        .rounded(px(4.))
+                        .bg(rgb(theme.bubble_me)),
+                ),
+        )
+        .into_any_element()
+}
+
 fn pill(
     id: &'static str,
     label: impl Into<SharedString>,
