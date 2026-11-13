@@ -1835,8 +1835,14 @@ impl Desktop {
                     .p(t().d(12.))
                     .flex()
                     .items_center()
-                    .justify_between()
+                    .gap(t().d(6.))
+                    // NoRail 收掉图标条之后，菜单入口得在列表里接回来 —— 否则「≡ 更多」
+                    // 跟着图标条一起没了，设置就点不开了。
+                    .children(
+                        (t().layout == crate::theme::Layout::NoRail).then(|| self.more_button(cx)),
+                    )
                     .child("NousDesk")
+                    .child(div().flex_1())
                     // 建会话的唯一入口。以前只能从模板起，现在多一条「从零配」的路。
                     .child(
                         div()
@@ -3042,7 +3048,7 @@ impl Render for Desktop {
             crate::md::set_md_skin(
                 s.p.accent, s.p.muted, s.p.accent_soft, s.p.accent_fg,
                 s.p.code_bg, s.p.line, s.p.text, s.p.text_2, s.p.panel,
-                s.type_scale,
+                s.type_scale, s.dark,
             );
         }
 

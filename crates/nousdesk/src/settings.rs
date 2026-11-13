@@ -266,7 +266,7 @@ impl Desktop {
                     .text_size(t().fs(12.5))
                     .when(on, |el| {
                         el.bg(rgb(t().p.accent_soft))
-                            .text_color(rgb(good()))
+                            .text_color(rgb(t().p.accent))
                             .font_weight(FontWeight::SEMIBOLD)
                     })
                     .when(!on, |el| {

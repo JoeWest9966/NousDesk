@@ -15,6 +15,7 @@ mod chrome;
 mod composer;
 mod config;
 mod config_panel;
+mod fonts;
 mod live;
 mod md;
 mod nav_ui;
@@ -145,6 +146,8 @@ fn main() {
             // 主题是唯一真相：先读 theme.toml 装成 Global，再把字体 / 明暗 /
             // 圆角 / 基础字号推给 gpui-component 的 Theme（Input / Textarea /
             // TitleBar 读的是它）。必须在开窗口之前做，否则第一帧会闪一下默认皮。
+            // 先把随包字体注册进去，再装主题 —— 否则第一帧用到的族名还是未知的。
+            crate::fonts::install_fonts(cx);
             let active = crate::theme::ActiveSkin::load();
             cx.set_global(active);
             active.skin.apply(cx);

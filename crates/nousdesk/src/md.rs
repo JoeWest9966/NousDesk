@@ -8,7 +8,7 @@
 // 所以这里不引用 crate::theme，改为自带一份极简 Skin：bin 里 cur() 给它灌值，
 // example 里就是出厂默认值。字段只覆盖本模块真正用到的那些。
 #[derive(Clone, Copy)]
-struct MdSkin { p: MdPalette, scale: f32 }
+struct MdSkin { p: MdPalette, scale: f32, dark: bool }
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
 struct MdPalette {
@@ -37,6 +37,7 @@ thread_local! {
                 text: 0x1a1a1a, text_2: 0x333333, panel: 0xffffff,
             },
             scale: 1.0,
+            dark: false,
         })
     };
 }
@@ -47,11 +48,12 @@ thread_local! {
 #[allow(clippy::too_many_arguments, dead_code)]
 pub fn set_md_skin(
     accent: u32, muted: u32, accent_soft: u32, accent_fg: u32,
-    code_bg: u32, line: u32, text: u32, text_2: u32, panel: u32, scale: f32,
+    code_bg: u32, line: u32, text: u32, text_2: u32, panel: u32, scale: f32, dark: bool,
 ) {
     MD_SKIN.set(MdSkin {
         p: MdPalette { accent, muted, accent_soft, accent_fg, code_bg, line, text, text_2, panel },
         scale,
+        dark,
     });
 }
 use std::ops::Range;
@@ -306,12 +308,28 @@ pub fn strip_harness(raw: &str) -> String {
 /// 2. 代码块**不折行、横向滚动**。折行会把缩进吃掉、把一行命令拆成两行，
 ///    长行还会把气泡撑宽（同一个病根：内容比容器大时容器扛不住）。
 pub fn md_style() -> TextViewStyle {
+    let t = t();
     let mut code = StyleRefinement::default();
     code.overflow.x = Some(Overflow::Scroll);
     code.text.white_space = Some(WhiteSpace::Nowrap);
+    // **不能直接用 `TextViewStyle::default()`** —— 那个是浅色（白底黑字）。
+    // 深色皮上整块代码、行内代码会变成白砖，字还看不见（真踩过）。
+    // 这里有几项就得从当前皮里拿几项。
     TextViewStyle::default()
         .with_paragraph_gap(rems(0.42))
         .with_code_block(code)
+        .with_foreground(rgb(t.p.text).into())
+        .with_muted_foreground(rgb(t.p.muted).into())
+        .with_link(rgb(t.p.accent).into())
+        .with_selection(rgb(t.p.accent_soft).into())
+        .with_code_background(rgb(t.p.code_bg).into())
+        .with_border(rgb(t.p.line).into())
+        .with_inline_code(HighlightStyle {
+            background_color: Some(rgb(t.p.accent_soft).into()),
+            color: Some(rgb(t.p.accent_fg).into()),
+            ..Default::default()
+        })
+        .with_dark(t.dark)
 }
 
 #[cfg(test)]

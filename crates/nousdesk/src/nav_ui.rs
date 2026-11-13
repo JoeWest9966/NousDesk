@@ -17,7 +17,6 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use nous_engine::types::Entry;
 
-use crate::app::WECHAT_GREEN;
 use crate::session_nav::{NavDay, NavRound, answer_preview, build_nav, main_from, one_line};
 
 const NAV_W: f32 = 240.;
@@ -339,7 +338,7 @@ fn nav_row(
                 .flex_none()
                 .w(t().d(18.))
                 .text_size(t().fs(11.))
-                .text_color(rgb(if on { WECHAT_GREEN } else { t().p.faint }))
+                .text_color(rgb(if on { t().p.accent } else { t().p.faint }))
                 .child(format!("{}", idx + 1)),
         )
         .child(
@@ -635,7 +634,7 @@ pub fn history_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
         .px(t().d(10.))
         .py(t().d(3.))
         .rounded(t().r(12.))
-        .bg(rgb(WECHAT_GREEN))
+        .bg(rgb(t().p.accent))
         .text_size(t().fs(11.5))
         .text_color(rgb(t().p.on_accent))
         .cursor_pointer()
