@@ -21,6 +21,10 @@
 //! 唯一的状态是「面板眼下指到第几项 / 用户有没有按 Esc 收起 / 有没有请求在途」，
 //! 这些是纯 UI 状态，重启就该没。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use std::rc::Rc;
 
 use nous_engine::types::Skill;
@@ -143,12 +147,18 @@ impl Slash {
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-const PANEL_BG: u32 = 0xffffff;
-const LINE: u32 = 0xe6e6e6;
-const TEXT: u32 = 0x2b2b2b;
-const SUB: u32 = 0x9a9a9a;
-const PICK: u32 = 0xf1f7f3;
-const ON: u32 = 0x0a7a3f;
+/// 原 `PANEL_BG = 0xffffff`；由 panel 这个语义槽接管。
+fn panel_bg() -> u32 { t().p.panel }
+/// 原 `LINE = 0xe6e6e6`；由 line 这个语义槽接管。
+fn line() -> u32 { t().p.line }
+/// 原 `TEXT = 0x2b2b2b`；由 text 这个语义槽接管。
+fn text() -> u32 { t().p.text }
+/// 原 `SUB = 0x9a9a9a`；由 muted 这个语义槽接管。
+fn sub() -> u32 { t().p.muted }
+/// 原 `PICK = 0xf1f7f3`；由 accent_soft 这个语义槽接管。
+fn pick() -> u32 { t().p.accent_soft }
+/// 原 `ON = 0x0a7a3f`；由 accent_fg 这个语义槽接管。
+fn on() -> u32 { t().p.accent_fg }
 
 /// 点一行的回调。`&usize` 是被点那项的下标；`Rc` 是为了在每一行里复用同一个闭包。
 pub type OnPick = Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
@@ -177,11 +187,11 @@ pub fn panel(
                 .id(ElementId::Name(format!("slash-row-{ix}").into()))
                 .flex()
                 .items_center()
-                .gap(px(8.))
-                .h(px(34.))
-                .px(px(10.))
-                .when(active, |el| el.bg(rgb(PICK)))
-                .hover(|s| s.bg(rgb(PICK)))
+                .gap(t().d(8.))
+                .h(t().d(34.))
+                .px(t().d(10.))
+                .when(active, |el| el.bg(rgb(pick())))
+                .hover(|s| s.bg(rgb(pick())))
                 .cursor_pointer()
                 .on_click(move |_event: &ClickEvent, window, cx| cb(&ix, window, cx))
                 .child(
@@ -189,18 +199,18 @@ pub fn panel(
                         .flex()
                         .flex_col()
                         .flex_1()
-                        .min_w(px(0.))
+                        .min_w(t().d(0.))
                         .child(
                             div()
-                                .text_size(px(12.5))
+                                .text_size(t().fs(12.5))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(rgb(TEXT))
+                                .text_color(rgb(text()))
                                 .child(skill.name.clone()),
                         )
                         .child(
                             div()
-                                .text_size(px(10.5))
-                                .text_color(rgb(SUB))
+                                .text_size(t().fs(10.5))
+                                .text_color(rgb(sub()))
                                 .truncate()
                                 .child(desc),
                         ),
@@ -208,8 +218,8 @@ pub fn panel(
                 .child(
                     div()
                         .flex_none()
-                        .text_size(px(10.5))
-                        .text_color(rgb(if enabled { ON } else { SUB }))
+                        .text_size(t().fs(10.5))
+                        .text_color(rgb(if enabled { on() } else { sub() }))
                         .child(if enabled { "已启用" } else { "启用" }),
                 )
                 .into_any_element()
@@ -220,12 +230,12 @@ pub fn panel(
         .flex()
         .flex_col()
         .w_full()
-        .bg(rgb(PANEL_BG))
-        .rounded(px(8.))
-        .border(px(1.))
-        .border_color(rgb(LINE))
+        .bg(rgb(panel_bg()))
+        .rounded(t().r(8.))
+        .border(t().d(1.))
+        .border_color(rgb(line()))
         .shadow(vec![
-            BoxShadow::new(px(0.), px(-2.), hsla(0., 0., 0., 0.10)).blur_radius(px(10.)),
+            BoxShadow::new(t().d(0.), px(-2.), hsla(0., 0., 0., 0.10)).blur_radius(t().d(10.)),
         ])
         .overflow_hidden()
         // 标题：说清这是「挂到会话」，不是「下一条消息带一下」。
@@ -234,14 +244,14 @@ pub fn panel(
                 .flex()
                 .items_center()
                 .justify_between()
-                .h(px(28.))
-                .px(px(10.))
-                .border_b(px(1.))
-                .border_color(rgb(LINE))
+                .h(t().d(28.))
+                .px(t().d(10.))
+                .border_b(t().d(1.))
+                .border_color(rgb(line()))
                 .child(
                     div()
-                        .text_size(px(11.))
-                        .text_color(rgb(TEXT))
+                        .text_size(t().fs(11.))
+                        .text_color(rgb(text()))
                         .child(if busy {
                             "技能 · 应用中…"
                         } else {
@@ -250,19 +260,19 @@ pub fn panel(
                 )
                 .child(
                     div()
-                        .text_size(px(10.))
-                        .text_color(rgb(SUB))
+                        .text_size(t().fs(10.))
+                        .text_color(rgb(sub()))
                         .child("↑↓ 选择 · ↵ 启用/停用 · Esc 取消"),
                 ),
         )
         .when_some(error, |el, msg| {
             el.child(
                 div()
-                    .px(px(10.))
-                    .py(px(5.))
-                    .text_size(px(10.5))
-                    .text_color(rgb(0xc0392b))
-                    .bg(rgb(0xfff1f0))
+                    .px(t().d(10.))
+                    .py(t().d(5.))
+                    .text_size(t().fs(10.5))
+                    .text_color(rgb(t().p.danger_fg))
+                    .bg(rgb(t().p.danger_soft))
                     .child(msg),
             )
         })
@@ -270,12 +280,12 @@ pub fn panel(
         .when(empty, |el| {
             el.child(
                 div()
-                    .h(px(40.))
+                    .h(t().d(40.))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(11.))
-                    .text_color(rgb(SUB))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(sub()))
                     .child(empty_note.unwrap_or_else(|| "没有匹配的技能".into())),
             )
         })
@@ -375,7 +385,6 @@ mod tests {
         s.clamp(0);
         assert_eq!(s.cursor, 0);
     }
-
     #[test]
     fn 输入变了就重置收起和高亮() {
         let mut s = Slash {

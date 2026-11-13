@@ -30,6 +30,10 @@
 //! 工具行的图标这一轮**只有样子**：表情 / 更多 / 文件 / 截图 / 语音都还没接功能，
 //! 点了没反应（没有 `on_click`）。等以后真做附件再说。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use gpui_kit::assets::IconName;
 use gpui_kit::component::Icon;
 use gpui_kit::component::input::Textarea;
@@ -39,16 +43,26 @@ use gpui_kit::*;
 use crate::app::scrollbar::FADE;
 
 // 跟 demo2 的 1 号一套的颜色。
-const WELL_BG: u32 = 0xf2f2f2; // 卡片四周的浅灰留白
-const CARD_BG: u32 = 0xffffff; // 白卡片
-const ICON_IDLE: u32 = 0x4d5156; // 工具图标（含右侧声纹）
-const HINT_TEXT: u32 = 0xb8bdc4; // 悬停提示的浅灰字
-const GEN_HINT: u32 = 0x8a8a8a; // 生成中的灰字提示
-const SEND_BG: u32 = 0x07c160; // 发送可用
-const SEND_BG_IDLE: u32 = 0xe9e9e9; // 发送不可用
-const SEND_TEXT_IDLE: u32 = 0xb2b2b2;
-const STOP_BG: u32 = 0xf2f2f2;
-const STOP_TEXT: u32 = 0xe64340;
+/// 原 `WELL_BG = 0xf2f2f2`；由 hover 这个语义槽接管。
+fn well_bg() -> u32 { t().p.hover } // 卡片四周的浅灰留白
+/// 原 `CARD_BG = 0xffffff`；由 panel 这个语义槽接管。
+fn card_bg() -> u32 { t().p.panel } // 白卡片
+/// 原 `ICON_IDLE = 0x4d5156`；由 text_2 这个语义槽接管。
+fn icon_idle() -> u32 { t().p.text_2 } // 工具图标（含右侧声纹）
+/// 原 `HINT_TEXT = 0xb8bdc4`；由 faint 这个语义槽接管。
+fn hint_text() -> u32 { t().p.faint } // 悬停提示的浅灰字
+/// 原 `GEN_HINT = 0x8a8a8a`；由 faint 这个语义槽接管。
+fn gen_hint() -> u32 { t().p.faint } // 生成中的灰字提示
+/// 原 `SEND_BG = 0x07c160`；由 accent 这个语义槽接管。
+fn send_bg() -> u32 { t().p.accent } // 发送可用
+/// 原 `SEND_BG_IDLE = 0xe9e9e9`；由 disabled 这个语义槽接管。
+fn send_bg_idle() -> u32 { t().p.disabled } // 发送不可用
+/// 原 `SEND_TEXT_IDLE = 0xb2b2b2`；由 disabled 这个语义槽接管。
+fn send_text_idle() -> u32 { t().p.disabled }
+/// 原 `STOP_BG = 0xf2f2f2`；由 hover 这个语义槽接管。
+fn stop_bg() -> u32 { t().p.hover }
+/// 原 `STOP_TEXT = 0xe64340`；由 danger 这个语义槽接管。
+fn stop_text() -> u32 { t().p.danger }
 
 // demo 里 textarea / hint 都是 13.5px。行高是 Textarea 组件写死的 1.25rem = 20px，
 // 不随字号变（gpui 的 rem 基准固定 16px），所以这里不能按 1.6 倍字号自己算。
@@ -89,27 +103,27 @@ pub fn render(
         .flex()
         .flex_col()
         .w_full()
-        .bg(rgb(WELL_BG))
+        .bg(rgb(well_bg()))
         .relative()
-        .pt(px(8.))
-        .px(px(10.))
-        .pb(px(10.))
+        .pt(t().d(8.))
+        .px(t().d(10.))
+        .pb(t().d(10.))
         // `/` 面板是**跟着输入框走**的：占位、把卡片往上推，跟微信那种一致。
-        .children(slash_panel.map(|p| div().px(px(0.)).pb(px(6.)).child(p).into_any_element()))
+        .children(slash_panel.map(|p| div().px(t().d(0.)).pb(t().d(6.)).child(p).into_any_element()))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .w_full()
-                .bg(rgb(CARD_BG))
-                .rounded(px(12.))
+                .bg(rgb(card_bg()))
+                .rounded(t().r(12.))
                 // demo 的 box-shadow: 0 1px 3px 黑 8%。
                 .shadow(vec![
-                    BoxShadow::new(px(0.), px(1.), hsla(0., 0., 0., 0.08)).blur_radius(px(3.)),
+                    BoxShadow::new(t().d(0.), t().d(1.), hsla(0., 0., 0., 0.08)).blur_radius(t().d(3.)),
                 ])
                 // demo 的 border: 1px 黑 5%。
-                .border(px(1.))
-                .border_color(rgba(0x0000000D))
+                .border(t().d(1.))
+                .border_color(rgba(t().p.shadow))
                 // `on_hover` 在 `Stateful` 上：先给 id。
                 .id("composer-card")
                 .on_hover(on_hover)
@@ -117,9 +131,9 @@ pub fn render(
                 .child(
                     div()
                         .relative()
-                        .px(px(12.))
-                        .pt(px(10.))
-                        .pb(px(4.))
+                        .px(t().d(12.))
+                        .pt(t().d(10.))
+                        .pb(t().d(4.))
                         .child(
                             Textarea::new(input)
                                 .appearance(false)
@@ -132,10 +146,10 @@ pub fn render(
                 .when(state.streaming, |el| {
                     el.child(
                         div()
-                            .px(px(12.))
-                            .pb(px(2.))
-                            .text_size(px(11.))
-                            .text_color(rgb(GEN_HINT))
+                            .px(t().d(12.))
+                            .pb(t().d(2.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(gen_hint()))
                             .child("正在生成，回车暂不发送（可以点「停止」，或者等它说完）"),
                     )
                 })
@@ -144,16 +158,16 @@ pub fn render(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(2.))
-                        .px(px(8.))
-                        .pt(px(2.))
-                        .pb(px(8.))
+                        .gap(t().d(2.))
+                        .px(t().d(8.))
+                        .pt(t().d(2.))
+                        .pb(t().d(8.))
                         .child(
                             // 生成中工具图标整组变淡；声纹和发送/停止不跟着这一组。
                             div()
                                 .flex()
                                 .items_center()
-                                .gap(px(2.))
+                                .gap(t().d(2.))
                                 .when(dimmed, |el| el.opacity(0.4))
                                 .child(first_tool)
                                 .child(tool_icon(IconName::Hexagon))
@@ -171,8 +185,8 @@ pub fn render(
                             action_button(
                                 "composer-stop",
                                 "停 止",
-                                STOP_BG,
-                                STOP_TEXT,
+                                stop_bg(),
+                                stop_text(),
                                 true,
                                 12.,
                                 on_stop,
@@ -183,14 +197,14 @@ pub fn render(
                                 "composer-send",
                                 "发送",
                                 if state.can_send {
-                                    SEND_BG
+                                    send_bg()
                                 } else {
-                                    SEND_BG_IDLE
+                                    send_bg_idle()
                                 },
                                 if state.can_send {
-                                    0xffffff
+                                    t().p.panel
                                 } else {
-                                    SEND_TEXT_IDLE
+                                    send_text_idle()
                                 },
                                 state.can_send,
                                 14.,
@@ -216,12 +230,12 @@ fn hint_layer(shown: bool, hovered: bool, can_send: bool) -> AnyElement {
         // 写字区容器 pt(10)/px(12)，而 Textarea 组件自带内边距（Size=Medium：上下 8px、
         // 左右 10px），输入文字实际在 (12+10, 10+8)。hint 要跟输入文字**精确重叠**，
         // 就把这层内边距补上；行高用组件的 20px。
-        .top(px(18.))
-        .left(px(22.))
-        .right(px(12.))
+        .top(t().d(18.))
+        .left(t().d(22.))
+        .right(t().d(12.))
         .text_size(px(TEXT_SIZE))
         .line_height(px(LINE_HEIGHT))
-        .text_color(rgb(HINT_TEXT))
+        .text_color(rgb(hint_text()))
         // id 里带 in/out：动画只在 id 变化时重播，带方向才会「进来淡入、出去淡出」。
         .with_animation(
             ElementId::Name(format!("composer-hint-{}", if hovered { "in" } else { "out" }).into()),
@@ -241,10 +255,10 @@ fn tool_icon(icon: IconName) -> impl IntoElement {
         .flex()
         .items_center()
         .justify_center()
-        .size(px(28.))
+        .size(t().d(28.))
         .id(ElementId::Name(format!("tool-{icon:?}").into()))
         .hover(|style| style.cursor_pointer())
-        .child(Icon::new(icon).text_color(rgb(ICON_IDLE)).size(px(18.)))
+        .child(Icon::new(icon).text_color(rgb(icon_idle())).size(t().d(18.)))
 }
 
 /// 剪刀那颗：demo 里它比别的图标宽（34px），剪刀右边跟着一个小 ⌄。纯样子。
@@ -253,15 +267,15 @@ fn tool_icon_with_caret(icon: IconName) -> impl IntoElement {
         .flex()
         .items_center()
         .justify_center()
-        .w(px(34.))
-        .h(px(28.))
+        .w(t().d(34.))
+        .h(t().d(28.))
         .id(ElementId::Name(format!("tool-{icon:?}").into()))
         .hover(|style| style.cursor_pointer())
-        .child(Icon::new(icon).text_color(rgb(ICON_IDLE)).size(px(18.)))
+        .child(Icon::new(icon).text_color(rgb(icon_idle())).size(t().d(18.)))
         .child(
             Icon::new(IconName::ChevronDown)
-                .text_color(rgb(ICON_IDLE))
-                .size(px(10.)),
+                .text_color(rgb(icon_idle()))
+                .size(t().d(10.)),
         )
 }
 
@@ -271,18 +285,17 @@ fn voice_button() -> impl IntoElement {
         .flex()
         .items_center()
         .justify_center()
-        .w(px(28.))
-        .h(px(26.))
-        .mr(px(6.))
+        .w(t().d(28.))
+        .h(t().d(26.))
+        .mr(t().d(6.))
         .id(ElementId::Name("tool-voice".into()))
         .hover(|style| style.cursor_pointer())
         .child(
             Icon::new(IconName::AudioLines)
-                .text_color(rgb(ICON_IDLE))
-                .size(px(18.)),
+                .text_color(rgb(icon_idle()))
+                .size(t().d(18.)),
         )
 }
-
 /// 底行按钮。用 `div` 手搓而不是 `Button`：这里的尺寸/圆角/四态色值都是
 /// 微信的，套组件反而要一层层覆盖样式。`pad_x` 是左右内边距（发送 14、停止 12，
 /// 跟 demo 对齐）。
@@ -299,11 +312,11 @@ fn action_button(
         .flex()
         .items_center()
         .justify_center()
-        .h(px(26.))
+        .h(t().d(26.))
         .px(px(pad_x))
-        .rounded(px(4.))
+        .rounded(t().r(4.))
         .bg(rgb(bg))
-        .text_size(px(12.5))
+        .text_size(t().fs(12.5))
         .text_color(rgb(fg))
         .id(ElementId::Name(id.into()))
         .when(enabled, |el| el.cursor_pointer())

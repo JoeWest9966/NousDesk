@@ -49,13 +49,13 @@ pub(crate) struct M {
 }
 
 /// 盘面所在的那一格 = 窗口减去图标条和左栏。
-/// 左栏宽度按当前 tab 算（聊天一栏 / 通讯录两栏），**常量直接引用 app.rs 的**，
-/// 改宽度时不用再来同步这份表。
+/// 左栏宽度取当前皮的 token —— 换皮可能把图标条收掉 / 栏宽改掉，盘面的 cqmin
+/// 必须跟着让开，不然那张图会按旧的窗口占比算尺寸。
 pub(crate) fn pane_width(win_w: f32, tab: crate::app::Tab) -> f32 {
-    use crate::app::{ICON_BAR_W, PRESET_TREE_W, SESSION_LIST_W, TEMPLATE_LIST_W, Tab};
+    let t = crate::theme::cur();
     let left = match tab {
-        Tab::Chats => ICON_BAR_W + SESSION_LIST_W,
-        Tab::Templates => ICON_BAR_W + PRESET_TREE_W + TEMPLATE_LIST_W,
+        crate::app::Tab::Chats => t.rail_w + t.list_w,
+        crate::app::Tab::Templates => t.rail_w + t.preset_tree_w + t.template_list_w,
     };
     (win_w - left).max(1.)
 }

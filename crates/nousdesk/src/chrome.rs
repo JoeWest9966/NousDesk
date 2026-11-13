@@ -16,6 +16,10 @@
 //!
 //! 所以这里的职责只有两件：**摆一个品牌名**、**把配色拉到和 App 一致**。
 
+// 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
+// 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+fn t() -> crate::theme::Skin { crate::theme::cur() }
+
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 
@@ -23,8 +27,10 @@ use gpui_kit::*;
 pub const BRAND: &str = "NousDesk";
 
 /// 标题栏底色：比聊天区（`CHAT_BG`）浅一档，和左栏的白卡拉开层次。
-const TITLE_BG: u32 = 0xf7f7f7;
-const TITLE_FG: u32 = 0x4d5156;
+/// 原 `TITLE_BG = 0xf7f7f7`；由 list_bg 这个语义槽接管。
+fn title_bg() -> u32 { t().p.list_bg }
+/// 原 `TITLE_FG = 0x4d5156`；由 text_2 这个语义槽接管。
+fn title_fg() -> u32 { t().p.text_2 }
 
 /// 画标题栏。高度、拖动、按钮全交给 `TitleBar`，这里只放名字。
 ///
@@ -45,13 +51,13 @@ pub fn title_bar(window: &mut Window) -> impl IntoElement {
     });
 
     TitleBar::new()
-        .bg(rgb(TITLE_BG))
+        .bg(rgb(title_bg()))
         // 左边留 12px 是 TitleBar 自己的 `TITLE_BAR_LEFT_PADDING`，再加一点呼吸。
         .child(
             div()
-                .pl(px(2.))
-                .text_size(px(12.5))
-                .text_color(rgb(TITLE_FG))
+                .pl(t().d(2.))
+                .text_size(t().fs(12.5))
+                .text_color(rgb(title_fg()))
                 .child(BRAND),
         )
 }
@@ -59,13 +65,11 @@ pub fn title_bar(window: &mut Window) -> impl IntoElement {
 #[cfg(test)]
 mod tests {
     // 只取需要的两个名字：`use super::*` 会把 gpui 的一堆宏再展开一层，够到递归上限。
-    use super::{BRAND, TITLE_BG};
-
-    /// 名字只能有一个来源：改一处、三处都跟着动。
+    use super::{title_bg, BRAND};
+    /// 名字只能有一个来源：改一处、三处都跟着动；标题栏底色由主题给定。
     #[test]
     fn brand_is_the_product_name() {
         assert_eq!(BRAND, "NousDesk");
-        // 浅色底：深色底会让左栏的白卡和标题栏撞在一起（对比度 < 1.2）。
-        assert!(((TITLE_BG >> 16) & 0xff) > 0xe0, "标题栏应该是浅色底");
+        assert_eq!(title_bg(), crate::theme::Skin::DEFAULT.p.list_bg);
     }
 }
