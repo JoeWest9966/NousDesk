@@ -79,8 +79,6 @@ pub(crate) const PRESET_TREE_W: f32 = 224.;
 #[allow(dead_code)]
 pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
 
-actions!(nousdesk, [TogglePinAction]);
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
     Chats,
@@ -2567,26 +2565,66 @@ impl Desktop {
                 this.choose_session(id, cx);
             }));
 
-        // 右键菜单：置顶 / 取消置顶。菜单项发的是同一个 action，每行自己的 listener
-        // 捕获自己的 id，所以 action 不用带参数。
+        // 右键菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字。
+        // 「更多」里的归档 / 撕原件是**独立一层**的子菜单（见 `archive_menu.rs`），
+        // 条目顺序、文案、动作映射都在那个模块里；这里只把产出的动作送回 `Desktop`。
         //
         // 只能在链尾分支：`context_menu()` 返回的是 `ContextMenu<Stateful<Div>>`，
         // 换个类型就没法再串 `when`（类型对不上）。
         if can_pin {
-            row.on_action(cx.listener(move |this, _: &TogglePinAction, _window, cx| {
-                this.toggle_pin(id, cx);
-            }))
-            .context_menu(move |menu, _window, _cx| {
-                let label = if pinned {
-                    "取消置顶"
-                } else {
-                    "置顶该聊天"
-                };
-                menu.menu(label, Box::new(TogglePinAction))
+            let this = cx.entity().downgrade();
+            let target = crate::archive_menu::SessionTarget::new(id, s.name.clone());
+            row.context_menu(move |menu, window, cx| {
+                let this = this.clone();
+                crate::archive_menu::build_menu(
+                    menu,
+                    window,
+                    cx,
+                    &target,
+                    pinned,
+                    move |action, cx| {
+                        let _ = this.update(cx, |this, cx| this.on_session_menu(action, cx));
+                    },
+                )
             })
             .into_any_element()
         } else {
             row.into_any_element()
+        }
+    }
+
+    /// 会话行右键菜单的出口（票 #5）。
+    ///
+    /// 本票只接**已经在手上的**能力：打开 / 置顶 / 复制名字 / 复制会话 id。
+    /// 归档、撕原件、重命名要等接线那票（协议端点 + 危险确认）—— 这里留一条日志，
+    /// 既不偷偷发请求，也不把用户点的东西静默吞掉。
+    pub(crate) fn on_session_menu(
+        &mut self,
+        action: crate::archive_menu::SessionMenuAction,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::archive_menu::SessionMenuAction as A;
+        match action {
+            A::Open { id } => self.choose_session(id, cx),
+            A::TogglePin { id } => self.toggle_pin(id, cx),
+            A::CopyName { name } => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(name.clone()));
+                log::info!("复制会话名字：{name}");
+            }
+            A::CopyId { id } => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(id.to_string()));
+                log::info!("复制会话 id：{id}");
+            }
+            A::Archive { id, name } => {
+                log::info!("菜单：归档 {name}（#{id}）—— 待接线");
+            }
+            A::Purge { id, name } => {
+                log::info!("菜单：撕原件 {name}（#{id}）—— 待接线");
+            }
+            A::Rename { id } => {
+                log::info!("菜单：重命名 #{id} —— 协议端点还没有");
+            }
+            A::Close => {}
         }
     }
 
