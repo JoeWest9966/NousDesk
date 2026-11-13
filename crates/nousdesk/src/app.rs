@@ -85,20 +85,32 @@ pub(crate) enum Tab {
     Templates,
 }
 
-/// 全局轻提示的状态：文案 + 是不是错 + 一个代号。
+/// 轻提示的性质：成功绿 / 失败红。
+///
+/// 用枚举而不是 `bool`：两个调用点都写 `true` / `false` 的时候，谁也看不出来
+/// 那个 flag 是什么意思（评审 J1）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoticeKind {
+    /// 做成了 / 只是告知（绿）。
+    Info,
+    /// 失败了（红）。
+    Error,
+}
+
+/// 全局轻提示的状态：文案 + 性质 + 一个代号。
 ///
 /// 自动收起是「每弹一条挂一个 4 秒定时器」，难点在**连弹两条**：第一条的定时器
 /// 不许在第二条头上把提示收掉。所以每条提示带一个代号，定时器只收自己等的那一条。
 #[derive(Debug, Default)]
 pub(crate) struct NoticeState {
-    shown: Option<(String, bool)>,
+    shown: Option<(String, NoticeKind)>,
     token: u64,
 }
 
 impl NoticeState {
     /// 弹一条，返回这次定时器该等的代号。旧定时器回来时代号对不上，什么都不做。
-    pub(crate) fn show(&mut self, text: impl Into<String>, is_error: bool) -> u64 {
-        self.shown = Some((text.into(), is_error));
+    pub(crate) fn show(&mut self, text: impl Into<String>, kind: NoticeKind) -> u64 {
+        self.shown = Some((text.into(), kind));
         self.token += 1;
         self.token
     }
@@ -112,10 +124,19 @@ impl NoticeState {
         true
     }
 
-    /// 眼下在场的那条（文案 + 是不是错）。
-    pub(crate) fn current(&self) -> Option<&(String, bool)> {
+    /// 眼下在场的那条（文案 + 性质）。
+    pub(crate) fn current(&self) -> Option<&(String, NoticeKind)> {
         self.shown.as_ref()
     }
+}
+
+/// 一次引擎调用的失败：引擎回了 `{error}`，还是任务本身挂了（tokio 那边）。
+///
+/// 两类的文案来源不同 —— 前者是引擎原文（一个字都不许改），后者是我们自己的
+/// 「任务挂了」—— 所以由调用方决定画到哪（轻提示 / 归档库页头）。
+enum EngineFailure {
+    Engine(EngineError),
+    Task(String),
 }
 
 pub struct Desktop {
@@ -1604,11 +1625,11 @@ impl Desktop {
 
     // ── 归档 / 撕原件 / 轻提示（票 #6）──────────────────────
 
-    /// 弹一条轻提示：成功绿、失败红，4 秒后自己收。
+    /// 弹一条轻提示：做成的事绿、失败红，4 秒后自己收。
     ///
     /// 只在这里点火，**不在 `render` 里点火** —— 否则就是「重画 → 再点火」的死循环。
-    fn notify(&mut self, text: impl Into<String>, is_error: bool, cx: &mut Context<Self>) {
-        let token = self.notice.show(text, is_error);
+    fn notify(&mut self, text: impl Into<String>, kind: NoticeKind, cx: &mut Context<Self>) {
+        let token = self.notice.show(text, kind);
         cx.notify();
         cx.spawn(async move |this, cx| {
             Timer::after(Duration::from_secs(4)).await;
@@ -1624,8 +1645,66 @@ impl Desktop {
 
     /// 引擎报错的提示：`message` 原文逐字，不加前缀、不翻译、不截断。
     fn notify_error(&mut self, err: &EngineError, cx: &mut Context<Self>) {
-        let (text, is_error) = error_notice(err);
-        self.notify(text, is_error, cx);
+        self.notify(error_notice(err), NoticeKind::Error, cx);
+    }
+
+    /// 一段引擎调用的骨架：起任务 → 等 → 三种结局分开。
+    ///
+    /// 归档 / 撕原件 / 打捞 / 拉归档库四处原先各抄一遍同样的
+    /// `Ok(Ok(_)) / Ok(Err(e)) / Err(e)` + `log::warn!` + `update`，
+    /// 改一处忘三处（评审 J4）。这里只统一「怎么等、怎么区分两类失败、失败一定留日志」；
+    /// 成功之后刷什么、失败画到哪（轻提示 / 归档库页头红字），由调用方注入 ——
+    /// 四处在这些地方本来就不一样，别为了少写一行把它们抹平。
+    ///
+    /// `failed` / `task_failed` 是两句日志的固定部分（各站点主语不同，原样保留）。
+    fn run_engine<T, Fut, OnOk, OnErr>(
+        &mut self,
+        cx: &mut Context<Self>,
+        failed: &str,
+        task_failed: &str,
+        work: Fut,
+        on_ok: OnOk,
+        on_err: OnErr,
+    ) where
+        T: Send + 'static,
+        Fut: std::future::Future<Output = std::result::Result<T, EngineError>> + Send + 'static,
+        OnOk: FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
+        OnErr: FnOnce(&mut Self, EngineFailure, &mut Context<Self>) + 'static,
+    {
+        let Some(handle) = crate::TOKIO.get().cloned() else {
+            return;
+        };
+        let failed = failed.to_owned();
+        let task_failed = task_failed.to_owned();
+        cx.spawn(async move |this, cx| {
+            let got = handle.spawn(work).await;
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Ok(Ok(value)) => on_ok(this, value, cx),
+                    Ok(Err(e)) => {
+                        log::warn!("{failed}：{e}");
+                        on_err(this, EngineFailure::Engine(e), cx);
+                    }
+                    Err(e) => {
+                        log::warn!("{task_failed}：{e}");
+                        on_err(this, EngineFailure::Task(e.to_string()), cx);
+                    }
+                }
+                // 成功要重画（刷新过的列表），失败也要（红字 / 页头错误）。
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 走轻提示的失败出口（归档 / 撕原件 / 打捞共用）。
+    fn notify_engine_failure(&mut self, failure: EngineFailure, cx: &mut Context<Self>) {
+        match failure {
+            EngineFailure::Engine(e) => self.notify_error(&e, cx),
+            EngineFailure::Task(e) => {
+                self.notify(format!("任务挂了：{e}"), NoticeKind::Error, cx)
+            }
+        }
     }
 
     /// 打开归档库（右栏整页）。入口在「≡ 更多」菜单里。
@@ -1653,45 +1732,42 @@ impl Desktop {
             cx.notify();
             return;
         };
-        let Some(handle) = crate::TOKIO.get().cloned() else {
+        // 没有 tokio 就别把页头挂成「刷新中」—— 那个状态永远等不到回调去收。
+        if crate::TOKIO.get().is_none() {
             return;
-        };
+        }
         self.archive.loading = true;
         self.archive.error = None;
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            let got = handle
-                .spawn(async move { engine.archive_list().await })
-                .await;
-            let _ = this.update(cx, |this, cx| {
+        self.run_engine(
+            cx,
+            "归档库拉不到",
+            "归档库任务挂了",
+            async move { engine.archive_list().await },
+            |this, data, _cx| {
                 this.archive.loading = false;
-                match got {
-                    Ok(Ok(data)) => {
-                        this.archive.data = data;
-                        // 刷新后选中的那行可能已经不在了（打捞 / 撕原件之后）：
-                        // 别留一个指向空气的高亮。
-                        let selected_gone = this.archive.selected.as_ref().is_some_and(|key| {
-                            !this.archive.data.gens.iter().any(|g| {
-                                g.r#gen == key.r#gen && g.items.iter().any(|i| i.id == key.id)
-                            })
-                        });
-                        if selected_gone {
-                            this.archive.clear_selection();
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        log::warn!("归档库拉不到：{e}");
-                        this.archive.error = Some(error_notice(&e).0);
-                    }
-                    Err(e) => {
-                        log::warn!("归档库任务挂了：{e}");
-                        this.archive.error = Some(format!("任务挂了：{e}"));
-                    }
+                this.archive.data = data;
+                // 刷新后选中的那行可能已经不在了（打捞 / 撕原件之后）：
+                // 别留一个指向空气的高亮。
+                let selected_gone = this.archive.selected.as_ref().is_some_and(|key| {
+                    !this.archive.data.gens.iter().any(|g| {
+                        g.r#gen == key.r#gen && g.items.iter().any(|i| i.id == key.id)
+                    })
+                });
+                if selected_gone {
+                    this.archive.clear_selection();
                 }
-                cx.notify();
-            });
-        })
-        .detach();
+            },
+            |this, failure, _cx| {
+                // 归档库里失败画在**页头**，不弹轻提示：整页都在讲这件事，
+                // 再飘一条红的会重复，而且关掉以后就找不到原因了。
+                this.archive.loading = false;
+                this.archive.error = Some(match failure {
+                    EngineFailure::Engine(e) => error_notice(&e),
+                    EngineFailure::Task(e) => format!("任务挂了：{e}"),
+                });
+            },
+        );
     }
 
     /// 重拉 `/v1/sessions`（排序照 `start_poll` 那套，不另拼一份），落进 `self.sessions`。
@@ -1699,6 +1775,9 @@ impl Desktop {
     /// `archived`：刚归档 / 刚撕掉的那条。若它正是当前打开的会话，就按
     /// [`next_selection_after_archive`] 退到最近一条；退无可退回空态（真停 SSE），
     /// 绝不留一个「选着一条已经不存在的会话」的空壳。
+    ///
+    /// **故意不走 [`Self::run_engine`]**：拉列表失败是常态（轮询会再拉一次），
+    /// 这里一个字都不该弹给用户，和那四处的「失败必须可见」是两种要求。
     fn reload_sessions(&mut self, archived: Option<i64>, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
@@ -1751,31 +1830,21 @@ impl Desktop {
         let Some(engine) = self.engine.clone() else {
             return;
         };
-        let Some(handle) = crate::TOKIO.get().cloned() else {
-            return;
-        };
         log::info!("归档会话：{name}（#{id}）");
-        cx.spawn(async move |this, cx| {
-            let got = handle.spawn(async move { engine.archive(id).await }).await;
-            let _ = this.update(cx, |this, cx| match got {
-                Ok(Ok(_)) => {
-                    this.notify("已归档 · 可在归档库捞回", false, cx);
-                    this.reload_sessions(Some(id), cx);
-                    if this.archive_open {
-                        this.archive_page_load(cx);
-                    }
+        self.run_engine(
+            cx,
+            &format!("归档没成：{id}"),
+            &format!("归档任务挂了：{id}"),
+            async move { engine.archive(id).await },
+            move |this, _done, cx| {
+                this.notify("已归档 · 可在归档库捞回", NoticeKind::Info, cx);
+                this.reload_sessions(Some(id), cx);
+                if this.archive_open {
+                    this.archive_page_load(cx);
                 }
-                Ok(Err(e)) => {
-                    log::warn!("归档没成：{id}：{e}");
-                    this.notify_error(&e, cx);
-                }
-                Err(e) => {
-                    log::warn!("归档任务挂了：{id}：{e}");
-                    this.notify(format!("任务挂了：{e}"), true, cx);
-                }
-            });
-        })
-        .detach();
+            },
+            Self::notify_engine_failure,
+        );
     }
 
     /// 确认之后真撕。**不可撤销**，所以只能从 [`PurgeConfirm::on_confirm`] 走到这里。
@@ -1783,32 +1852,22 @@ impl Desktop {
         let Some(engine) = self.engine.clone() else {
             return;
         };
-        let Some(handle) = crate::TOKIO.get().cloned() else {
-            return;
-        };
         log::info!("撕原件：#{id}");
-        cx.spawn(async move |this, cx| {
-            let got = handle.spawn(async move { engine.purge(id).await }).await;
-            let _ = this.update(cx, |this, cx| match got {
-                Ok(Ok(_)) => {
-                    this.notify("已撕掉原件", false, cx);
-                    // 撕掉的要是正开着的那条，同样退让；不在列表里就只是重拉一次。
-                    this.reload_sessions(Some(id), cx);
-                    if this.archive_open {
-                        this.archive_page_load(cx);
-                    }
+        self.run_engine(
+            cx,
+            &format!("撕原件没成：{id}"),
+            &format!("撕原件任务挂了：{id}"),
+            async move { engine.purge(id).await },
+            move |this, _done, cx| {
+                this.notify("已撕掉原件", NoticeKind::Info, cx);
+                // 撕掉的要是正开着的那条，同样退让；不在列表里就只是重拉一次。
+                this.reload_sessions(Some(id), cx);
+                if this.archive_open {
+                    this.archive_page_load(cx);
                 }
-                Ok(Err(e)) => {
-                    log::warn!("撕原件没成：{id}：{e}");
-                    this.notify_error(&e, cx);
-                }
-                Err(e) => {
-                    log::warn!("撕原件任务挂了：{id}：{e}");
-                    this.notify(format!("任务挂了：{e}"), true, cx);
-                }
-            });
-        })
-        .detach();
+            },
+            Self::notify_engine_failure,
+        );
     }
 
     /// 危险确认里按了「撕掉原件」：拿到 `(id, name)` 才真的发请求。
@@ -1817,13 +1876,10 @@ impl Desktop {
             cx.notify();
             return;
         };
-        let Ok(id) = action.session_id.parse::<i64>() else {
-            log::warn!("确认里的会话 id 不是数字：{}", action.session_id);
-            self.notify("会话 id 不是数字，没有动它", true, cx);
-            return;
-        };
         cx.notify();
-        self.purge_session(id, cx);
+        // 会话 id 是**数字**（`wire.md`）：确认层存的就是 `i64`，这里不 parse、
+        // 也没有「不是数字」的兜底分支（评审 J2）。
+        self.purge_session(action.session_id, cx);
     }
 
     /// 打捞：`POST /v1/archive/:id/restore`。成功后归档库 + 主列表都刷新 ——
@@ -1832,31 +1888,19 @@ impl Desktop {
         let Some(engine) = self.engine.clone() else {
             return;
         };
-        let Some(handle) = crate::TOKIO.get().cloned() else {
-            return;
-        };
         log::info!("打捞：#{id}（gen {gen}）");
-        cx.spawn(async move |this, cx| {
-            let got = handle
-                .spawn(async move { engine.restore(id, &r#gen).await })
-                .await;
-            let _ = this.update(cx, |this, cx| match got {
-                Ok(Ok(_)) => {
-                    this.notify("已捞回 · 会话回到主列表", false, cx);
-                    this.archive_page_load(cx);
-                    this.reload_sessions(None, cx);
-                }
-                Ok(Err(e)) => {
-                    log::warn!("打捞没成：{id}：{e}");
-                    this.notify_error(&e, cx);
-                }
-                Err(e) => {
-                    log::warn!("打捞任务挂了：{id}：{e}");
-                    this.notify(format!("任务挂了：{e}"), true, cx);
-                }
-            });
-        })
-        .detach();
+        self.run_engine(
+            cx,
+            &format!("打捞没成：{id}"),
+            &format!("打捞任务挂了：{id}"),
+            async move { engine.restore(id, &r#gen).await },
+            move |this, _done, cx| {
+                this.notify("已捞回 · 会话回到主列表", NoticeKind::Info, cx);
+                this.archive_page_load(cx);
+                this.reload_sessions(None, cx);
+            },
+            Self::notify_engine_failure,
+        );
     }
 
     /// 归档库页的出口：这一页只产出动作，真正干什么在这里。
@@ -1871,7 +1915,7 @@ impl Desktop {
             A::Restore { id, r#gen } => self.restore_session(*id, r#gen.clone(), cx),
             A::Purge { id, name } => {
                 // 危险动作：先弹 #3 的红框，真删在 `confirm_purge`。
-                self.purge_confirm.request(id.to_string(), name.clone());
+                self.purge_confirm.request(*id, name.clone());
                 cx.notify();
             }
         }
@@ -1911,11 +1955,10 @@ impl Desktop {
 
     /// 最上层的轻提示。没有就 `None`（`children` 吃掉 `Option` 不花钱）。
     fn render_notice(&self) -> Option<AnyElement> {
-        let (text, is_error) = self.notice.current()?;
-        let (bg, fg) = if *is_error {
-            (t().p.danger_soft, t().p.danger_fg)
-        } else {
-            (t().p.accent_soft, t().p.accent_fg)
+        let (text, kind) = self.notice.current()?;
+        let (bg, fg) = match kind {
+            NoticeKind::Error => (t().p.danger_soft, t().p.danger_fg),
+            NoticeKind::Info => (t().p.accent_soft, t().p.accent_fg),
         };
         Some(
             div()
@@ -2853,7 +2896,9 @@ impl Desktop {
         let busy = s.busy.is_some();
         let id = s.id;
         let pinned = self.pins.contains(&id);
-        let can_pin = self.pins_client.is_some();
+        // 置顶要 bjes6b（`pins_client`），归档只要 qrd3wh。两件事的门不能串在一起：
+        // 置顶服务没连上时菜单照样要挂上，只是那一项画成禁用态（见 `archive_menu`）。
+        let pins_available = self.pins_client.is_some();
 
         let row = div()
             .flex()
@@ -2974,35 +3019,37 @@ impl Desktop {
         // 「更多」里的归档 / 撕原件是**独立一层**的子菜单（见 `archive_menu.rs`），
         // 条目顺序、文案、动作映射都在那个模块里；这里只把产出的动作送回 `Desktop`。
         //
+        // 菜单**永远挂上**：归档 / 撕原件 / 复制都走 qrd3wh，和置顶服务无关 ——
+        // 早先按 `pins_client` 判了一刀，bjes6b 一挂就整摞菜单（含「更多 › 归档」）
+        // 跟着消失（评审必修 1）。置顶不可用时由 `archive_menu` 把那一条画成禁用态。
+        //
         // 只能在链尾分支：`context_menu()` 返回的是 `ContextMenu<Stateful<Div>>`，
         // 换个类型就没法再串 `when`（类型对不上）。
-        if can_pin {
-            let this = cx.entity().downgrade();
-            let target = crate::archive_menu::SessionTarget::new(id, s.name.clone());
-            row.context_menu(move |menu, window, cx| {
-                let this = this.clone();
-                crate::archive_menu::build_menu(
-                    menu,
-                    window,
-                    cx,
-                    &target,
-                    pinned,
-                    move |action, cx| {
-                        let _ = this.update(cx, |this, cx| this.on_session_menu(action, cx));
-                    },
-                )
-            })
-            .into_any_element()
-        } else {
-            row.into_any_element()
-        }
+        let this = cx.entity().downgrade();
+        let target = crate::archive_menu::SessionTarget::new(id, s.name.clone());
+        row.context_menu(move |menu, window, cx| {
+            let this = this.clone();
+            crate::archive_menu::build_menu(
+                menu,
+                window,
+                cx,
+                &target,
+                pinned,
+                pins_available,
+                move |action, cx| {
+                    let _ = this.update(cx, |this, cx| this.on_session_menu(action, cx));
+                },
+            )
+        })
+        .into_any_element()
     }
 
-    /// 会话行右键菜单的出口（票 #5）。
+    /// 会话行右键菜单的出口（票 #5 / #6）。
     ///
-    /// 本票只接**已经在手上的**能力：打开 / 置顶 / 复制名字 / 复制会话 id。
-    /// 归档、撕原件、重命名要等接线那票（协议端点 + 危险确认）—— 这里留一条日志，
-    /// 既不偷偷发请求，也不把用户点的东西静默吞掉。
+    /// 每一项点下去都必须有可见结果（AGENTS：「按钮点下去没反应…都算 bug」）：
+    /// 打开换会话、置顶写穿 bjes6b、归档 / 撕原件走引擎、复制写剪贴板后弹确认。
+    /// 重命名是唯一还没端点的项（`wire.md` 里没有改名路由），点它给一句说明，
+    /// 不偷偷发请求、也不静默吞掉。
     pub(crate) fn on_session_menu(
         &mut self,
         action: crate::archive_menu::SessionMenuAction,
@@ -3015,21 +3062,32 @@ impl Desktop {
             A::CopyName { name } => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(name.clone()));
                 log::info!("复制会话名字：{name}");
+                // 写剪贴板本身没有可见结果（Wayland 上还可能被合成器丢掉），
+                // 所以必须给一句确认 —— 否则就是「点下去像没反应」。
+                self.notify("已复制会话名字", NoticeKind::Info, cx);
             }
             A::CopyId { id } => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(id.to_string()));
                 log::info!("复制会话 id：{id}");
+                self.notify("已复制会话 id", NoticeKind::Info, cx);
             }
             A::Archive { id, name } => self.archive_session(id, &name, cx),
             A::Purge { id, name } => {
                 // 危险动作一律先过 #3 的红框；真撕在 `confirm_purge`。
-                self.purge_confirm.request(id.to_string(), name);
+                self.purge_confirm.request(id, name);
                 cx.notify();
             }
             A::Rename { id } => {
+                // spec 要求菜单里保留这一项，但 `wire.md` 里**没有**改名端点
+                // （`POST /v1/sessions/0/rename` 和 `config` 一样先查会话，404 分不出
+                // 路由在不在）。所以点了要给一句说明，不能静默（AGENTS「算 bug」）。
                 log::info!("菜单：重命名 #{id} —— 协议端点还没有");
+                self.notify(
+                    "重命名端点还没接：wire.md 里没有这条",
+                    NoticeKind::Info,
+                    cx,
+                );
             }
-            A::Close => {}
         }
     }
 
@@ -3383,10 +3441,10 @@ pub(crate) fn next_selection_after_archive(sessions: &[Session], gone: i64) -> O
 /// 引擎错误的提示语：[`EngineError::Engine`] 的 `message` **原文**逐字给用户
 /// （409 会列出活分支，那些字有用），不加前缀、不翻译、不截断。
 /// 网络 / URL 层没有引擎的 `message`，用 `Display` —— 那种错误没有「原文」可言。
-pub(crate) fn error_notice(err: &EngineError) -> (String, bool) {
+pub(crate) fn error_notice(err: &EngineError) -> String {
     match err {
-        EngineError::Engine { message, .. } => (message.clone(), true),
-        other => (other.to_string(), true),
+        EngineError::Engine { message, .. } => message.clone(),
+        other => other.to_string(),
     }
 }
 
@@ -3669,8 +3727,8 @@ fn nav_child_index(
 #[allow(non_snake_case)]
 mod tests {
     use super::{
-        NoticeState, error_notice, nav_child_index, next_selection_after_archive, order_ids,
-        when_text,
+        NoticeKind, NoticeState, error_notice, nav_child_index, next_selection_after_archive,
+        order_ids, when_text,
     };
     use nous_engine::EngineError;
     use nous_engine::types::{Entry, Session};
@@ -3914,13 +3972,13 @@ x
     #[test]
     fn 旧定时器不会收掉后弹的提示() {
         let mut notice = NoticeState::default();
-        let first = notice.show("已归档 · 可在归档库捞回", false);
-        let second = notice.show("会话还有活分支：304、305", true);
+        let first = notice.show("已归档 · 可在归档库捞回", NoticeKind::Info);
+        let second = notice.show("会话还有活分支：304、305", NoticeKind::Error);
 
         assert!(!notice.expire(first), "第一条的定时器不该收掉第二条");
         assert_eq!(
-            notice.current().map(|(text, bad)| (text.as_str(), *bad)),
-            Some(("会话还有活分支：304、305", true)),
+            notice.current().map(|(text, kind)| (text.as_str(), *kind)),
+            Some(("会话还有活分支：304、305", NoticeKind::Error)),
             "第二条要原样在场"
         );
 
@@ -3938,6 +3996,6 @@ x
             message: message.to_string(),
         };
 
-        assert_eq!(error_notice(&err), (message.to_string(), true));
+        assert_eq!(error_notice(&err), message);
     }
 }

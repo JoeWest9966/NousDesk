@@ -28,8 +28,39 @@ fn parse_archive_list_live_sample() {
     assert!(item.live);
     assert!(item.archived.is_none());
     assert!(item.last.is_none());
-    assert_eq!(item.parent.as_ref().unwrap()["id"], 296);
-    assert_eq!(item.entries.as_ref().unwrap(), &serde_json::json!(0));
+    let parent = item.parent.as_ref().unwrap();
+    assert_eq!(parent.id, 296);
+    assert_eq!(parent.at, Some(serde_json::json!(50)));
+    assert_eq!(item.entries, 0);
+}
+
+/// `parent` 的两种活形状都要能过：699 是 `null`，302 是 `{id, at}`。
+/// `at` 可能不是数字（现在 `SessionParent.at` 是 `Value`），照抄 `/v1/sessions` 那一套。
+#[test]
+fn parse_archive_parent_null_and_branch() {
+    let json = r#"{"gens":[{"gen":"20261113","items":[
+        {"id":699,"parent":null,"entries":0,"last":null,"name":"探针","archived":null,"live":true},
+        {"id":302,"parent":{"id":296,"at":50},"entries":17,"last":null,"name":"对话 302","archived":null,"live":true},
+        {"id":303,"parent":{"id":296,"at":"2026-11-10T01:02:03Z"},"entries":3,"name":"at 不是数字","live":true}
+    ]}]}"#;
+    let g: ArchiveGens = serde_json::from_str(json).unwrap();
+    let items = &g.gens[0].items;
+
+    assert!(items[0].parent.is_none(), "`parent: null` = 不是分支");
+
+    assert_eq!(items[1].parent.as_ref().unwrap().id, 296);
+    assert_eq!(
+        items[1].parent.as_ref().unwrap().at,
+        Some(serde_json::json!(50))
+    );
+    assert_eq!(items[1].entries, 17);
+
+    // `at` 是字符串也照收，别为它新造一套猜法。
+    assert_eq!(
+        items[2].parent.as_ref().unwrap().at,
+        Some(serde_json::json!("2026-11-10T01:02:03Z"))
+    );
+    assert_eq!(items[2].entries, 3);
 }
 
 /// 墓碑对象 + 未知字段：`purged` / `at: null` 要留下，没型号的键进 extra。
@@ -95,7 +126,7 @@ fn parse_archive_missing_fields() {
     assert_eq!(bare.id, 0);
     assert!(bare.name.is_empty());
     assert!(bare.parent.is_none());
-    assert!(bare.entries.is_none());
+    assert_eq!(bare.entries, 0, "缺字段按 0 条，不是「不知道」");
     assert!(bare.last.is_none());
     assert!(!bare.live);
 

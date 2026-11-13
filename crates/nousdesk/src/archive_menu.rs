@@ -16,9 +16,9 @@
 //! - `separator()` 幂等、`menu_with_disabled` 才有禁用态。
 //!
 //! 这些都在库里，本模块不重复造。本模块负责库不管的那一半：
-//! **条目顺序、文案、副标题，以及「哪一项 → 哪个动作」**。所以可测的缝是纯函数
-//! （[`top_lines`] / [`more_lines`] / [`label`] / [`hint`] / [`entry_action`]），
-//! 不开窗口、不合成鼠标。
+//! **条目顺序、文案、副标题、哪一项能点，以及「哪一项 → 哪个动作」**。所以可测的缝是纯函数
+//! （[`top_lines`] / [`more_lines`] / [`label`] / [`hint`] / [`entry_enabled`] /
+//! [`entry_action`] / [`submenu_side`]），不开窗口、不合成鼠标。
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::*;
@@ -44,8 +44,9 @@ impl SessionTarget {
     }
 }
 
-/// 菜单的出口。接线那票按这个 match：能立即做的（打开 / 置顶 / 复制）现在就有分支，
-/// 归档 / 撕原件 / 重命名是**待接协议**的占位，不许静默丢。
+/// 菜单的出口。接线那票按这个 match：打开 / 置顶 / 复制 / 归档 / 撕原件都有真分支；
+/// 重命名是**待接协议**的入口（`wire.md` 里还没有改名端点）—— 点了必须给用户一句
+/// 说明，不许静默丢（AGENTS「按钮点下去没反应…都算 bug」）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionMenuAction {
     Open {
@@ -71,11 +72,12 @@ pub enum SessionMenuAction {
     CopyId {
         id: i64,
     },
-    /// 整摞关掉（Esc / 点空白）。不是可点的条目，是「什么都没选」的显式出口。
-    Close,
 }
 
-/// 菜单里的一个可执行项。`More` 不产动作（它只开子菜单），`Dismiss` 是关闭出口。
+/// 菜单里的一个可执行项。`More` 不产动作（它只开子菜单）。
+///
+/// 收起整摞（Esc / 点空白 / 点任一可执行项）由库做（`PopupMenu::dismiss` 沿
+/// `parent_menu` 往上传），这里不摆一个「关闭」条目 —— 摆出来就是个点不出动作的假入口。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionMenuEntry {
     Open,
@@ -86,13 +88,6 @@ pub enum SessionMenuEntry {
     Archive,
     Purge,
     CopyId,
-    /// 不是菜单里的一行：整摞关掉（Esc / 点空白）的统一出口。
-    ///
-    /// 收起这件事由库做（`PopupMenu::dismiss` 沿 `parent_menu` 往上传），
-    /// 所以这一支在 `app.rs` 里没有构造点 —— 留着是给 [`entry_action`] 一个
-    /// 诚实的「什么都没选」出口，接线那票的 match 也因此是穷尽的。
-    #[allow(dead_code)]
-    Dismiss,
 }
 
 /// 一行：可执行项或分隔线。顺序照设计稿 B 卡。
@@ -105,6 +100,8 @@ pub enum MenuLine {
 /// 父菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字。
 ///
 /// 置顶态只改文案（「置顶该聊天」↔「取消置顶」），不改形状 —— 所以这里不收 `pinned`。
+/// 置顶服务（bjes6b）没连上时也**不改形状**：那一项画成禁用态并写清原因，见
+/// [`entry_enabled`] 与 [`PIN_UNAVAILABLE_HINT`]。
 pub fn top_lines() -> Vec<MenuLine> {
     vec![
         MenuLine::Item(SessionMenuEntry::Open),
@@ -143,8 +140,19 @@ pub fn label(entry: SessionMenuEntry, pinned: bool) -> &'static str {
         SessionMenuEntry::Archive => "归档该聊天…",
         SessionMenuEntry::Purge => "撕原件…",
         SessionMenuEntry::CopyId => "复制会话 id",
-        SessionMenuEntry::Dismiss => "",
     }
+}
+
+/// 置顶服务（bjes6b）没连上时，「置顶该聊天」那行的副标题。
+///
+/// 写清为什么点了没用，而不是灰在那里让人猜 —— 归档走的是 qrd3wh，
+/// 和置顶服务无关，所以整摞菜单不能因为置顶不可用而消失。
+pub const PIN_UNAVAILABLE_HINT: &str = "置顶服务没连上";
+
+/// 这一项此刻能不能点。只可能因为「置顶服务没连上」变灰 ——
+/// 「撕原件…」永远可点（前置条件归引擎判，409 原文给用户看）。
+pub fn entry_enabled(entry: SessionMenuEntry, pins_available: bool) -> bool {
+    !(matches!(entry, SessionMenuEntry::TogglePin) && !pins_available)
 }
 
 /// 行尾的灰色副标题。`撕原件` 写清前置条件，但**不禁用** ——
@@ -169,8 +177,32 @@ pub fn entry_action(entry: SessionMenuEntry, target: &SessionTarget) -> Option<S
         SessionMenuEntry::Archive => SessionMenuAction::Archive { id, name: name() },
         SessionMenuEntry::Purge => SessionMenuAction::Purge { id, name: name() },
         SessionMenuEntry::CopyId => SessionMenuAction::CopyId { id },
-        SessionMenuEntry::Dismiss => SessionMenuAction::Close,
     })
+}
+
+/// 子菜单该贴父菜单右边，还是翻到左边。
+///
+/// [`SubmenuSide::Right`] = 父菜单右边缘再往右放得下；放不下才 [`SubmenuSide::Left`]。
+/// 刚好放得下（`parent_right + submenu_w == window_w`）**不翻** —— 边界写成
+/// `<=`，别写成 `<`。
+///
+/// 绘制时锚点仍由 gpui-kit 自己算（`update_submenu_menu_anchor` 拿窗口
+/// viewport 宽度比，判定与这里一致），这个函数是回归保护：库哪天改了边界，
+/// 这里的单测会先红。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubmenuSide {
+    Right,
+    Left,
+}
+
+/// 见 [`SubmenuSide`]。
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn submenu_side(parent_right: f32, submenu_w: f32, window_w: f32) -> SubmenuSide {
+    if parent_right + submenu_w <= window_w {
+        SubmenuSide::Right
+    } else {
+        SubmenuSide::Left
+    }
 }
 
 /// 把模型画进 `context_menu` 给的那只 `PopupMenu` 里。
@@ -183,6 +215,7 @@ pub fn build_menu(
     cx: &mut Context<PopupMenu>,
     target: &SessionTarget,
     pinned: bool,
+    pins_available: bool,
     on_pick: impl Fn(SessionMenuAction, &mut App) + Clone + 'static,
 ) -> PopupMenu {
     let mut menu = menu;
@@ -203,28 +236,39 @@ pub fn build_menu(
                         for line in more_lines() {
                             sub = match line {
                                 MenuLine::Separator => sub.separator(),
-                                MenuLine::Item(entry) => {
-                                    sub.item(item_for(entry, &target, pinned, on_pick.clone()))
-                                }
+                                MenuLine::Item(entry) => sub.item(item_for(
+                                    entry,
+                                    &target,
+                                    pinned,
+                                    pins_available,
+                                    on_pick.clone(),
+                                )),
                             };
                         }
                         sub
                     },
                 )
             }
-            MenuLine::Item(entry) => menu.item(item_for(entry, target, pinned, on_pick.clone())),
+            MenuLine::Item(entry) => menu.item(item_for(
+                entry,
+                target,
+                pinned,
+                pins_available,
+                on_pick.clone(),
+            )),
         };
     }
 
     menu
 }
 
-/// 一个可执行项。带副标题的（目前只有「撕原件…」）走自定义渲染 ——
-/// 库里 `Item` 只有一行字，没地方挂副标题。
+/// 一个可执行项。带副标题的（「撕原件…」，以及置顶服务没连上时的「置顶该聊天」）
+/// 走自定义渲染 —— 库里 `Item` 只有一行字，没地方挂副标题。
 fn item_for<F>(
     entry: SessionMenuEntry,
     target: &SessionTarget,
     pinned: bool,
+    pins_available: bool,
     on_pick: F,
 ) -> PopupMenuItem
 where
@@ -238,9 +282,17 @@ where
         return PopupMenuItem::label(text);
     };
 
+    let enabled = entry_enabled(entry, pins_available);
+    let hint = if enabled {
+        hint(entry)
+    } else {
+        // 置顶服务没连上：那行写清原因，而不是变成一个没解释的灰条。
+        Some(PIN_UNAVAILABLE_HINT)
+    };
+
     let handler = move |_: &ClickEvent, _: &mut Window, cx: &mut App| on_pick(action.clone(), cx);
 
-    match hint(entry) {
+    match hint {
         Some(hint) => PopupMenuItem::element(move |_window, _cx| {
             div()
                 .flex()
@@ -259,8 +311,9 @@ where
                 .into_any_element()
         })
         .on_click(handler)
-        // 显式写出来：「撕原件…」永远可点，前置条件归引擎判（409 原文给用户看）。
-        .disabled(false),
+        // 「撕原件…」始终 `false`（永远可点，前置条件归引擎判，409 原文给用户看）；
+        // 只有置顶服务没连上时「置顶该聊天」才是 `true`。
+        .disabled(!enabled),
         None => PopupMenuItem::new(text).on_click(handler),
     }
 }
@@ -270,8 +323,8 @@ mod tests {
     // 别写 `use super::*;` —— 那会把 `gpui_kit::*` 也带进来，
     // `#[test]` 展开时会在它的宏里撞上 recursion limit（踩过）。
     use super::{
-        MenuLine, SessionMenuAction, SessionMenuEntry, SessionTarget, entry_action, hint, label,
-        more_lines, top_lines,
+        MenuLine, PIN_UNAVAILABLE_HINT, SessionMenuAction, SessionMenuEntry, SessionTarget,
+        SubmenuSide, entry_action, entry_enabled, hint, label, more_lines, submenu_side, top_lines,
     };
 
     fn target() -> SessionTarget {
@@ -423,12 +476,44 @@ mod tests {
         assert_eq!(entry_action(SessionMenuEntry::More, &target()), None);
     }
 
-    /// Esc / 点空白：整摞关掉，出口是 `Close`。
+    /// 置顶服务（bjes6b）没连上时：菜单形状不变（归档入口不能跟着消失），
+    /// 只有「置顶该聊天」变禁用态并给出原因；其它项（尤其「撕原件…」）照旧可点。
     #[test]
-    fn dismiss_closes_the_whole_stack() {
-        assert_eq!(
-            entry_action(SessionMenuEntry::Dismiss, &target()),
-            Some(SessionMenuAction::Close)
+    fn pin_item_is_disabled_but_never_removed_when_pin_service_is_down() {
+        let lines: Vec<MenuLine> = top_lines().into_iter().chain(more_lines()).collect();
+        let entries: Vec<SessionMenuEntry> = lines
+            .into_iter()
+            .filter_map(|line| match line {
+                MenuLine::Item(entry) => Some(entry),
+                MenuLine::Separator => None,
+            })
+            .collect();
+
+        assert!(
+            entries.contains(&SessionMenuEntry::TogglePin),
+            "置顶服务挂了也不许把这一项拿掉（形状稳定）"
         );
+        for pins_available in [true, false] {
+            assert!(
+                entry_enabled(SessionMenuEntry::Purge, pins_available),
+                "「撕原件…」永远可点"
+            );
+        }
+        assert!(!entry_enabled(SessionMenuEntry::TogglePin, false));
+        assert!(entry_enabled(SessionMenuEntry::TogglePin, true));
+        assert_eq!(PIN_UNAVAILABLE_HINT, "置顶服务没连上");
+    }
+
+    /// 票 #5 点名的可测缝：贴着父菜单右边缘放得下就贴右，放不下才翻到左边。
+    #[test]
+    fn submenu_flips_left_only_when_the_right_side_cannot_fit() {
+        // 放得下、富余：贴右。
+        assert_eq!(submenu_side(900., 200., 1280.), SubmenuSide::Right);
+        // 刚好放得下（右边缘 + 子菜单宽 == 窗口宽）：不翻。
+        assert_eq!(submenu_side(1080., 200., 1280.), SubmenuSide::Right);
+        // 差一像素：翻左。
+        assert_eq!(submenu_side(1080.5, 200., 1280.), SubmenuSide::Left);
+        // 子菜单比窗口还宽：左也放不下，但左侧至少不越右边界。
+        assert_eq!(submenu_side(100., 1300., 1280.), SubmenuSide::Left);
     }
 }

@@ -92,18 +92,21 @@ pub struct ArchiveGen {
 }
 
 /// 归档库里的一条会话复印件。
+///
+/// `parent` / `entries` 用和 `/v1/sessions` 同一套形状（`SessionParent` / 数字），
+/// 不在 UI 层再从裸 `Value` 猜（评审 J5）。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ArchiveItem {
     #[serde(default)]
     pub id: i64,
     #[serde(default)]
     pub name: String,
-    /// 分叉来源（`{id, at}`），可为 null / 对象 / 缺席，原样收着。
+    /// 分叉来源（`{id, at}`），`null` / 缺席 = 不是分支。
     #[serde(default)]
-    pub parent: Option<serde_json::Value>,
-    /// 复印下来的消息条数，不是布尔。
+    pub parent: Option<SessionParent>,
+    /// 复印下来的消息条数，不是布尔。缺字段 / 没有条目都按 0。
     #[serde(default)]
-    pub entries: Option<serde_json::Value>,
+    pub entries: u64,
     /// 最后一句摘要，可为 null / 对象 / 缺席。
     #[serde(default)]
     pub last: Option<serde_json::Value>,
