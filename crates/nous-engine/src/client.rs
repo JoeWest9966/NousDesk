@@ -10,8 +10,9 @@ use url::Url;
 
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
-    ConfigPatch, CreateSession, CreatedSession, Device, Dirs, Entries, Forked, Machines, Models,
-    Presets, Prompts, ReadReceipt, SessionConfig, Sessions, Skills, Submission, Unread,
+    ArchiveGens, ConfigPatch, CreateSession, CreatedSession, Device, Dirs, Entries, Forked,
+    Machines, Models, Presets, Prompts, ReadReceipt, SessionConfig, Sessions, Skills, Submission,
+    Unread,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -213,6 +214,49 @@ impl EngineClient {
         let resp = self
             .http
             .post(self.url(&format!("v1/sessions/{id}/abort"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 归档这条会话：复印进归档库 + 写墓碑。回包原样给调用方，不算状态。
+    pub async fn archive(&self, id: i64) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/sessions/{id}/archive"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 归档库：`GET v1/archive`，按 gen 分组。四态由调用方按引擎给的字段推。
+    pub async fn archive_list(&self) -> Result<ArchiveGens, EngineError> {
+        let resp = self.http.get(self.url("v1/archive")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 打捞：`POST v1/archive/{id}/restore`，body 只有 `{"gen":"..."}` ——
+    /// 从哪一份复印件捞回由引擎判，不在这层编业务字段。
+    pub async fn restore(&self, id: i64, r#gen: &str) -> Result<serde_json::Value, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(rename = "gen")]
+            r#gen: &'a str,
+        }
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/archive/{id}/restore"))?)
+            .json(&Body { r#gen })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 撕原件：真删会话 + 归档库里的复印件。能不能撕由引擎判，这里只转发。
+    pub async fn purge(&self, id: i64) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/sessions/{id}/purge"))?)
             .send()
             .await?;
         self.json(resp).await
