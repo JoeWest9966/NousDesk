@@ -15,14 +15,11 @@
 
 use gpui_kit::*;
 
-/// 危险红。和 `settings.rs` 的 `BAD` 同一个值 —— 全项目只有这一种「危险」。
-const BAD: u32 = 0xd32f2f;
-/// 危险红的浅底（红框）。
-const BAD_SOFT: u32 = 0xfdecec;
-const MUTED: u32 = 0x999999;
-const PANEL: u32 = 0xffffff;
-const LINE: u32 = 0xe6e6e6;
-const TEXT: u32 = 0x2b2b2b;
+/// 这一帧的皮。和 `settings.rs` / `board.rs` 同一个写法 —— 渲染层不自己存主题，
+/// 统一从帧内快照取，换皮时才不会有一块漏掉。
+fn t() -> crate::theme::Skin {
+    crate::theme::cur()
+}
 
 /// 确认动作：调用方拿到的唯一可观察结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,7 +110,7 @@ pub fn render_purge_confirm(
             .id(ElementId::Name("purge-scrim".into()))
             .absolute()
             .inset_0()
-            .bg(rgba(0x0000001f))
+            .bg(rgb(t().p.scrim))
             .on_click(on_close.clone())
     };
 
@@ -122,10 +119,10 @@ pub fn render_purge_confirm(
     let body = div()
         .id(ElementId::Name("purge-dialog".into()))
         .absolute()
-        .left(px(0.))
-        .right(px(0.))
-        .top(px(0.))
-        .bottom(px(0.))
+        .left(t().d(0.))
+        .right(t().d(0.))
+        .top(t().d(0.))
+        .bottom(t().d(0.))
         .flex()
         .items_center()
         .justify_center()
@@ -135,52 +132,52 @@ pub fn render_purge_confirm(
             div()
                 .flex()
                 .flex_col()
-                .w(px(400.))
-                .rounded(px(10.))
-                .bg(rgb(PANEL))
-                .border(px(1.))
-                .border_color(rgb(LINE))
+                .w(t().d(400.))
+                .rounded(t().r(10.))
+                .bg(rgb(t().p.panel))
+                .border(t().d(1.))
+                .border_color(rgb(t().p.line))
                 .shadow_lg()
                 .overflow_hidden()
                 .child(
                     div()
-                        .px(px(20.))
-                        .pt(px(18.))
-                        .pb(px(12.))
-                        .text_size(px(14.))
-                        .text_color(rgb(TEXT))
+                        .px(t().d(20.))
+                        .pt(t().d(18.))
+                        .pb(t().d(12.))
+                        .text_size(t().fs(14.))
+                        .text_color(rgb(t().p.text))
                         .child(title),
                 )
                 .child(
                     div()
-                        .px(px(20.))
-                        .pb(px(12.))
-                        .text_size(px(12.5))
-                        .text_color(rgb(MUTED))
+                        .px(t().d(20.))
+                        .pb(t().d(12.))
+                        .text_size(t().fs(12.5))
+                        .text_color(rgb(t().p.muted))
                         .child("这一条会被真删。归档库里那份复印件也一起销毁。"),
                 )
                 // 红框：撕完不能撤销。
                 .child(
                     div()
-                        .mx(px(20.))
-                        .mb(px(16.))
-                        .px(px(10.))
-                        .py(px(7.))
-                        .rounded(px(5.))
-                        .bg(rgb(BAD_SOFT))
-                        .border(px(1.))
-                        .border_color(rgb(BAD))
-                        .text_size(px(12.))
-                        .text_color(rgb(BAD))
+                        .mx(t().d(20.))
+                        .mb(t().d(16.))
+                        .px(t().d(10.))
+                        .py(t().d(7.))
+                        .rounded(t().r(5.))
+                        .bg(rgb(t().p.danger_soft))
+                        .border(t().d(1.))
+                        .border_color(rgb(t().p.danger))
+                        .text_size(t().fs(12.))
+                        .text_color(rgb(t().p.danger_fg))
                         .child("撕完不能撤销"),
                 )
                 .child(
                     div()
                         .flex()
                         .justify_end()
-                        .gap(px(8.))
-                        .px(px(20.))
-                        .pb(px(16.))
+                        .gap(t().d(8.))
+                        .px(t().d(20.))
+                        .pb(t().d(16.))
                         .child(
                             div()
                                 .id(ElementId::Name("purge-cancel".into()))
@@ -188,13 +185,13 @@ pub fn render_purge_confirm(
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .h(px(30.))
-                                .px(px(14.))
-                                .rounded(px(5.))
-                                .bg(rgb(0xf0f0f0))
-                                .text_color(rgb(0x444444))
-                                .text_size(px(12.))
-                                .hover(|el| el.bg(rgb(0xe4e4e4)))
+                                .h(t().d(30.))
+                                .px(t().d(14.))
+                                .rounded(t().r(5.))
+                                .bg(rgb(t().p.panel_alt))
+                                .text_color(rgb(t().p.text_2))
+                                .text_size(t().fs(12.))
+                                .hover(|el| el.bg(rgb(t().p.hover)))
                                 .child("取消"),
                         )
                         .child(
@@ -204,13 +201,13 @@ pub fn render_purge_confirm(
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .h(px(30.))
-                                .px(px(14.))
-                                .rounded(px(5.))
-                                .bg(rgb(BAD))
-                                .text_color(rgb(0xffffff))
-                                .text_size(px(12.))
-                                .hover(|el| el.bg(rgb(0xb71c1c)))
+                                .h(t().d(30.))
+                                .px(t().d(14.))
+                                .rounded(t().r(5.))
+                                .bg(rgb(t().p.danger))
+                                .text_color(rgb(t().p.on_accent))
+                                .text_size(t().fs(12.))
+                                .hover(|el| el.bg(rgb(t().p.danger_fg)))
                                 .child("撕掉原件"),
                         ),
                 ),
@@ -226,30 +223,40 @@ pub fn render_purge_confirm(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // 别写 `use super::*;` —— 那会把 `gpui_kit::*` 也带进来，
+    // `#[test]` 展开时会在它的宏里撞上 recursion limit（踩过）。
+    use super::{ConfirmAction, PurgeConfirm};
 
-    /// 缝：公共状态机的动作出口。关闭三条路径都不许产出确认动作，
+    /// 缝：公共状态机的动作出口。三条关闭路径都不许产出确认动作，
     /// 且重复关 / 关后再点确认也不许凭空冒出一次。
-    #[test]
-    fn closing_paths_produce_no_confirm_action() {
-        for close in [
-            PurgeConfirm::on_esc as fn(&mut PurgeConfirm) -> Option<ConfirmAction>,
-            PurgeConfirm::on_scrim_click,
-            PurgeConfirm::on_cancel,
-        ] {
-            let mut dialog = PurgeConfirm::new();
-            dialog.request("s-42", "会话归档怎么设计");
-            assert!(dialog.is_open(), "请求确认后弹层应当在场");
+    fn assert_close_path(close: fn(&mut PurgeConfirm) -> Option<ConfirmAction>) {
+        let mut dialog = PurgeConfirm::new();
+        dialog.request("s-42", "会话归档怎么设计");
+        assert!(dialog.is_open(), "请求确认后弹层应当在场");
 
-            assert_eq!(close(&mut dialog), None, "关闭路径不该产出确认动作");
-            assert!(!dialog.is_open(), "关闭后弹层应当收起");
-            assert_eq!(close(&mut dialog), None, "重复关闭也不该产出动作");
-            assert_eq!(
-                dialog.on_confirm(),
-                None,
-                "关掉之后再点确认不该凭空冒出一次"
-            );
-        }
+        assert_eq!(close(&mut dialog), None, "关闭路径不该产出确认动作");
+        assert!(!dialog.is_open(), "关闭后弹层应当收起");
+        assert_eq!(close(&mut dialog), None, "重复关闭也不该产出动作");
+        assert_eq!(
+            dialog.on_confirm(),
+            None,
+            "关掉之后再点确认不该凭空冒出一次"
+        );
+    }
+
+    #[test]
+    fn esc_closes_without_confirming() {
+        assert_close_path(PurgeConfirm::on_esc);
+    }
+
+    #[test]
+    fn scrim_click_closes_without_confirming() {
+        assert_close_path(PurgeConfirm::on_scrim_click);
+    }
+
+    #[test]
+    fn cancel_closes_without_confirming() {
+        assert_close_path(PurgeConfirm::on_cancel);
     }
 
     /// 只有「撕掉原件」把 `(id, name)` 交出去，且原样、只一次。
