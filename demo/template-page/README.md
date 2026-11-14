@@ -5,9 +5,17 @@
 
 ## 怎么看
 
+**发给用户的是 `preview.html`** —— 单文件、字体和数据都内嵌，双击就能开：
+
+```
+/opt/NousDesk-tpl/demo/template-page/preview.html
+```
+
+改代码时用下面这套（`index.html` + `data.js` + `fonts/`），改完重新生成 `preview.html`：
+
 ```bash
-cd demo/template-page && python3 -m http.server 8765
-# 浏览器打开 http://localhost:8765/
+cd demo/template-page && python3 -m http.server 8765   # 自己调样式时用
+# 重新生成单文件（脚本见 git log，逻辑：字体转 base64 + data.js 内联）
 ```
 
 右上角三组按钮：**详情排版 A1/A2/A3**、**变化视图 B1/B2/B3**、**浅/深**。
