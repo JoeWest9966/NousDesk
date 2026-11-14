@@ -1,9 +1,9 @@
-//! 通讯录（模板页）。从模板开新会话是客户端唯一「从零起步」的路。
+//! Template 页（最早叫「通讯录」）。从模板开新会话是客户端唯一「从零起步」的路。
 //!
 //! 版面是两栏：**类别树**（含段切换）+ **预设列表**。段有两条，同一个私仓按段放：
 //!
-//! - `Session-Template` 会话模板：一条 = 一组「开一条会话时用什么」（**能开**）
-//! - `Ultimate-Template` 终极模板：一条 = 触发器 + 参数 + 引用的会话模板（**这一段只读**，
+//! - `Session-Template`：一条 = 一组「开一条会话时用什么」（**能开**）
+//! - `Ultimate-Template`：一条 = 触发器 + 参数 + 引用的会话模板（**这一段只读**，
 //!   启用触发器的动作用哪个端点还没定，别在客户端发明一个）
 //!
 //! 每段各有自己的类别词表（`categories.json` 住在段目录里），所以换段 = 换词表 + 换条目 +
@@ -30,9 +30,12 @@ use crate::app::{Bar, Desktop, Tab};
 
 /// 两段。`(段的 id, 段标题)` —— id 是 API 的路径段，标题只做人读的按钮字。
 /// 标题引擎也会给（`Presets::title`），但按钮在数据到之前就得有字，所以这里留一份。
+///
+/// 标题**直接等于 API 段名**：用户平时就按 `Session-Template` / `Ultimate-Template` 叫，
+/// 界面再翻译一次只会多一套词。「终极模板」这种叫法只留在注释和文档里。
 pub(crate) const SECTIONS: [(&str, &str); 2] = [
-    ("Session-Template", "会话模板"),
-    ("Ultimate-Template", "终极模板"),
+    ("Session-Template", "Session-Template"),
+    ("Ultimate-Template", "Ultimate-Template"),
 ];
 
 /// 未分类不是词表里的类别，是我们自己的兜底桶。用这个哨兵值放进同一个「当前类别」槽。
@@ -99,7 +102,7 @@ pub(crate) struct CatNode {
 impl Desktop {
     // ── 数据 ────────────────────────────────────────────────
 
-    /// 切左栏入口。切到通讯录时顺手拉当前段（拉过就不重拉）。
+    /// 切左栏入口。切到 Template 页时顺手拉当前段（拉过就不重拉）。
     pub(crate) fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if self.tab == tab {
             return;
@@ -118,7 +121,7 @@ impl Desktop {
 
     /// 两段都拉一遍。段按钮下面要写真实条数，「—」看着像坏了。
     ///
-    /// 副作用是想要的：引擎**连上之前**打开过通讯录会留下「还没连上引擎」，
+    /// 副作用是想要的：引擎**连上之前**打开过 Template 页会留下「还没连上引擎」，
     /// 这里跑一遍会把它清掉（`load_section` 开头就 `error = None`）。
     pub(crate) fn load_all_sections(&mut self, force: bool, cx: &mut Context<Self>) {
         for i in 0..SECTIONS.len() {
@@ -280,7 +283,7 @@ impl Desktop {
 
     // ── 渲染：类别树 ────────────────────────────────────────
 
-    /// 通讯录的左栏：段切换 + 类别树 + 段脚注。
+    /// Template 页的左栏：段切换 + 类别树 + 段脚注。
     pub(crate) fn render_preset_tree(&self, cx: &mut Context<Self>) -> AnyElement {
         let sec = &self.sections[self.section];
         let tree = sec
@@ -300,7 +303,9 @@ impl Desktop {
             .flex()
             .flex_row()
             .gap(t().d(2.))
-            .mx(t().d(10.))
+            // 段名是完整的 API 段名（`Ultimate-Template` 17 个字符），左右边距收窄一点
+            // 给按钮多让 4px；真要挤也只会缩字距，不会折行（下面 `whitespace_nowrap`）。
+            .mx(t().d(8.))
             .mb(t().d(10.))
             .p(t().d(3.))
             .rounded(t().r(9.))
@@ -316,7 +321,11 @@ impl Desktop {
                     .flex()
                     .flex_col()
                     .items_center()
-                    .flex_1()
+                    // 两块**等宽**：`flex_1` 按内容长，`Ultimate-Template` 比
+                    // `Session-Template` 宽，药丸就会一长一短。宽度写 0 + grow 才等分。
+                    .w(px(0.))
+                    .min_w(px(0.))
+                    .flex_grow(1.)
                     .py(t().d(4.))
                     .rounded(t().r(7.))
                     .when(active, |el| el.bg(rgb(t().p.panel)))
@@ -326,7 +335,9 @@ impl Desktop {
                     }))
                     .child(
                         div()
-                            .text_size(t().fs(12.))
+                            // 11px + 不折行：17 个字符在加宽后的按钮里正好单行。
+                            .text_size(t().fs(11.))
+                            .whitespace_nowrap()
                             .text_color(rgb(if active { t().p.text } else { t().p.muted }))
                             .child(SECTIONS[i].1),
                     )
@@ -418,7 +429,7 @@ impl Desktop {
                     .px(t().d(14.))
                     .pt(t().d(14.))
                     .pb(t().d(8.))
-                    .child(div().text_size(t().fs(13.)).child("通讯录"))
+                    .child(div().text_size(t().fs(13.)).child("Template"))
                     .child(
                         div()
                             .ml_auto()
@@ -475,7 +486,9 @@ impl Desktop {
                         div()
                             .text_size(t().fs(10.))
                             .text_color(rgb(t().p.faint))
-                            .child(format!("{} · {}", sec.id, sec.title)),
+                            // 段名已经在按钮和右栏标题上了，脚注只留 API 段名 ——
+                            // 以前写「会话模板」是翻译，现在标题就是段名，会撞成两个一样的词。
+                            .child(sec.id.to_string()),
                     ),
             )
             .into_any_element()
@@ -585,7 +598,7 @@ impl Desktop {
 
     // ── 渲染：预设列表 ──────────────────────────────────────
 
-    /// 通讯录的右栏：类别标题 + 条目列表。
+    /// Template 页的右栏：类别标题 + 条目列表。
     pub(crate) fn render_templates(&self, cx: &mut Context<Self>) -> AnyElement {
         let sec = &self.sections[self.section];
         let uncat = sec
@@ -741,7 +754,7 @@ impl Desktop {
     }
 
     fn preset_row(&self, p: &Preset, cx: &mut Context<Self>) -> impl IntoElement {
-        // 终极模板这一段只读：启用触发器的动作还没定，点它什么也不该发生。
+        // `Ultimate-Template` 这一段只读：启用触发器的动作还没定，点它什么也不该发生。
         let can_open = self.sections[self.section].id == SECTIONS[0].0;
         let ok = can_open && launchable(p);
         let name = p.name.clone();
@@ -838,7 +851,7 @@ impl Desktop {
             })
     }
 
-    /// 一行小 chip：当前类别 / 也属于 / 只读 / 终极模板的触发器与引用。
+    /// 一行小 chip：当前类别 / 也属于 / 只读 / `Ultimate-Template` 的触发器与引用。
     fn chips(&self, p: &Preset, current: &str) -> AnyElement {
         let mut row = div()
             .flex()
@@ -990,7 +1003,7 @@ fn read_only(p: &Preset) -> bool {
         .unwrap_or(false)
 }
 
-/// 从 `spec` 里读一个字符串字段（终极模板的 `trigger` / `session`）。
+/// 从 `spec` 里读一个字符串字段（`Ultimate-Template` 的 `trigger` / `session`）。
 fn spec_str(p: &Preset, key: &str) -> Option<String> {
     p.spec
         .as_ref()
