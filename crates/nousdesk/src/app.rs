@@ -461,6 +461,22 @@ impl Desktop {
                 // 当成一条用户消息发出去。
                 if handled {
                     app.stop_propagation();
+                    return;
+                }
+                // 全量历史抽屉：Esc 收起。它比 `/` 面板大一圈，但排在这条链的
+                // **最后面** —— 抽屉里也能打字（`/`），正在敲的命令该先被 Esc 撤掉。
+                // 抽屉本身没有焦点域（正文只是滚动容器），所以只能挂在窗口这一层。
+                let closed = weak
+                    .update(app, |this, cx| {
+                        if !this.nav.drawer_open {
+                            return false;
+                        }
+                        this.nav_close_drawer(cx);
+                        true
+                    })
+                    .unwrap_or(false);
+                if closed {
+                    app.stop_propagation();
                 }
             }),
         ];
@@ -2796,26 +2812,34 @@ impl Desktop {
         self.nav_open_drawer(Some(r.entry_index), cx);
     }
 
-    /// 打开抽屉。`to` 是「滚到哪条 entry」，None = 停在最早那段
+    /// 打开抽屉。`to` 是「滚到哪条 entry」，None = 接着上次看到哪儿
     /// （最近 12 行主视图里已经有了，打开抽屉是为了看旧的）。
     pub(crate) fn nav_open_drawer(&mut self, to: Option<usize>, cx: &mut Context<Self>) {
         self.nav.drawer_open = true;
-        if let Some(entry) = to {
-            let ix = self.nav_child_of(entry, true);
-            self.nav.drawer_scroll = ScrollHandle::new();
-            if let Some(ix) = ix {
-                self.nav.drawer_scroll.scroll_to_top_of_item(ix);
+        // 抽屉卸下再挂回来时句柄里的 item 尺寸全过期，所以每次都给一个新的；
+        // 想「接着看」就把上次关掉时的偏移灌进去，别让用户重新滚一百条。
+        self.nav.drawer_scroll = ScrollHandle::new();
+        match to {
+            Some(entry) => {
+                let ix = self.nav_child_of(entry, true);
+                if let Some(ix) = ix {
+                    self.nav.drawer_scroll.scroll_to_top_of_item(ix);
+                }
+                self.nav.current = self
+                    .nav_groups()
+                    .iter()
+                    .flat_map(|g| g.rounds.iter())
+                    .filter(|r| r.entry_index <= entry)
+                    .last()
+                    .map(|r| r.index)
+                    .unwrap_or(0);
             }
-            self.nav.current = self
-                .nav_groups()
-                .iter()
-                .flat_map(|g| g.rounds.iter())
-                .filter(|r| r.entry_index <= entry)
-                .last()
-                .map(|r| r.index)
-                .unwrap_or(0);
-        } else {
-            self.nav.drawer_scroll = ScrollHandle::new();
+            None => {
+                let y = self.nav.drawer_offset_y;
+                if y != 0. {
+                    self.nav.drawer_scroll.set_offset(point(px(0.), px(y)));
+                }
+            }
         }
         // 抽屉开着时目录指向全量正文，第一组先摊开。
         let groups = self.nav_groups();
@@ -2825,9 +2849,22 @@ impl Desktop {
         cx.notify();
     }
 
+    /// 收起抽屉。**三条出口共用这一条**：点遮罩、Esc、再点一次「历史与目录」。
+    /// 关掉时记下滚到哪儿 —— 不然下次打开又从头开始。
     pub(crate) fn nav_close_drawer(&mut self, cx: &mut Context<Self>) {
+        self.nav.drawer_offset_y = self.nav.drawer_scroll.offset().y.as_f32();
         self.nav.drawer_open = false;
         cx.notify();
+    }
+
+    /// 顶栏那颗按钮：开 / 关（和输入区左下角那颗 DNA 的 `toggle_config` 同一套）。
+    /// 之前它只负责开，抽屉开着时再点一次等于「重新开一遍、还滚回顶部」，最反直觉的那种。
+    pub(crate) fn nav_toggle_drawer(&mut self, cx: &mut Context<Self>) {
+        if self.nav.drawer_open {
+            self.nav_close_drawer(cx);
+        } else {
+            self.nav_open_drawer(None, cx);
+        }
     }
 
     /// 抽屉头上的桥：把「目录当前高亮的那轮」加载进主视图，然后关抽屉。

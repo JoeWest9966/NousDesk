@@ -46,6 +46,10 @@ pub struct SessionNav {
     pub nav_scroll: ScrollHandle,
     /// 抽屉里全量正文的滚动句柄。
     pub drawer_scroll: ScrollHandle,
+    /// 上次关抽屉时滚到哪儿（`offset().y`，往下滚是负数）。
+    /// 抽屉卸下再挂回来时句柄里的 item 尺寸全过期，所以要自己记一份：
+    /// 「看了一半 -> 出去 -> 再进来」不该回到顶部。
+    pub drawer_offset_y: f32,
     /// SSE 首帧带来的 entry 时间戳：id → epoch ms。
     pub times: HashMap<String, i64>,
 }
@@ -66,6 +70,7 @@ impl SessionNav {
         self.current = 0;
         self.times.clear();
         self.drawer_scroll = ScrollHandle::new();
+        self.drawer_offset_y = 0.;
     }
 
     pub fn from_of(&self, len: usize) -> usize {
@@ -537,6 +542,11 @@ pub fn drawer(
         .absolute()
         .inset_0()
         .bg(rgba(t().p.scrim))
+        // 点遮罩 = 收起。这是抽屉**主要的**关闭手势（顶部那颗「关闭 ✕」已删）：
+        // 它是全项目唯一一颗裸文字按钮 —— 没内边距、没 hover，命中区只有字形框，
+        // 点偏两像素就死。能被点到的地方该是整个背景，不是四个字。
+        .id("nav-drawer-scrim")
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_close_drawer(cx)))
         .child(
             div()
                 .absolute()
@@ -544,6 +554,10 @@ pub fn drawer(
                 .top_0()
                 .bottom_0()
                 .w(relative(DRAWER_W))
+                // 面板里的空白（底、说明那行、气泡之间的缝）**没有 hitbox**，
+                // 不挡的话点上去会落到罩子上 = 读历史时手一抖就关。
+                // 用 `block_mouse_except_scroll` 而不是 `occlude`：滚轮还得穿过去。
+                .block_mouse_except_scroll()
                 .bg(rgb(t().p.panel))
                 .shadow_md()
                 .flex()
@@ -583,17 +597,6 @@ pub fn drawer(
                                     cx.listener(|this, _: &ClickEvent, _, cx| this.nav_to_main(cx)),
                                 )
                                 .child("把这一轮加载进主视图"),
-                        )
-                        .child(
-                            div()
-                                .id("nav-drawer-close")
-                                .cursor_pointer()
-                                .text_size(t().fs(12.))
-                                .text_color(rgb(t().p.faint))
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.nav_close_drawer(cx)
-                                }))
-                                .child("关闭 ✕"),
                         ),
                 )
                 .child(
@@ -632,7 +635,7 @@ pub fn drawer(
                                         .text_size(t().fs(11.))
                                         .text_color(rgb(t().p.faint))
                                         .child(
-                                            "左边那列目录现在指向这里 —— 点任一轮，我滚到它；不用关抽屉。",
+                                            "左边那列目录现在指向这里 —— 点任一轮，我滚到它；点外面或 Esc 收起。",
                                         ),
                                 )
                                 .children(children),
@@ -681,7 +684,7 @@ pub fn history_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
         .text_color(rgb(t().p.on_accent))
         .cursor_pointer()
         .hover(|el| el.bg(rgb(t().p.accent_hover)))
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_open_drawer(None, cx)))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_toggle_drawer(cx)))
         .child("历史与目录")
         .into_any_element()
 }
