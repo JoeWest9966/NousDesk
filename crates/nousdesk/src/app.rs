@@ -34,6 +34,17 @@ use crate::nav_ui::SessionNav;
 
 pub(crate) mod scrollbar;
 
+/// 窗口窄到这个宽度以下就不画「你问过的」目录列了 —— 让出来的宽度给聊天区。
+///
+/// 图标条 60 + 会话列表 253 + 目录列 240 + 聊天区：960 时聊天区还剩 400 出头，
+/// 再窄就只剩一格，不如把目录列收起来（抽屉里照样能跳）。
+pub(crate) const NAV_COLUMN_MIN_W: f32 = 960.;
+
+// 编译期钉住两条：最小窗口宽度下目录列必须已经让位（否则「半屏」时聊天区只剩一格）；
+// 最小宽度也不能小于「会话列表 + 聊天区」装得下的下限。
+const _: () = assert!(NAV_COLUMN_MIN_W > crate::MIN_WINDOW_W);
+const _: () = assert!(crate::MIN_WINDOW_W >= 600.);
+
 /// 哪块面板的滚动条。加新面板就往这儿加一个分支（`ALL` 里也补一行）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Bar {
@@ -1261,20 +1272,28 @@ impl Desktop {
     }
 
     /// 把面板浮在聊天区左下角。挂在**整窗**根节点上，父容器够大，hitbox 不会被裁。
-    fn cfg_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let panel = self.cfg_panel(cx)?;
+    fn cfg_overlay(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let g = crate::config_panel::Geometry::fit(
+            window.viewport_size().width.as_f32(),
+            window.viewport_size().height.as_f32(),
+        );
+        let panel = self.cfg_panel(g, cx)?;
         Some(
             div()
                 .absolute()
-                .left(t().d(350.))
-                .bottom(t().d(118.))
+                .left(px(g.left))
+                .bottom(px(g.bottom))
                 .child(panel)
                 .into_any_element(),
         )
     }
 
     /// 画面板（或 `None`）。回调全在这里接上，`config_panel` 只管画。
-    fn cfg_panel(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn cfg_panel(
+        &self,
+        g: crate::config_panel::Geometry,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if !self.cfg_visible() {
             return None;
         }
@@ -1372,6 +1391,7 @@ impl Desktop {
             self.skills.as_ref(),
             s,
             &hooks,
+            g,
         ))
     }
 
@@ -3656,7 +3676,7 @@ impl Render for Desktop {
         // 尺寸基准也因此从整窗 vmin 换成右格 cqmin（见 `board_art::M`）。
         // 设置页也顶替右栏，但它优先级更高：正在改连接时别把盘面盖在上面。
         let right: AnyElement = if self.settings_open {
-            self.render_settings(cx)
+            self.render_settings(window, cx)
         } else if self.archive_open {
             self.render_archive(cx)
         } else if self.newchat.open {
@@ -3700,7 +3720,10 @@ impl Render for Desktop {
                     && self.selected.is_some()
                     && !self.newchat.open
                     && !self.settings_open
-                    && !self.archive_open)
+                    && !self.archive_open
+                    // 窄窗让位：三个纵列（图标条 + 会话列表 + 目录列）一起要 550 多像素，
+                    // 窗口只有一半宽时聊天区会被挤成一格（见 坑.md 57）。
+                    && window.viewport_size().width.as_f32() >= NAV_COLUMN_MIN_W)
                     .then(|| {
                         let groups = self.nav_groups();
                         if groups.is_empty() {
@@ -3719,7 +3742,18 @@ impl Render for Desktop {
                     }),
             )
             // 别人的 New Manual 盘面顶替右栏；没开时才是聊天区。
-            .child(right);
+            //
+            // 这层容器是**窄窗的总闸**：右栏里任何一页只要内容比窗口宽，页面自己的
+            // `min-content` 就会把这一栏撑出去 —— 于是滚动视口的右边缘跑到窗口外面，
+            // 滚动条跟着一起消失（见 坑.md 56）。`min_w(0)` 让它肯收缩，
+            // `overflow_hidden` 把溢出裁在窗口边上，滚动条就还在窗口里。
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(t().d(0.))
+                    .overflow_hidden()
+                    .child(right),
+            );
 
         // 配置面板挂在**整窗**这一层，不塞进输入区：塞进去它是 absolute 浮层，
         // 超出输入区那 130px 的部分 hitbox 会被裁掉 —— 画得出来、hover 也变色，
@@ -3728,7 +3762,7 @@ impl Render for Desktop {
             .relative()
             .size_full()
             .child(shell_root)
-            .children(self.cfg_overlay(cx))
+            .children(self.cfg_overlay(window, cx))
             // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
             .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
             // 「撕原件」确认（盖在菜单之上）

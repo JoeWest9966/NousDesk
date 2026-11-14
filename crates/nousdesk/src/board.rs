@@ -868,8 +868,14 @@ impl Desktop {
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
             })
             .when(!enabled, |el| el.opacity(0.45))
+            // 每格只有右格的一半（`region` 里 `.w(relative(0.5))` + 左右内边距），
+            // 不封顶的话长模型名会把节点顶出格子的两边，表现是「左边那截被裁掉」。
+            // 44cqmin 在宽窗（短边是高度）和窄窗（短边是宽度）里都落在半格内。
+            .max_w(m.v(44.))
             .child(
                 div()
+                    .flex_1()
+                    .min_w(t().d(0.))
                     .font_family(art::MONO)
                     .text_size(m.f(1.55, 10., 14.))
                     .truncate()
@@ -877,6 +883,7 @@ impl Desktop {
             )
             .child(
                 div()
+                    .flex_none()
                     .text_size(m.f(1.55 * 0.82, 9., 12.))
                     .text_color(rgb(art::MUTED))
                     .child(tag.to_string()),
@@ -888,11 +895,14 @@ impl Desktop {
 
     fn board_sheet(&self, m: &art::M, cx: &mut Context<Self>) -> Option<AnyElement> {
         let sheet = self.newchat.sheet?;
+        // 弹层实际有多宽：三列铁路图按它算，不再假定 720（半屏下按 720 算会把
+        // 第三列「思考档位」切在弹层外面）。
+        let sheet_w = (0.94 * m.w).min(720.);
         let (title, hint, body): (String, String, AnyElement) = match sheet {
             Sheet::Model => (
                 "选择模型".into(),
                 "供应商 › 模型 › 思考 · 点模型选中即收回".into(),
-                self.sheet_model(m, cx),
+                self.sheet_model(m, sheet_w, cx),
             ),
             Sheet::Skills => (
                 "上下文 · 技能".into(),
@@ -937,7 +947,7 @@ impl Desktop {
                     div()
                         .flex()
                         .flex_col()
-                        .w(px((0.94 * m.w).min(720.)))
+                        .w(px(sheet_w))
                         // 显式高度，不用 `max_h`：`flex_1` 的基准是 0，
                         // 父容器高度由内容决定时它就会塌成一条缝（正文一格都看不见）。
                         .h(px((0.78 * m.h).min(680.)))
@@ -1012,7 +1022,7 @@ impl Desktop {
 
     /// 模型弹层：三列铁路图。**这是这一页的灵魂** —— 供应商 › 模型 › 思考 是
     /// 一条有依赖的语法链，画成三个滚动的列表就看不出「先选谁再选谁」。
-    fn sheet_model(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+    fn sheet_model(&self, m: &art::M, sheet_w: f32, cx: &mut Context<Self>) -> AnyElement {
         let b = &self.newchat;
         let (providers, models, levels) = {
             let providers: Vec<String> = b
@@ -1052,9 +1062,7 @@ impl Desktop {
         let total_h = pitch * rows as f32 + 16.;
 
         // 三列的横向位置：列宽按比例切，和页面一样（列窄了不换版面，只是更挤）。
-        let width = 720. - 2. * f32::from(m.v(1.));
-        let cols = [width * 0.30, width * 0.42, width * 0.28];
-        let xs = [0., cols[0], cols[0] + cols[1]];
+        let (cols, xs) = sheet_lanes(sheet_w, f32::from(m.v(1.)));
 
         let trunk = rgb(art::BORDER);
         let hot = rgb(art::ACCENT);
@@ -1671,6 +1679,16 @@ impl Desktop {
             .into_any_element()
     }
 }
+/// 弹层里三列（供应商 / 模型 / 思考档位）的列宽和起点。
+///
+/// 宽度按**弹层自己的宽**算：这里写死过 720，半屏时第三列就直接落在弹层外面。
+fn sheet_lanes(sheet_w: f32, pad: f32) -> ([f32; 3], [f32; 3]) {
+    let width = (sheet_w - 2. * pad).max(240.);
+    let cols = [width * 0.30, width * 0.42, width * 0.28];
+    let xs = [0., cols[0], cols[0] + cols[1]];
+    (cols, xs)
+}
+
 /// 模型清单里有几个供应商。
 fn providers_of(models: &Models) -> usize {
     let mut seen: Vec<&str> = Vec::new();
@@ -1680,4 +1698,25 @@ fn providers_of(models: &Models) -> usize {
         }
     }
     seen.len()
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod tests {
+    use super::sheet_lanes;
+
+    /// 三列必须落在弹层宽度里。写死 720 那版在半屏窗口下第三列直接挂在弹层外。
+    #[test]
+    fn 弹层三列不超出弹层宽度() {
+        for sheet_w in [720., 601., 500., 300.] {
+            let (cols, xs) = sheet_lanes(sheet_w, 8.);
+            let width = (sheet_w - 16.).max(240.);
+            let right = xs[2] + cols[2];
+            assert!(
+                right <= width + 0.01,
+                "{sheet_w} 宽的弹层里第三列右边缘 {right} 超出 {width}"
+            );
+            assert!(xs[1] >= cols[0] - 0.01, "{sheet_w}: 第二列盖住第一列");
+        }
+    }
 }

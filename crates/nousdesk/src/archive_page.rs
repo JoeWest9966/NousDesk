@@ -317,6 +317,7 @@ pub fn render_archive_page(
         .flex()
         .flex_col()
         .flex_1()
+        .min_w(t().d(0.))
         .size_full()
         .bg(rgb(t().p.panel))
         .child(header(state, on_action.clone(), on_back))
@@ -397,6 +398,7 @@ fn column_head() -> AnyElement {
         .h(t().d(26.))
         .flex_none()
         .px(t().d(14.))
+        .min_w(t().d(0.))
         .bg(rgb(t().p.panel))
         .border_b(t().d(1.))
         .border_color(rgb(t().p.line_soft))
@@ -449,6 +451,7 @@ fn body(
         .flex_col()
         .flex_1()
         .min_h(t().d(0.))
+        .min_w(t().d(0.))
         .on_hover(move |hovered: &bool, window, cx| on_hover(hovered, window, cx))
         .child(
             div()
@@ -457,6 +460,7 @@ fn body(
                 .flex_col()
                 .flex_1()
                 .min_h(t().d(0.))
+                .min_w(t().d(0.))
                 .overflow_y_scroll()
                 .track_scroll(scroll)
                 .children(rows),
