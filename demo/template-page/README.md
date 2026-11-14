@@ -25,6 +25,25 @@ cd demo/template-page && python3 -m http.server 8765   # 自己调样式时用
 http://localhost:8765/#a2,b3,dark
 ```
 
+
+## 四套 Tesla 方向（skins）
+
+```
+/opt/NousDesk-tpl/demo/template-page/skins-preview.html
+```
+
+同一份数据、同一个右栏（620px），四套完全不同的皮肤，用左上角切换：
+
+| | 名字 | 想做什么 |
+| --- | --- | --- |
+| A | MCU | 纯黑车机屏：全直角、1px 细线、白色只留给值和动作 |
+| B | Site | 特斯拉官网：白底细线、两列网格、字重最轻、靠留白分组 |
+| C | Steel | Cybertruck：冷灰 + 2px 结构线、状态做成块 |
+| D | Data | 仪表盘：密度最高、等宽数字、表格化 |
+
+源码 `skins.html`（改样式改这份），`skins-preview.html` 是生成出来的自包含单文件（发给用户的就是它）。
+旧的那套（A1/A2/A3 + B1/B2/B3）在 `preview.html`，留着当对照，不再改。
+
 ## 数据是真的
 
 | 文件 | 来源 |
