@@ -75,7 +75,7 @@ pub(crate) const ICON_BAR_W: f32 = 60.;
 #[allow(dead_code)]
 pub(crate) const SESSION_LIST_W: f32 = 280.;
 #[allow(dead_code)]
-pub(crate) const PRESET_TREE_W: f32 = 224.;
+pub(crate) const PRESET_TREE_W: f32 = 248.;
 #[allow(dead_code)]
 pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
 
@@ -163,9 +163,9 @@ pub struct Desktop {
     scroll: ScrollHandle,
     /// 左栏会话列表的滚动句柄（列表以前是 `overflow_hidden`，压根不能滚）。
     list_scroll: ScrollHandle,
-    /// 模板页（通讯录）列表的滚动句柄。
+    /// Template 页列表的滚动句柄。
     pub(crate) presets_scroll: ScrollHandle,
-    /// 通讯录类别树的滚动句柄。
+    /// Template 页类别树的滚动句柄。
     pub(crate) tree_scroll: ScrollHandle,
     /// 每个面板两位：鼠标在不在上面 / 滚动条在不在场（淡出那 250ms 里也得在场）。
     chat_hover: bool,
@@ -195,7 +195,7 @@ pub struct Desktop {
     /// 输入区左下角那颗 DNA 图标点开的「这条对话的设置」。
     /// 这里只放界面状态（看哪页 / 清单 / 在途）；配置值本身在 `sessions` 里，那才是真相。
     cfg: crate::config_panel::Panel,
-    /// 左栏当前页：聊天 / 通讯录（模板）。
+    /// 左栏当前页：聊天 / Template 页。
     pub(crate) tab: Tab,
     /// 底部「≡ 更多」菜单开着没有。
     pub(crate) menu_open: bool,
@@ -251,12 +251,12 @@ pub struct Desktop {
     pins_client: Option<Arc<PinClient>>,
     /// 置顶的会话 id，**顺序就是显示顺序**（来自 `pins.json`）。
     pins: Vec<i64>,
-    /// 通讯录的两个段（同一个私仓，两套词表、两套条目）。
+    /// Template 页的两个段（同一个私仓，两套词表、两套条目）。
     /// 索引 0 = 会话模板（`Session-Template`），1 = 终极模板（`Ultimate-Template`）。
     pub(crate) sections: [crate::templates::Section; 2],
     /// 当前选中的段。
     pub(crate) section: usize,
-    /// 通讯录里选中的类别路径。`None` = 全部；`Some("∅")` = 未分类（不是词表里的类别）。
+    /// Template 页里选中的类别路径。`None` = 全部；`Some("∅")` = 未分类（不是词表里的类别）。
     pub(crate) preset_cat: Option<String>,
     /// 折叠着的类别路径。**纯内存**：它不是事实，是「我眼下展开到哪」。
     pub(crate) preset_closed: std::collections::HashSet<String>,
@@ -545,7 +545,7 @@ impl Desktop {
                             this.entries.clear();
                             this.entries_error = None;
                         }
-                        // 引擎连上之前如果点过通讯录，「还没连上引擎」那句得自己消掉。
+                        // 引擎连上之前如果点过 Template 页，「还没连上引擎」那句得自己消掉。
                         this.load_all_sections(false, cx);
                         // 置顶单独去 bjes6b 拿（单源在它那儿）。
                         this.load_pins(cx);
@@ -3611,7 +3611,7 @@ impl Render for Desktop {
             })
             .child(match self.tab {
                 Tab::Chats => self.render_session_list(cx).into_any_element(),
-                // 通讯录是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
+                // Template 页是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
                 Tab::Templates => div()
                     .flex()
                     .flex_row()
