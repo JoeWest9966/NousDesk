@@ -452,8 +452,8 @@ impl Desktop {
                     .child(crate::app::scrollbar::overlay(
                         "preset-tree-scrollbar",
                         &self.tree_scroll,
-                        self.tree_bar,
-                        self.tree_hover,
+                        self.bar(crate::app::Bar::Tree).0,
+                        self.bar(crate::app::Bar::Tree).1,
                     )),
             )
             .child(
@@ -733,8 +733,8 @@ impl Desktop {
                     .child(crate::app::scrollbar::overlay(
                         "presets-scrollbar",
                         &self.presets_scroll,
-                        self.presets_bar,
-                        self.presets_hover,
+                        self.bar(crate::app::Bar::Presets).0,
+                        self.bar(crate::app::Bar::Presets).1,
                     )),
             )
             .into_any_element()

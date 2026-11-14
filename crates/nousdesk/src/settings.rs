@@ -312,14 +312,35 @@ impl Desktop {
         };
 
         div()
+            // `on_hover` 挂在 `Stateful` 上：先给 id。
+            .id(ElementId::Name("settings-viewport".into()))
+            .relative()
             .flex()
             .flex_col()
             .flex_1()
             .min_w(t().d(0.))
-            .id(ElementId::Name("settings-scroll".into()))
-            .overflow_y_scroll()
-            .p(t().d(22.))
-            .child(body)
+            // 鼠标在这块内容上 → 滚动条出现（和会话列表/聊天区同一套：平时一条线都没有）。
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.bar_hover(crate::app::Bar::Settings, *hovered, cx)
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .size_full()
+                    .min_w(t().d(0.))
+                    .id(ElementId::Name("settings-scroll".into()))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.settings_scroll)
+                    .p(t().d(22.))
+                    .child(body),
+            )
+            .child(crate::app::scrollbar::overlay(
+                "settings-scrollbar",
+                &self.settings_scroll,
+                self.bar(crate::app::Bar::Settings).0,
+                self.bar(crate::app::Bar::Settings).1,
+            ))
             .into_any_element()
     }
 

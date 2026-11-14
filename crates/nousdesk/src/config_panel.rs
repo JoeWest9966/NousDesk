@@ -131,6 +131,7 @@ impl Tab {
 // `cx.listener` 拿到的闭包本来就是这个形状，模块之间就不用互相认识对方的类型。
 // 参数一律传 `&T`：`cx.listener` 给的闭包就是这个形状（`|this, arg: &T, window, cx|`），
 // 按值传的话调用方还得再包一层。
+pub(crate) type OnHover = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
 pub(crate) type OnTab = Rc<dyn Fn(&Tab, &mut Window, &mut App)>;
 pub(crate) type OnLevel = Rc<dyn Fn(&String, &mut Window, &mut App)>;
 /// `(provider, modelId)` —— 拆开传，省得再拼一次 `"p/m"` 又拆回来。
@@ -145,6 +146,8 @@ pub(crate) type OnReadOnly = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
 
 pub(crate) struct Hooks {
     pub tab: OnTab,
+    /// 鼠标进 / 出正文视口（滚动条靠它淡入淡出）。
+    pub hover: OnHover,
     pub level: OnLevel,
     pub model: OnModel,
     pub skill: OnSkill,
@@ -169,6 +172,10 @@ pub(crate) struct Panel {
     pub error: Option<String>,
     /// 正在写 `/config`：这期间把清单点灰，防连点。
     pub busy: bool,
+    /// 正文视口的滚动句柄（七页共用：切页不重置位置）。
+    pub body_scroll: ScrollHandle,
+    /// 正文滚动条那两位（在不在场 / 鼠标在不在上面）。
+    pub body_bar: crate::app::scrollbar::BarState,
 }
 
 impl Panel {
@@ -948,12 +955,30 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
         )
         .child(
             div()
-                .id(ElementId::Name("cfg-body".into()))
+                // `on_hover` 挂在 `Stateful` 上：先给 id。
+                .id(ElementId::Name("cfg-viewport".into()))
+                .relative()
                 .flex_1()
                 .min_h(t().d(0.))
                 .w_full()
-                .overflow_y_scroll()
-                .child(body),
+                .on_hover({
+                    let on_hover = hooks.hover.clone();
+                    move |hovered: &bool, window, cx| on_hover(hovered, window, cx)
+                })
+                .child(
+                    div()
+                        .id(ElementId::Name("cfg-body".into()))
+                        .size_full()
+                        .overflow_y_scroll()
+                        .track_scroll(&p.body_scroll)
+                        .child(body),
+                )
+                .child(crate::app::scrollbar::overlay(
+                    "cfg-scrollbar",
+                    &p.body_scroll,
+                    p.body_bar.shown,
+                    p.body_bar.hover,
+                )),
         );
 
     div()

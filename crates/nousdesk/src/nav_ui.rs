@@ -105,6 +105,7 @@ pub fn nav_column(
     nav: &SessionNav,
     main_from: usize,
     drawer_open: bool,
+    bar: (bool, bool),
     cx: &mut Context<crate::app::Desktop>,
 ) -> AnyElement {
     let total: usize = groups.iter().map(|g| g.rounds.len()).sum();
@@ -160,7 +161,26 @@ pub fn nav_column(
                 ),
         )
         .child(nav_toggles(nav, cx))
-        .child(list)
+        .child(
+            div()
+                // `on_hover` 挂在 `Stateful` 上：先给 id。
+                .id("nav-viewport")
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(t().d(0.))
+                .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                    this.bar_hover(crate::app::Bar::Nav, *hovered, cx)
+                }))
+                .child(list)
+                .child(crate::app::scrollbar::overlay(
+                    "nav-scrollbar",
+                    &nav.nav_scroll,
+                    bar.0,
+                    bar.1,
+                )),
+        )
         .into_any_element()
 }
 
@@ -507,6 +527,7 @@ pub fn drawer(
     open: bool,
     children: Vec<AnyElement>,
     scroll: &ScrollHandle,
+    bar: (bool, bool),
     cx: &mut Context<crate::app::Desktop>,
 ) -> AnyElement {
     if !open {
@@ -577,30 +598,51 @@ pub fn drawer(
                 )
                 .child(
                     div()
-                        .id("nav-drawer-body")
-                        .on_scroll(cx.listener(|this, _e: &ScrollEvent, _, cx| this.nav_spy(cx)))
+                        // `on_hover` 挂在 `Stateful` 上：先给 id。
+                        .id("nav-drawer-viewport")
+                        .relative()
+                        .flex()
+                        .flex_col()
                         .flex_1()
                         .min_h(t().d(0.))
-                        .overflow_y_scroll()
-                        .track_scroll(scroll)
-                        .px(t().d(16.))
-                        .py(t().d(10.))
+                        .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                            this.bar_hover(crate::app::Bar::Drawer, *hovered, cx)
+                        }))
                         .child(
                             div()
-                                .mb(t().d(12.))
-                                .px(t().d(9.))
-                                .py(t().d(5.))
-                                .rounded(t().r(4.))
-                                .bg(rgb(t().p.panel_alt))
-                                .border_1()
-                                .border_color(rgb(t().p.line_soft))
-                                .text_size(t().fs(11.))
-                                .text_color(rgb(t().p.faint))
+                                .id("nav-drawer-body")
+                                .on_scroll(
+                                    cx.listener(|this, _e: &ScrollEvent, _, cx| this.nav_spy(cx)),
+                                )
+                                .flex_1()
+                                .min_h(t().d(0.))
+                                .overflow_y_scroll()
+                                .track_scroll(scroll)
+                                .px(t().d(16.))
+                                .py(t().d(10.))
                                 .child(
-                                    "左边那列目录现在指向这里 —— 点任一轮，我滚到它；不用关抽屉。",
-                                ),
+                                    div()
+                                        .mb(t().d(12.))
+                                        .px(t().d(9.))
+                                        .py(t().d(5.))
+                                        .rounded(t().r(4.))
+                                        .bg(rgb(t().p.panel_alt))
+                                        .border_1()
+                                        .border_color(rgb(t().p.line_soft))
+                                        .text_size(t().fs(11.))
+                                        .text_color(rgb(t().p.faint))
+                                        .child(
+                                            "左边那列目录现在指向这里 —— 点任一轮，我滚到它；不用关抽屉。",
+                                        ),
+                                )
+                                .children(children),
                         )
-                        .children(children),
+                        .child(crate::app::scrollbar::overlay(
+                            "drawer-scrollbar",
+                            scroll,
+                            bar.0,
+                            bar.1,
+                        )),
                 ),
         )
         .into_any_element()

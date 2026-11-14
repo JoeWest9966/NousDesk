@@ -1165,12 +1165,33 @@ impl Desktop {
         }
 
         div()
-            .id(ElementId::Name("board-model-body".into()))
+            // `on_hover` 挂在 `Stateful` 上：先给 id。
+            .id(ElementId::Name("board-model-viewport".into()))
+            .relative()
+            .flex()
+            .flex_col()
             .flex_1()
             .min_h(t().d(0.))
-            .overflow_y_scroll()
-            .track_scroll(&self.newchat.sheet_scroll)
-            .child(div().relative().h(px(total_h)).w_full().children(layers))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.bar_hover(crate::app::Bar::Sheet, *hovered, cx)
+            }))
+            .child(
+                div()
+                    .id(ElementId::Name("board-model-body".into()))
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.newchat.sheet_scroll)
+                    .child(div().relative().h(px(total_h)).w_full().children(layers)),
+            )
+            .child(crate::app::scrollbar::overlay_tone(
+                "board-model-scrollbar",
+                &self.newchat.sheet_scroll,
+                self.bar(crate::app::Bar::Sheet).0,
+                self.bar(crate::app::Bar::Sheet).1,
+                // 盘面永远是深色 art 调色板：滑块得画成半透明白，不然一根黑线看不见。
+                crate::app::scrollbar::Tone::OnDark,
+            ))
             .into_any_element()
     }
 
@@ -1294,6 +1315,7 @@ impl Desktop {
             } else {
                 ""
             },
+            cx,
         )
     }
 
@@ -1393,6 +1415,7 @@ impl Desktop {
             } else {
                 ""
             },
+            cx,
         )
     }
 
@@ -1497,6 +1520,7 @@ impl Desktop {
             } else {
                 ""
             },
+            cx,
         )
     }
 
@@ -1585,12 +1609,18 @@ impl Desktop {
                     .into_any_element(),
             );
         }
-        self.sheet_list(m, rows, "")
+        self.sheet_list(m, rows, "", cx)
     }
 
     /// 弹层的正文：一个能滚的清单。空的时候把「为什么空」说出来，
     /// 别让人对着一个白框猜。
-    fn sheet_list(&self, m: &art::M, rows: Vec<AnyElement>, empty: &str) -> AnyElement {
+    fn sheet_list(
+        &self,
+        m: &art::M,
+        rows: Vec<AnyElement>,
+        empty: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         if rows.is_empty() {
             return div()
                 .flex_1()
@@ -1606,17 +1636,38 @@ impl Desktop {
                 .into_any_element();
         }
         div()
-            .id(ElementId::Name("board-sheet-list".into()))
+            // `on_hover` 挂在 `Stateful` 上：先给 id。
+            .id(ElementId::Name("board-sheet-viewport".into()))
+            .relative()
             .flex()
             .flex_col()
-            .gap(t().d(2.))
-            .px(m.v(1.2))
-            .py(m.v(1.))
             .flex_1()
             .min_h(t().d(0.))
-            .overflow_y_scroll()
-            .track_scroll(&self.newchat.sheet_scroll)
-            .children(rows)
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.bar_hover(crate::app::Bar::Sheet, *hovered, cx)
+            }))
+            .child(
+                div()
+                    .id(ElementId::Name("board-sheet-list".into()))
+                    .flex()
+                    .flex_col()
+                    .gap(t().d(2.))
+                    .px(m.v(1.2))
+                    .py(m.v(1.))
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.newchat.sheet_scroll)
+                    .children(rows),
+            )
+            .child(crate::app::scrollbar::overlay_tone(
+                "board-sheet-scrollbar",
+                &self.newchat.sheet_scroll,
+                self.bar(crate::app::Bar::Sheet).0,
+                self.bar(crate::app::Bar::Sheet).1,
+                // 盘面永远是深色 art 调色板：滑块得画成半透明白，不然一根黑线看不见。
+                crate::app::scrollbar::Tone::OnDark,
+            ))
             .into_any_element()
     }
 }

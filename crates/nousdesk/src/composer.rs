@@ -88,6 +88,12 @@ pub fn render(
     hint_shown: bool,
     hovered: bool,
     on_hover: impl Fn(&bool, &mut Window, &mut App) + 'static,
+    // 写字区自己那一层滚动：字写多了在卡片里滚，不再把聊天区顶成零。
+    // `body_scroll` 归调用方持有（跨帧记住位置），`body_bar` 是滚动条那两位，
+    // `on_body_hover` 由调用方用 `cx.listener(...)` 递进来。
+    body_scroll: &ScrollHandle,
+    body_bar: (bool, bool),
+    on_body_hover: impl Fn(&bool, &mut Window, &mut App) + 'static,
     on_send: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_stop: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     // 输入区**上方**那张 `/` 技能面板。`None` = 不渲染，也不占高度。
@@ -130,17 +136,36 @@ pub fn render(
                 // ── 写字区 ──
                 .child(
                     div()
+                        // `on_hover` 挂在 `Stateful` 上：先给 id。
+                        .id("composer-viewport")
                         .relative()
-                        .px(t().d(12.))
-                        .pt(t().d(10.))
-                        .pb(t().d(4.))
+                        .on_hover(on_body_hover)
                         .child(
-                            Textarea::new(input)
-                                .appearance(false)
-                                .bordered(false)
-                                .text_size(px(TEXT_SIZE)),
+                            div()
+                                .relative()
+                                .id("composer-scroll")
+                                // 上限约八行：再多就在卡片里滚。以前没有上限，
+                                // 粘一段长代码会把聊天区挤到零（真踩过）。
+                                .max_h(px(MAX_INPUT_H))
+                                .overflow_y_scroll()
+                                .track_scroll(body_scroll)
+                                .px(t().d(12.))
+                                .pt(t().d(10.))
+                                .pb(t().d(4.))
+                                .child(
+                                    Textarea::new(input)
+                                        .appearance(false)
+                                        .bordered(false)
+                                        .text_size(px(TEXT_SIZE)),
+                                )
+                                .child(hint_layer(hint_shown, hovered, state.can_send)),
                         )
-                        .child(hint_layer(hint_shown, hovered, state.can_send)),
+                        .child(crate::app::scrollbar::overlay(
+                            "composer-scrollbar",
+                            body_scroll,
+                            body_bar.0,
+                            body_bar.1,
+                        )),
                 )
                 // ── 生成中的提示：回车这时不该发出去，得让人知道为什么 ──
                 .when(state.streaming, |el| {
@@ -215,6 +240,10 @@ pub fn render(
                 ),
         )
 }
+
+/// 写字区的高度上限（逻辑像素）：约八行 20px 正文 + 上下内边距。
+/// 超过就在卡片里滚 —— 不再让输入内容决定整块聊天区的高度。
+const MAX_INPUT_H: f32 = 172.;
 
 /// 那行悬停提示字。
 ///
