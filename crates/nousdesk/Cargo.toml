@@ -1,6 +1,6 @@
 [package]
 name = "nousdesk"
-description = "NousDesk 桌面客户端（微信桌面版的样子）。GPUI + gpui-kit。"
+description = "NousDesk 桌面客户端（微信骨架 + Tesla 设计语言）。GPUI + gpui-kit。"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
