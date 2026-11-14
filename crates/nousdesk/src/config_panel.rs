@@ -24,9 +24,43 @@ use gpui_kit::*;
 use nous_engine::types::{Dirs, Machine, Machines, Models, Prompts, Session, Skill, Skills};
 
 // ── 面板尺寸（照 demo S3 量的）──────────────────────────────────────────
+//
+// 这三个是**理想值**：窗口放不下时由 [`Geometry::fit`] 收窄（半屏下 560 宽 + left 350
+// 会把右半截切在窗口外，见 坑.md 57）。
 const PANEL_W: f32 = 560.;
 const PANEL_H: f32 = 400.;
 const SIDE_W: f32 = 158.;
+
+/// 面板在窗口里的落点与尺寸（逻辑像素）。由窗口现算，不写死。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Geometry {
+    pub left: f32,
+    pub bottom: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Geometry {
+    /// 面板宽高取「理想值 / 窗口余量」里小的那个；左边先按 350 摆，摆不下就左移贴边。
+    ///
+    /// 下面三个余量：面板离窗口边至少 `MARGIN`，底部给输入区留 `BOTTOM`（输入区约 118
+    /// 高 + 一点呼吸），上下同理留 `MARGIN`。
+    pub(crate) fn fit(vw: f32, vh: f32) -> Self {
+        const MARGIN: f32 = 12.;
+        const BOTTOM: f32 = 118.;
+        const MIN_W: f32 = 320.;
+        const MIN_H: f32 = 220.;
+        let width = PANEL_W.min(vw - 2. * MARGIN).max(MIN_W.min(vw - 2. * MARGIN));
+        let height = PANEL_H.min(vh - BOTTOM - MARGIN).max(MIN_H.min(vh - BOTTOM - MARGIN));
+        let left = 350.0_f32.min(vw - width - MARGIN).max(MARGIN);
+        Self { left, bottom: BOTTOM, width, height }
+    }
+
+    /// 正文那栏的可用宽（左栏固定，右边留 1px 边框）。
+    pub(crate) fn main_w(self) -> f32 {
+        (self.width - SIDE_W - 1.).max(1.)
+    }
+}
 
 // 外观
 /// 原 `LINE = 0xeeeeee`；由 line_soft 这个语义槽接管。
@@ -131,6 +165,7 @@ impl Tab {
 // `cx.listener` 拿到的闭包本来就是这个形状，模块之间就不用互相认识对方的类型。
 // 参数一律传 `&T`：`cx.listener` 给的闭包就是这个形状（`|this, arg: &T, window, cx|`），
 // 按值传的话调用方还得再包一层。
+pub(crate) type OnHover = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
 pub(crate) type OnTab = Rc<dyn Fn(&Tab, &mut Window, &mut App)>;
 pub(crate) type OnLevel = Rc<dyn Fn(&String, &mut Window, &mut App)>;
 /// `(provider, modelId)` —— 拆开传，省得再拼一次 `"p/m"` 又拆回来。
@@ -145,6 +180,8 @@ pub(crate) type OnReadOnly = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
 
 pub(crate) struct Hooks {
     pub tab: OnTab,
+    /// 鼠标进 / 出正文视口（滚动条靠它淡入淡出）。
+    pub hover: OnHover,
     pub level: OnLevel,
     pub model: OnModel,
     pub skill: OnSkill,
@@ -169,6 +206,10 @@ pub(crate) struct Panel {
     pub error: Option<String>,
     /// 正在写 `/config`：这期间把清单点灰，防连点。
     pub busy: bool,
+    /// 正文视口的滚动句柄（七页共用：切页不重置位置）。
+    pub body_scroll: ScrollHandle,
+    /// 正文滚动条那两位（在不在场 / 鼠标在不在上面）。
+    pub body_bar: crate::app::scrollbar::BarState,
 }
 
 impl Panel {
@@ -354,10 +395,11 @@ fn empty_note(text: &str) -> AnyElement {
 ///
 /// 档位本来在「新对话」盘面里是第三列，这里拆出去独立成页了 —— 面板右栏只有 377 宽，
 /// 三列的话模型名会全被截成 `deepseek-r1-distill-qwe…`，读不出是哪一版。
-fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool) -> AnyElement {
+fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool, inner_w: f32) -> AnyElement {
     const PITCH: f32 = 27.;
     const PAD: f32 = 8.;
-    const W: f32 = PANEL_W - SIDE_W - 24.;
+    // 列宽跟着正文那栏的实际宽度走（半屏下就窄一点，不再假定 560 的面板）。
+    let w = (inner_w - 24.).max(120.);
 
     // 供应商：保持清单里第一次出现的顺序，不排序 —— 排序会让常用的掉到后面去。
     let mut providers: Vec<&str> = Vec::new();
@@ -381,7 +423,7 @@ fn page_model(m: &Models, s: &Session, hooks: &Hooks, busy: bool) -> AnyElement 
 
     let rows = providers.len().max(models.len()).max(1);
     let height = rows as f32 * PITCH + PAD * 2.;
-    let col = [W * 0.34, W * 0.66];
+    let col = [w * 0.34, w * 0.66];
     let xs = [0., col[0]];
 
     let mut layer = div().relative().h(px(height)).w_full();
@@ -864,7 +906,13 @@ fn page_readonly(s: &Session, hooks: &Hooks, busy: bool) -> AnyElement {
 
 // ── 面板本体 ─────────────────────────────────────────────────────────
 
-pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Hooks) -> AnyElement {
+pub(crate) fn render(
+    p: &Panel,
+    skills: Option<&Skills>,
+    s: &Session,
+    hooks: &Hooks,
+    g: Geometry,
+) -> AnyElement {
     let tab = p.tab();
     let busy = p.busy;
 
@@ -890,7 +938,7 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
     // 一份挂了不该把别的拖着一起灰（真机截图抓到过）。
     let body: AnyElement = match tab {
         Tab::Model => match p.models.as_ref() {
-            Some(m) => page_model(m, s, hooks, busy),
+            Some(m) => page_model(m, s, hooks, busy, g.main_w()),
             None => empty_note(
                 p.error
                     .as_deref()
@@ -907,7 +955,7 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
     };
 
     let main = div()
-        .w(px(PANEL_W - SIDE_W - 1.))
+        .w(px(g.main_w()))
         .flex_none()
         .h_full()
         // 面板是白的，右栏也铺白。
@@ -948,20 +996,38 @@ pub(crate) fn render(p: &Panel, skills: Option<&Skills>, s: &Session, hooks: &Ho
         )
         .child(
             div()
-                .id(ElementId::Name("cfg-body".into()))
+                // `on_hover` 挂在 `Stateful` 上：先给 id。
+                .id(ElementId::Name("cfg-viewport".into()))
+                .relative()
                 .flex_1()
                 .min_h(t().d(0.))
                 .w_full()
-                .overflow_y_scroll()
-                .child(body),
+                .on_hover({
+                    let on_hover = hooks.hover.clone();
+                    move |hovered: &bool, window, cx| on_hover(hovered, window, cx)
+                })
+                .child(
+                    div()
+                        .id(ElementId::Name("cfg-body".into()))
+                        .size_full()
+                        .overflow_y_scroll()
+                        .track_scroll(&p.body_scroll)
+                        .child(body),
+                )
+                .child(crate::app::scrollbar::overlay(
+                    "cfg-scrollbar",
+                    &p.body_scroll,
+                    p.body_bar.shown,
+                    p.body_bar.hover,
+                )),
         );
 
     div()
         .id(ElementId::Name("config-panel".into()))
         // absolute 浮层要 occlude，别让下层的聊天区抢鼠标（库里 dialog 也这么写）。
         .occlude()
-        .w(px(PANEL_W))
-        .h(px(PANEL_H))
+        .w(px(g.width))
+        .h(px(g.height))
         .flex()
         .flex_row()
         .bg(rgb(t().p.panel))
@@ -983,5 +1049,49 @@ fn full_value(tab: Tab, s: &Session) -> String {
         Tab::Machine => s.machine.clone().unwrap_or_else(|| "本机".into()),
         Tab::Dir => s.cwd.clone().unwrap_or_else(|| "—".into()),
         Tab::ReadOnly => tab.value(s),
+    }
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod tests {
+    use super::{Geometry, PANEL_H, PANEL_W};
+
+    /// 面板必须整块落在窗口里 —— 半屏时它曾经左 350 + 宽 560，右半截挂在窗口外，
+    /// 连带着滚动条一起看不见（坑.md 57）。
+    #[test]
+    fn 面板永远整块落在窗口里() {
+        for (vw, vh) in [
+            (1280., 800.),
+            (960., 700.),
+            (800., 600.),
+            (640., 800.),
+            (560., 480.),
+            (480., 480.),
+        ] {
+            let g = Geometry::fit(vw, vh);
+            assert!(g.width <= PANEL_W, "{vw} 宽下面板不该变宽");
+            assert!(g.height <= PANEL_H, "{vh} 高下面板不该变高");
+            assert!(g.left >= 0., "{vw}: 左边越界 {}", g.left);
+            assert!(
+                g.left + g.width <= vw,
+                "{vw} 宽下面板右边 {} 超出窗口",
+                g.left + g.width
+            );
+            assert!(
+                g.height <= vh,
+                "{vh} 高下面板高 {} 超出窗口",
+                g.height
+            );
+            assert!(g.main_w() > 40., "{vw}: 正文那栏被挤没了");
+        }
+    }
+
+    /// 宽窗口保持 demo 量的尺寸和位置：别为了窄窗把常规窗口也改丑了。
+    #[test]
+    fn 宽窗口还是原来的尺寸和位置() {
+        let g = Geometry::fit(1280., 800.);
+        assert_eq!((g.width, g.height), (PANEL_W, PANEL_H));
+        assert_eq!((g.left, g.bottom), (350., 118.));
     }
 }

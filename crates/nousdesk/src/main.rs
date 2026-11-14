@@ -117,6 +117,13 @@ fn open_log_file() -> Option<std::fs::File> {
 /// 只记「有几块屏、每块逻辑尺寸和位置」，不记序列号之类的标识。GPUI 的
 /// `PlatformDisplay` **不给每块屏的 scale_factor**（只有 `Window::scale_factor()`，
 /// 而且它随窗口当前所在屏变），所以缩放单独在窗口里记，别在这儿猜。
+/// 窗口最小尺寸（逻辑像素）。
+///
+/// 图标条 60 + 会话列表 253 + 输入区最小值：640 宽还能正常写字，再窄就只能看见
+/// 半截输入框了。目录列在这个宽度下已经自己收起来（`NAV_COLUMN_MIN_W`）。
+pub(crate) const MIN_WINDOW_W: f32 = 640.;
+pub(crate) const MIN_WINDOW_H: f32 = 480.;
+
 fn log_display_env(cx: &mut App) {
     let displays = cx.displays();
     log::info!("显示器：{} 块", displays.len());
@@ -167,6 +174,9 @@ fn main() {
             // Windows 上走 `window_control_area`）。Windows 那条线冻结了，仍用系统标题栏。
             let mut options = WindowOptions {
                 window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
+                // 最小尺寸：再窄下去三栏（图标条 + 会话列表 + 聊天区）就装不下内容了。
+                // 640x480 是「半屏」还能用的下限；窗口管理器从此不给缩得更小。
+                window_min_size: Some(size(px(MIN_WINDOW_W), px(MIN_WINDOW_H))),
                 ..TitleBar::window_options()
             };
             #[cfg(target_os = "linux")]

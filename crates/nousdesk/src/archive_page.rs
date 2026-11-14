@@ -53,6 +53,8 @@ pub type OnAction = Rc<dyn Fn(&ArchiveAction, &mut Window, &mut App)>;
 pub type OnSelect = Rc<dyn Fn(&RowKey, &mut Window, &mut App)>;
 /// 收起这一页（回聊天区）。入口/开关在 #6，这里只留出口。
 pub type OnBack = OnClick;
+/// 鼠标进 / 出这一页的视口（`true` = 进来了）—— 滚动条靠它决定淡入淡出。
+pub type OnHover = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
 
 // ── 动作 ─────────────────────────────────────────────────────────────
 
@@ -298,9 +300,15 @@ impl ArchivePageState {
 
 // ── 页面 ─────────────────────────────────────────────────────────────
 
-/// 画这一页（右栏整页）。调用方给状态 + 三个出口，别的都在这儿。
+/// 画这一页（右栏整页）。调用方给状态 + 出口 + 滚动句柄，别的都在这儿。
+///
+/// `scroll` / `bar` / `on_hover` 是那条浮出来的滚动条：句柄归调用方（切页不丢位置），
+/// 在不在场由 `bar` 说，悬停进出来自 `on_hover`。
 pub fn render_archive_page(
     state: &ArchivePageState,
+    scroll: &ScrollHandle,
+    bar: (bool, bool),
+    on_hover: OnHover,
     on_action: OnAction,
     on_select: OnSelect,
     on_back: OnBack,
@@ -309,11 +317,12 @@ pub fn render_archive_page(
         .flex()
         .flex_col()
         .flex_1()
+        .min_w(t().d(0.))
         .size_full()
         .bg(rgb(t().p.panel))
         .child(header(state, on_action.clone(), on_back))
         .child(column_head())
-        .child(body(state, on_action, on_select))
+        .child(body(state, scroll, bar, on_hover, on_action, on_select))
         .into_any_element()
 }
 
@@ -389,6 +398,7 @@ fn column_head() -> AnyElement {
         .h(t().d(26.))
         .flex_none()
         .px(t().d(14.))
+        .min_w(t().d(0.))
         .bg(rgb(t().p.panel))
         .border_b(t().d(1.))
         .border_color(rgb(t().p.line_soft))
@@ -400,7 +410,14 @@ fn column_head() -> AnyElement {
         .into_any_element()
 }
 
-fn body(state: &ArchivePageState, on_action: OnAction, on_select: OnSelect) -> AnyElement {
+fn body(
+    state: &ArchivePageState,
+    scroll: &ScrollHandle,
+    bar: (bool, bool),
+    on_hover: OnHover,
+    on_action: OnAction,
+    on_select: OnSelect,
+) -> AnyElement {
     let mut rows: Vec<AnyElement> = Vec::new();
 
     if let Some(err) = state.error.as_deref() {
@@ -427,13 +444,33 @@ fn body(state: &ArchivePageState, on_action: OnAction, on_select: OnSelect) -> A
     }
 
     div()
-        .id(ElementId::Name("archive-scroll".into()))
+        // `on_hover` 挂在 `Stateful` 上：先给 id。
+        .id(ElementId::Name("archive-viewport".into()))
+        .relative()
         .flex()
         .flex_col()
         .flex_1()
         .min_h(t().d(0.))
-        .overflow_y_scroll()
-        .children(rows)
+        .min_w(t().d(0.))
+        .on_hover(move |hovered: &bool, window, cx| on_hover(hovered, window, cx))
+        .child(
+            div()
+                .id(ElementId::Name("archive-scroll".into()))
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(t().d(0.))
+                .min_w(t().d(0.))
+                .overflow_y_scroll()
+                .track_scroll(scroll)
+                .children(rows),
+        )
+        .child(crate::app::scrollbar::overlay(
+            "archive-scrollbar",
+            scroll,
+            bar.0,
+            bar.1,
+        ))
         .into_any_element()
 }
 

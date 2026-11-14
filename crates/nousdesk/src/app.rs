@@ -35,13 +35,64 @@ use crate::nav_ui::SessionNav;
 
 pub(crate) mod scrollbar;
 
-/// 哪块面板的滚动条。加新面板就往这儿加一个分支。
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// 窗口窄到这个宽度以下就不画「你问过的」目录列了 —— 让出来的宽度给聊天区。
+///
+/// 图标条 60 + 会话列表 253 + 目录列 240 + 聊天区：960 时聊天区还剩 400 出头，
+/// 再窄就只剩一格，不如把目录列收起来（抽屉里照样能跳）。
+pub(crate) const NAV_COLUMN_MIN_W: f32 = 960.;
+
+// 编译期钉住两条：最小窗口宽度下目录列必须已经让位（否则「半屏」时聊天区只剩一格）；
+// 最小宽度也不能小于「会话列表 + 聊天区」装得下的下限。
+const _: () = assert!(NAV_COLUMN_MIN_W > crate::MIN_WINDOW_W);
+const _: () = assert!(crate::MIN_WINDOW_W >= 600.);
+
+/// 哪块面板的滚动条。加新面板就往这儿加一个分支（`ALL` 里也补一行）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Bar {
     Chat,
     List,
     Tree,
     Presets,
+    /// 设置页右栏（四页共用一份滚动位置，和设置页自己的切页状态一致）。
+    Settings,
+    /// 归档库整页。
+    Archive,
+    /// 输入框左下角那颗 DNA 打开的面板（七页正文共用）。
+    Cfg,
+    /// 目录列（「前几轮 / 抽屉」那条左栏）。
+    Nav,
+    /// 历史抽屉正文。
+    Drawer,
+    /// New Manual 的两张清单（模型清单 / 供应商 sheet）。
+    Sheet,
+    /// 分支视图的左栏。
+    Branch,
+    /// 输入区（写字久了要自己滚，不能把聊天区顶到零）。
+    Composer,
+}
+
+impl Bar {
+    /// 一个不落、顺序无所谓 —— 只用来定数组长度和初始化。
+    pub(crate) const ALL: [Bar; 12] = [
+        Bar::Chat,
+        Bar::List,
+        Bar::Tree,
+        Bar::Presets,
+        Bar::Settings,
+        Bar::Archive,
+        Bar::Cfg,
+        Bar::Nav,
+        Bar::Drawer,
+        Bar::Sheet,
+        Bar::Branch,
+        Bar::Composer,
+    ];
+
+    pub(crate) const COUNT: usize = Bar::ALL.len();
+
+    pub(crate) fn idx(self) -> usize {
+        self as usize
+    }
 }
 
 use crate::config::{Config, ENGINE_BLOCK, MOBILE_BLOCK, SELF_BLOCK};
@@ -168,15 +219,17 @@ pub struct Desktop {
     pub(crate) presets_scroll: ScrollHandle,
     /// Template 页类别树的滚动句柄。
     pub(crate) tree_scroll: ScrollHandle,
-    /// 每个面板两位：鼠标在不在上面 / 滚动条在不在场（淡出那 250ms 里也得在场）。
-    chat_hover: bool,
-    chat_bar: bool,
-    list_hover: bool,
-    list_bar: bool,
-    pub(crate) presets_hover: bool,
-    pub(crate) presets_bar: bool,
-    pub(crate) tree_hover: bool,
-    pub(crate) tree_bar: bool,
+    /// 设置页右栏的滚动句柄（四页共用一个位置，切页不重置）。
+    pub(crate) settings_scroll: ScrollHandle,
+    /// 分支视图左栏的滚动句柄。
+    pub(crate) branch_scroll: ScrollHandle,
+    /// 归档库整页的滚动句柄（切页/刷新不重置位置）。
+    archive_scroll: ScrollHandle,
+    /// 输入区的滚动句柄：字写多了在卡片里滚，不再把聊天区顶成零。
+    composer_scroll: ScrollHandle,
+    /// 每块滚动面板两位：鼠标在不在上面 / 滚动条在不在场（淡出那 250ms 里也得在场）。
+    /// 按 `Bar` 索引 —— 加面板只加枚举项，不再加一堆平行字段。
+    pub(crate) bars: [scrollbar::BarState; Bar::COUNT],
     /// 输入区悬停提示两位：鼠标在不在输入区上 / 提示字在不在场（淡出那 250ms 里也得在场）。
     composer_hover: bool,
     composer_hint: bool,
@@ -420,6 +473,22 @@ impl Desktop {
                 // 当成一条用户消息发出去。
                 if handled {
                     app.stop_propagation();
+                    return;
+                }
+                // 全量历史抽屉：Esc 收起。它比 `/` 面板大一圈，但排在这条链的
+                // **最后面** —— 抽屉里也能打字（`/`），正在敲的命令该先被 Esc 撤掉。
+                // 抽屉本身没有焦点域（正文只是滚动容器），所以只能挂在窗口这一层。
+                let closed = weak
+                    .update(app, |this, cx| {
+                        if !this.nav.drawer_open {
+                            return false;
+                        }
+                        this.nav_close_drawer(cx);
+                        true
+                    })
+                    .unwrap_or(false);
+                if closed {
+                    app.stop_propagation();
                 }
             }),
         ];
@@ -456,14 +525,11 @@ impl Desktop {
             list_scroll: ScrollHandle::new(),
             presets_scroll: ScrollHandle::new(),
             tree_scroll: ScrollHandle::new(),
-            chat_hover: false,
-            chat_bar: false,
-            list_hover: false,
-            list_bar: false,
-            presets_hover: false,
-            presets_bar: false,
-            tree_hover: false,
-            tree_bar: false,
+            settings_scroll: ScrollHandle::new(),
+            branch_scroll: ScrollHandle::new(),
+            archive_scroll: ScrollHandle::new(),
+            composer_scroll: ScrollHandle::new(),
+            bars: [scrollbar::BarState::default(); Bar::COUNT],
             composer_hover: false,
             composer_hint: false,
             search,
@@ -1207,26 +1273,37 @@ impl Desktop {
     }
 
     /// 把面板浮在聊天区左下角。挂在**整窗**根节点上，父容器够大，hitbox 不会被裁。
-    fn cfg_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let panel = self.cfg_panel(cx)?;
+    fn cfg_overlay(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let g = crate::config_panel::Geometry::fit(
+            window.viewport_size().width.as_f32(),
+            window.viewport_size().height.as_f32(),
+        );
+        let panel = self.cfg_panel(g, cx)?;
         Some(
             div()
                 .absolute()
-                .left(t().d(350.))
-                .bottom(t().d(118.))
+                .left(px(g.left))
+                .bottom(px(g.bottom))
                 .child(panel)
                 .into_any_element(),
         )
     }
 
     /// 画面板（或 `None`）。回调全在这里接上，`config_panel` 只管画。
-    fn cfg_panel(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn cfg_panel(
+        &self,
+        g: crate::config_panel::Geometry,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if !self.cfg_visible() {
             return None;
         }
         let s = self.cur_session()?;
 
         let hooks = crate::config_panel::Hooks {
+            hover: Rc::new(cx.listener(|this, hovered: &bool, _w, cx| {
+                this.cfg_bar_hover(*hovered, cx)
+            })),
             tab: Rc::new(cx.listener(|this, t: &crate::config_panel::Tab, _w, cx| {
                 this.cfg.tab = Some(*t);
                 cx.notify();
@@ -1315,6 +1392,7 @@ impl Desktop {
             self.skills.as_ref(),
             s,
             &hooks,
+            g,
         ))
     }
 
@@ -1924,7 +2002,7 @@ impl Desktop {
 
     /// 画归档库整页（右栏）。三个回调全在这里接，`archive_page` 只管画。
     fn render_archive(&self, cx: &mut Context<Self>) -> AnyElement {
-        use crate::archive_page::{ArchiveAction, OnAction, OnClick, OnSelect, RowKey};
+        use crate::archive_page::{ArchiveAction, OnAction, OnClick, OnHover, OnSelect, RowKey};
         let on_action: OnAction = Rc::new(cx.listener(|this, action: &ArchiveAction, _, cx| {
             this.archive_on_action(action, cx);
         }));
@@ -1934,7 +2012,18 @@ impl Desktop {
         }));
         let on_back: OnClick =
             Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| this.close_archive(cx)));
-        crate::archive_page::render_archive_page(&self.archive, on_action, on_select, on_back)
+        let on_hover: OnHover = Rc::new(cx.listener(|this, hovered: &bool, _, cx| {
+            this.bar_hover(Bar::Archive, *hovered, cx)
+        }));
+        crate::archive_page::render_archive_page(
+            &self.archive,
+            &self.archive_scroll,
+            self.bar(Bar::Archive),
+            on_hover,
+            on_action,
+            on_select,
+            on_back,
+        )
     }
 
     /// 「撕原件」危险确认，挂在整窗这一层（和菜单 / 配置面板同一层）。
@@ -2048,49 +2137,25 @@ impl Desktop {
             )
     }
 
+    /// 配置面板正文的滚动条：状态跟着面板走（`cfg` 里那两份），不放 `bars` 数组 ——
+    /// 面板关掉再打开，滚动位置和条子都该跟着面板一起重置。
+    pub(crate) fn cfg_bar_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        self.cfg.body_bar.hover(hovered, cx, |this| &mut this.cfg.body_bar);
+    }
+
     /// 悬停 → 「滚动条在不在场」。
     ///
-    /// 移开不能马上撤元素：撤了就看不到那 250ms 的淡出，会「啪」一下消失。
-    /// 所以先留着，等淡出跑完再收 —— 期间要是又进来了，就当成淡入继续用。
+    /// 状态机在 [`scrollbar::BarState::hover`] 里（移开要等 250ms 淡出跑完才撤元素），
+    /// 这里只负责按面板挑出那一份状态。
     pub(crate) fn bar_hover(&mut self, which: Bar, hovered: bool, cx: &mut Context<Self>) {
-        let (hover, shown) = match which {
-            Bar::Chat => (&mut self.chat_hover, &mut self.chat_bar),
-            Bar::List => (&mut self.list_hover, &mut self.list_bar),
-            Bar::Tree => (&mut self.tree_hover, &mut self.tree_bar),
-            Bar::Presets => (&mut self.presets_hover, &mut self.presets_bar),
-        };
-        if *hover == hovered {
-            return;
-        }
-        *hover = hovered;
-        *shown = true;
-        cx.notify();
-        if hovered {
-            return;
-        }
-        cx.spawn(async move |this, cx| {
-            Timer::after(scrollbar::FADE).await;
-            this.update(cx, |this, cx| {
-                let still_hovered = match which {
-                    Bar::Chat => this.chat_hover,
-                    Bar::List => this.list_hover,
-                    Bar::Tree => this.tree_hover,
-                    Bar::Presets => this.presets_hover,
-                };
-                if still_hovered {
-                    return;
-                }
-                match which {
-                    Bar::Chat => this.chat_bar = false,
-                    Bar::List => this.list_bar = false,
-                    Bar::Tree => this.tree_bar = false,
-                    Bar::Presets => this.presets_bar = false,
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+        let i = which.idx();
+        self.bars[i].hover(hovered, cx, move |this| &mut this.bars[i]);
+    }
+
+    /// 取某个面板那两位：`(元素在不在场, 鼠标在不在上面)`。
+    pub(crate) fn bar(&self, which: Bar) -> (bool, bool) {
+        let bar = &self.bars[which.idx()];
+        (bar.shown, bar.hover)
     }
 
     /// 输入区的悬停提示：鼠标放上去 → 淡入一行浅灰字（「Enter 发送 · Shift+Enter 换行」），
@@ -2333,8 +2398,8 @@ impl Desktop {
                     .child(scrollbar::overlay(
                         "session-scrollbar",
                         &self.list_scroll,
-                        self.list_bar,
-                        self.list_hover,
+                        self.bar(Bar::List).0,
+                        self.bar(Bar::List).1,
                     )),
             )
             .into_any_element()
@@ -2489,13 +2554,14 @@ impl Desktop {
                     .child(scrollbar::overlay(
                         "chat-scrollbar",
                         &self.scroll,
-                        self.chat_bar,
-                        self.chat_hover,
+                        self.bar(Bar::Chat).0,
+                        self.bar(Bar::Chat).1,
                     ))
                     .child(crate::nav_ui::drawer(
                         self.nav.drawer_open,
                         drawer_rows,
                         &self.nav.drawer_scroll,
+                        self.bar(Bar::Drawer),
                         cx,
                     )),
             )
@@ -2567,6 +2633,11 @@ impl Desktop {
                 self.composer_hint,
                 self.composer_hover,
                 cx.listener(|this, hovered: &bool, _, cx| this.composer_hover(*hovered, cx)),
+                &self.composer_scroll,
+                self.bar(Bar::Composer),
+                cx.listener(|this, hovered: &bool, _, cx| {
+                    this.bar_hover(Bar::Composer, *hovered, cx)
+                }),
                 cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.send(window, cx);
                 }),
@@ -2762,26 +2833,34 @@ impl Desktop {
         self.nav_open_drawer(Some(r.entry_index), cx);
     }
 
-    /// 打开抽屉。`to` 是「滚到哪条 entry」，None = 停在最早那段
+    /// 打开抽屉。`to` 是「滚到哪条 entry」，None = 接着上次看到哪儿
     /// （最近 12 行主视图里已经有了，打开抽屉是为了看旧的）。
     pub(crate) fn nav_open_drawer(&mut self, to: Option<usize>, cx: &mut Context<Self>) {
         self.nav.drawer_open = true;
-        if let Some(entry) = to {
-            let ix = self.nav_child_of(entry, true);
-            self.nav.drawer_scroll = ScrollHandle::new();
-            if let Some(ix) = ix {
-                self.nav.drawer_scroll.scroll_to_top_of_item(ix);
+        // 抽屉卸下再挂回来时句柄里的 item 尺寸全过期，所以每次都给一个新的；
+        // 想「接着看」就把上次关掉时的偏移灌进去，别让用户重新滚一百条。
+        self.nav.drawer_scroll = ScrollHandle::new();
+        match to {
+            Some(entry) => {
+                let ix = self.nav_child_of(entry, true);
+                if let Some(ix) = ix {
+                    self.nav.drawer_scroll.scroll_to_top_of_item(ix);
+                }
+                self.nav.current = self
+                    .nav_groups()
+                    .iter()
+                    .flat_map(|g| g.rounds.iter())
+                    .filter(|r| r.entry_index <= entry)
+                    .last()
+                    .map(|r| r.index)
+                    .unwrap_or(0);
             }
-            self.nav.current = self
-                .nav_groups()
-                .iter()
-                .flat_map(|g| g.rounds.iter())
-                .filter(|r| r.entry_index <= entry)
-                .last()
-                .map(|r| r.index)
-                .unwrap_or(0);
-        } else {
-            self.nav.drawer_scroll = ScrollHandle::new();
+            None => {
+                let y = self.nav.drawer_offset_y;
+                if y != 0. {
+                    self.nav.drawer_scroll.set_offset(point(px(0.), px(y)));
+                }
+            }
         }
         // 抽屉开着时目录指向全量正文，第一组先摊开。
         let groups = self.nav_groups();
@@ -2791,9 +2870,22 @@ impl Desktop {
         cx.notify();
     }
 
+    /// 收起抽屉。**三条出口共用这一条**：点遮罩、Esc、再点一次「历史与目录」。
+    /// 关掉时记下滚到哪儿 —— 不然下次打开又从头开始。
     pub(crate) fn nav_close_drawer(&mut self, cx: &mut Context<Self>) {
+        self.nav.drawer_offset_y = self.nav.drawer_scroll.offset().y.as_f32();
         self.nav.drawer_open = false;
         cx.notify();
+    }
+
+    /// 顶栏那颗按钮：开 / 关（和输入区左下角那颗 DNA 的 `toggle_config` 同一套）。
+    /// 之前它只负责开，抽屉开着时再点一次等于「重新开一遍、还滚回顶部」，最反直觉的那种。
+    pub(crate) fn nav_toggle_drawer(&mut self, cx: &mut Context<Self>) {
+        if self.nav.drawer_open {
+            self.nav_close_drawer(cx);
+        } else {
+            self.nav_open_drawer(None, cx);
+        }
     }
 
     /// 抽屉头上的桥：把「目录当前高亮的那轮」加载进主视图，然后关抽屉。
@@ -3585,7 +3677,7 @@ impl Render for Desktop {
         // 尺寸基准也因此从整窗 vmin 换成右格 cqmin（见 `board_art::M`）。
         // 设置页也顶替右栏，但它优先级更高：正在改连接时别把盘面盖在上面。
         let right: AnyElement = if self.settings_open {
-            self.render_settings(cx)
+            self.render_settings(window, cx)
         } else if self.archive_open {
             self.render_archive(cx)
         } else if self.newchat.open {
@@ -3629,7 +3721,10 @@ impl Render for Desktop {
                     && self.selected.is_some()
                     && !self.newchat.open
                     && !self.settings_open
-                    && !self.archive_open)
+                    && !self.archive_open
+                    // 窄窗让位：三个纵列（图标条 + 会话列表 + 目录列）一起要 550 多像素，
+                    // 窗口只有一半宽时聊天区会被挤成一格（见 坑.md 58）。
+                    && window.viewport_size().width.as_f32() >= NAV_COLUMN_MIN_W)
                     .then(|| {
                         let groups = self.nav_groups();
                         if groups.is_empty() {
@@ -3642,12 +3737,24 @@ impl Render for Desktop {
                             &self.nav,
                             from,
                             self.nav.drawer_open,
+                            self.bar(Bar::Nav),
                             cx,
                         )
                     }),
             )
             // 别人的 New Manual 盘面顶替右栏；没开时才是聊天区。
-            .child(right);
+            //
+            // 这层容器是**窄窗的总闸**：右栏里任何一页只要内容比窗口宽，页面自己的
+            // `min-content` 就会把这一栏撑出去 —— 于是滚动视口的右边缘跑到窗口外面，
+            // 滚动条跟着一起消失（见 坑.md 57）。`min_w(0)` 让它肯收缩，
+            // `overflow_hidden` 把溢出裁在窗口边上，滚动条就还在窗口里。
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(t().d(0.))
+                    .overflow_hidden()
+                    .child(right),
+            );
 
         // 配置面板挂在**整窗**这一层，不塞进输入区：塞进去它是 absolute 浮层，
         // 超出输入区那 130px 的部分 hitbox 会被裁掉 —— 画得出来、hover 也变色，
@@ -3656,7 +3763,7 @@ impl Render for Desktop {
             .relative()
             .size_full()
             .child(shell_root)
-            .children(self.cfg_overlay(cx))
+            .children(self.cfg_overlay(window, cx))
             // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
             .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
             // 「撕原件」确认（盖在菜单之上）
@@ -3728,8 +3835,8 @@ fn nav_child_index(
 #[allow(non_snake_case)]
 mod tests {
     use super::{
-        NoticeKind, NoticeState, error_notice, nav_child_index, next_selection_after_archive,
-        order_ids, when_text,
+        Bar, NoticeKind, NoticeState, error_notice, nav_child_index,
+        next_selection_after_archive, order_ids, when_text,
     };
     use nous_engine::EngineError;
     use nous_engine::types::{Entry, Session};
@@ -3744,6 +3851,27 @@ mod tests {
             parent: None,
             extra: HashMap::new(),
         }
+    }
+
+    /// `Bar` 的下标就是这个面板在 `bars` 数组里的位置 —— 少一个、重一个，
+    /// 表现是「另一个面板的滚动条不动了」，而不会有任何编译错误。
+    #[test]
+    fn 每块面板的下标都在数组范围内且互不重复() {
+        let mut seen = vec![false; Bar::COUNT];
+        for bar in Bar::ALL {
+            let i = bar.idx();
+            assert!(i < Bar::COUNT, "{bar:?} 的下标 {i} 越界了");
+            assert!(!seen[i], "{bar:?} 和另一块面板撞了同一个下标 {i}");
+            seen[i] = true;
+        }
+        assert!(seen.iter().all(|hit| *hit), "有下标没人认领：{:?}", seen);
+    }
+
+    /// 滚动条默认不在场：不然一启动每块面板都挂着一根线。
+    #[test]
+    fn 滚动条默认不在场() {
+        let bar = super::scrollbar::BarState::default();
+        assert!(!bar.shown && !bar.hover);
     }
 
     /// 目录点一行，跳的必须是那一行 —— 空正文气泡被跳过 + 前面几行装饰，

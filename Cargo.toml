@@ -21,6 +21,13 @@ url = "2"
 bytes = "1"
 smol = "2"
 
+[profile.dev]
+# **dev 构建别带完整调试信息。** 这台机器上 4 个 example 各 740MB，其中 640MB 是
+# DWARF；一次迭代留一份旧副本，`target/` 一天就能堆到 28G（真堆到过）。
+# `line-tables-only` 保住 backtrace 里的「文件:行号」，砍掉变量/类型描述 ——
+# 调 GPUI 应用够用，想看变量就 `RUSTFLAGS=-Cdebuginfo=2 cargo build` 临时开。
+debug = "line-tables-only"
+
 [profile.release]
 lto = "thin"
 # 符号表对用户没用，对包大小有用：66MB → 十几 MB（.deb / tar.gz 都跟着瘦）。

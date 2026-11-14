@@ -204,7 +204,7 @@ impl Desktop {
 
     // ── 设置页（右栏整页） ──────────────────────────────────
 
-    pub(crate) fn render_settings(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_settings(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex()
             .flex_col()
@@ -218,7 +218,7 @@ impl Desktop {
                     .flex_1()
                     .min_h(t().d(0.))
                     .child(self.settings_nav(cx))
-                    .child(self.settings_pane(cx)),
+                    .child(self.settings_pane(window, cx)),
             )
             .into_any_element()
     }
@@ -304,7 +304,11 @@ impl Desktop {
             .into_any_element()
     }
 
-    fn settings_pane(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn settings_pane(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        // 窄窗（半屏）时右栏只剩一百多像素：内边距收一收，别让「卡片最小宽 + 内边距」
+        // 又把页面撑出窗口（坑.md 57）。
+        let narrow = window.viewport_size().width.as_f32() < 900.;
+        let pad = if narrow { t().d(14.) } else { t().d(22.) };
         let body: AnyElement = match self.settings_tab {
             SettingsTab::Connection => self.connection_pane(cx),
             SettingsTab::Theme => self.theme_pane(cx),
@@ -312,14 +316,35 @@ impl Desktop {
         };
 
         div()
+            // `on_hover` 挂在 `Stateful` 上：先给 id。
+            .id(ElementId::Name("settings-viewport".into()))
+            .relative()
             .flex()
             .flex_col()
             .flex_1()
             .min_w(t().d(0.))
-            .id(ElementId::Name("settings-scroll".into()))
-            .overflow_y_scroll()
-            .p(t().d(22.))
-            .child(body)
+            // 鼠标在这块内容上 → 滚动条出现（和会话列表/聊天区同一套：平时一条线都没有）。
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.bar_hover(crate::app::Bar::Settings, *hovered, cx)
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .size_full()
+                    .min_w(t().d(0.))
+                    .id(ElementId::Name("settings-scroll".into()))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.settings_scroll)
+                    .p(pad)
+                    .child(body),
+            )
+            .child(crate::app::scrollbar::overlay(
+                "settings-scrollbar",
+                &self.settings_scroll,
+                self.bar(crate::app::Bar::Settings).0,
+                self.bar(crate::app::Bar::Settings).1,
+            ))
             .into_any_element()
     }
 
@@ -334,6 +359,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(t().d(14.))
+            .min_w(t().d(0.))
             .max_w(t().d(460.))
             .child(div().text_size(t().fs(15.)).child("连接"))
             .child(
@@ -405,6 +431,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(t.d(14.))
+            .min_w(t.d(0.))
             .max_w(t.d(600.))
             .child(div().text_size(t.fs(15.)).child("主题"))
             .child(
@@ -417,6 +444,7 @@ impl Desktop {
                 div()
                     .flex()
                     .flex_wrap()
+                    .min_w(t.d(0.))
                     .gap(t.d(12.))
                     .children(cards),
             )
@@ -445,7 +473,11 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(skin.d(8.))
+            // 理想宽 196，放不下就缩（最窄 88）。**不能写成 `flex_1`**：那会让一排塞
+            // 满六七张、每张只剩八九十宽，宽窗下反而更难挑（第一版就是这么错的）。
             .w(skin.d(196.))
+            .flex_shrink(1.)
+            .min_w(skin.d(88.))
             .p(skin.d(10.))
             .rounded(skin.r(8.))
             .bg(rgb(skin.p.panel))
@@ -724,13 +756,14 @@ fn field(label: &'static str, input: impl IntoElement) -> AnyElement {
         .flex_col()
         .gap(t().d(5.))
         .w_full()
+        .min_w(t().d(0.))
         .child(
             div()
                 .text_size(t().fs(11.5))
                 .text_color(rgb(t().p.muted))
                 .child(label),
         )
-        .child(div().w_full().child(input))
+        .child(div().w_full().min_w(t().d(0.)).child(input))
         .into_any_element()
 }
 
@@ -739,6 +772,8 @@ fn readonly(label: &'static str, value: String, note: &'static str) -> AnyElemen
         .flex()
         .flex_col()
         .gap(t().d(5.))
+        .w_full()
+        .min_w(t().d(0.))
         .child(
             div()
                 .text_size(t().fs(11.5))
@@ -747,6 +782,8 @@ fn readonly(label: &'static str, value: String, note: &'static str) -> AnyElemen
         )
         .child(
             div()
+                .w_full()
+                .min_w(t().d(0.))
                 .p(t().d(8.))
                 .rounded(t().r(5.))
                 .bg(rgb(t().p.surface))
@@ -754,6 +791,8 @@ fn readonly(label: &'static str, value: String, note: &'static str) -> AnyElemen
                 .border_color(rgb(t().p.line))
                 .text_size(t().fs(11.))
                 .text_color(rgb(t().p.text_2))
+                // 引擎地址 / 配置文件路径都是不可断行的长串：窄窗下截断，不撑宽页面。
+                .truncate()
                 .child(value),
         )
         .child(div().text_size(t().fs(10.5)).text_color(rgb(faint())).child(note))

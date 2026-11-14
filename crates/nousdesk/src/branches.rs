@@ -188,11 +188,34 @@ impl Desktop {
             )
             .child(
                 div()
+                    // `on_hover` 挂在 `Stateful` 上：先给 id。
+                    .id(ElementId::Name("branch-viewport".into()))
+                    .relative()
                     .flex()
                     .flex_col()
                     .flex_1()
-                    .overflow_hidden()
-                    .children(rows),
+                    .min_h(t().d(0.))
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        this.bar_hover(crate::app::Bar::Branch, *hovered, cx)
+                    }))
+                    .child(
+                        div()
+                            .id(ElementId::Name("branch-scroll".into()))
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_h(t().d(0.))
+                            // 以前是 `overflow_hidden`：分支一多直接被切掉，滚轮也救不回来。
+                            .overflow_y_scroll()
+                            .track_scroll(&self.branch_scroll)
+                            .children(rows),
+                    )
+                    .child(crate::app::scrollbar::overlay(
+                        "branch-scrollbar",
+                        &self.branch_scroll,
+                        self.bar(crate::app::Bar::Branch).0,
+                        self.bar(crate::app::Bar::Branch).1,
+                    )),
             )
             .into_any_element()
     }
