@@ -163,7 +163,7 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// 「默认」：微信桌面版那套。全部取值照渲染层原来的常量 / 字面量抄。
+    /// 「默认」：微信基线（骨架照微信桌面版，取值照渲染层原来的常量 / 字面量抄）。
     pub const DEFAULT: Palette = Palette {
         sidebar: 0x2e2e2e,
         sidebar_hover: 0x3a3a3a,
