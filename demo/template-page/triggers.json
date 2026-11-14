@@ -1,0 +1,1 @@
+{"triggers":[{"name":"single-shot","summary":"指定的那一分钟里发起一次 —— 过时不补，跑过不再跑","category":["时间","时间/一次"],"version":"0.1.0","params":[{"name":"epoch","type":"epoch","label":"什么时候","required":true,"help":"精确到分钟：落在这一分钟里就发起一次。页面上用本地时间挑，存进去是 UTC 秒。"}]}],"root":"/opt/Nous-Trigger"}

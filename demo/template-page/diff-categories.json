@@ -1,0 +1,1 @@
+{"path":"categories.json","before":"{\n  \"v\": 1,\n  \"categories\": [\n    \"Basics\",\n    \"工程\",\n    \"写作\",\n    \"写作/周报\"\n  ]\n}\n","after":"{\n  \"v\": 1,\n  \"categories\": [\n    \"工程\",\n    \"写作\",\n    \"写作/周报\",\n    \"Basics\"\n  ]\n}\n"}
