@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Manual · 05 环 · 五套皮</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+/* ══ 五套皮：色值照抄 crates/nousdesk/src/theme.rs（main） ══ */
+body[data-theme="default"]{
+  --bg:#ededed;--panel:#ffffff;--surface:#f6f6f6;--line:#e6e6e6;--line2:#e2e2e2;
+  --fg:#1a1a1a;--fg2:#333333;--muted:#999999;--faint:#aaaaaa;
+  --ring:#07c160;--on-accent:#ffffff;--r:1;--fs:1;--pd:1;
+  --rail:#2e2e2e;--rail-fg:#9a9a9a;--rail-on:#3f3f3f;
+  --listbg:#f7f7f7;--listfg:#1a1a1a;--listline:#e6e6e6;--listmuted:#999999;
+  --font:"Inter","Segoe UI",system-ui,"Noto Sans","Noto Sans CJK SC","DejaVu Sans",sans-serif;
+}
+body[data-theme="industrial"]{
+  --bg:#f4f2ee;--panel:#ffffff;--surface:#ffffff;--line:#14150f;--line2:#14150f;
+  --fg:#14150f;--fg2:#5f5d55;--muted:#8d8a82;--faint:#b9b6ad;
+  --ring:#14150f;--on-accent:#ffffff;--r:0;--fs:.92;--pd:1.05;
+  --rail:#e9e6e0;--rail-fg:#8d8a82;--rail-on:#14150f;
+  --listbg:#f4f2ee;--listfg:#14150f;--listline:#14150f;--listmuted:#8d8a82;
+  --font:"Manrope","Inter",system-ui,"Noto Sans CJK SC",sans-serif;
+}
+body[data-theme="mono"]{
+  --bg:#000000;--panel:#000000;--surface:#0a0a0a;--line:#ffffff;--line2:#ffffff;
+  --fg:#ffffff;--fg2:#a8a8a8;--muted:#6b6b6b;--faint:#4a4a4a;
+  --ring:#ffffff;--on-accent:#000000;--r:0;--fs:.96;--pd:1.05;
+  --rail:#000000;--rail-fg:#6b6b6b;--rail-on:#1a1a1a;
+  --listbg:#000000;--listfg:#ffffff;--listline:#ffffff;--listmuted:#6b6b6b;
+  --font:"Inter",system-ui,"Noto Sans CJK SC",sans-serif;
+}
+body[data-theme="paper"]{
+  --bg:#fbfbfa;--panel:#ffffff;--surface:#f5f5f3;--line:#e6e6e3;--line2:#d8d8d4;
+  --fg:#171a1c;--fg2:#62686d;--muted:#9298a0;--faint:#b9bec3;
+  --ring:#9298a0;--on-accent:#ffffff;--r:.75;--fs:.96;--pd:1;
+  --rail:#f0f0ee;--rail-fg:#9298a0;--rail-on:#171a1c;
+  --listbg:#fbfbfa;--listfg:#171a1c;--listline:#e6e6e3;--listmuted:#9298a0;
+  --font:"Inter",system-ui,"Noto Sans CJK SC",sans-serif;
+}
+body[data-theme="amber"]{
+  --bg:#0d0c0a;--panel:#12110e;--surface:#17150f;--line:#251f18;--line2:#322a1f;
+  --fg:#f0e9dc;--fg2:#a89e8c;--muted:#6f6656;--faint:#504a3e;
+  --ring:#e8a33d;--on-accent:#14110c;--r:.375;--fs:.96;--pd:1.02;
+  --rail:#090806;--rail-fg:#6f6656;--rail-on:#17150f;
+  --listbg:#0d0c0a;--listfg:#f0e9dc;--listline:#251f18;--listmuted:#6f6656;
+  --font:"Inter",system-ui,"Noto Sans CJK SC",sans-serif;
+}
+
+:root{--mono:"JetBrains Mono","Cascadia Code",Consolas,"DejaVu Sans Mono",monospace;--ui:"Inter","Segoe UI",system-ui,sans-serif}
+html,body{background:#0b0b0c;font-family:var(--ui);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font:inherit}
+body{padding:0 0 40px;color:#fff}
+
+/* ── 顶部 ── */
+.bar{position:sticky;top:0;z-index:60;background:#0b0b0c;border-bottom:1px solid #1c1c1e;padding:12px 24px 10px}
+.bar-in{max-width:1400px;margin:0 auto}
+.bar-top{display:flex;align-items:center;justify-content:space-between;gap:18px}
+.bar-title{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6f6d69;white-space:nowrap}
+.themes{display:flex;gap:6px;flex-wrap:wrap;flex:1;justify-content:flex-end}
+.themes button{font-size:11.5px;padding:5px 11px;border-radius:20px;border:1px solid #1e1e21;color:#8b8884;white-space:nowrap}
+.themes button.on{background:#f4f3f1;border-color:#f4f3f1;color:#111}
+.themes button:hover:not(.on){border-color:#33333a;color:#e6e3df}
+.states{display:flex;gap:6px;align-items:center;margin-top:9px}
+.states .lb{font-size:11px;color:#5c5a56;letter-spacing:.06em;margin-right:2px}
+.states button{font-size:11.5px;padding:4px 10px;border-radius:20px;border:1px solid #1e1e21;color:#8b8884}
+.states button.on{background:#1e1e23;border-color:#3a3a42;color:#f4f3f1}
+.bar-sub{margin-top:8px;font-size:12.5px;color:#8b8884;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+.bar-sub b{color:#f4f3f1;font-weight:600}
+.bar-sub .kb{font:10px var(--mono);color:#4e4b47;letter-spacing:.06em;margin-left:auto}
+
+/* ── 窗口（整体跟皮走） ── */
+.win{position:relative;width:min(1400px,calc(100vw - 48px));height:820px;margin:18px auto 0;display:flex;overflow:hidden;border-radius:10px;background:var(--bg);box-shadow:0 40px 90px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.05)}
+.rail{width:56px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px}
+.rail .ri{width:36px;height:36px;border-radius:calc(9px*var(--r));display:grid;place-items:center;color:var(--rail-fg)}
+.rail .ri svg{width:20px;height:20px}
+.rail .ri.on{background:var(--rail-on);color:var(--rail)}
+.rail .sp{flex:1}
+.list{width:280px;flex:none;background:var(--listbg);display:flex;flex-direction:column;color:var(--listfg);border-left:1px solid var(--listline)}
+.list-head{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px}
+.list-head .t{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.newbtn{font-size:11.5px;color:var(--listfg);background:var(--surface);border:1px solid var(--listline);border-radius:calc(7px*var(--r));padding:5px 9px}
+.search{margin:2px 12px 10px;display:flex;align-items:center;gap:7px;padding:7px 10px;background:var(--surface);border-radius:calc(8px*var(--r));color:var(--listmuted);font-size:12.5px}
+.rows{flex:1;overflow:hidden;border-top:1px solid var(--listline)}
+.row{display:flex;align-items:center;gap:8px;padding:16px;border-bottom:1px solid var(--listline);font-size:13.5px}
+.row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tm{font-size:11px;color:var(--listmuted);flex:none}
+.pane{position:relative;flex:1;min-width:0;overflow:hidden;background:var(--bg);border-left:1px solid var(--listline)}
+
+/* ══ 盘面 ══ */
+.board{position:absolute;inset:0;color:var(--fg);font-family:var(--font);font-size:calc(13px*var(--fs))}
+.board .wires{position:absolute;inset:0;width:100%;height:100%;z-index:0}
+.board .wires path,.board .wires ellipse{vector-effect:non-scaling-stroke}
+
+/* 四张卡 */
+.board .node{position:absolute;width:250px;padding:calc(15px*var(--pd)) calc(17px*var(--pd));
+  background:var(--panel);border:1px solid var(--line);border-radius:calc(12px*var(--r));text-align:left;z-index:2}
+.board .node .k{font:calc(9.5px*var(--fs))/1 var(--mono);letter-spacing:.2em;color:var(--faint);margin-bottom:calc(8px*var(--pd))}
+.board .node h4{font-size:calc(13.5px*var(--fs));font-weight:600}
+.board .node .v{margin-top:calc(6px*var(--pd));font:calc(11px*var(--fs))/1.45 var(--mono);color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.board .node .lk{margin-top:calc(9px*var(--pd));font-size:calc(11px*var(--fs));color:var(--muted);display:inline-block}
+.board .n1{left:5.5%;top:11%}.board .n2{right:5.5%;top:11%}
+.board .n3{left:5.5%;bottom:26%}.board .n4{right:5.5%;bottom:26%}
+.board .n4{opacity:.55}
+.board .n2 .ctx{display:flex;gap:calc(6px*var(--pd));margin-top:calc(8px*var(--pd))}
+.board .n2 .ctx button{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding:calc(8px*var(--pd)) calc(9px*var(--pd));
+  border:1px solid var(--line);border-radius:calc(8px*var(--r));background:var(--surface);text-align:left}
+.board .n2 .ctx i{font:calc(9px*var(--fs))/1 var(--mono);letter-spacing:.16em;color:var(--faint);font-style:normal}
+.board .n2 .ctx b{font:calc(11px*var(--fs))/1.3 var(--mono);color:var(--fg2);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 圆：fg 当底、bg 当字 —— 深皮浅圆，浅皮深圆 */
+.core{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);width:180px;height:180px;border-radius:50%;
+  background:var(--fg);color:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:4;
+  box-shadow:0 24px 50px rgba(0,0,0,.22)}
+.core .p{font-size:calc(19px*var(--fs));font-weight:600;letter-spacing:-.02em}
+.core .s{margin-top:3px;font:calc(9.5px*var(--fs)) var(--mono);letter-spacing:.12em;opacity:.55}
+.core-busy{display:none}
+.board[data-state="busy"] .core-open{display:none}
+.board[data-state="busy"] .core-busy{display:block}
+.board[data-state="busy"] .core{opacity:.75}
+.board[data-state="idle"] .core{background:var(--surface);color:var(--faint);box-shadow:none;border:1px solid var(--line)}
+/* 未选模型：圆变浅底描边，三颗珠子跟着一起变浅 —— 一个状态，一个长相。 */
+.board[data-state="idle"] .val{background:var(--surface);border-color:var(--line);color:var(--muted)}
+.board[data-state="idle"] .val .inp{color:var(--muted)}
+.board[data-state="idle"] .val .inp::placeholder{color:var(--faint);opacity:1}
+.board[data-state="idle"] .val em{color:var(--faint);opacity:1}
+.board[data-state="idle"] .val b{color:var(--muted)}
+.board[data-state="idle"] .val:hover{opacity:1}
+
+/* 环上的三个值：pill 盖住环线，看着是「珠串」 */
+/* 三个值和中央那颗圆**同一个颜色**：都是 fg 当底、bg 当字。
+   它们是从圆心甩出去的三颗珠子，不是另外三个控件。 */
+.val{position:absolute;transform:translate(-50%,-50%);z-index:3;display:flex;align-items:center;gap:8px;
+  background:var(--fg);border:1px solid var(--fg);border-radius:calc(999px*var(--r));
+  padding:calc(7px*var(--pd)) calc(13px*var(--pd));font:calc(11px*var(--fs)) var(--mono);color:var(--bg);white-space:nowrap}
+.val .inp{background:transparent;border:0;outline:none;color:var(--bg);font:inherit;width:150px}
+.val .inp::placeholder{color:var(--bg);opacity:.45}
+.val em{font-style:normal;color:var(--bg);opacity:.55}
+.val b{color:var(--bg)}
+.val:hover{opacity:.88}
+.val.c-name{width:260px}
+.val.c-name .inp{width:100%}
+.val.m1{left:38.3%;top:56.8%}
+.val.m2{left:61.7%;top:56.8%}
+.val.c-name{left:50%;top:62.5%}
+
+.status{position:absolute;left:50%;top:70%;transform:translateX(-50%);z-index:3;
+  font:calc(10.5px*var(--fs))/1.5 var(--mono);color:var(--fg2);text-align:center;max-width:340px}
+.board[data-state="idle"] .status{color:var(--muted)}
+.hint{position:absolute;left:50%;top:75%;transform:translateX(-50%);z-index:2;
+  font:calc(9.5px*var(--fs)) var(--mono);letter-spacing:.14em;color:var(--faint);text-align:center}
+</style>
+</head>
+<body data-theme="default">
+
+<div class="bar">
+  <div class="bar-in">
+    <div class="bar-top">
+      <div class="bar-title">New Manual · 05 环</div>
+      <div class="themes" id="themes">
+        <button data-theme="default" class="on">默认</button>
+        <button data-theme="industrial">工业 · 纸与黑线</button>
+        <button data-theme="mono">单色 · 纯黑白</button>
+        <button data-theme="paper">纸 · 暖白</button>
+        <button data-theme="amber">琥珀 · 暖黑</button>
+      </div>
+    </div>
+    <div class="states" id="states">
+      <span class="lb">状态</span>
+      <button data-state="ready" class="on">就绪</button>
+      <button data-state="busy">提交中</button>
+      <button data-state="idle">未选模型</button>
+    </div>
+    <div class="bar-sub">
+      <b>05 环</b>
+      <span>圆外一圈虚线环，名字 / 机器 / 目录三个值挂在环上（压在环线上，像珠串），
+      三条短线从圆边接过去 —— 它们是从圆心长出来的参数，不是底下一条横条。</span>
+      <span class="kb">Q W E R T 切皮 · 1 2 3 切状态</span>
+    </div>
+  </div>
+</div>
+
+<div class="win">
+  <div class="rail">
+    <div class="ri on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.6a8 8 0 0 1-8 8H8.4L4 22.5V16.8A8 8 0 1 1 21 11.6Z"/></svg></div>
+    <div class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M9 16.5 12 9l3 7.5M10.2 14h3.6"/></svg></div>
+    <div class="sp"></div>
+    <div class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></div>
+  </div>
+  <div class="list">
+    <div class="list-head"><span class="t">NousDesk</span><button class="newbtn">+ New Manual</button></div>
+    <div class="search"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>搜索会话</div>
+    <div class="rows">
+      <div class="row"><span class="nm">真模型</span><span class="tm">6 天前</span></div>
+      <div class="row"><span class="nm">经宿主真模型</span><span class="tm">5 分支</span></div>
+      <div class="row"><span class="nm">deep-dive · 37087</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">deep-dive · 35579</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">scratch 11-13 21:29</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">scratch 11-13 21:28</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">scratch 11-13 21:27</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">scratch 11-13 21:17</span><span class="tm"></span></div>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="board" id="board" data-state="ready">
+      <svg class="wires" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+        <!-- 四张卡 → 圆心 -->
+        <g stroke="var(--line2)" stroke-width="1" stroke-dasharray="3 6" fill="none" opacity=".8">
+          <path d="M170 150C265 210 385 300 500 420"/>
+          <path d="M830 150C735 210 615 300 500 420"/>
+          <path d="M170 740C265 660 385 520 500 420"/>
+          <path d="M830 740C735 660 615 520 500 420"/>
+        </g>
+        <g fill="var(--muted)" opacity=".7">
+          <circle cx="170" cy="150" r="2.5"/><circle cx="830" cy="150" r="2.5"/>
+          <circle cx="170" cy="740" r="2.5"/><circle cx="830" cy="740" r="2.5"/>
+        </g>
+
+        <!-- 环 -->
+        <ellipse cx="500" cy="420" rx="165" ry="195" fill="none"
+                 stroke="var(--ring)" stroke-width="1.2" stroke-dasharray="1 7" stroke-linecap="round"/>
+
+        <!-- 圆边 → 环上三个值的三条短线 -->
+        <g stroke="var(--ring)" stroke-width="1.2" stroke-dasharray="3 5" fill="none">
+          <path d="M440 498L383 558"/>
+          <path d="M500 530L500 615"/>
+          <path d="M560 498L617 558"/>
+        </g>
+      </svg>
+
+      <button class="node n1">
+        <div class="k">MODEL</div><h4>Model</h4>
+        <div class="v">volc-ark/deepseek-v4-flash-260425</div>
+        <span class="lk">change →</span>
+      </button>
+      <div class="node n2">
+        <div class="k">CONTEXT</div>
+        <div class="ctx"><button><i>SKILLS</i><b>3 / 5</b></button><button><i>PROMPT</i><b>smart-ass</b></button></div>
+      </div>
+      <button class="node n3">
+        <div class="k">EXTENSIONS</div><h4>Extensions</h4>
+        <div class="v">none</div><span class="lk">choose →</span>
+      </button>
+      <div class="node n4">
+        <div class="k">PERMISSIONS</div><h4>Permissions</h4>
+        <div class="v">—</div><span class="lk">soon</span>
+      </div>
+
+      <div class="core">
+        <span class="p core-open">＋ Create</span>
+        <span class="p core-busy">Creating…</span>
+        <span class="s">NEW MANUAL</span>
+      </div>
+
+      <div class="val m1"><b style="font-weight:400">本机</b><em>›</em></div>
+      <div class="val c-name"><input class="inp" placeholder="Name · 空着用引擎的名字"></div>
+      <div class="val m2"><b style="font-weight:400">…/new1/map</b><em>›</em></div>
+
+      <div class="status" id="status">ready · 本机 · map</div>
+      <div class="hint">三样都在环上 · 点它就地弹选择页</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BOARD = document.getElementById('board');
+const THEMES = {q:'default', w:'industrial', e:'mono', r:'paper', t:'amber'};
+const STATES = {'1':'ready', '2':'busy', '3':'idle'};
+function paint(){
+  document.querySelectorAll('#themes button').forEach(b=>b.classList.toggle('on', b.dataset.theme===document.body.dataset.theme));
+  document.querySelectorAll('#states button').forEach(b=>b.classList.toggle('on', b.dataset.state===BOARD.dataset.state));
+  document.getElementById('status').textContent =
+    BOARD.dataset.state==='idle' ? 'no model · 先挑一个'
+    : BOARD.dataset.state==='busy' ? 'creating…'
+    : 'ready · 本机 · map';
+}
+document.getElementById('themes').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.body.dataset.theme=b.dataset.theme; paint();
+});
+document.getElementById('states').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  BOARD.dataset.state=b.dataset.state; paint();
+});
+addEventListener('keydown', e=>{
+  const k=e.key.toLowerCase();
+  if(THEMES[k]){ document.body.dataset.theme=THEMES[k]; paint(); }
+  if(STATES[k]){ BOARD.dataset.state=STATES[k]; paint(); }
+});
+paint();
+</script>
+</body>
+</html>
