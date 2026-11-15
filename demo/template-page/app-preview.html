@@ -19,12 +19,20 @@ body {
 }
 
 /* ══ 外壳（挑皮用） ══ */
-.bar { width: 196px; flex: 0 0 196px; overflow: auto; scrollbar-width: none; }
+.bar { width: 262px; flex: 0 0 262px; overflow: auto; scrollbar-width: none; }
+.bar::-webkit-scrollbar { display: none; }
 .bar h1 { font: 500 13px/1.3 Manrope, Inter; margin-bottom: 2px; }
 .bar .sub { color: #666d73; font-size: 10.5px; line-height: 1.6; margin-bottom: 20px; }
 .bar h2 { font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase; color: #666d73; margin: 0 0 7px; font-weight: 600; }
 .bar section { margin-bottom: 16px; }
 .opts { display: flex; flex-direction: column; gap: 1px; }
+.opts.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 2px; }
+.grp-t { grid-column: span 2; font-size: 8px; letter-spacing: .18em; text-transform: uppercase;
+  color: #5a6065; padding: 7px 0 2px; font-weight: 600; }
+.opt.cmp { padding: 3px 6px; font-size: 9.5px; border-left: 2px solid transparent; display: block;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #98a0a6; }
+.opt.cmp:hover { color: #e6e8ea; }
+.opt.cmp[aria-pressed="true"] { border-left-color: #e6e8ea; color: #fff; background: #16191b; }
 .opt { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; cursor: pointer; text-align: left;
   background: transparent; border: 0; border-left: 2px solid transparent; color: #939ba1; font: inherit; }
 .opt:hover { color: #e6e8ea; }
@@ -889,81 +897,13 @@ window.addEventListener("error", (e) => {
   <p class="sub">第一版「功能齐全」的原型：三栏、两段、详情/盘面/JSON/对比、新建、发布、归档、彻底删、开对话。真数据。</p>
 
   <section>
-    <h2>右栏排版</h2>
-    <div class="opts" id="opt-layout">
-      <button class="opt" data-k="flow"><b>1</b><span>纵向流 · 标签左值右</span></button>
-      <button class="opt" data-k="table"><b>2</b><span>表格式 · 紧凑右对齐</span></button>
-      <button class="opt" data-k="tiles"><b>3</b><span>卡片网格 · 2 列</span></button>
-      <button class="opt" data-k="mono"><b>4</b><span>巨碑 · 大字留白</span></button>
-      <button class="opt" data-k="sheet"><b>5</b><span>铭牌 · 书脊+编号</span></button>
-      <button class="opt" data-k="split"><b>6</b><span>对开 · 上下</span></button>
-      <button class="opt" data-k="gauge"><b>7</b><span>圆环 · 仪表</span></button>
-      <button class="opt" data-k="columns"><b>8</b><span>三栏 · 报刊</span></button>
-      <button class="opt" data-k="timeline"><b>9</b><span>轴线 · 时间线</span></button>
-      <button class="opt" data-k="acc"><b>10</b><span>折叠 · 分组</span></button>
-      <button class="opt" data-k="insp"><b>11</b><span>检视栏 · 左宽右窄</span></button>
-      <button class="opt" data-k="dense"><b>12</b><span>极密 · 双列表</span></button>
-    </div>
+    <h2>右栏排版 · 40 套</h2>
+    <div class="opts grid2" id="opt-layout"></div>
   </section>
 
   <section>
-    <h2>图表式（Flexoki / pele 灵感）</h2>
-    <div class="opts" id="opt-layout2">
-      <button class="opt" data-k="kanban"><b>13</b><span>看板 · 四列流</span></button>
-      <button class="opt" data-k="tree"><b>14</b><span>矩形树 · 面积分块</span></button>
-      <button class="opt" data-k="gantt"><b>15</b><span>甘特 · 状态条</span></button>
-      <button class="opt" data-k="quad"><b>16</b><span>四象限 · 重要×状态</span></button>
-      <button class="opt" data-k="mind"><b>17</b><span>导图 · 中心发散</span></button>
-      <button class="opt" data-k="radar"><b>18</b><span>雷达 · 六维</span></button>
-      <button class="opt" data-k="sankey"><b>19</b><span>流图 · 引用流向</span></button>
-      <button class="opt" data-k="state"><b>20</b><span>状态机 · 草稿→发布</span></button>
-    </div>
-  </section>
-
-  <section>
-    <h2>更多形态</h2>
-    <div class="opts" id="opt-layout3">
-      <button class="opt" data-k="receipt"><b>21</b><span>小票 · 等宽虚线</span></button>
-      <button class="opt" data-k="palette"><b>22</b><span>命令面板 · 行列表</span></button>
-      <button class="opt" data-k="dash"><b>23</b><span>仪表盘 · 小部件</span></button>
-      <button class="opt" data-k="seq"><b>24</b><span>时序 · 参与者</span></button>
-      <button class="opt" data-k="journey"><b>25</b><span>旅程 · 情绪曲线</span></button>
-      <button class="opt" data-k="swim"><b>26</b><span>泳道 · 分道</span></button>
-      <button class="opt" data-k="fish"><b>27</b><span>鱼骨 · 因果</span></button>
-      <button class="opt" data-k="packet"><b>28</b><span>数据包 · 字节格</span></button>
-      <button class="opt" data-k="headline"><b>29</b><span>头版 · 报纸</span></button>
-      <button class="opt" data-k="flip"><b>30</b><span>翻面卡 · 可翻</span></button>
-    </div>
-  </section>
-
-  <section>
-    <h2>场景式</h2>
-    <div class="opts" id="opt-layout4">
-      <button class="opt" data-k="term"><b>31</b><span>终端 · CLI 输出</span></button>
-      <button class="opt" data-k="repo"><b>32</b><span>代码仓 · 树+高亮</span></button>
-      <button class="opt" data-k="chat"><b>33</b><span>对话 · 气泡</span></button>
-      <button class="opt" data-k="ticket"><b>34</b><span>工单 · issue</span></button>
-      <button class="opt" data-k="album"><b>35</b><span>专辑 · 曲目列表</span></button>
-      <button class="opt" data-k="weather"><b>36</b><span>模块卡 · 大数字</span></button>
-      <button class="opt" data-k="net"><b>37</b><span>节点图 · 放射</span></button>
-      <button class="opt" data-k="sheet2"><b>38</b><span>电子表 · 单元格</span></button>
-      <button class="opt" data-k="deck"><b>39</b><span>幻灯片 · 可翻页</span></button>
-      <button class="opt" data-k="player"><b>40</b><span>播放器 · 波形</span></button>
-    </div>
-  </section>
-
-  <section>
-    <h2>皮肤（只影响颜色/线型）</h2>
-    <div class="opts" id="opt-skin">
-      <button class="opt" data-k="graphite"><b>石墨</b><span>暗 · 细线</span></button>
-      <button class="opt" data-k="paper"><b>纸</b><span>亮 · 极简</span></button>
-      <button class="opt" data-k="mono"><b>单色</b><span>黑白 · 全框</span></button>
-      <button class="opt" data-k="steel"><b>冷钢</b><span>暗 · 蓝灰</span></button>
-      <button class="opt" data-k="amber"><b>琥珀</b><span>暗 · 暖强调</span></button>
-      <button class="opt" data-k="industrial"><b>工业</b><span>亮 · 粗线</span></button>
-      <button class="opt" data-k="flexoki"><b>Flexoki</b><span> pele 同款暗色</span></button>
-      <button class="opt" data-k="flexoki-paper"><b>Flexoki 纸</b><span>pele 同款亮色</span></button>
-    </div>
+    <h2>皮肤 · 只影响颜色</h2>
+    <div class="opts grid2" id="opt-skin"></div>
   </section>
 
   <p class="hint">
@@ -2902,13 +2842,33 @@ $("#app").addEventListener("input", (e) => {
   if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
 });
 
+const LAYOUT_GROUPS = [
+  { t: "基础", keys: ["flow","table","tiles","mono","sheet","split","gauge","columns","timeline","acc","insp","dense"] },
+  { t: "图表式", keys: ["kanban","tree","gantt","quad","mind","radar","sankey","state"] },
+  { t: "更多形态", keys: ["receipt","palette","dash","seq","journey","swim","fish","packet","headline","flip"] },
+  { t: "场景式", keys: ["term","repo","chat","ticket","album","weather","net","sheet2","deck","player"] },
+];
+const SKIN_NAME = { graphite: "石墨 暗", paper: "纸 亮", mono: "单色", steel: "冷钢",
+  amber: "琥珀", industrial: "工业", flexoki: "Flexoki 暗", "flexoki-paper": "Flexoki 纸" };
+
+function buildChoosers() {
+  const box = $("#opt-layout");
+  if (!box || box.childElementCount) return;
+  box.innerHTML = LAYOUT_GROUPS.map((g) =>
+    `<div class="grp-t">${g.t}</div>` +
+    g.keys.map((k) => `<button class="opt cmp" data-k="${k}">${LAYOUT_NAME[k]}</button>`).join("")).join("");
+  const skin = $("#opt-skin");
+  skin.innerHTML = Object.entries(SKIN_NAME).map(([k, n]) =>
+    `<button class="opt cmp" data-k="${k}">${n}</button>`).join("");
+  $$("#opt-layout .opt").forEach((b) => b.addEventListener("click", () => {
+    state.layout = b.dataset.k; paintLayout(); render();
+  }));
+  }
+
 function paintLayout() {
-  $$("#opt-layout .opt, #opt-layout2 .opt, #opt-layout3 .opt, #opt-layout4 .opt").forEach((b) =>
-    b.setAttribute("aria-pressed", String(b.dataset.k === state.layout)));
+  $$("#opt-layout .opt").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === state.layout)));
 }
-$$("#opt-layout .opt, #opt-layout2 .opt, #opt-layout3 .opt, #opt-layout4 .opt").forEach((b) => b.addEventListener("click", () => {
-  state.layout = b.dataset.k; paintLayout(); render();
-}));
+buildChoosers();
 paintLayout();
 $$("#opt-skin .opt").forEach((b) => b.addEventListener("click", () => setSkin(b.dataset.k)));
 
