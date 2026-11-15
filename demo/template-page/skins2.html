@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Template 右栏 · 第二批（更极端）</title>
+<style>
+@font-face { font-family: Inter; src: url(fonts/inter-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: Manrope; src: url(fonts/manrope-500.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: JBMono; src: url(fonts/jetbrainsmono-400.woff2) format("woff2"); font-display: swap; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: #0c0d0e; color: #e9ebec;
+  font: 400 13px/1.45 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+  display: flex; gap: 30px; padding: 28px;
+}
+
+/* 控制条 */
+.bar { width: 226px; flex: 0 0 226px; }
+.bar h1 { font: 500 14px/1.3 Manrope, Inter; margin: 0 0 3px; }
+.bar .sub { color: #6c7379; font-size: 11px; margin: 0 0 24px; line-height: 1.6; }
+.bar h2 { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #6c7379; margin: 0 0 8px; font-weight: 600; }
+.bar section { margin-bottom: 20px; }
+.opts { display: flex; flex-direction: column; gap: 1px; }
+.opt {
+  display: flex; align-items: baseline; gap: 9px; padding: 7px 9px; cursor: pointer; text-align: left;
+  background: transparent; border: 0; border-left: 2px solid transparent; color: #98a0a6; font: inherit;
+}
+.opt:hover { color: #e9ebec; }
+.opt[aria-pressed="true"] { border-left-color: #e9ebec; color: #fff; }
+.opt b { font-weight: 600; font-size: 11px; min-width: 52px; letter-spacing: .02em; }
+.opt span { font-size: 10.5px; color: #6c7379; }
+.opt[aria-pressed="true"] span { color: #98a0a6; }
+.tip { font-size: 10.5px; line-height: 1.6; color: #6c7379; margin: 9px 0 0; }
+.tip b { color: #b6bdc3; font-weight: 500; }
+
+.pane[data-skin="e"] { background: #050606; color: #fff; }
+.pane[data-skin="f"] { background: #f2f1ef; color: #14150f; }
+.pane[data-skin="g"] { background: #fff; color: #0b0c0d; }
+.pane[data-skin="h"] { background: #08090a; color: #fff; }
+.stage { flex: 1; display: flex; justify-content: center; align-items: flex-start; overflow: auto; }
+.pane { width: 620px; height: 780px; display: flex; flex-direction: column; overflow: hidden;
+        box-shadow: 0 30px 70px rgba(0,0,0,.5); position: relative; }
+.scroll { flex: 1; overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.14) transparent; }
+.scroll::-webkit-scrollbar { width: 7px; }
+.scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); }
+.light .scroll { scrollbar-color: rgba(0,0,0,.12) transparent; }
+.light .scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,.12); }
+
+/* ══ E · MONOLITH —— 极端克制：巨型名字 + 大片留白 + 底部一行数据 ══ */
+.e { background: #050606; color: #fff; }
+.e-top { display: flex; align-items: center; justify-content: space-between; padding: 26px 32px 0; }
+.e-tag { font-size: 8.5px; letter-spacing: .26em; text-transform: uppercase; color: #4f5559; font-weight: 600; }
+.e-num { font-family: JBMono, monospace; font-size: 10px; color: #3c4145; letter-spacing: .1em; }
+.e-body { padding: 0 32px; margin-top: 118px; }
+.e-name { font-family: Manrope, Inter; font-size: 58px; line-height: 1.02; font-weight: 500; letter-spacing: -.045em; margin: 0; word-break: break-word; }
+.e-rule { width: 56px; height: 1px; background: #fff; margin: 26px 0 22px; }
+.e-sum { font-size: 14.5px; line-height: 1.62; color: #8b9196; max-width: 34ch; margin: 0; }
+.e-specs { margin-top: auto; padding: 0 32px 26px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.e-spec .k { font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase; color: #464b4f; font-weight: 600; margin-bottom: 7px; }
+.e-spec .v { font-size: 13px; color: #e5e7e9; line-height: 1.3; }
+.e-spec .v small { display: block; color: #6f757a; font-size: 10.5px; margin-top: 2px; }
+.e-foot { display: flex; align-items: center; gap: 18px; padding: 0 32px 30px; }
+.e-open { height: 44px; padding: 0 26px; border: 0; background: #fff; color: #050606; font: inherit;
+  font-size: 10px; letter-spacing: .2em; text-transform: uppercase; font-weight: 600; cursor: pointer; }
+.e-link { background: transparent; border: 0; color: #6f757a; font: inherit; font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; cursor: pointer; padding: 0; }
+.e-link:hover { color: #fff; }
+.e-dot { width: 4px; height: 4px; background: #fff; display: inline-block; margin-right: 7px; vertical-align: middle; }
+
+/* ══ F · SPEC SHEET —— 工业铭牌：竖排标签 + 编号规格表 ══ */
+.f { background: #f2f1ef; color: #14150f; }
+.f-spine { position: absolute; left: 0; top: 0; bottom: 0; width: 46px; border-right: 1px solid #d6d4cf;
+  display: flex; align-items: center; justify-content: center; }
+.f-spine span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 8.5px; letter-spacing: .34em;
+  text-transform: uppercase; color: #8d8b84; font-weight: 600; }
+.f-main { margin-left: 46px; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.f-head { padding: 30px 34px 20px; display: flex; align-items: flex-end; gap: 14px; }
+.f-head h1 { font-family: Manrope, Inter; font-size: 30px; font-weight: 500; letter-spacing: -.025em; margin: 0; }
+.f-head .meta { margin-left: auto; font-family: JBMono, monospace; font-size: 9.5px; color: #8d8b84; text-align: right; line-height: 1.6; }
+.f-band { height: 2px; background: #14150f; margin: 0 34px 0 0; }
+.f-rows { padding: 8px 34px 0 0; }
+.f-row { display: flex; align-items: baseline; padding: 13px 0 13px 34px; border-bottom: 1px solid #dedcd7; }
+.f-row:first-child { border-top: 0; }
+.f-row .no { width: 38px; flex: 0 0 38px; font-family: JBMono, monospace; font-size: 9.5px; color: #b0aea7; }
+.f-row .k { width: 96px; flex: 0 0 96px; font-size: 9px; letter-spacing: .17em; text-transform: uppercase; color: #7a786f; font-weight: 600; }
+.f-row .v { flex: 1; font-size: 13px; text-align: right; }
+.f-row .v .sub { color: #8d8b84; font-size: 11px; margin-left: 8px; }
+.f-row .v .mono { font-family: JBMono, monospace; font-size: 12px; }
+.f-desc { margin: 22px 34px 0; padding-left: 34px; font-size: 12px; line-height: 1.7; color: #6f6d66; max-width: 44ch; }
+.f-stamp { margin: auto 34px 24px 34px; padding-top: 16px; border-top: 2px solid #14150f; display: flex; align-items: center; gap: 12px; }
+.f-status { display: flex; gap: 14px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #7a786f; }
+.f-status i { width: 5px; height: 5px; background: #14150f; display: inline-block; margin-right: 5px; }
+.f-status i.dim { background: #c2c0b9; }
+.f-status i.bad { background: #c8102e; }
+.f-btn { margin-left: auto; height: 38px; padding: 0 20px; border: 0; background: #14150f; color: #fff;
+  font: inherit; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; font-weight: 600; cursor: pointer; }
+.f-btn.ghost { background: transparent; color: #14150f; border: 1px solid #14150f; margin-left: 8px; }
+
+/* ══ G · SPLIT —— 黑白对开：上半漆黑、下半纯白，一条硬线切开 ══ */
+.g { background: #fff; color: #0b0c0d; }
+.g-top { background: #000; color: #fff; padding: 34px 34px 30px; }
+.g-eyebrow { font-size: 8.5px; letter-spacing: .26em; text-transform: uppercase; color: #5a5f63; font-weight: 600; }
+.g-name { font-family: Manrope, Inter; font-size: 46px; font-weight: 500; letter-spacing: -.04em; line-height: 1.04; margin: 16px 0 14px; }
+.g-sum { font-size: 13px; line-height: 1.6; color: #8d9398; max-width: 36ch; margin: 0 0 26px; }
+.g-states { display: flex; gap: 0; border-top: 1px solid #1e2124; }
+.g-states div { flex: 1; padding: 13px 0 0; }
+.g-states div + div { padding-left: 16px; border-left: 1px solid #1e2124; }
+.g-states .lab { font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: #565b5f; }
+.g-states .val { margin-top: 6px; font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.g-states .val i { width: 4px; height: 4px; background: #fff; border-radius: 50%; }
+.g-states .val i.dim { background: #4a4e51; }
+.g-states .val i.bad { background: #e31937; }
+.g-bottom { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.g-grid { display: grid; grid-template-columns: 1fr 1fr; padding: 26px 34px 0; gap: 22px 26px; }
+.g-cell .k { font-size: 8.5px; letter-spacing: .18em; text-transform: uppercase; color: #9b9fa3; margin-bottom: 5px; }
+.g-cell .v { font-size: 13.5px; line-height: 1.35; }
+.g-cell .v .sub { display: block; font-size: 11px; color: #9b9fa3; margin-top: 2px; }
+.g-cell .v .mono { font-family: JBMono, monospace; font-size: 12px; }
+.g-refs { padding: 20px 34px 0; }
+.g-ref { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #ededed; font-size: 12.5px; }
+.g-ref .kind { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #b0b4b7; margin-left: 8px; }
+.g-ref .st { margin-left: auto; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #0b0c0d; }
+.g-ref .st.bad { color: #c8102e; }
+.g-foot { margin-top: auto; padding: 20px 34px 26px; display: flex; gap: 10px; align-items: center; border-top: 1px solid #ededed; }
+.g-change { font-size: 11px; color: #9b9fa3; margin-right: auto; }
+.g-btn { height: 40px; padding: 0 20px; background: #0b0c0d; color: #fff; border: 0; font: inherit;
+  font-size: 11px; letter-spacing: .06em; font-weight: 500; cursor: pointer; }
+.g-btn.ghost { background: #fff; color: #0b0c0d; border: 1px solid #dcdcdc; }
+
+/* ══ H · GAUGE —— 车机仪表盘：一个大圆环 + 四个数据 ══ */
+.h { background: #08090a; color: #fff; align-items: center; }
+.h-top { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 26px 30px 0; }
+.h-tag { font-size: 8.5px; letter-spacing: .26em; text-transform: uppercase; color: #4b5155; font-weight: 600; }
+.h-clock { font-family: JBMono, monospace; font-size: 10px; color: #3f4448; letter-spacing: .08em; }
+.h-gauge { position: relative; margin-top: 46px; width: 340px; height: 340px; }
+.h-gauge svg { display: block; }
+.h-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.h-center .n { font-family: Manrope, Inter; font-size: 44px; font-weight: 500; letter-spacing: -.03em; line-height: 1; }
+.h-center .s { margin-top: 10px; font-size: 9px; letter-spacing: .24em; text-transform: uppercase; color: #6a7075; }
+.h-name { margin-top: 30px; font-family: Manrope, Inter; font-size: 21px; font-weight: 500; letter-spacing: -.01em; }
+.h-sub { margin: 6px 0 0; font-size: 11.5px; color: #6a7075; max-width: 38ch; text-align: center; line-height: 1.55; }
+.h-grid { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); margin-top: auto; padding: 0 30px 22px; }
+.h-cell { border-left: 1px solid #1c1f22; padding-left: 14px; }
+.h-cell:first-child { border-left: 0; padding-left: 0; }
+.h-cell .k { font-size: 8px; letter-spacing: .18em; text-transform: uppercase; color: #4b5155; margin-bottom: 6px; }
+.h-cell .v { font-size: 12px; line-height: 1.3; }
+.h-cell .v .mono { font-family: JBMono, monospace; font-size: 11px; }
+.h-cell .v small { display: block; color: #6a7075; font-size: 10px; margin-top: 2px; }
+.h-foot { width: 100%; display: flex; gap: 10px; padding: 0 30px 26px; }
+.h-btn { flex: 1; height: 44px; border: 0; background: #fff; color: #08090a; font: inherit;
+  font-size: 10px; letter-spacing: .18em; text-transform: uppercase; font-weight: 600; cursor: pointer; }
+.h-btn.ghost { background: transparent; color: #fff; border: 1px solid #24282b; }
+</style>
+</head>
+<body>
+
+<aside class="bar">
+  <h1>右栏 · 第二批</h1>
+  <p class="sub">上一批偏「规整的极简」。这批往更极端推：巨型字、黑白对开、铭牌规格表、仪表圆环。</p>
+
+  <section>
+    <h2>皮肤</h2>
+    <div class="opts" id="opt-skin">
+      <button class="opt" data-k="e"><b>E · 巨碑</b><span>一个名字占半屏</span></button>
+      <button class="opt" data-k="f"><b>F · 铭牌</b><span>编号规格表</span></button>
+      <button class="opt" data-k="g"><b>G · 对开</b><span>上黑下白</span></button>
+      <button class="opt" data-k="h"><b>H · 圆环</b><span>车机仪表盘</span></button>
+    </div>
+    <p class="tip"><b>E</b> 58px 名字 + 大片空 —— 信息最少，气场最大。<br>
+      <b>F</b> 左边竖排书脊、右边 001–008 规格表，像设备铭牌。<br>
+      <b>G</b> 上半纯黑放身份，下半纯白放数据，中间硬切。<br>
+      <b>H</b> 一个 340px 的圆环表示引用/就绪，四个数据压在底部。</p>
+  </section>
+
+  <section>
+    <h2>哪一段</h2>
+    <div class="opts" id="opt-sec">
+      <button class="opt" data-k="st"><b>Session</b><span>deep-dive</span></button>
+      <button class="opt" data-k="ut"><b>Ultimate</b><span>test-probe</span></button>
+    </div>
+  </section>
+
+  <p class="tip">这批没有 diff 面板 —— 先挑「长什么样」，diff 到时候套同一套皮肤。</p>
+</aside>
+
+<main class="stage"><div class="pane light" id="pane"></div></main>
+
+<script src="data.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const state = { skin: "e", section: "st" };
+const ST = window.DATA.sections["Session-Template"];
+const UT = window.DATA.sections["Ultimate-Template"];
+const DEEP = ST.presets.find((p) => p.name === "deep-dive");
+const UL = UT.presets[0];
+
+const fmtEpoch = (v) => {
+  if (typeof v !== "number") return String(v ?? "—");
+  const d = new Date(v * 1000), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+const cur = () => (state.section === "ut"
+  ? { id: "Ultimate-Template", data: UT, p: UL }
+  : { id: "Session-Template", data: ST, p: DEEP });
+
+function spec() {
+  const { p, id } = cur();
+  const m = p.resolved?.model;
+  const ref = m?.ref || (p.spec?.model ? `${p.spec.model.provider}/${p.spec.model.modelId}` : "");
+  const [prov, ...rest] = String(ref).split("/");
+  if (id === "Ultimate-Template") {
+    const t = p.resolved?.trigger || {};
+    const params = (t.params || []).map((x) => `${x.label} ${fmtEpoch(x.value)}`);
+    return {
+      eyebrow: "Ultimate-Template",
+      rows: [
+        { k: "触发器", v: p.spec?.trigger || "—", sub: t.value },
+        { k: "参数", v: params.join("  ·  ") || "没有参数" },
+        { k: "会话模板", v: p.spec?.session || "没钉" },
+        { k: "类别", v: (p.spec?.category || []).join(" / ") || "未分类" },
+        { k: "开关", v: p.spec?.enabled ? "开着" : "关掉" },
+        { k: "发布", v: p.tracked ? "HEAD 里有" : "未发布" },
+      ],
+    };
+  }
+  return {
+    eyebrow: "Session-Template",
+    rows: [
+      { k: "模型", v: prov || "跟随默认", sub: rest.join("/"), mono: true },
+      { k: "思考档", v: p.spec?.thinkingLevel || "默认" },
+      { k: "技能", v: (p.spec?.skills || []).join(" · ") || "不要" },
+      { k: "模板", v: p.spec?.template || "跟随默认" },
+      { k: "扩展", v: (p.spec?.extensions || []).join(" · ") || "不要" },
+      { k: "工作目录", v: p.spec?.cwd || "默认" },
+      { k: "机器", v: p.spec?.machine || "本机" },
+      { k: "只读", v: p.spec?.readOnly ? "是" : "否" },
+    ],
+  };
+}
+
+function refs() {
+  const { p, id } = cur();
+  if (id === "Ultimate-Template") {
+    const out = [];
+    if (p.resolved?.trigger) out.push({ kind: "触发器", name: p.resolved.trigger.ref, state: p.resolved.trigger.state });
+    if (p.resolved?.session) out.push({ kind: "会话模板", name: p.resolved.session.ref, state: p.resolved.session.state });
+    return out;
+  }
+  const out = [];
+  (p.resolved?.skills || []).forEach((s) => out.push({ kind: "技能", name: s.ref, state: s.state }));
+  if (p.resolved?.template) out.push({ kind: "模板", name: p.resolved.template.ref, state: p.resolved.template.state });
+  (p.resolved?.extensions || []).forEach((s) => out.push({ kind: "扩展", name: s.ref, state: s.state }));
+  return out;
+}
+
+function states() {
+  const { data, id, p } = cur();
+  const bad = refs().some((r) => r.state !== "ok");
+  const out = [
+    { lab: "提交", val: data.repo?.dirty ? "未提交" : "已发布", s: data.repo?.dirty ? "dim" : "ok" },
+    { lab: "引用", val: bad ? "失效" : "正常", s: bad ? "bad" : "ok" },
+  ];
+  if (id === "Ultimate-Template") out.push({ lab: "开关", val: p.spec?.enabled ? "开着" : "关掉", s: p.spec?.enabled ? "ok" : "dim" });
+  else out.push({ lab: "状态", val: "可启动", s: "ok" });
+  return out;
+}
+
+const dot = (s) => `<i class="${s === "ok" ? "" : s === "bad" ? "bad" : "dim"}"></i>`;
+const action = (id) => (id === "Ultimate-Template" ? "发布" : "开一条新对话");
+
+/* ── E · 巨碑 ───────────────────────────────────────────── */
+function renderE() {
+  const { p, id, data } = cur();
+  const { rows } = spec();
+  const [model, think, skills] = rows;
+  return `
+  <div class="scroll" style="display:flex;flex-direction:column">
+    <div class="e-top">
+      <span class="e-tag">${id}</span>
+      <span class="e-num">${esc((data.repo?.head || "").slice(0, 7)) || "0000000"}</span>
+    </div>
+    <div class="e-body">
+      <h1 class="e-name">${esc(p.name)}</h1>
+      <div class="e-rule"></div>
+      <p class="e-sum">${esc(p.summary)}</p>
+    </div>
+    <div class="e-specs">
+      <div class="e-spec"><div class="k">${esc(model.k)}</div><div class="v">${esc(model.v)}${model.sub ? `<small>${esc(model.sub)}</small>` : ""}</div></div>
+      <div class="e-spec"><div class="k">${esc(think.k)}</div><div class="v">${esc(think.v)}</div></div>
+      <div class="e-spec"><div class="k">${esc(skills.k)}</div><div class="v">${esc(skills.v)}</div></div>
+    </div>
+    <div class="e-foot">
+      <button class="e-open">${id === "Ultimate-Template" ? "Publish" : "Open"}</button>
+      <button class="e-link">Edit</button>
+      <span style="margin-left:auto;font-size:10px;color:#4f5559;letter-spacing:.1em">
+        <span class="e-dot"></span>${esc(states()[1].val)}
+      </span>
+    </div>
+  </div>`;
+}
+
+/* ── F · 铭牌 ───────────────────────────────────────────── */
+function renderF() {
+  const { p, id, data } = cur();
+  const { eyebrow, rows } = spec();
+  return `
+  <div class="f-spine"><span>${eyebrow}</span></div>
+  <div class="f-main">
+    <div class="f-head">
+      <h1>${esc(p.name)}</h1>
+      <div class="meta">HEAD ${esc((data.repo?.head || "").slice(0, 7))}<br>${data.repo?.dirty ? "DIRTY" : "CLEAN"}</div>
+    </div>
+    <div class="f-band"></div>
+    <div class="scroll">
+      <div class="f-rows">
+        ${rows.map((r, i) => `<div class="f-row">
+          <span class="no">${String(i + 1).padStart(3, "0")}</span>
+          <span class="k">${esc(r.k)}</span>
+          <span class="v">${r.mono ? `<span class="mono">${esc(r.v)}</span>` : esc(r.v)}${r.sub ? `<span class="sub">${esc(r.sub)}</span>` : ""}</span>
+        </div>`).join("")}
+        ${refs().length ? `<div class="f-row"><span class="no">${String(rows.length + 1).padStart(3, "0")}</span>
+          <span class="k">引用</span><span class="v">${refs().map((r) => esc(r.name)).join(" / ")}</span></div>` : ""}
+      </div>
+      ${p.description ? `<p class="f-desc">${esc(p.description)}</p>` : ""}
+    </div>
+    <div class="f-stamp">
+      <div class="f-status">
+        ${states().map((s) => `<span>${dot(s.s)}${esc(s.val)}</span>`).join("")}
+      </div>
+      <button class="f-btn">${action(id)}</button>
+      <button class="f-btn ghost">编辑</button>
+    </div>
+  </div>`;
+}
+
+/* ── G · 对开 ───────────────────────────────────────────── */
+function renderG() {
+  const { p, id } = cur();
+  const { rows } = spec();
+  return `
+  <div class="g-top">
+    <div class="g-eyebrow">${id}</div>
+    <h1 class="g-name">${esc(p.name)}</h1>
+    <p class="g-sum">${esc(p.summary)}</p>
+    <div class="g-states">
+      ${states().map((s) => `<div><div class="lab">${esc(s.lab)}</div><div class="val">${dot(s.s)}${esc(s.val)}</div></div>`).join("")}
+    </div>
+  </div>
+  <div class="g-bottom">
+    <div class="scroll">
+      <div class="g-grid">
+        ${rows.map((r) => `<div class="g-cell"><div class="k">${esc(r.k)}</div>
+          <div class="v">${r.mono ? `<span class="mono">${esc(r.v)}</span>` : esc(r.v)}${r.sub ? `<span class="sub">${esc(r.sub)}</span>` : ""}</div></div>`).join("")}
+      </div>
+      <div class="g-refs">
+        ${refs().map((r) => `<div class="g-ref"><span>${esc(r.name)}</span><span class="kind">${esc(r.kind)}</span>
+          <span class="st ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("")}
+      </div>
+    </div>
+    <div class="g-foot">
+      <span class="g-change">${refs().length} 条引用 · 引用${refs().every((r) => r.state === "ok") ? "正常" : "失效"}</span>
+      <button class="g-btn">${action(id)}</button>
+      <button class="g-btn ghost">编辑</button>
+    </div>
+  </div>`;
+}
+
+/* ── H · 圆环 ───────────────────────────────────────────── */
+function renderH() {
+  const { p, id } = cur();
+  const { rows } = spec();
+  const rf = refs();
+  const total = Math.max(rf.length, 1);
+  const ok = rf.filter((r) => r.state === "ok").length;
+  const pct = ok / total;
+  const R = 128, C = 2 * Math.PI * R, L = C * 0.75;
+  const ticks = Array.from({ length: 55 }, (_, i) => {
+    const a = Math.PI * 0.75 + (i / 54) * Math.PI * 1.5;
+    const long = i % 5 === 0;
+    const r1 = R + 12, r2 = R + (long ? 20 : 16);
+    return `<line x1="${170 + Math.cos(a) * r1}" y1="${170 + Math.sin(a) * r1}" x2="${170 + Math.cos(a) * r2}" y2="${170 + Math.sin(a) * r2}"
+      stroke="${i / 54 <= pct ? "#ffffff" : "#262a2d"}" stroke-width="${long ? 1.3 : 1}" />`;
+  }).join("");
+  return `
+  <div class="h-top">
+    <span class="h-tag">${id}</span>
+    <span class="h-clock">${ok}/${rf.length || 0} REFS</span>
+  </div>
+  <div class="h-gauge">
+    <svg width="340" height="340" viewBox="0 0 340 340">
+      <circle cx="170" cy="170" r="${R}" fill="none" stroke="#1c1f22" stroke-width="1"
+        stroke-dasharray="${L} ${C}" transform="rotate(135 170 170)" />
+      <circle cx="170" cy="170" r="${R}" fill="none" stroke="#ffffff" stroke-width="3"
+        stroke-dasharray="${L * pct} ${C}" transform="rotate(135 170 170)" />
+      ${ticks}
+    </svg>
+    <div class="h-center">
+      <span class="n">${esc(p.name)}</span>
+      <span class="s">${p.spec?.thinkingLevel ? esc(p.spec.thinkingLevel) : p.spec?.trigger ? esc(p.spec.trigger) : "READY"}</span>
+    </div>
+  </div>
+  <div class="h-name">${esc(p.summary)}</div>
+  <p class="h-sub">${rows.slice(0, 2).map((r) => `${r.k} ${r.v}`).join("  ·  ")}</p>
+  <div class="h-grid">
+    ${rows.slice(2, 6).map((r) => `<div class="h-cell"><div class="k">${esc(r.k)}</div>
+      <div class="v">${r.mono ? `<span class="mono">${esc(r.v)}</span>` : esc(r.v)}${r.sub ? `<small>${esc(r.sub)}</small>` : ""}</div></div>`).join("")}
+  </div>
+  <div class="h-foot">
+    <button class="h-btn">${action(id)}</button>
+    <button class="h-btn ghost">编辑</button>
+  </div>`;
+}
+
+const VIEWS = { e: renderE, f: renderF, g: renderG, h: renderH };
+
+function render() {
+  const pane = $("#pane");
+  pane.dataset.skin = state.skin;
+  pane.classList.toggle("light", state.skin === "f" || state.skin === "g");
+  pane.innerHTML = VIEWS[state.skin]();
+}
+
+function paint(group, k) { $$(`#${group} .opt`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === k))); }
+function setSkin(k) { state.skin = k; paint("opt-skin", k); render(); }
+function setSection(k) { state.section = k; paint("opt-sec", k); render(); }
+
+$$("#opt-skin .opt").forEach((b) => b.addEventListener("click", () => setSkin(b.dataset.k)));
+$$("#opt-sec .opt").forEach((b) => b.addEventListener("click", () => setSection(b.dataset.k)));
+
+const [hSkin, hSec] = (location.hash.replace("#", "") || "").split(",");
+setSkin(VIEWS[hSkin] ? hSkin : "e");
+setSection(hSec === "ut" ? "ut" : "st");
+</script>
+</body>
+</html>

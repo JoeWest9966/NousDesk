@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Template 右栏 · 四套 Tesla 方向</title>
+<style>
+@font-face { font-family: Inter; src: url(fonts/inter-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: Manrope; src: url(fonts/manrope-500.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: JBMono; src: url(fonts/jetbrainsmono-400.woff2) format("woff2"); font-display: swap; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: #101214; color: #e9ebec;
+  font: 400 13px/1.45 Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex; gap: 32px; padding: 30px;
+}
+
+/* ── 外壳控制条（中性，不抢戏） ─────────────────────────────── */
+.bar { width: 232px; flex: 0 0 232px; }
+.bar h1 { font: 500 14px/1.3 Manrope, Inter; margin: 0 0 3px; letter-spacing: .01em; }
+.bar .sub { color: #6f767c; font-size: 11px; margin: 0 0 26px; line-height: 1.6; }
+.bar h2 { font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: #6f767c; margin: 0 0 9px; font-weight: 600; }
+.bar section { margin-bottom: 22px; }
+.opts { display: flex; flex-direction: column; gap: 2px; }
+.opt {
+  display: flex; align-items: baseline; gap: 9px; padding: 8px 10px; cursor: pointer;
+  background: transparent; border: 0; border-left: 2px solid transparent; color: #9aa1a7;
+  font: inherit; text-align: left; transition: border-color .12s, color .12s;
+}
+.opt:hover { color: #e9ebec; }
+.opt[aria-pressed="true"] { border-left-color: #e9ebec; color: #fff; }
+.opt b { font-weight: 600; font-size: 11.5px; letter-spacing: .02em; min-width: 62px; }
+.opt span { font-size: 11px; color: #6f767c; }
+.opt[aria-pressed="true"] span { color: #9aa1a7; }
+.tip { font-size: 10.5px; line-height: 1.6; color: #6f767c; margin: 10px 0 0; }
+.tip b { color: #b9c0c5; font-weight: 500; }
+
+.stage { flex: 1; display: flex; justify-content: center; align-items: flex-start; overflow: auto; }
+.pane { width: 620px; height: 780px; display: flex; flex-direction: column; overflow: hidden;
+        box-shadow: 0 1px 1px rgba(0,0,0,.1), 0 24px 60px rgba(0,0,0,.35); }
+.scroll { flex: 1; overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent; }
+.scroll::-webkit-scrollbar { width: 8px; }
+.scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); border-radius: 8px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+.pane[data-skin="site"] .scroll, .pane[data-skin="data"] .scroll { scrollbar-color: rgba(0,0,0,.14) transparent; }
+.pane[data-skin="site"] .scroll::-webkit-scrollbar-thumb,
+.pane[data-skin="data"] .scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,.14); }
+
+/* ══════════════════════════════════════════════════════════
+   A · MCU —— 纯黑车机屏：全直角、细分隔线、大字重对比
+   ══════════════════════════════════════════════════════════ */
+.pane[data-skin="mcu"] { background: #000; color: #fff; }
+.mcu-head { padding: 36px 32px 26px; }
+.mcu-eyebrow { font-size: 9.5px; letter-spacing: .24em; text-transform: uppercase; color: #565656; font-weight: 600; }
+.mcu-h1 { font-family: Manrope, Inter; font-size: 31px; font-weight: 500; letter-spacing: -.025em; margin: 12px 0 10px; }
+.mcu-lede { font-size: 13.5px; line-height: 1.65; color: #868686; max-width: 42ch; margin: 0; }
+.mcu-status { display: flex; gap: 20px; margin-top: 24px; }
+.mcu-status span { display: flex; align-items: center; gap: 7px; font-size: 9px; letter-spacing: .15em; text-transform: uppercase; color: #6a6a6a; }
+.mcu-status i { width: 5px; height: 5px; background: #fff; }
+.mcu-status i.dim { background: #4a4a4a; }
+.mcu-status i.bad { background: #e31937; }
+.mcu-rows { border-top: 1px solid #1c1c1c; }
+.mcu-row { display: flex; align-items: center; height: 52px; padding: 0 32px; border-bottom: 1px solid #1c1c1c; }
+.mcu-row .k { width: 122px; font-size: 9px; letter-spacing: .17em; text-transform: uppercase; color: #565656; font-weight: 600; }
+.mcu-row .v { flex: 1; display: flex; justify-content: flex-end; align-items: baseline; gap: 9px; font-size: 13.5px; text-align: right; }
+.mcu-row .v .sub { color: #6a6a6a; font-size: 11.5px; }
+.mcu-row .num { font-family: JBMono, monospace; font-size: 12px; }
+.mcu-change { display: flex; align-items: center; gap: 10px; padding: 17px 32px; border-bottom: 1px solid #1c1c1c; font-size: 11.5px; color: #868686; }
+.mcu-change b { color: #fff; font-weight: 500; }
+.mcu-change a { margin-left: auto; color: #fff; text-decoration: none; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+.mcu-foot { margin-top: auto; padding: 22px 32px 28px; display: flex; gap: 10px; }
+.mcu-btn { flex: 1; height: 46px; border: 0; cursor: pointer; font: inherit;
+  background: #fff; color: #000; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
+.mcu-btn.ghost { background: transparent; color: #fff; border: 1px solid #262626; }
+
+/* diff（mcu） */
+.mcu-diff { font-family: JBMono, monospace; font-size: 11px; line-height: 1.75; border-top: 1px solid #1c1c1c; }
+.mcu-diff .l { display: flex; padding: 0 32px; }
+.mcu-diff .n { width: 26px; color: #3a3a3a; flex: 0 0 26px; }
+.mcu-diff .t { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.mcu-diff .l.add { background: rgba(60, 200, 120, .07); }
+.mcu-diff .l.del { background: rgba(227, 25, 55, .08); }
+.mcu-diff .l.add .t { color: #9ed8b4; }
+.mcu-diff .l.del .t { color: #e08a97; }
+
+/* ══════════════════════════════════════════════════════════
+   B · SITE —— 官网白：极细线、两列网格、大量留白
+   ══════════════════════════════════════════════════════════ */
+.pane[data-skin="site"] { background: #fff; color: #171a20; }
+.site-head { padding: 44px 38px 0; }
+.site-h1 { font-family: Manrope, Inter; font-size: 33px; font-weight: 500; letter-spacing: -.03em; margin: 0 0 12px; }
+.site-lede { font-size: 14.5px; line-height: 1.6; color: #5c5e62; max-width: 38ch; margin: 0; }
+.site-state { display: flex; gap: 22px; margin-top: 28px; }
+.site-state span { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #5c5e62; display: flex; align-items: center; gap: 6px; }
+.site-state i { width: 4px; height: 4px; border-radius: 50%; background: #171a20; }
+.site-state i.dim { background: #c8cacb; }
+.site-state i.bad { background: #c8102e; }
+.site-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 28px; padding: 34px 38px 8px; }
+.site-cell .k { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: #5c5e62; margin-bottom: 6px; }
+.site-cell .v { font-size: 14.5px; line-height: 1.35; }
+.site-cell .v .sub { display: block; color: #5c5e62; font-size: 12px; margin-top: 3px; }
+.site-cell .num { font-family: JBMono, monospace; font-size: 13px; }
+.site-hr { height: 1px; background: #e8e8e8; margin: 26px 38px; }
+.site-refs { padding: 0 38px; }
+.site-ref { display: flex; align-items: center; padding: 15px 0; border-bottom: 1px solid #ededed; }
+.site-ref:last-child { border-bottom: 0; }
+.site-ref .n { font-size: 14px; }
+.site-ref .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #9a9ea3; margin-left: 10px; }
+.site-ref .s { margin-left: auto; font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: #5c5e62; }
+.site-change { padding: 20px 38px; display: flex; align-items: center; font-size: 12.5px; color: #5c5e62; }
+.site-change b { color: #171a20; font-weight: 500; }
+.site-change a { margin-left: auto; color: #171a20; text-decoration: none; border-bottom: 1px solid #171a20; padding-bottom: 1px; font-size: 12.5px; }
+.site-foot { margin-top: auto; padding: 26px 38px 36px; }
+.site-btn { width: 100%; height: 46px; border: 0; background: #171a20; color: #fff; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.site-btn2 { width: 100%; height: 46px; margin-top: 8px; background: #fff; color: #171a20; border: 1px solid #d3d4d5; font: inherit; font-size: 13px; cursor: pointer; }
+
+.site-diff { font-family: JBMono, monospace; font-size: 11px; line-height: 1.8; border-top: 1px solid #e8e8e8; padding: 6px 0; }
+.site-diff .l { display: flex; padding: 0 38px; }
+.site-diff .n { width: 24px; flex: 0 0 24px; color: #b6b9bc; }
+.site-diff .t { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.site-diff .l.add { background: #f3faf6; }
+.site-diff .l.del { background: #fdf4f4; }
+.site-diff .l.add .t { color: #1f7a4d; }
+.site-diff .l.del .t { color: #b02a37; }
+
+/* ══════════════════════════════════════════════════════════
+   C · STEEL —— Cybertruck 冷金属：直角、2px 结构线、块状状态
+   ══════════════════════════════════════════════════════════ */
+.pane[data-skin="steel"] { background: #15181b; color: #e8eaec; }
+.steel-head { padding: 32px 30px 0; }
+.steel-eyebrow { display: flex; align-items: center; gap: 9px; font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: #8b949b; font-weight: 600; }
+.steel-eyebrow::before { content: ""; width: 20px; height: 2px; background: #e8eaec; }
+.steel-h1 { font-family: Manrope, Inter; font-size: 27px; font-weight: 500; letter-spacing: -.015em; margin: 16px 0 7px; }
+.steel-lede { font-size: 12.5px; line-height: 1.6; color: #8b949b; max-width: 40ch; margin: 0; }
+.steel-status { display: flex; margin: 26px 0 0; border-top: 2px solid #2b3136; }
+.steel-status div { flex: 1; padding: 11px 0 0; border-right: 1px solid #242a2e; }
+.steel-status div:last-child { border-right: 0; }
+.steel-status div .lab { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: #7d868d; }
+.steel-status div .val { margin-top: 7px; font-size: 12px; color: #e8eaec; display: flex; align-items: center; gap: 6px; }
+.steel-status div .val i { width: 6px; height: 6px; background: #e8eaec; display: block; }
+.steel-status div .val i.dim { background: #4d565d; }
+.steel-status div .val i.bad { background: #e31937; }
+.steel-table { padding: 8px 30px 0; }
+.steel-tr { display: flex; align-items: center; padding: 13px 0; border-bottom: 1px solid #242a2e; }
+.steel-tr .k { width: 128px; flex: 0 0 128px; font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: #7d868d; font-weight: 600; }
+.steel-tr .v { flex: 1; font-size: 12.5px; display: flex; gap: 8px; align-items: baseline; }
+.steel-tr .v .sub { color: #7d868d; font-size: 11px; }
+.steel-tr .num { font-family: JBMono, monospace; font-size: 11.5px; color: #cfd5d9; }
+.steel-change { margin: 22px 30px 0; padding: 13px 15px; background: #1b2024; border-left: 2px solid #e8eaec; display: flex; align-items: center; gap: 10px; font-size: 11px; color: #8b949b; }
+.steel-change b { color: #e8eaec; font-weight: 500; }
+.steel-change a { margin-left: auto; color: #e8eaec; text-decoration: none; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+.steel-foot { margin-top: auto; padding: 24px 30px 30px; display: flex; gap: 9px; }
+.steel-btn { height: 44px; padding: 0 24px; border: 0; cursor: pointer; font: inherit;
+  background: #e8eaec; color: #14171a; font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
+.steel-btn.ghost { background: transparent; color: #e8eaec; border: 1px solid #333b41; }
+
+.steel-diff { font-family: JBMono, monospace; font-size: 11px; line-height: 1.8; margin: 0 30px; border: 1px solid #242a2e; border-top: 0; }
+.steel-diff .l { display: flex; padding: 0 12px; }
+.steel-diff .n { width: 24px; flex: 0 0 24px; color: #4d565d; }
+.steel-diff .t { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.steel-diff .l.add { background: rgba(64, 190, 130, .08); }
+.steel-diff .l.del { background: rgba(227, 25, 55, .09); }
+
+/* ══════════════════════════════════════════════════════════
+   D · DATA —— 仪表盘：密、表格、等宽数字、灰底白面板
+   ══════════════════════════════════════════════════════════ */
+.pane[data-skin="data"] { background: #ececed; color: #121314; }
+.data-top { background: #fff; padding: 18px 22px 14px; display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid #dcdde0; }
+.data-top .seg { font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #6a6f73; font-weight: 600; }
+.data-top h1 { font-family: Manrope, Inter; font-size: 17px; font-weight: 600; margin: 0; }
+.data-top .head { margin-left: auto; font-family: JBMono, monospace; font-size: 10px; color: #6a6f73; }
+.data-sheet { background: #fff; margin: 0 0 14px; border-bottom: 1px solid #dcdde0; }
+.data-sec { display: flex; align-items: center; gap: 10px; padding: 18px 22px 8px; }
+.data-sec .t { font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #6a6f73; font-weight: 600; }
+.data-sec .r { flex: 1; height: 1px; background: #e6e7e9; }
+.data-tr { display: flex; align-items: baseline; padding: 8px 22px; font-size: 12.5px; border-bottom: 1px solid #f2f3f4; }
+.data-tr:last-child { border-bottom: 0; }
+.data-tr .k { width: 104px; flex: 0 0 104px; color: #6a6f73; font-size: 11.5px; }
+.data-tr .v { flex: 1; }
+.data-tr .v .sub { color: #9aa0a5; font-size: 11px; margin-left: 7px; }
+.data-tr .num { font-family: JBMono, monospace; font-size: 11.5px; }
+.data-ref { display: flex; align-items: center; padding: 8px 22px; font-size: 12.5px; border-bottom: 1px solid #f2f3f4; }
+.data-ref .k { width: 104px; flex: 0 0 104px; color: #6a6f73; font-size: 11.5px; }
+.data-ref .s { margin-left: auto; font-family: JBMono, monospace; font-size: 9.5px; letter-spacing: .06em; color: #6a6f73; }
+.data-ref .s.bad { color: #c8102e; }
+.data-foot { margin-top: auto; background: #fff; border-top: 1px solid #dcdde0; padding: 12px 22px; display: flex; align-items: center; gap: 8px; }
+.data-foot .info { font-size: 11px; color: #6a6f73; margin-right: auto; }
+.data-foot .info b { color: #121314; font-weight: 500; }
+.data-btn { height: 32px; padding: 0 13px; border: 1px solid #c9cbce; background: #fff; color: #121314; font: inherit; font-size: 11.5px; cursor: pointer; }
+.data-btn.primary { background: #121314; color: #fff; border-color: #121314; }
+
+.data-diff { background: #fff; font-family: JBMono, monospace; font-size: 11px; line-height: 1.8; border-bottom: 1px solid #dcdde0; }
+.data-diff .l { display: flex; padding: 0 22px; }
+.data-diff .n { width: 22px; flex: 0 0 22px; color: #b7babd; }
+.data-diff .t { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.data-diff .l.add { background: #f4fbf7; }
+.data-diff .l.del { background: #fdf5f5; }
+</style>
+</head>
+<body>
+
+<aside class="bar">
+  <h1>右栏 · 四套方向</h1>
+  <p class="sub">同一份真数据（deep-dive / test-probe），栏宽 620、字号与真应用一致。<br>换皮肤看的是「同一个右栏能长成什么样」。</p>
+
+  <section>
+    <h2>皮肤</h2>
+    <div class="opts" id="opt-skin">
+      <button class="opt" data-k="mcu"><b>A · MCU</b><span>纯黑车机屏</span></button>
+      <button class="opt" data-k="site"><b>B · Site</b><span>官网白</span></button>
+      <button class="opt" data-k="steel"><b>C · Steel</b><span>冷金属</span></button>
+      <button class="opt" data-k="data"><b>D · Data</b><span>仪表盘表格</span></button>
+    </div>
+    <p class="tip"><b>A</b> 全直角黑底，白色只留给值和动作。<b>B</b> 白底细线，靠留白分组，字重最轻。
+      <b>C</b> 冷灰 + 2px 结构线，状态做成块。<b>D</b> 密度最高，等宽数字、表格化。</p>
+  </section>
+
+  <section>
+    <h2>哪一段</h2>
+    <div class="opts" id="opt-sec">
+      <button class="opt" data-k="st"><b>Session</b><span>deep-dive</span></button>
+      <button class="opt" data-k="ut"><b>Ultimate</b><span>test-probe</span></button>
+    </div>
+  </section>
+
+  <section>
+    <h2>底部那片</h2>
+    <div class="opts" id="opt-diff">
+      <button class="opt" data-k="off"><b>收起</b><span>只看详情</span></button>
+      <button class="opt" data-k="on"><b>展开</b><span>看真 diff</span></button>
+    </div>
+  </section>
+
+  <p class="tip">挑法：说 <b>A</b> 或 <b>B + 展开</b> 就行。也可以说「A 的头部 + D 的表格」这种混搭。</p>
+</aside>
+
+<main class="stage"><div class="pane" id="pane"></div></main>
+
+<script src="data.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const state = { skin: "mcu", section: "st", diff: "off" };
+const ST = window.DATA.sections["Session-Template"];
+const UT = window.DATA.sections["Ultimate-Template"];
+const DEEP = ST.presets.find((p) => p.name === "deep-dive");
+const UL = UT.presets[0];
+const pend = () => (state.section === "ut" ? window.DATA.pendingUT : window.DATA.pending);
+
+const fmtEpoch = (v) => {
+  if (typeof v !== "number") return String(v ?? "—");
+  const d = new Date(v * 1000), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+const cur = () => (state.section === "ut"
+  ? { id: "Ultimate-Template", data: UT, p: UL }
+  : { id: "Session-Template", data: ST, p: DEEP });
+
+/* ── 统一的数据形状 ───────────────────────────────────────── */
+function spec() {
+  const { p, id } = cur();
+  const m = p.resolved?.model;
+  const modelRef = m?.ref || (p.spec?.model ? `${p.spec.model.provider}/${p.spec.model.modelId}` : "");
+  const [provider, ...rest] = String(modelRef).split("/");
+  if (id === "Ultimate-Template") {
+    const t = p.resolved?.trigger || {};
+    const params = (t.params || []).map((x) => `${x.label} ${fmtEpoch(x.value)}`);
+    return [
+      { k: "触发器", v: p.spec?.trigger || "—", sub: t.value },
+      { k: "参数", v: params.join("  ·  ") || "没有参数" },
+      { k: "会话模板", v: p.spec?.session || "没钉" },
+      { k: "类别", v: (p.spec?.category || []).join(" / ") || "未分类" },
+      { k: "开关", v: p.spec?.enabled ? "开着" : "关掉", state: p.spec?.enabled ? "ok" : "dim" },
+      { k: "发布", v: p.tracked ? "HEAD 里有" : "未发布", state: p.tracked ? "ok" : "dim" },
+    ];
+  }
+  return [
+    { k: "模型", v: provider || "跟随默认", sub: rest.join("/"), mono: true },
+    { k: "思考档", v: p.spec?.thinkingLevel || "默认" },
+    { k: "技能", v: (p.spec?.skills || []).join(" · ") || "不要" },
+    { k: "模板", v: p.spec?.template || "跟随默认" },
+    { k: "扩展", v: (p.spec?.extensions || []).join(" · ") || "不要" },
+    { k: "工作目录", v: p.spec?.cwd || "默认" },
+    { k: "机器", v: p.spec?.machine || "本机" },
+    { k: "只读", v: p.spec?.readOnly ? "是" : "否" },
+  ];
+}
+
+function refs() {
+  const { p, id } = cur();
+  if (id === "Ultimate-Template") {
+    const out = [];
+    if (p.resolved?.trigger) out.push({ kind: "触发器", name: p.resolved.trigger.ref, state: p.resolved.trigger.state });
+    if (p.resolved?.session) out.push({ kind: "会话模板", name: p.resolved.session.ref, state: p.resolved.session.state });
+    return out;
+  }
+  const out = [];
+  (p.resolved?.skills || []).forEach((s) => out.push({ kind: "技能", name: s.ref, state: s.state }));
+  if (p.resolved?.template) out.push({ kind: "模板", name: p.resolved.template.ref, state: p.resolved.template.state });
+  (p.resolved?.extensions || []).forEach((s) => out.push({ kind: "扩展", name: s.ref, state: s.state }));
+  return out;
+}
+
+function statusOf() {
+  const { data, id, p } = cur();
+  const dirty = data.repo?.dirty;
+  const bad = refs().some((r) => r.state !== "ok");
+  const out = [
+    { lab: "提交", t: dirty ? "已保存 · 未提交" : "已发布", val: dirty ? "未提交" : "已发布", s: dirty ? "warn" : "ok" },
+    { lab: "引用", t: bad ? "引用失效" : "引用正常", val: bad ? "失效" : "正常", s: bad ? "bad" : "ok" },
+  ];
+  if (id !== "Ultimate-Template") out.push({ lab: "状态", t: "可启动", val: "可启动", s: "ok" });
+  else out.push({ lab: "状态", t: p.spec?.enabled ? "开着" : "关掉", val: p.spec?.enabled ? "开着" : "关掉", s: p.spec?.enabled ? "ok" : "dim" });
+  return out;
+}
+
+/* ── 真 diff（行级） ──────────────────────────────────────── */
+function lcs(before, after) {
+  const a = (before ?? "").split("\n"), b = (after ?? "").split("\n");
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: "ctx", text: a[i], n: i + 1 }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", text: a[i], n: i + 1 }); i++; }
+    else { out.push({ t: "add", text: b[j], n: j + 1 }); j++; }
+  }
+  while (i < n) out.push({ t: "del", text: a[i++], n: i });
+  while (j < m) out.push({ t: "add", text: b[j++], n: j });
+  return out;
+}
+
+function currentDiff() {
+  const u = pend().units[0];
+  const path = u?.files?.[0]?.path;
+  const d = window.DATA.diffs[path];
+  return d ? { ...d, rows: lcs(d.before, d.after) } : null;
+}
+
+function diffBlock() {
+  const d = currentDiff();
+  const cls0 = { mcu: "mcu-diff", site: "site-diff", steel: "steel-diff", data: "data-diff" }[state.skin];
+  if (!d) return `<div class="${cls0}" style="padding:16px 32px;font-size:11px;opacity:.55">未发布 · HEAD 里没有这个文件，没有旧版本可比</div>`;
+  const lines = d.rows.slice(0, 14).map((r) =>
+    `<div class="l ${r.t}"><span class="n">${r.n}</span><span class="t">${esc(r.text)}</span></div>`).join("");
+  const cls = { mcu: "mcu-diff", site: "site-diff", steel: "steel-diff", data: "data-diff" }[state.skin];
+  return `<div class="${cls}">${lines}</div>`;
+}
+
+function changeLine(skin) {
+  const n = pend().units.length;
+  const path = pend().units[0]?.files?.[0]?.path ?? "—";
+  const map = {
+    mcu: `<div class="mcu-change"><span><b>${n}</b> 个文件待同步 · ${esc(path)}</span><a href="#">看变化 →</a></div>`,
+    site: `<div class="site-change"><span><b>${n}</b> 个文件待同步 · ${esc(path)}</span><a href="#">看变化 →</a></div>`,
+    steel: `<div class="steel-change"><span><b>${n}</b> 个文件待同步 · ${esc(path)}</span><a href="#">看变化 →</a></div>`,
+    data: "",
+  };
+  return map[skin] ?? "";
+}
+
+/* ── A · MCU ─────────────────────────────────────────────── */
+function renderMcu() {
+  const { p, id } = cur();
+  return `
+  <div class="scroll">
+    <div class="mcu-head">
+      <div class="mcu-eyebrow">${id}</div>
+      <h1 class="mcu-h1">${esc(p.name)}</h1>
+      <p class="mcu-lede">${esc(p.summary)}</p>
+      <div class="mcu-status">
+        ${statusOf().map((s) => `<span><i class="${s.s === "ok" ? "" : s.s === "bad" ? "bad" : "dim"}"></i>${esc(s.t)}</span>`).join("")}
+      </div>
+    </div>
+    <div class="mcu-rows">
+      ${spec().map((r) => `<div class="mcu-row"><span class="k">${esc(r.k)}</span>
+        <span class="v">${r.mono ? `<span class="num">${esc(r.v)}</span>` : esc(r.v)}${r.sub ? `<span class="sub">${esc(r.sub)}</span>` : ""}</span></div>`).join("")}
+    </div>
+    ${changeLine("mcu")}
+    ${state.diff === "on" ? diffBlock() : ""}
+  </div>
+  <div class="mcu-foot">
+    <button class="mcu-btn">${id === "Ultimate-Template" ? "发布" : "开一条新对话"}</button>
+    <button class="mcu-btn ghost">编辑</button>
+  </div>`;
+}
+
+/* ── B · SITE ────────────────────────────────────────────── */
+function renderSite() {
+  const { p, id } = cur();
+  return `
+  <div class="scroll">
+    <div class="site-head">
+      <h1 class="site-h1">${esc(p.name)}</h1>
+      <p class="site-lede">${esc(p.summary)}</p>
+      <div class="site-state">
+        ${statusOf().map((s) => `<span><i class="${s.s === "ok" ? "" : s.s === "bad" ? "bad" : "dim"}"></i>${esc(s.t)}</span>`).join("")}
+      </div>
+    </div>
+    <div class="site-grid">
+      ${spec().map((r) => `<div class="site-cell"><div class="k">${esc(r.k)}</div>
+        <div class="v">${r.mono ? `<span class="num">${esc(r.v)}</span>` : esc(r.v)}${r.sub ? `<span class="sub">${esc(r.sub)}</span>` : ""}</div></div>`).join("")}
+    </div>
+    <div class="site-hr"></div>
+    <div class="site-refs">
+      ${refs().map((r) => `<div class="site-ref"><span class="n">${esc(r.name)}</span><span class="k">${esc(r.kind)}</span>
+        <span class="s">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("") || `<div class="site-ref" style="color:#9a9ea3">没有外部引用</div>`}
+    </div>
+    ${changeLine("site")}
+    ${state.diff === "on" ? diffBlock() : ""}
+  </div>
+  <div class="site-foot">
+    <button class="site-btn">${id === "Ultimate-Template" ? "发布" : "开一条新对话"}</button>
+    <button class="site-btn2">编辑</button>
+  </div>`;
+}
+
+/* ── C · STEEL ───────────────────────────────────────────── */
+function renderSteel() {
+  const { p, id } = cur();
+  const st = statusOf();
+  return `
+  <div class="scroll">
+    <div class="steel-head">
+      <div class="steel-eyebrow">${id}</div>
+      <h1 class="steel-h1">${esc(p.name)}</h1>
+      <p class="steel-lede">${esc(p.summary)}</p>
+      <div class="steel-status">
+        ${st.map((s) => `<div><div class="lab">${esc(s.lab)}</div>
+          <div class="val"><i class="${s.s === "ok" ? "" : s.s === "bad" ? "bad" : "dim"}"></i>${esc(s.val)}</div></div>`).join("")}
+      </div>
+    </div>
+    <div class="steel-table">
+      ${spec().map((r) => `<div class="steel-tr"><span class="k">${esc(r.k)}</span>
+        <span class="v">${r.mono ? `<span class="num">${esc(r.v)}</span>` : esc(r.v)}${r.sub ? `<span class="sub">${esc(r.sub)}</span>` : ""}</span></div>`).join("")}
+    </div>
+    ${changeLine("steel")}
+    ${state.diff === "on" ? diffBlock() : ""}
+  </div>
+  <div class="steel-foot">
+    <button class="steel-btn">${id === "Ultimate-Template" ? "发布" : "开一条新对话"}</button>
+    <button class="steel-btn ghost">编辑</button>
+  </div>`;
+}
+
+/* ── D · DATA ────────────────────────────────────────────── */
+function renderData() {
+  const { p, id, data } = cur();
+  const rows = spec(), rf = refs();
+  const half = Math.ceil(rows.length / 2);
+  const block = (list) => list.map((r) => `<div class="data-tr"><span class="k">${esc(r.k)}</span>
+    <span class="v">${r.mono ? `<span class="num">${esc(r.v)}</span>` : esc(r.v)}${r.sub ? `<span class="sub">${esc(r.sub)}</span>` : ""}</span></div>`).join("");
+  return `
+  <div class="data-top">
+    <span class="seg">${id}</span>
+    <h1>${esc(p.name)}</h1>
+    <span class="head">HEAD ${esc((data.repo?.head || "").slice(0, 7))}${data.repo?.dirty ? " · dirty" : ""}</span>
+  </div>
+  <div class="scroll">
+    <div class="data-sheet">
+      <div class="data-sec"><span class="t">配置</span><span class="r"></span></div>
+      ${block(rows.slice(0, half))}
+    </div>
+    <div class="data-sheet">
+      <div class="data-sec"><span class="t">运行</span><span class="r"></span></div>
+      ${block(rows.slice(half))}
+    </div>
+    <div class="data-sheet">
+      <div class="data-sec"><span class="t">引用 ${rf.length} 条</span><span class="r"></span></div>
+      ${rf.map((r) => `<div class="data-ref"><span class="k">${esc(r.kind)}</span><span>${esc(r.name)}</span>
+        <span class="s ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("") || `<div class="data-ref" style="color:#9aa0a5">没有外部引用</div>`}
+    </div>
+    ${state.diff === "on" ? `<div class="data-sheet"><div class="data-sec"><span class="t">待同步</span><span class="r"></span></div>${diffBlock()}</div>` : ""}
+  </div>
+  <div class="data-foot">
+    <span class="info"><b>${pend().units.length}</b> 个文件待同步 · ${esc(pend().units[0]?.files?.[0]?.path ?? "—")}</span>
+    <button class="data-btn">编辑</button>
+    <button class="data-btn primary">${id === "Ultimate-Template" ? "发布" : "开对话"}</button>
+  </div>`;
+}
+
+const VIEWS = { mcu: renderMcu, site: renderSite, steel: renderSteel, data: renderData };
+
+function render() {
+  const pane = $("#pane");
+  pane.dataset.skin = state.skin;
+  pane.innerHTML = VIEWS[state.skin]();
+  bindPane();
+}
+
+function bindPane() {
+  $$("#pane a[href='#']").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); setDiff("on"); }));
+}
+
+function paint(group, k) {
+  $$(`#${group} .opt`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === k)));
+}
+function setSkin(k) { state.skin = k; paint("opt-skin", k); render(); }
+function setSection(k) { state.section = k; paint("opt-sec", k); render(); }
+function setDiff(k) {
+  state.diff = k; paint("opt-diff", k); render();
+  const sc = $("#pane .scroll");
+  if (sc && k === "on") sc.scrollTop = sc.scrollHeight;
+}
+
+$$("#opt-skin .opt").forEach((b) => b.addEventListener("click", () => setSkin(b.dataset.k)));
+$$("#opt-sec .opt").forEach((b) => b.addEventListener("click", () => setSection(b.dataset.k)));
+$$("#opt-diff .opt").forEach((b) => b.addEventListener("click", () => setDiff(b.dataset.k)));
+
+const [hSkin, hSec, hDiff] = (location.hash.replace("#", "") || "").split(",");
+setSkin(VIEWS[hSkin] ? hSkin : "mcu");
+setSection(hSec === "ut" ? "ut" : "st");
+setDiff(hDiff === "on" ? "on" : "off");
+</script>
+</body>
+</html>

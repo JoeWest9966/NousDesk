@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>新建模板 · 10 套排版 × 5 套皮肤</title>
+<style>
+@font-face{font-family:Inter;src:url(fonts/inter-400.woff2) format("woff2");font-weight:400}
+@font-face{font-family:Inter;src:url(fonts/inter-500.woff2) format("woff2");font-weight:500}
+@font-face{font-family:Inter;src:url(fonts/inter-600.woff2) format("woff2");font-weight:600}
+@font-face{font-family:Inter;src:url(fonts/inter-700.woff2) format("woff2");font-weight:700}
+@font-face{font-family:JBMono;src:url(fonts/jetbrainsmono-400.woff2) format("woff2")}
+@font-face{font-family:Manrope;src:url(fonts/manrope-500.woff2) format("woff2")}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:#15161a;display:flex;align-items:center;justify-content:center;
+  font-family:Inter,system-ui,-apple-system,"Noto Sans CJK SC",sans-serif;
+  color:#fff;overflow:hidden;
+}
+
+/* ══════════ 顶部切换条 ══════════ */
+.bar{
+  position:fixed;left:0;right:0;top:0;height:44px;z-index:99;
+  display:flex;align-items:center;gap:14px;padding:0 14px;
+  background:#0e0f12;border-bottom:1px solid #22252b;
+  font-size:11px;
+}
+.bar b{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6b7280;font-weight:600}
+.bar .grp{display:flex;gap:4px;flex-wrap:wrap}
+.bar button{
+  height:22px;padding:0 8px;border:1px solid #2a2e36;background:transparent;color:#9aa3af;
+  border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit;
+}
+.bar button:hover{color:#e5e7eb;border-color:#4b5563}
+.bar button.on{background:#e5e7eb;color:#111318;border-color:#e5e7eb;font-weight:600}
+.bar .sep{width:1px;height:18px;background:#22252b}
+.bar .sp{flex:1}
+.bar .hint{color:#4b5563;font-size:10px}
+
+.stage{position:absolute;inset:44px 0 0 0;display:flex;align-items:center;justify-content:center}
+
+/* ══════════ 窗口 ══════════ */
+.app{
+  width:1280px;height:calc(100vh - 44px);max-height:800px;display:flex;overflow:hidden;
+  background:var(--bg);color:var(--ink);
+  font-family:var(--font);font-size:var(--fs);
+  border-radius:var(--r-app,0px);
+  box-shadow:0 30px 80px rgba(0,0,0,.55);
+}
+
+/* ── 皮肤 ── */
+.app[data-skin="default"]{
+  --bg:#ededed;--panel:#fff;--panel2:#fafafa;--rail:#2e2e2e;--rail-ink:#9a9a9a;--rail-on:#fff;
+  --ink:#1a1a1a;--ink2:#333;--ink3:#999;--ink4:#aaa;
+  --line:#e6e6e6;--line2:#eee;--accent:#07c160;--accent-ink:#fff;--accent-soft:#e8f7ee;
+  --ok:#07c160;--warn:#c77700;--bad:#d32f2f;
+  --r:6px;--r-app:0px;--fs:13px;--row:34px;
+  --font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#0000002a;
+}
+.app[data-skin="industrial"]{
+  --bg:#f4f2ee;--panel:#fbfaf7;--panel2:#f0ede8;--rail:#eae7e1;--rail-ink:#6b6a63;--rail-on:#14150f;
+  --ink:#14150f;--ink2:#3d3c35;--ink3:#6b6a63;--ink4:#9a9890;
+  --line:#14150f;--line2:#d8d4cc;--accent:#1d6b46;--accent-ink:#f4f2ee;--accent-soft:#e6ebe6;
+  --ok:#1d6b46;--warn:#b8860b;--bad:#a8281c;
+  --r:0px;--r-app:0px;--fs:12px;--row:34px;
+  --font:Manrope,Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#0000002e;
+}
+.app[data-skin="mono"]{
+  --bg:#000;--panel:#000;--panel2:#0a0a0a;--rail:#000;--rail-ink:#6b6b6b;--rail-on:#fff;
+  --ink:#fff;--ink2:#a8a8a8;--ink3:#6b6b6b;--ink4:#4a4a4a;
+  --line:#fff;--line2:#2a2a2a;--accent:#fff;--accent-ink:#000;--accent-soft:#1a1a1a;
+  --ok:#fff;--warn:#fff;--bad:#ff4d4d;
+  --r:0px;--r-app:0px;--fs:12.5px;--row:36px;
+  --font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#00000066;
+}
+.app[data-skin="paper"]{
+  --bg:#fbfbfa;--panel:#fff;--panel2:#f5f5f3;--rail:#f0f0ee;--rail-ink:#9298a0;--rail-on:#171a1c;
+  --ink:#171a1c;--ink2:#62686d;--ink3:#9298a0;--ink4:#b9bec3;
+  --line:#e6e6e3;--line2:#efefec;--accent:#171a1c;--accent-ink:#fff;--accent-soft:#f0f0ee;
+  --ok:#2c8a5e;--warn:#a9761d;--bad:#c4362b;
+  --r:3px;--r-app:0px;--fs:12.5px;--row:34px;
+  --font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#00000026;
+}
+.app[data-skin="amber"]{
+  --bg:#0d0c0a;--panel:#12110e;--panel2:#17150f;--rail:#090806;--rail-ink:#6f6656;--rail-on:#f0e9dc;
+  --ink:#f0e9dc;--ink2:#a89e8c;--ink3:#6f6656;--ink4:#504a3e;
+  --line:#251f18;--line2:#1c1712;--accent:#e8a33d;--accent-ink:#14110c;--accent-soft:#2a2113;
+  --ok:#7fb489;--warn:#e8a33d;--bad:#d8705f;
+  --r:3px;--r-app:0px;--fs:12.5px;--row:34px;
+  --font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#00000066;
+}
+
+/* ══════════ 图标条 ══════════ */
+.rail{
+  width:56px;flex:none;background:var(--rail);display:flex;flex-direction:column;
+  align-items:center;padding:14px 0;gap:18px;border-right:1px solid var(--line2);
+}
+.rail i{display:block;width:18px;height:18px;border:1.6px solid var(--rail-ink);border-radius:5px;opacity:.85}
+.rail i.on{border-color:var(--rail-on);opacity:1}
+.rail .dot{width:18px;height:18px;border-radius:50%;border:1.6px solid var(--rail-ink);opacity:.85}
+
+/* ══════════ 类别树 ══════════ */
+.tree{
+  width:248px;flex:none;background:var(--panel2);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+}
+.tree .hd{display:flex;align-items:center;padding:14px 14px 8px;gap:6px}
+.tree .hd h2{font-size:13px;font-weight:600}
+.tree .hd .n{margin-left:auto;font-size:11px;color:var(--ink4)}
+.seg{display:flex;gap:2px;margin:0 8px 10px;padding:3px;background:var(--line2);border-radius:calc(var(--r) + 3px)}
+.seg button{
+  flex:1;min-width:0;border:0;background:transparent;cursor:pointer;padding:4px 0;border-radius:calc(var(--r) + 1px);
+  font-family:inherit;font-size:11px;color:var(--ink3);line-height:1.35;
+}
+.seg button.on{background:var(--panel);color:var(--ink);font-weight:500}
+.seg button small{display:block;font-size:10px;color:var(--ink4)}
+.seg button.on small{color:var(--ok)}
+.acts{display:flex;gap:6px;padding:0 14px 10px}
+.acts .b1{
+  display:flex;align-items:center;justify-content:center;gap:4px;height:24px;padding:0 9px;
+  background:var(--accent);color:var(--accent-ink);border-radius:var(--r);
+  font-size:11px;font-weight:600;
+}
+.acts .b2{
+  display:flex;align-items:center;justify-content:center;height:24px;padding:0 9px;
+  border:1px solid var(--line);color:var(--ink2);border-radius:var(--r);font-size:11px;
+}
+.cats{flex:1;overflow:auto;padding:0 8px}
+.cat{
+  display:flex;align-items:center;height:28px;padding:0 8px;gap:7px;border-radius:var(--r);
+  font-size:12px;color:var(--ink2);
+}
+.cat.on{background:var(--panel);color:var(--ink);font-weight:500}
+.cat .k{width:12px;color:var(--ink4);font-size:11px;text-align:center}
+.cat .n{margin-left:auto;font-size:11px;color:var(--ink4)}
+.cat .n.on{color:var(--ok)}
+.cat.d1{padding-left:22px}
+.cat.d2{padding-left:38px}
+.tree .ft{
+  padding:8px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink3);
+  display:flex;flex-direction:column;gap:2px;
+}
+.tree .ft .ok{color:var(--warn)}
+
+/* ══════════ 中栏列表 ══════════ */
+.list{
+  width:300px;flex:none;background:var(--bg);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+}
+.list .hd{padding:14px 14px 6px}
+.list .hd .a{font-size:13px;font-weight:600}
+.list .hd .a span{color:var(--ink4);font-weight:400;font-size:11px;margin-left:6px}
+.list .hd .b{font-size:11px;color:var(--ink4);margin-top:3px}
+.rows{flex:1;overflow:auto}
+.row{
+  display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line2);
+}
+.row .av{
+  width:34px;height:34px;flex:none;border-radius:var(--r2,6px);background:var(--accent);
+  color:var(--accent-ink);display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:600;
+}
+.row .txt{min-width:0;flex:1}
+.row .nm{font-size:13px;font-weight:500}
+.row .su{font-size:11px;color:var(--ink3);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .tag{display:inline-block;margin-top:6px;margin-right:4px;padding:1px 5px;font-size:10px;
+  border:1px solid var(--line);border-radius:3px;color:var(--ink3)}
+.row.on{background:var(--panel);box-shadow:inset 2px 0 0 var(--accent)}
+
+/* ══════════ 右栏：10 套新建排版 ══════════ */
+.detail{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--chat,var(--bg));position:relative}
+.np{display:none;flex:1;min-height:0;flex-direction:column}
+.app[data-l="1"] .np[data-l="1"],
+.app[data-l="2"] .np[data-l="2"],
+.app[data-l="3"] .np[data-l="3"],
+.app[data-l="4"] .np[data-l="4"],
+.app[data-l="5"] .np[data-l="5"],
+.app[data-l="6"] .np[data-l="6"],
+.app[data-l="7"] .np[data-l="7"],
+.app[data-l="8"] .np[data-l="8"],
+.app[data-l="9"] .np[data-l="9"],
+.app[data-l="10"] .np[data-l="10"]{display:flex}
+
+/* 通用小件 */
+.topbar{
+  display:flex;align-items:center;height:40px;padding:0 26px;flex:none;
+  border-bottom:1px solid var(--line);font-size:11px;color:var(--ink3);gap:8px;
+}
+.topbar .sp{flex:1}
+.topbar .faint{color:var(--ink4);font-size:10.5px}
+.lbl{font-size:9.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:6px}
+.help{font-size:10.5px;color:var(--ink4);margin-top:5px;line-height:1.5}
+.inp{
+  display:flex;align-items:center;height:32px;padding:0 10px;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--panel);color:var(--ink3);font-size:12px;
+}
+.inp.solid{color:var(--ink)}
+.inp:focus-within{outline:none}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 14px;
+  border-radius:var(--r);background:var(--panel);border:1px solid var(--line);color:var(--ink2);
+  font-size:12px;font-family:inherit;cursor:pointer;
+}
+.btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--ink3)}
+.foot{
+  display:flex;align-items:center;gap:10px;padding:14px 26px;border-top:1px solid var(--line);flex:none;
+}
+.foot .sp{flex:1}
+.foot .note{font-size:10.5px;color:var(--ink4)}
+.body{flex:1;min-height:0;overflow:auto;padding:22px 26px}
+
+/* ── 1 堆叠 ── */
+.np1 .body .wrap{max-width:520px;display:flex;flex-direction:column;gap:18px}
+.np1 h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.np1 .sub{font-size:12px;color:var(--ink3);margin-top:4px}
+.np1 .hintline{display:flex;gap:6px;align-items:center;font-size:10.5px;color:var(--ink4);margin-top:5px}
+
+/* ── 2 两列网格 ── */
+.np2 .body .grid{
+  max-width:640px;display:grid;grid-template-columns:1fr 1fr;gap:16px 18px;
+}
+.np2 .grid .full{grid-column:1/-1}
+.np2 .hd2{max-width:640px;margin-bottom:18px}
+.np2 .hd2 h1{font-size:18px;font-weight:600}
+.np2 .hd2 p{font-size:11.5px;color:var(--ink3);margin-top:3px}
+
+/* ── 3 分步 ── */
+.np3 .steps{display:flex;align-items:center;gap:0;padding:16px 26px;border-bottom:1px solid var(--line);flex:none}
+.np3 .st{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--ink4)}
+.np3 .st .i{
+  width:20px;height:20px;border-radius:50%;border:1px solid var(--line);display:flex;
+  align-items:center;justify-content:center;font-size:10px;background:var(--panel);
+}
+.np3 .st.on{color:var(--ink);font-weight:600}
+.np3 .st.on .i{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.np3 .st.done .i{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.np3 .ln{width:34px;height:1px;background:var(--line);margin:0 10px}
+.np3 .stepbox{max-width:520px;display:flex;flex-direction:column;gap:16px}
+.np3 .stepbox h2{font-size:16px;font-weight:600}
+.np3 .stepbox p.lead{font-size:11.5px;color:var(--ink3);margin-bottom:4px}
+.np3 .opt{
+  display:flex;gap:10px;align-items:center;padding:11px 12px;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--panel);font-size:12px;cursor:pointer;
+}
+.np3 .opt.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.np3 .opt .rd{width:12px;height:12px;border-radius:50%;border:1px solid var(--ink4)}
+.np3 .opt.on .rd{border:4px solid var(--accent)}
+
+/* ── 4 卡片起手式 ── */
+.np4 .body{display:flex;flex-direction:column}
+.np4 .head{margin-bottom:20px}
+.np4 .head h1{font-size:19px;font-weight:600}
+.np4 .head p{font-size:11.5px;color:var(--ink3);margin-top:3px}
+.np4 .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;max-width:640px}
+.np4 .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:640px}
+.np4 .card{
+  border:1px solid var(--line);border-radius:calc(var(--r) + 2px);padding:14px 12px;background:var(--panel);
+  display:flex;flex-direction:column;gap:6px;cursor:pointer;min-height:104px;
+}
+.np4 .card.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
+.np4 .card .ic{
+  width:22px;height:22px;border-radius:calc(var(--r) * .8 + 2px);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink2);
+}
+.np4 .card.on .ic{border-color:var(--accent);color:var(--accent)}
+.np4 .card b{font-size:12px;font-weight:600}
+.np4 .card span{font-size:10.5px;color:var(--ink3);line-height:1.5}
+
+/* ── 5 表格式 ── */
+.np5 .body .tb{max-width:640px;border-top:1px solid var(--line)}
+.np5 .tr{display:flex;align-items:flex-start;gap:16px;padding:13px 2px;border-bottom:1px solid var(--line2)}
+.np5 .tr .k{width:88px;flex:none;font-size:11px;color:var(--ink3);padding-top:9px;text-align:right}
+.np5 .tr .v{flex:1;min-width:0}
+.np5 .tr .v .inp{height:30px}
+.np5 .tr .v .help{margin-top:4px}
+.np5 .hd5{max-width:640px;margin-bottom:12px}
+.np5 .hd5 h1{font-size:16px;font-weight:600}
+.np5 .hd5 p{font-size:11px;color:var(--ink3);margin-top:2px}
+
+/* ── 6 命令式 ── */
+.np6{font-family:var(--mono)}
+.np6 .body{padding:0;display:flex;flex-direction:column}
+.np6 .pr{display:flex;align-items:center;height:38px;padding:0 22px;border-bottom:1px solid var(--line);font-size:11px;color:var(--ink3);gap:8px}
+.np6 .pr .tag{font-size:10px;padding:1px 6px;border:1px solid var(--line);border-radius:3px}
+.np6 .code{flex:1;padding:18px 22px;overflow:auto;font-size:12.5px;line-height:2.1}
+.np6 .code .ln{display:flex;gap:12px;white-space:pre}
+.np6 .code .num{width:16px;color:var(--ink4);text-align:right;flex:none;user-select:none}
+.np6 .code .k{color:var(--ink3)}
+.np6 .code .s{color:var(--accent)}
+.np6 .code .ok{color:var(--ok)}
+.np6 .code .bad{color:var(--bad)}
+.np6 .code .cur{background:var(--accent-soft);display:inline-block;min-width:2px}
+.np6 .checks{display:flex;flex-direction:column;gap:6px;padding:0 22px 14px;font-size:11.5px}
+.np6 .checks div{display:flex;gap:8px;align-items:center;color:var(--ink2)}
+.np6 .checks .y{color:var(--ok)}
+.np6 .checks .n{color:var(--bad)}
+
+/* ── 7 左表单 + 右预览 ── */
+.np7 .body{padding:0;display:flex;min-height:0}
+.np7 .left{flex:1;min-width:0;padding:22px 24px;overflow:auto;border-right:1px solid var(--line)}
+.np7 .right{width:300px;flex:none;padding:22px 20px;overflow:auto;background:var(--panel2)}
+.np7 .left .wrap{display:flex;flex-direction:column;gap:16px}
+.np7 h1{font-size:17px;font-weight:600;margin-bottom:14px}
+.np7 .right .ttl{font-size:9.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:10px}
+.np7 .json{
+  font-family:var(--mono);font-size:11px;line-height:1.75;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--r);padding:12px;white-space:pre-wrap;color:var(--ink2);
+}
+.np7 .json .k{color:var(--ink3)}
+.np7 .json .s{color:var(--accent)}
+.np7 .dims{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+.np7 .dim{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--ink3)}
+.np7 .dim .d{width:5px;height:5px;border-radius:50%;background:var(--ok)}
+.np7 .dim .d.mut{background:var(--ink4)}
+.np7 .dim b{color:var(--ink2);font-weight:500;margin-left:auto}
+
+/* ── 8 大标题下拉线 ── */
+.np8{background:var(--bg)}
+.np8 .body{padding:44px 48px;display:flex;flex-direction:column;max-width:660px}
+.np8 .kicker{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink3);margin-bottom:14px}
+.np8 h1{font-size:34px;font-weight:300;letter-spacing:-.02em;line-height:1.1;margin-bottom:32px}
+.np8 .fl{display:flex;flex-direction:column;gap:22px}
+.np8 .f{display:flex;flex-direction:column;gap:7px}
+.np8 .f .lb{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+.np8 .f .val{
+  font-size:17px;padding-bottom:8px;border-bottom:1px solid var(--line);color:var(--ink);
+  display:flex;align-items:center;gap:8px;
+}
+.np8 .f .val.mut{color:var(--ink4)}
+.np8 .f .val .caret{width:1px;height:18px;background:var(--accent);display:inline-block}
+.np8 .f .note{font-size:10.5px;color:var(--ink4)}
+.np8 .radios{display:flex;gap:18px;padding-top:2px}
+.np8 .radios label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2)}
+.np8 .radios .dot{width:11px;height:11px;border-radius:50%;border:1px solid var(--ink4)}
+.np8 .radios .on .dot{border:4px solid var(--accent)}
+.np8 .go{margin-top:36px;display:flex;align-items:center;gap:16px}
+.np8 .go .big{
+  height:40px;padding:0 26px;background:var(--accent);color:var(--accent-ink);
+  border:0;border-radius:var(--r);font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;
+}
+.np8 .go .c{font-size:12px;color:var(--ink3)}
+
+/* ── 9 清单式 ── */
+.np9 .body .wrap{max-width:540px}
+.np9 .top{display:flex;align-items:flex-end;gap:14px;margin-bottom:6px}
+.np9 .top h1{font-size:20px;font-weight:600}
+.np9 .top .prog{margin-left:auto;font-size:11px;color:var(--ink3)}
+.np9 .bar9{height:3px;background:var(--line2);border-radius:2px;margin:12px 0 22px;overflow:hidden}
+.np9 .bar9 i{display:block;height:100%;width:62%;background:var(--accent)}
+.np9 .item{
+  display:flex;gap:12px;padding:13px 0;border-bottom:1px solid var(--line2);align-items:flex-start;
+}
+.np9 .item .ck{
+  width:16px;height:16px;flex:none;border-radius:50%;border:1px solid var(--line);margin-top:2px;
+  display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--accent-ink);
+}
+.np9 .item.done .ck{background:var(--accent);border-color:var(--accent)}
+.np9 .item .c{flex:1;min-width:0}
+.np9 .item .t{font-size:12px;font-weight:500;color:var(--ink)}
+.np9 .item.todo .t{color:var(--ink3);font-weight:400}
+.np9 .item .inp{margin-top:8px;height:30px}
+.np9 .item .picked{margin-top:8px;display:flex;gap:6px}
+.np9 .item .picked span{
+  font-size:11px;padding:2px 8px;border:1px solid var(--line);border-radius:20px;color:var(--ink2);
+}
+.np9 .item .picked span.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+/* ── 10 对话式 ── */
+.np10{background:var(--chat2,var(--bg))}
+.np10 .body{padding:26px 32px;display:flex;flex-direction:column;gap:16px;max-width:620px}
+.np10 .msg{display:flex;gap:10px;max-width:100%}
+.np10 .msg .av{
+  width:26px;height:26px;flex:none;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;margin-top:2px;
+}
+.np10 .bub{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r2,8px);
+  padding:10px 13px;font-size:12.5px;line-height:1.6;max-width:420px;
+}
+.np10 .bub .q{font-weight:600;display:block;margin-bottom:3px}
+.np10 .bub .h{font-size:11px;color:var(--ink3)}
+.np10 .me{justify-content:flex-end}
+.np10 .me .bub{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.np10 .quick{display:flex;gap:7px;padding-left:36px;flex-wrap:wrap}
+.np10 .quick span{
+  font-size:11px;padding:4px 10px;border:1px solid var(--line);border-radius:20px;color:var(--ink2);
+  background:var(--panel);cursor:pointer;
+}
+.np10 .quick span.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.np10 .composer{
+  margin-top:auto;margin-left:36px;display:flex;align-items:center;gap:10px;
+  border:1px solid var(--line);background:var(--panel);border-radius:var(--r2,10px);padding:10px 12px;
+}
+.np10 .composer .ph{flex:1;font-size:12.5px;color:var(--ink4)}
+.np10 .composer .send{
+  width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  display:flex;align-items:center;justify-content:center;font-size:12px;
+}
+
+/* 圆角跟随皮肤：直角皮把列表头像/气泡也吃掉 */
+.app[data-skin="mono"] .row .av,
+.app[data-skin="mono"] .np4 .card .ic,
+.app[data-skin="mono"] .np10 .msg .av,
+.app[data-skin="mono"] .np10 .quick span,
+.app[data-skin="mono"] .np9 .item .picked span{border-radius:0}
+.app[data-skin="mono"] .np10 .bub{border-radius:0}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <b>排版</b>
+  <div class="grp" id="ls"></div>
+  <div class="sep"></div>
+  <b>皮肤</b>
+  <div class="grp" id="sk"></div>
+  <div class="sp"></div>
+  <span class="hint">← → 换排版 · 1–5 换皮肤 · 40 套里挑一套</span>
+</div>
+
+<div class="stage">
+<div class="app" data-skin="industrial" data-l="1">
+
+  <!-- 图标条 -->
+  <aside class="rail">
+    <i></i><i class="on"></i><div class="dot"></div>
+  </aside>
+
+  <!-- 类别树 -->
+  <aside class="tree">
+    <div class="hd"><h2>Template</h2><span class="n">5 类</span></div>
+    <div class="seg">
+      <button class="on">Session-Template<small>4 条</small></button>
+      <button>Ultimate-Template<small>1 条</small></button>
+    </div>
+    <div class="acts"><span class="b1">＋ 新建</span><span class="b2">＋ 类别</span></div>
+    <div class="cats">
+      <div class="cat"><span class="k">▦</span>全部<span class="n">4</span></div>
+      <div class="cat"><span class="k"></span>工程<span class="n">2</span></div>
+      <div class="cat on"><span class="k">⌄</span>写作<span class="n on">2</span></div>
+      <div class="cat d1"><span class="k"></span>周报<span class="n">1</span></div>
+      <div class="cat"><span class="k"></span>Basics<span class="n">0</span></div>
+      <div class="cat"><span class="k">·</span>未分类<span class="n">1</span></div>
+    </div>
+    <div class="ft"><span class="ok">● 有未提交的改动 · 9e4ccd1</span><span>Session-Template</span></div>
+  </aside>
+
+  <!-- 列表 -->
+  <aside class="list">
+    <div class="hd">
+      <div class="a">全部<span>4 条</span></div>
+      <div class="b">Session-Template</div>
+    </div>
+    <div class="rows">
+      <div class="row on">
+        <div class="av">d</div>
+        <div class="txt"><div class="nm">deep-dive</div>
+          <div class="su">一个技术问题挖到底：先列假设，再找反证…</div>
+          <span class="tag">工程</span><span class="tag">写作</span></div>
+      </div>
+      <div class="row">
+        <div class="av">r</div>
+        <div class="txt"><div class="nm">read-only-review</div>
+          <div class="su">只读审查：能读懂，不能写盘…</div>
+          <span class="tag">工程</span><span class="tag">只读</span></div>
+      </div>
+      <div class="row">
+        <div class="av">s</div>
+        <div class="txt"><div class="nm">scratch</div>
+          <div class="su">白板：一条模板都不要、一条技能…</div>
+          <span class="tag">写作</span></div>
+      </div>
+      <div class="row">
+        <div class="av">w</div>
+        <div class="txt"><div class="nm">weekly-report</div>
+          <div class="su">把一周的提交、聊天、会议整理成…</div>
+          <span class="tag">写作</span><span class="tag">写作/周报</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 右栏 -->
+  <main class="detail">
+
+    <!-- ═══ 1 堆叠 ═══ -->
+    <section class="np np1" data-l="1">
+      <div class="topbar"><span>Session-Template · 新建</span><span class="sp"></span><span class="faint">还没落盘</span></div>
+      <div class="body">
+        <div class="wrap">
+          <div>
+            <h1>新建模板</h1>
+            <div class="sub">一条模板 = 一组「开这条会话时用什么」。</div>
+          </div>
+          <div>
+            <div class="lbl">名字</div>
+            <div class="inp solid">deep-dive</div>
+            <div class="hintline">落盘时就是目录名，建完不改。</div>
+          </div>
+          <div>
+            <div class="lbl">摘要</div>
+            <div class="inp">一句话说清这条模板干什么</div>
+            <div class="hintline">人靠这一行决定开不开它，不能空。</div>
+          </div>
+          <div>
+            <div class="lbl">类别</div>
+            <div class="inp">工程</div>
+            <div class="hintline">写 写作/周报 就是分层路径；留空 = 未分类。</div>
+          </div>
+          <div>
+            <div class="lbl">起手式</div>
+            <div style="display:flex;gap:6px">
+              <span class="inp" style="height:26px;border-color:var(--accent);background:var(--accent-soft);color:var(--ink)">空白 —— 一条都不写</span>
+              <span class="inp" style="height:26px">跟设备默认模型</span>
+            </div>
+            <div class="hintline">空白 = 所有可选键都不写，等同跟随仓库默认。</div>
+          </div>
+        </div>
+      </div>
+      <div class="foot">
+        <button class="btn pri">创建</button>
+        <button class="btn ghost">取消</button>
+        <span class="sp"></span>
+        <span class="note">建完落盘，发布还是另一步</span>
+      </div>
+    </section>
+
+    <!-- ═══ 2 两列网格 ═══ -->
+    <section class="np np2" data-l="2">
+      <div class="topbar"><span>Session-Template · 新建</span><span class="sp"></span><span class="faint">草稿</span></div>
+      <div class="body">
+        <div class="hd2"><h1>新建模板</h1><p>四样东西就够起一条，剩下的进去再调。</p></div>
+        <div class="grid">
+          <div><div class="lbl">名字</div><div class="inp solid">deep-dive</div></div>
+          <div><div class="lbl">类别</div><div class="inp">工程</div></div>
+          <div class="full"><div class="lbl">摘要</div><div class="inp">一句话说清这条模板干什么</div>
+            <div class="help">人靠这一行决定开不开它，不能空。</div></div>
+          <div class="full">
+            <div class="lbl">起手式</div>
+            <div style="display:flex;gap:6px">
+              <span class="inp" style="height:26px;border-color:var(--accent);background:var(--accent-soft);color:var(--ink)">空白</span>
+              <span class="inp" style="height:26px">跟设备默认模型</span>
+              <span class="inp" style="height:26px">复制已有的一条…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="foot">
+        <button class="btn pri">创建</button><button class="btn ghost">取消</button>
+        <span class="sp"></span><span class="note">两个必填：名字、摘要</span>
+      </div>
+    </section>
+
+    <!-- ═══ 3 分步 ═══ -->
+    <section class="np np3" data-l="3">
+      <div class="steps">
+        <div class="st on"><span class="i">1</span>基本</div><span class="ln"></span>
+        <div class="st"><span class="i">2</span>起手式</div><span class="ln"></span>
+        <div class="st"><span class="i">3</span>确认</div>
+      </div>
+      <div class="body">
+        <div class="stepbox">
+          <h2>先给它一个身份</h2>
+          <p class="lead">名字定了就改不了 —— 它是目录名。</p>
+          <div><div class="lbl">名字</div><div class="inp solid">deep-dive</div></div>
+          <div><div class="lbl">摘要</div><div class="inp">一句话说清这条模板干什么</div></div>
+          <div><div class="lbl">类别</div><div class="inp">工程</div></div>
+        </div>
+      </div>
+      <div class="foot">
+        <span class="note">第 1 步 / 共 3 步</span><span class="sp"></span>
+        <button class="btn">上一步</button><button class="btn pri">下一步</button>
+      </div>
+    </section>
+
+    <!-- ═══ 4 卡片起手式 ═══ -->
+    <section class="np np4" data-l="4">
+      <div class="topbar"><span>Session-Template · 新建</span><span class="sp"></span><span class="faint">还没落盘</span></div>
+      <div class="body">
+        <div class="head"><h1>新建模板</h1><p>选一个起点，比从一片空白开始快。</p></div>
+        <div class="two">
+          <div><div class="lbl">名字</div><div class="inp solid">deep-dive</div></div>
+          <div><div class="lbl">类别</div><div class="inp">工程</div></div>
+          <div style="grid-column:1/-1"><div class="lbl">摘要</div><div class="inp">一句话说清这条模板干什么</div></div>
+        </div>
+        <div class="lbl">起手式</div>
+        <div class="cards">
+          <div class="card on"><span class="ic">◻</span><b>空白</b><span>所有可选键都不写，等同跟随仓库默认。</span></div>
+          <div class="card"><span class="ic">⌘</span><b>跟设备默认</b><span>把当前机器的模型钉进去。</span></div>
+          <div class="card"><span class="ic">⧉</span><b>复制已有</b><span>从 deep-dive 拷一份再改。</span></div>
+        </div>
+      </div>
+      <div class="foot">
+        <button class="btn pri">创建</button><button class="btn ghost">取消</button>
+        <span class="sp"></span><span class="note">建完落盘，发布还是另一步</span>
+      </div>
+    </section>
+
+    <!-- ═══ 5 表格式 ═══ -->
+    <section class="np np5" data-l="5">
+      <div class="topbar"><span>Session-Template · 新建</span><span class="sp"></span><span class="faint">4 项</span></div>
+      <div class="body">
+        <div class="hd5"><h1>新建模板</h1><p>左列是键，右列是值 —— 跟改配置一样。</p></div>
+        <div class="tb">
+          <div class="tr"><div class="k">名字</div><div class="v"><div class="inp solid">deep-dive</div>
+            <div class="help">目录名，建完不改。</div></div></div>
+          <div class="tr"><div class="k">摘要</div><div class="v"><div class="inp">一句话说清这条模板干什么</div>
+            <div class="help">不能空。</div></div></div>
+          <div class="tr"><div class="k">类别</div><div class="v"><div class="inp">工程</div>
+            <div class="help">可写 写作/周报 分层。</div></div></div>
+          <div class="tr"><div class="k">起手式</div><div class="v">
+            <div style="display:flex;gap:6px">
+              <span class="inp" style="height:26px;border-color:var(--accent);background:var(--accent-soft);color:var(--ink)">空白</span>
+              <span class="inp" style="height:26px">跟设备默认模型</span>
+            </div></div></div>
+        </div>
+      </div>
+      <div class="foot">
+        <button class="btn pri">创建</button><button class="btn ghost">取消</button>
+        <span class="sp"></span><span class="note">建完落盘，发布还是另一步</span>
+      </div>
+    </section>
+
+    <!-- ═══ 6 命令式 ═══ -->
+    <section class="np np6" data-l="6">
+      <div class="pr"><span class="tag">manifest</span><span>Session-Template/deep-dive/preset.json</span><span class="sp" style="flex:1"></span><span>v1</span></div>
+      <div class="code">
+        <div class="ln"><span class="num">1</span><span><span class="k">{"</span></span></div>
+        <div class="ln"><span class="num">2</span><span>  <span class="k">"v"</span>: <span class="ok">1</span>,</span></div>
+        <div class="ln"><span class="num">3</span><span>  <span class="k">"name"</span>: <span class="s">"deep-dive"</span>,</span></div>
+        <div class="ln"><span class="num">4</span><span>  <span class="k">"summary"</span>: <span class="s">""</span><span class="cur">&nbsp;</span> <span class="bad">← 空</span></span></div>
+        <div class="ln"><span class="num">5</span><span>  <span class="k">"category"</span>: [<span class="s">"工程"</span>],</span></div>
+        <div class="ln"><span class="num">6</span><span>  <span class="k">"model"</span>: <span class="ok">null</span> <span class="k">// 跟随默认</span></span></div>
+        <div class="ln"><span class="num">7</span><span><span class="k">}</span></span></div>
+      </div>
+      <div class="checks">
+        <div><span class="y">✓</span>名字合法（小写 + 连字符）</div>
+        <div><span class="n">✗</span>摘要不能空</div>
+        <div><span class="y">✓</span>类别 工程 在词表里</div>
+      </div>
+      <div class="foot">
+        <button class="btn pri">写入并创建</button><button class="btn ghost">取消</button>
+        <span class="sp"></span><span class="note">键盘优先：Tab 跳段，⌘↵ 提交</span>
+      </div>
+    </section>
+
+    <!-- ═══ 7 左表单 + 右预览 ═══ -->
+    <section class="np np7" data-l="7">
+      <div class="body">
+        <div class="left">
+          <h1>新建模板</h1>
+          <div class="wrap">
+            <div><div class="lbl">名字</div><div class="inp solid">deep-dive</div></div>
+            <div><div class="lbl">摘要</div><div class="inp">一句话说清这条模板干什么</div></div>
+            <div><div class="lbl">类别</div><div class="inp">工程</div></div>
+            <div><div class="lbl">起手式</div>
+              <div style="display:flex;gap:6px">
+                <span class="inp" style="height:26px;border-color:var(--accent);background:var(--accent-soft);color:var(--ink)">空白</span>
+                <span class="inp" style="height:26px">跟设备默认模型</span>
+              </div></div>
+          </div>
+        </div>
+        <div class="right">
+          <div class="ttl">会落成什么</div>
+          <div class="json"><span class="k">{"v":</span> 1,
+  <span class="k">"name":</span> <span class="s">"deep-dive"</span>,
+  <span class="k">"summary":</span> <span class="s">"…"</span>,
+  <span class="k">"category":</span> [<span class="s">"工程"</span>]}</div>
+          <div class="ttl" style="margin-top:18px">拿到的默认值</div>
+          <div class="dims">
+            <div class="dim"><span class="d mut"></span>模型<b>跟随默认</b></div>
+            <div class="dim"><span class="d mut"></span>思考<b>默认</b></div>
+            <div class="dim"><span class="d mut"></span>技能<b>继承</b></div>
+            <div class="dim"><span class="d"></span>类别<b>工程</b></div>
+            <div class="dim"><span class="d mut"></span>机器<b>本机</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="foot">
+        <button class="btn pri">创建</button><button class="btn ghost">取消</button>
+        <span class="sp"></span><span class="note">右边是实时的，不点创建不会写盘</span>
+      </div>
+    </section>
+
+    <!-- ═══ 8 大标题 ═══ -->
+    <section class="np np8" data-l="8">
+      <div class="body">
+        <div class="kicker">Session-Template</div>
+        <h1>New<br>preset.</h1>
+        <div class="fl">
+          <div class="f"><span class="lb">名字</span>
+            <div class="val">deep-dive<span class="caret"></span></div>
+            <span class="note">目录名，建完不改</span></div>
+          <div class="f"><span class="lb">摘要</span>
+            <div class="val mut">说一句话，人靠它决定开不开</div></div>
+          <div class="f"><span class="lb">类别</span>
+            <div class="val">工程</div></div>
+          <div class="f"><span class="lb">起手式</span>
+            <div class="radios">
+              <label class="on"><span class="dot"></span>空白</label>
+              <label><span class="dot"></span>跟设备默认模型</label>
+            </div></div>
+        </div>
+        <div class="go">
+          <button class="big">创建</button>
+          <span class="c">或者 Esc 取消</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 9 清单式 ═══ -->
+    <section class="np np9" data-l="9">
+      <div class="topbar"><span>Session-Template · 新建</span><span class="sp"></span><span class="faint">2 / 4 已完成</span></div>
+      <div class="body">
+        <div class="wrap">
+          <div class="top"><h1>新建模板</h1><span class="prog">62%</span></div>
+          <div class="bar9"><i></i></div>
+          <div class="item done"><span class="ck">✓</span><div class="c"><div class="t">名字</div>
+            <div style="font-family:var(--mono);font-size:12px;color:var(--ink2);margin-top:4px">deep-dive</div></div></div>
+          <div class="item done"><span class="ck">✓</span><div class="c"><div class="t">类别</div>
+            <div class="picked"><span class="on">工程</span><span>写作</span><span>+ 新建</span></div></div></div>
+          <div class="item todo"><span class="ck"></span><div class="c"><div class="t">摘要 —— 还差这一项</div>
+            <div class="inp">一句话说清这条模板干什么</div></div></div>
+          <div class="item todo"><span class="ck"></span><div class="c"><div class="t">起手式</div>
+            <div class="picked"><span class="on">空白</span><span>跟设备默认</span></div></div></div>
+        </div>
+      </div>
+      <div class="foot">
+        <button class="btn pri" style="opacity:.45">创建</button>
+        <span class="note">填完「摘要」才能点</span>
+        <span class="sp"></span><button class="btn ghost">取消</button>
+      </div>
+    </section>
+
+    <!-- ═══ 10 对话式 ═══ -->
+    <section class="np np10" data-l="10">
+      <div class="topbar"><span>跟 NousDesk 一起建</span><span class="sp"></span><span class="faint">Session-Template</span></div>
+      <div class="body">
+        <div class="msg">
+          <div class="av">N</div>
+          <div class="bub"><span class="q">给它起个名字？</span>
+            <span class="h">小写 + 连字符，它就是目录名。比如 deep-dive。</span></div>
+        </div>
+        <div class="msg me"><div class="bub">deep-dive</div></div>
+        <div class="msg">
+          <div class="av">N</div>
+          <div class="bub"><span class="q">一句话说清它干什么？</span>
+            <span class="h">人靠这一行决定开不开它 —— 不能空。</span></div>
+        </div>
+        <div class="quick"><span>先空着</span><span>从摘要里挑一句</span><span>参考 deep-dive</span></div>
+        <div class="msg">
+          <div class="av">N</div>
+          <div class="bub"><span class="q">归到哪个类别？</span>
+            <span class="h">现在是「工程」。</span></div>
+        </div>
+        <div class="quick"><span class="on">工程</span><span>写作</span><span>未分类</span><span>＋ 新类别</span></div>
+      </div>
+      <div class="composer"><span class="ph">回一句，或者直接点上面的选项…</span><span class="send">↑</span></div>
+    </section>
+
+  </main>
+</div>
+</div>
+
+<script>
+const NAMES = ["1 堆叠","2 两列","3 分步","4 卡片","5 表格","6 命令","7 预览","8 大标题","9 清单","10 对话"];
+const SKINS = [["default","默认"],["industrial","工业"],["mono","单色"],["paper","纸"],["amber","琥珀"]];
+
+const app = document.querySelector(".app");
+const ls = document.getElementById("ls"), sk = document.getElementById("sk");
+
+ls.innerHTML = NAMES.map((n,i)=>`<button data-l="${i+1}">${n}</button>`).join("");
+sk.innerHTML = SKINS.map(([k,n])=>`<button data-s="${k}">${n}</button>`).join("");
+
+function paint(){
+  const L = app.dataset.l, S = app.dataset.skin;
+  [...ls.children].forEach(b=>b.classList.toggle("on", b.dataset.l===L));
+  [...sk.children].forEach(b=>b.classList.toggle("on", b.dataset.s===S));
+  document.title = `新建模板 · ${NAMES[+L-1]} · ${(SKINS.find(x=>x[0]===S)||[])[1]}`;
+}
+
+ls.addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b)return; app.dataset.l=b.dataset.l; paint(); });
+sk.addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b)return; app.dataset.skin=b.dataset.s; paint(); });
+
+document.addEventListener("keydown", e=>{
+  const L = +app.dataset.l;
+  if(e.key==="ArrowRight"){ app.dataset.l = String(L%10+1); paint(); }
+  if(e.key==="ArrowLeft"){ app.dataset.l = String((L+8)%10+1); paint(); }
+  const n = parseInt(e.key);
+  if(n>=1 && n<=5){ app.dataset.skin = SKINS[n-1][0]; paint(); }
+});
+
+// hash: #排版,皮肤
+const H = (location.hash.replace("#","")||"").split(",");
+if(H[0] && +H[0]>=1 && +H[0]<=10) app.dataset.l = H[0];
+if(H[1] && SKINS.some(x=>x[0]===H[1])) app.dataset.skin = H[1];
+paint();
+</script>
+</body>
+</html>

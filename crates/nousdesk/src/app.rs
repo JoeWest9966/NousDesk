@@ -129,7 +129,7 @@ pub(crate) const SESSION_LIST_W: f32 = 280.;
 #[allow(dead_code)]
 pub(crate) const PRESET_TREE_W: f32 = 248.;
 #[allow(dead_code)]
-pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
+pub(crate) const TEMPLATE_LIST_W: f32 = 300.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -316,6 +316,14 @@ pub struct Desktop {
     pub(crate) preset_closed: std::collections::HashSet<String>,
     /// 正在从模板开的那条（防连点 + 状态提示）。
     pub(crate) creating: Option<String>,
+    /// 右栏关系图看的是哪条预设（37 节点图）。`None` = 什么也没选，右栏给空状态。
+    pub(crate) picked_preset: Option<String>,
+    /// 图上点了哪个节点（`dim:model` 这种 id）。只影响那一行说明。
+    pub(crate) picked_node: Option<String>,
+    /// 「新建一条」表单。`Some` = 右栏被表单占着，关系图让开。
+    pub(crate) new_preset: Option<crate::templates::NewPresetDraft>,
+    /// 「新建类别」弹层。
+    pub(crate) new_cat: crate::templates::NewCatDraft,
     _subs: Vec<Subscription>,
     /// 「New Manual」盘面。只占右侧聊天区那一格（外形照 qrd3wh 的 hb7k3j 页）。
     pub(crate) newchat: crate::board::NewChat,
@@ -443,6 +451,35 @@ impl Desktop {
                         app.stop_propagation();
                         return;
                     }
+                    // Template 页：Esc 先收节点说明，再收整张图（两段，不是一步收光）。
+                    let closed = weak
+                        .update(app, |this, cx| {
+                            if this.tab != Tab::Templates {
+                                return false;
+                            }
+                            if this.new_cat.input.is_some() {
+                                this.close_new_category(cx);
+                                return true;
+                            }
+                            if this.new_preset.take().is_some() {
+                                cx.notify();
+                                return true;
+                            }
+                            if this.picked_node.take().is_some() {
+                                cx.notify();
+                                return true;
+                            }
+                            if this.picked_preset.take().is_some() {
+                                cx.notify();
+                                return true;
+                            }
+                            false
+                        })
+                        .unwrap_or(false);
+                    if closed {
+                        app.stop_propagation();
+                        return;
+                    }
                 }
                 let handled = weak
                     .update(app, |this, cx| {
@@ -559,6 +596,10 @@ impl Desktop {
             preset_cat: None,
             preset_closed: std::collections::HashSet::new(),
             creating: None,
+            picked_preset: None,
+            picked_node: None,
+            new_preset: None,
+            new_cat: crate::templates::NewCatDraft::default(),
             newchat: crate::board::NewChat::new(window, cx),
             nav: SessionNav::new(),
             _subs: subs,
@@ -2348,11 +2389,6 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .gap(t().d(6.))
-                    // NoRail 收掉图标条之后，菜单入口得在列表里接回来 —— 否则「≡ 更多」
-                    // 跟着图标条一起没了，设置就点不开了。
-                    .children(
-                        (t().layout == crate::theme::Layout::NoRail).then(|| self.more_button(cx)),
-                    )
                     .child("NousDesk")
                     .child(div().flex_1())
                     // 建会话的唯一入口。以前只能从模板起，现在多一条「从零配」的路。
@@ -3680,6 +3716,10 @@ impl Render for Desktop {
             self.render_settings(window, cx)
         } else if self.archive_open {
             self.render_archive(cx)
+        } else if self.tab == Tab::Templates {
+            // Template 页自带第三栏（关系图），聊天区这一格不画 ——
+            // 留着它会和关系图叠在一起（`flex_1` 撑开之后真的叠过）。
+            div().into_any_element()
         } else if self.newchat.open {
             self.render_board(window, cx)
         } else {
@@ -3697,21 +3737,23 @@ impl Render for Desktop {
             .when(!skin.font.is_empty(), |el| el.font_family(skin.font))
             .when(skin.line_height > 0., |el| el.line_height(px(skin.lh().as_f32())))
             .bg(rgb(skin.p.chat_bg))
-            .children(match skin.layout {
-                crate::theme::Layout::Classic => Some(self.render_icon_bar(cx).into_any_element()),
-                // NoRail：图标条收掉，菜单折进会话列表标题行（demo 09）。
-                crate::theme::Layout::NoRail => None,
-            })
+            .child(self.render_icon_bar(cx))
             .child(match self.tab {
                 Tab::Chats => self.render_session_list(cx).into_any_element(),
                 // Template 页是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
                 Tab::Templates => div()
                     .flex()
                     .flex_row()
+                    .flex_1()
                     .h_full()
                     .min_w(t().d(0.))
                     .child(self.render_preset_tree(cx))
                     .child(self.render_templates(cx))
+                    .child(if self.new_preset.is_some() {
+                        self.render_new_preset(window, cx)
+                    } else {
+                        self.render_detail(window, cx)
+                    })
                     .into_any_element(),
             })
             // 会话内跳转目录（J）：只在聊天页、选中了会话、且**盘面没开**时出现。
@@ -3768,6 +3810,8 @@ impl Render for Desktop {
             .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
             // 「撕原件」确认（盖在菜单之上）
             .children(self.purge_overlay(cx))
+            // 「新建类别」弹层
+            .children(self.new_cat_overlay(cx))
             // 轻提示：最后一层，永远看得见。
             .children(self.render_notice());
 

@@ -1,0 +1,2388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NousDesk · Template 工作台（完整原型）</title>
+<style>
+@font-face { font-family: Inter; src: url(fonts/inter-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: Manrope; src: url(fonts/manrope-500.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: JBMono; src: url(fonts/jetbrainsmono-400.woff2) format("woff2"); font-display: swap; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: #08090a; color: #e6e8ea;
+  font: 400 12.5px/1.45 Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex; gap: 22px; padding: 20px;
+}
+
+/* ══ 外壳（挑皮用） ══ */
+.bar { width: 262px; flex: 0 0 262px; overflow: auto; scrollbar-width: none; }
+.bar::-webkit-scrollbar { display: none; }
+.bar h1 { font: 500 13px/1.3 Manrope, Inter; margin-bottom: 2px; }
+.bar .sub { color: #666d73; font-size: 10.5px; line-height: 1.6; margin-bottom: 20px; }
+.bar h2 { font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase; color: #666d73; margin: 0 0 7px; font-weight: 600; }
+.bar section { margin-bottom: 16px; }
+.opts { display: flex; flex-direction: column; gap: 1px; }
+.opts.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 2px; }
+.grp-t { grid-column: span 2; font-size: 8px; letter-spacing: .18em; text-transform: uppercase;
+  color: #5a6065; padding: 7px 0 2px; font-weight: 600; }
+.opt.cmp { padding: 3px 6px; font-size: 9.5px; border-left: 2px solid transparent; display: block;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #98a0a6; }
+.opt.cmp:hover { color: #e6e8ea; }
+.opt.cmp[aria-pressed="true"] { border-left-color: #e6e8ea; color: #fff; background: #16191b; }
+.opt { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; cursor: pointer; text-align: left;
+  background: transparent; border: 0; border-left: 2px solid transparent; color: #939ba1; font: inherit; }
+.opt:hover { color: #e6e8ea; }
+.opt[aria-pressed="true"] { border-left-color: #e6e8ea; color: #fff; }
+.opt b { font-weight: 600; font-size: 10.5px; min-width: 46px; }
+.opt span { font-size: 10px; color: #666d73; }
+.opt[aria-pressed="true"] span { color: #939ba1; }
+.tip { font-size: 10px; line-height: 1.6; color: #666d73; margin-top: 8px; }
+.tip b { color: #b3babf; font-weight: 500; }
+.hint { margin-top: 14px; font-size: 10px; color: #5a6065; line-height: 1.7; border-top: 1px solid #1c2023; padding-top: 10px; }
+.hint code { font-family: JBMono, monospace; font-size: 9.5px; color: #8b9297; }
+
+/* ══ 应用窗 ══ */
+.win { flex: 1; display: flex; justify-content: center; align-items: flex-start; overflow: auto; }
+.app {
+  width: 1280px; height: 800px; display: flex; overflow: hidden; position: relative;
+  box-shadow: 0 40px 90px rgba(0,0,0,.6);
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font, Inter); font-size: var(--fs, 12.5px);
+}
+
+/* ── 皮肤变量 ───────────────────────────────────────────── */
+.app[data-skin="graphite"] {
+  --bg: #101214; --panel: #141719; --panel2: #191d20; --rail: #0b0d0e;
+  --ink: #e7eaec; --ink2: #9aa2a8; --ink3: #626a70; --ink4: #454c51;
+  --line: #22272b; --line2: #1a1e21; --accent: #e7eaec; --accent-ink: #101214;
+  --ok: #56b98a; --warn: #d8a24a; --bad: #e06c62; --radius: 3px; --row: 34px;
+}
+.app[data-skin="paper"] {
+  --bg: #fbfbfa; --panel: #ffffff; --panel2: #f5f5f3; --rail: #f0f0ee;
+  --ink: #171a1c; --ink2: #62686d; --ink3: #9298a0; --ink4: #b9bec3;
+  --line: #e6e6e3; --line2: #efefec; --accent: #171a1c; --accent-ink: #ffffff;
+  --ok: #2c8a5e; --warn: #a9761d; --bad: #c4362b; --radius: 3px; --row: 34px;
+}
+.app[data-skin="mono"] {
+  --bg: #000; --panel: #000; --panel2: #0a0a0a; --rail: #000;
+  --ink: #fff; --ink2: #a8a8a8; --ink3: #6b6b6b; --ink4: #4a4a4a;
+  --line: #fff; --line2: #2a2a2a; --accent: #fff; --accent-ink: #000;
+  --ok: #fff; --warn: #fff; --bad: #ff4d4d; --radius: 0px; --row: 36px;
+}
+.app[data-skin="steel"] {
+  --bg: #14181c; --panel: #171c21; --panel2: #1c2228; --rail: #0f1215;
+  --ink: #dfe6ea; --ink2: #93a0a9; --ink3: #66727b; --ink4: #4a545c;
+  --line: #232b31; --line2: #1b2227; --accent: #7fb2d6; --accent-ink: #0b0e10;
+  --ok: #6dbf98; --warn: #d5a45c; --bad: #d9766b; --radius: 2px; --row: 34px;
+}
+.app[data-skin="amber"] {
+  --bg: #0d0c0a; --panel: #12110e; --panel2: #17150f; --rail: #090806;
+  --ink: #f0e9dc; --ink2: #a89e8c; --ink3: #6f6656; --ink4: #504a3e;
+  --line: #251f18; --line2: #1c1712; --accent: #e8a33d; --accent-ink: #14110c;
+  --ok: #7fb489; --warn: #e8a33d; --bad: #d8705f; --radius: 3px; --row: 34px;
+}
+.app[data-skin="industrial"] {
+  --bg: #f4f2ee; --panel: #ffffff; --panel2: #efece7; --rail: #e9e6e0;
+  --ink: #14150f; --ink2: #5f5d55; --ink3: #8d8a82; --ink4: #b9b6ad;
+  --line: #14150f; --line2: #d8d5cd; --accent: #14150f; --accent-ink: #fff;
+  --ok: #1d6b46; --warn: #8a6113; --bad: #a8281c; --radius: 0px; --row: 36px;
+  --font: Manrope, Inter; --fs: 12px;
+}
+
+/* ── 图标条 ─────────────────────────────────────────────── */
+.rail { width: 56px; flex: 0 0 56px; background: var(--rail); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 6px; }
+.rail .logo { width: 22px; height: 22px; border-radius: 50%; background: var(--ink); opacity: .9; margin-bottom: 12px; }
+.rail button { width: 34px; height: 34px; border: 0; background: transparent; color: var(--ink3);
+  border-radius: var(--radius); display: grid; place-items: center; cursor: pointer; }
+.rail button:hover { background: var(--panel2); color: var(--ink2); }
+.rail button.on { background: var(--panel2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.rail .spacer { flex: 1; }
+svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ── 左：类别 ───────────────────────────────────────────── */
+.side { width: 216px; flex: 0 0 216px; background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; }
+.side-head { padding: 14px 14px 10px; display: flex; align-items: center; gap: 8px; }
+.side-title { font-size: 12.5px; font-weight: 600; letter-spacing: .01em; }
+.side-head .count { margin-left: auto; font-size: 10px; color: var(--ink3); font-family: JBMono, monospace; }
+.seg { display: flex; flex-direction: column; gap: 3px; padding: 0 14px 12px; }
+.seg button { width: 100%; height: 26px; padding: 0 9px; text-align: left; border: 1px solid var(--line);
+  background: transparent; color: var(--ink3); font: inherit; font-size: 10.5px; letter-spacing: .01em;
+  cursor: pointer; border-radius: var(--radius); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg button:hover { color: var(--ink2); }
+.seg button.on { background: var(--panel2); color: var(--ink); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+.side-actions { display: flex; gap: 6px; padding: 0 14px 10px; }
+.btn-s { height: 24px; padding: 0 9px; border: 1px solid var(--line); background: transparent; color: var(--ink2);
+  font: inherit; font-size: 10.5px; cursor: pointer; border-radius: var(--radius); display: inline-flex; align-items: center; gap: 4px; }
+.btn-s:hover { color: var(--ink); border-color: var(--ink3); }
+.btn-s.solid { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.tree { flex: 1; overflow: auto; padding: 2px 8px 12px; }
+.tree .row { display: flex; align-items: center; gap: 6px; height: var(--row); padding: 0 6px; border-radius: var(--radius);
+  color: var(--ink2); cursor: pointer; font-size: 11.5px; }
+.tree .row:hover { background: var(--panel2); color: var(--ink); }
+.tree .row.on { background: var(--panel2); color: var(--ink); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
+.tree .row .n { margin-left: auto; font-size: 10px; color: var(--ink3); font-family: JBMono, monospace; }
+.tree .sub { padding-left: 18px; }
+.tree .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ink4); }
+.side-foot { padding: 10px 14px; border-top: 1px solid var(--line); font-size: 9.5px; color: var(--ink3);
+  font-family: JBMono, monospace; display: flex; align-items: center; gap: 6px; }
+.side-foot .badge { color: var(--warn); }
+
+/* ── 新建表单（右栏整栏换掉） ───────────────────────────── */
+function newForm() {
+  const d = state.draft || { name: "", summary: "", category: "", start: "blank" };
+  const isUT = state.section === "ut";
+  const sec = isUT ? "Ultimate-Template" : "Session-Template";
+  return `<div class="detail">
+    <div class="dt-tabs" style="padding:0 26px">
+      <span class="ly-k" style="align-self:center">${sec} · 新建</span>
+      <span class="sp"></span>
+      <span class="ly-k" style="align-self:center">还没落盘</span>
+    </div>
+    <div class="dt-body">
+      <div class="dt-head" style="padding-bottom:10px">
+        <div class="crumb">${sec}</div>
+        <div class="dt-title"><h1>新建模板</h1></div>
+      </div>
+      <div class="form" style="max-width:560px">
+        <div class="field"><label>名字</label>
+          <input type="text" data-field="name" placeholder="deep-dive" value="${esc(d.name)}">
+          <div class="help">落盘时就是目录名，建完不改。</div></div>
+        <div class="field"><label>摘要</label>
+          <input type="text" data-field="summary" placeholder="一句话说清这条模板干什么" value="${esc(d.summary)}">
+          <div class="help">人靠这一行决定开不开它，不能空。</div></div>
+        <div class="field"><label>类别</label>
+          <input type="text" data-field="category" placeholder="工程" value="${esc(d.category)}">
+          <div class="help">写 <code>写作/周报</code> 就是分层路径；留空 = 未分类。</div></div>
+        <div class="field"><label>起手式</label>
+          <div class="chips" style="margin-top:0">
+            <button class="chip ${d.start === "blank" ? "solid" : ""}" data-act="start" data-v="blank">空白 —— 一条都不写</button>
+            <button class="chip ${d.start === "device" ? "solid" : ""}" data-act="start" data-v="device">跟设备默认模型</button>
+          </div>
+          <div class="help">空白 = 所有可选键都不写，等同于跟随仓库默认。</div></div>
+      </div>
+    </div>
+    <div class="dt-foot">
+      <button class="btn primary" data-act="do-create">创建</button>
+      <button class="btn ghost" data-act="cancel-new">取消</button>
+      <span class="note">建完落盘，发布还是另一步</span>
+    </div>
+  </div>`;
+}
+
+/* ── 中：列表 ───────────────────────────────────────────── */
+.list { width: 330px; flex: 0 0 330px; background: var(--bg); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; }
+.list-head { padding: 12px 12px 8px; display: flex; gap: 6px; align-items: center; }
+.search { flex: 1; height: 28px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 0 9px; font: inherit; font-size: 11.5px; border-radius: var(--radius); }
+.search::placeholder { color: var(--ink4); }
+.viewsw { display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.viewsw button { width: 26px; height: 28px; border: 0; background: transparent; color: var(--ink3);
+  cursor: pointer; display: grid; place-items: center; }
+.viewsw button.on { background: var(--panel2); color: var(--ink); }
+.cards { flex: 1; overflow: auto; padding: 4px 10px 14px; }
+.card { padding: 11px 11px; border-bottom: 1px solid var(--line2); cursor: pointer; position: relative; }
+.card:hover { background: var(--panel); }
+.card.on { background: var(--panel); box-shadow: inset 2px 0 0 var(--accent); }
+.card.on::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--line); border-left: 0; pointer-events: none; }
+.card .top { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
+.card .name { font-size: 12.5px; font-weight: 600; letter-spacing: -.005em; }
+.card .st { margin-left: auto; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); }
+.card .st.warn { color: var(--warn); }
+.card .st.bad { color: var(--bad); }
+.card .sum { font-size: 11px; color: var(--ink2); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .tags { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+.tag { font-size: 9px; letter-spacing: .06em; padding: 1px 5px; border: 1px solid var(--line); color: var(--ink2); border-radius: var(--radius); }
+.tag.k { color: var(--ink2); }
+.list-foot { border-top: 1px solid var(--line); padding: 8px 12px; font-size: 9.5px; color: var(--ink3);
+  font-family: JBMono, monospace; display: flex; align-items: center; gap: 8px; }
+.list-foot .dirty { color: var(--warn); }
+.list-foot .sync { margin-left: auto; color: var(--accent); cursor: pointer; }
+
+/* ── 右：详情 / 编辑器 ──────────────────────────────────── */
+.detail { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.dt-head { padding: 20px 26px 14px; border-bottom: 1px solid var(--line2); }
+.crumb { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--ink3); font-weight: 600; margin-bottom: 9px; }
+.dt-title { display: flex; align-items: baseline; gap: 10px; }
+.dt-title h1 { font-size: 24px; font-weight: 600; letter-spacing: -.015em; line-height: 1.1; }
+.dt-title .dir { font-family: JBMono, monospace; font-size: 9.5px; color: var(--ink4); }
+.dt-sum { margin-top: 7px; color: var(--ink2); font-size: 12px; line-height: 1.55; max-width: 62ch; }
+.chips { display: flex; gap: 5px; margin-top: 12px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px; font-size: 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink2); background: var(--panel); }
+.chip i { width: 4px; height: 4px; border-radius: 50%; background: var(--ok); }
+.chip.warn i { background: var(--warn); }
+.chip.bad i { background: var(--bad); }
+.chip.solid { background: var(--panel2); color: var(--ink); }
+.dt-tabs { display: flex; gap: 0; padding: 0 26px; border-bottom: 1px solid var(--line2); }
+.dt-tabs button { height: 34px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--ink3); font: inherit; font-size: 11px; cursor: pointer; letter-spacing: .02em; }
+.dt-tabs button:hover { color: var(--ink2); }
+.dt-tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.dt-tabs .sp { flex: 1; }
+.dt-body { flex: 1; overflow: auto; padding: 16px 26px 26px; }
+.dt-foot { border-top: 1px solid var(--line2); padding: 12px 26px; display: flex; align-items: center; gap: 8px; background: var(--panel); }
+.btn { height: 30px; padding: 0 13px; border: 1px solid var(--line); background: transparent; color: var(--ink);
+  font: inherit; font-size: 11.5px; cursor: pointer; border-radius: var(--radius); display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { border-color: var(--ink3); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.ghost { border-color: transparent; color: var(--ink2); }
+.btn.ghost:hover { background: var(--panel2); }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+.dt-foot .note { margin-left: auto; font-size: 10px; color: var(--ink3); font-family: JBMono, monospace; }
+
+/* 规格表 */
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 26px; }
+.fld .k { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); font-weight: 600; margin-bottom: 5px; }
+.fld .v { font-size: 12.5px; line-height: 1.4; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fld .v .mono { font-family: JBMono, monospace; font-size: 11.5px; color: var(--ink); }
+.fld .v .sub { color: var(--ink3); font-size: 11px; }
+.sec-t { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600;
+  margin: 20px 0 10px; display: flex; align-items: center; gap: 10px; }
+.sec-t::after { content: ""; flex: 1; height: 1px; background: var(--line2); }
+.refs { display: flex; flex-direction: column; }
+.ref { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line2); font-size: 12px; }
+.ref:last-child { border-bottom: 0; }
+.ref .kind { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin-left: auto; }
+.ref .ok { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ok); }
+.ref .ok.bad { color: var(--bad); }
+.notes { font-size: 11.5px; line-height: 1.7; color: var(--ink2); max-width: 66ch; }
+
+/* 编辑器：盘面 */
+.board { display: flex; flex-direction: column; gap: 0; }
+.brow { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line2); }
+.brow:first-child { border-top: 1px solid var(--line2); }
+.brow .k { width: 96px; flex: 0 0 96px; font-size: 9.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.brow .v { flex: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; min-width: 0; }
+.brow .act { font-size: 10px; color: var(--ink3); cursor: pointer; }
+.brow .act:hover { color: var(--ink); }
+.pill { height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius);
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink); background: var(--panel); }
+.pill.add { color: var(--ink3); border-style: dashed; cursor: pointer; }
+.segment { display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.segment button { height: 24px; padding: 0 10px; border: 0; background: transparent; color: var(--ink3); font: inherit; font-size: 11px; cursor: pointer; }
+.segment button.on { background: var(--panel2); color: var(--ink); font-weight: 600; }
+
+/* 编辑器：JSON */
+.code { font-family: JBMono, monospace; font-size: 11.5px; line-height: 1.75; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--panel); padding: 6px 0; overflow: auto; }
+.code .l { display: flex; padding: 0 12px; }
+.code .n { width: 28px; flex: 0 0 28px; color: var(--ink4); user-select: none; text-align: right; padding-right: 10px; }
+.code .t { white-space: pre-wrap; word-break: break-word; }
+.code .k { color: var(--ink2); }
+.code .s { color: var(--ink); }
+
+/* diff */
+.diff { font-family: JBMono, monospace; font-size: 11.5px; line-height: 1.75; border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: auto; background: var(--panel); }
+.diff .l { display: flex; padding: 0 12px; }
+.diff .n { width: 28px; flex: 0 0 28px; color: var(--ink4); text-align: right; padding-right: 10px; user-select: none; }
+.diff .t { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.diff .l.add { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.diff .l.del { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.diff .l.add .t::before { content: "+ "; color: var(--ok); }
+.diff .l.del .t::before { content: "− "; color: var(--bad); }
+.units { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.unit { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 9px; font-size: 10.5px; color: var(--ink2);
+  background: transparent; font-family: inherit; cursor: pointer; display: flex; gap: 7px; align-items: center; }
+.unit.on { border-color: var(--ink3); color: var(--ink); }
+.unit .plus { color: var(--ok); }
+.unit .minus { color: var(--bad); }
+
+/* 新建表单 */
+.form .field { margin-bottom: 16px; }
+.form label { display: block; font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3);
+  font-weight: 600; margin-bottom: 6px; }
+.form .help { font-size: 10.5px; color: var(--ink3); margin-top: 5px; line-height: 1.5; }
+.form input[type="text"], .form textarea, .form select {
+  width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 8px 10px; font: inherit; font-size: 12px; border-radius: var(--radius); }
+.form textarea { resize: vertical; min-height: 58px; line-height: 1.55; }
+.form .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.err { color: var(--bad); font-size: 10.5px; margin-top: 5px; }
+.okmsg { color: var(--ok); font-size: 10.5px; margin-top: 5px; }
+
+/* 弹层 */
+.layer { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 9; }
+.layer.dim0 { background: transparent; }
+.modal { width: 440px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(0,0,0,.5); overflow: hidden; }
+.modal .mh { padding: 16px 20px 10px; }
+.modal .mh h3 { font-size: 13.5px; font-weight: 600; }
+.modal .mh p { margin-top: 6px; font-size: 11.5px; color: var(--ink2); line-height: 1.55; }
+.modal .mb { padding: 0 20px 16px; font-size: 11.5px; color: var(--ink2); }
+.modal .mf { padding: 12px 20px; border-top: 1px solid var(--line2); display: flex; gap: 8px; justify-content: flex-end; background: var(--panel2); }
+.filelist { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.filerow { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-family: JBMono, monospace; font-size: 10.5px; border-bottom: 1px solid var(--line2); }
+.filerow:last-child { border-bottom: 0; }
+.filerow .plus { color: var(--ok); }
+.filerow .minus { color: var(--bad); }
+.filerow .st { margin-left: auto; color: var(--ink3); }
+.menu { position: absolute; width: 176px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 12px 30px rgba(0,0,0,.35); padding: 4px; z-index: 12; }
+.menu button { width: 100%; text-align: left; padding: 7px 9px; border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 11.5px; cursor: pointer; border-radius: var(--radius); display: flex; align-items: center; gap: 8px; }
+.menu button:hover { background: var(--panel2); }
+.menu button.danger { color: var(--bad); }
+.menu .sep { height: 1px; background: var(--line2); margin: 4px 0; }
+.menu .cap { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); padding: 6px 9px 3px; }
+
+/* 空态 / 加载 */
+.empty { padding: 60px 0; text-align: center; color: var(--ink3); }
+.empty .big { font-size: 13px; color: var(--ink2); margin-bottom: 6px; }
+.empty .small { font-size: 11px; line-height: 1.6; }
+.toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+  padding: 8px 14px; border-radius: var(--radius); font-size: 11.5px; z-index: 20; box-shadow: 0 8px 20px rgba(0,0,0,.3); }
+
+/* 结构性皮肤差异 */
+.app[data-skin="mono"] .side, .app[data-skin="mono"] .list, .app[data-skin="mono"] .detail { border-color: #fff; }
+.app[data-skin="mono"] .card.on { border-color: #fff; }
+.app[data-skin="mono"] .btn, .app[data-skin="mono"] .btn-s, .app[data-skin="mono"] .seg button { border-color: #fff; }
+.app[data-skin="industrial"] .side { border-right: 2px solid var(--line); }
+.app[data-skin="industrial"] .list { border-right: 1px solid var(--line2); }
+.app[data-skin="industrial"] .dt-head { border-bottom: 2px solid var(--line); }
+.app[data-skin="industrial"] .crumb { font-family: JBMono, monospace; }
+.app[data-skin="industrial"] .fld .k { font-family: JBMono, monospace; }
+.app[data-skin="paper"] .card.on { box-shadow: inset 2px 0 0 var(--accent), 0 1px 3px rgba(0,0,0,.04); }
+
+/* ══════════════════════════════════════════════════════════
+   12 套右栏排版（只改排版，不改颜色）
+   ══════════════════════════════════════════════════════════ */
+.ly-name { font-family: var(--font, Inter); letter-spacing: -.02em; }
+.ly-k { font-size: 9px; letter-spacing: .15em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-mono { font-family: JBMono, monospace; }
+.ly-sub { color: var(--ink3); font-size: 11px; }
+
+/* 1 · flow —— 单列，标签左、值右，留白分隔 */
+.ly-flow .fhead { padding-bottom: 18px; }
+.ly-flow h1 { font-size: 24px; font-weight: 600; }
+.ly-flow .sum { margin-top: 6px; color: var(--ink2); font-size: 12px; line-height: 1.6; max-width: 60ch; }
+.ly-flow .rows { margin-top: 14px; }
+.ly-flow .row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 13px 0; border-bottom: 1px solid var(--line2); }
+.ly-flow .row .v { font-size: 12.5px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+
+/* 2 · table —— 表格，紧凑，右对齐 */
+.ly-table h1 { font-size: 21px; font-weight: 600; margin-bottom: 2px; }
+.ly-table .sum { color: var(--ink2); font-size: 11.5px; margin-bottom: 14px; }
+.ly-table table { width: 100%; border-collapse: collapse; }
+.ly-table th { width: 104px; text-align: left; font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink3); font-weight: 600; padding: 8px 0; border-bottom: 1px solid var(--line2); vertical-align: baseline; }
+.ly-table td { text-align: left; font-size: 12px; padding: 8px 0 8px 20px; border-bottom: 1px solid var(--line2); }
+.ly-table tr.grp th, .ly-table tr.grp td { border-bottom: 0; padding-top: 18px; font-size: 9px; color: var(--ink3); }
+
+/* 3 · tiles —— 2×N 小卡片 */
+.ly-tiles h1 { font-size: 22px; font-weight: 600; }
+.ly-tiles .sum { color: var(--ink2); font-size: 11.5px; margin: 5px 0 14px; }
+.ly-tiles .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+.ly-tiles .t { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 11px; min-height: 64px;
+  display: flex; flex-direction: column; gap: 5px; }
+.ly-tiles .t .k { font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-tiles .t .v { font-size: 13px; line-height: 1.3; word-break: break-word; }
+.ly-tiles .t .v small { display: block; font-size: 10.5px; color: var(--ink3); margin-top: 2px; }
+
+/* 4 · monolith —— 巨型名字 + 大片留白 */
+.ly-mono { display: flex; flex-direction: column; height: 100%; }
+.ly-mono .top { display: flex; justify-content: space-between; margin-bottom: 64px; }
+.ly-mono h1 { font-size: 52px; line-height: 1.02; font-family: var(--font, Manrope); font-weight: 500; letter-spacing: -.045em; }
+.ly-mono .rule { width: 52px; height: 1px; background: var(--ink); margin: 24px 0 20px; }
+.ly-mono .sum { font-size: 14px; line-height: 1.6; color: var(--ink2); max-width: 34ch; }
+.ly-mono .bottom { margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding-top: 26px; }
+.ly-mono .bottom .k { margin-bottom: 7px; }
+.ly-mono .bottom .v { font-size: 12.5px; }
+.ly-mono .bottom .v small { display: block; color: var(--ink3); font-size: 10.5px; margin-top: 2px; }
+
+/* 5 · sheet —— 竖排书脊 + 编号规格表 */
+.ly-sheet { display: flex; gap: 0; height: 100%; }
+.ly-sheet .spine { width: 34px; flex: 0 0 34px; border-right: 1px solid var(--line); display: flex;
+  align-items: center; justify-content: center; }
+.ly-sheet .spine span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 8px; letter-spacing: .32em;
+  text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-sheet .main { flex: 1; padding-left: 18px; display: flex; flex-direction: column; min-width: 0; }
+.ly-sheet h1 { font-size: 28px; font-family: var(--font, Manrope); font-weight: 500; letter-spacing: -.025em; }
+.ly-sheet .band { height: 2px; background: var(--ink); margin: 12px 0 6px; }
+.ly-sheet .r { display: flex; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line2); }
+.ly-sheet .r .no { width: 34px; flex: 0 0 34px; font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); }
+.ly-sheet .r .k { width: 88px; flex: 0 0 88px; }
+.ly-sheet .r .v { flex: 1; text-align: right; font-size: 12px; }
+
+/* 6 · split —— 上下对开 */
+.ly-split { display: flex; flex-direction: column; height: 100%; margin: -16px -26px -26px; }
+.ly-split .up { background: var(--ink); color: var(--bg); padding: 22px 26px 20px; }
+.ly-split .up .crumb { color: color-mix(in srgb, var(--bg) 45%, transparent); }
+.ly-split .up h1 { font-size: 40px; font-family: var(--font, Manrope); font-weight: 500; letter-spacing: -.04em; margin: 10px 0 10px; }
+.ly-split .up .sum { font-size: 12.5px; line-height: 1.6; color: color-mix(in srgb, var(--bg) 62%, transparent); max-width: 44ch; }
+.ly-split .up .states { display: flex; gap: 18px; margin-top: 18px; border-top: 1px solid color-mix(in srgb, var(--bg) 18%, transparent); padding-top: 12px; }
+.ly-split .up .states div { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--bg) 50%, transparent); }
+.ly-split .up .states div b { display: block; margin-top: 5px; font-size: 11.5px; letter-spacing: 0; text-transform: none; color: var(--bg); font-weight: 500; }
+.ly-split .down { flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px 26px; padding: 20px 26px; align-content: start; }
+.ly-split .down .k { margin-bottom: 4px; }
+.ly-split .down .v { font-size: 12px; }
+
+/* 7 · gauge —— 环形仪表 */
+.ly-gauge { display: flex; flex-direction: column; align-items: center; height: 100%; }
+.ly-gauge .ring { position: relative; width: 260px; height: 260px; margin-top: 4px; }
+.ly-gauge .ring svg { width: 100%; height: 100%; display: block; }
+.ly-gauge .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.ly-gauge .center .n { font-size: 30px; font-family: var(--font, Manrope); font-weight: 500; letter-spacing: -.03em; }
+.ly-gauge .center .s { margin-top: 7px; font-size: 8.5px; letter-spacing: .22em; text-transform: uppercase; color: var(--ink3); }
+.ly-gauge .cap { margin-top: 18px; font-size: 11px; color: var(--ink3); text-align: center; max-width: 44ch; line-height: 1.6; }
+.ly-gauge .cells { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); margin-top: auto; padding-top: 20px; }
+.ly-gauge .cells .c { border-left: 1px solid var(--line2); padding-left: 12px; }
+.ly-gauge .cells .c:first-child { border-left: 0; padding-left: 0; }
+.ly-gauge .cells .k { margin-bottom: 6px; }
+.ly-gauge .cells .v { font-size: 11.5px; line-height: 1.3; }
+
+/* 8 · columns —— 三列报刊栏 */
+.ly-columns .hd { display: flex; align-items: baseline; gap: 10px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
+.ly-columns h1 { font-size: 20px; font-weight: 600; }
+.ly-columns .hd .sum { margin-left: auto; font-size: 10.5px; color: var(--ink3); max-width: 34ch; text-align: right; }
+.ly-columns .cols { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 0; margin-top: 4px; }
+.ly-columns .col { padding: 0 14px; border-left: 1px solid var(--line2); }
+.ly-columns .col:first-child { border-left: 0; padding-left: 0; }
+.ly-columns .f { padding: 11px 0; border-bottom: 1px solid var(--line2); }
+.ly-columns .f .k { margin-bottom: 4px; }
+.ly-columns .f .v { font-size: 12px; line-height: 1.4; }
+
+/* 9 · timeline —— 左侧轴线 */
+.ly-timeline .hd { margin-bottom: 18px; }
+.ly-timeline h1 { font-size: 20px; font-weight: 600; }
+.ly-timeline .sum { margin-top: 5px; font-size: 11.5px; color: var(--ink2); }
+.ly-timeline .tl { position: relative; padding-left: 26px; }
+.ly-timeline .tl::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 1px; background: var(--line); }
+.ly-timeline .n { position: relative; padding: 10px 0; }
+.ly-timeline .n::before { content: ""; position: absolute; left: -25px; top: 16px; width: 7px; height: 7px;
+  background: var(--bg); border: 1px solid var(--ink3); border-radius: 50%; }
+.ly-timeline .n .k { margin-bottom: 3px; }
+.ly-timeline .n .v { font-size: 12.5px; }
+
+/* 10 · accordion —— 分组折叠 */
+.ly-acc .hd { margin-bottom: 6px; }
+.ly-acc h1 { font-size: 21px; font-weight: 600; }
+.ly-acc .grp { border-bottom: 1px solid var(--line); }
+.ly-acc .gh { display: flex; align-items: center; gap: 8px; padding: 13px 0; cursor: pointer; }
+.ly-acc .gh .t { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink2); font-weight: 600; }
+.ly-acc .gh .c { margin-left: auto; font-size: 10px; color: var(--ink3); font-family: JBMono, monospace; }
+.ly-acc .gh .caret { transition: transform .15s ease-out; color: var(--ink3); }
+.ly-acc .grp.open .gh .caret { transform: rotate(90deg); }
+.ly-acc .gb { display: none; padding-bottom: 12px; }
+.ly-acc .grp.open .gb { display: block; }
+.ly-acc .gb .r { display: flex; gap: 12px; padding: 6px 0; }
+.ly-acc .gb .r .k { flex: 0 0 92px; }
+.ly-acc .gb .r .v { flex: 1; font-size: 12px; }
+
+/* 11 · inspector —— 左内容 / 右窄规格栏 */
+.ly-insp { display: flex; gap: 0; height: 100%; }
+.ly-insp .main { flex: 1; min-width: 0; padding-right: 20px; display: flex; flex-direction: column; }
+.ly-insp h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; }
+.ly-insp .sum { margin-top: 8px; font-size: 13px; line-height: 1.65; color: var(--ink2); max-width: 40ch; }
+.ly-insp .desc { margin-top: 14px; font-size: 11.5px; line-height: 1.7; color: var(--ink3); max-width: 42ch; }
+.ly-insp .refs { margin-top: auto; }
+.ly-insp .refs .ref { display: flex; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line2); font-size: 11.5px; }
+.ly-insp .side2 { width: 216px; flex: 0 0 216px; border-left: 1px solid var(--line); padding-left: 16px; overflow: auto; }
+.ly-insp .side2 .f { padding: 9px 0; border-bottom: 1px solid var(--line2); }
+.ly-insp .side2 .f .k { margin-bottom: 3px; }
+.ly-insp .side2 .f .v { font-size: 11.5px; line-height: 1.35; }
+
+/* 12 · dense —— 极密双列表格 */
+.ly-dense .hd { position: relative; margin-bottom: 10px; padding-right: 110px; }
+.ly-dense h1 { font-size: 16px; font-weight: 600; white-space: nowrap; }
+.ly-dense .hd .ly-sub { display: block; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ly-dense .hd .meta { position: absolute; right: 0; top: 2px; font-family: JBMono, monospace; font-size: 9.5px; color: var(--ink3); text-align: right; }
+.ly-dense .kt { width: 100%; border-collapse: collapse; }
+.ly-dense .kt td { padding: 5px 0; font-size: 11.5px; border-bottom: 1px solid var(--line2); }
+.ly-dense .kt td.k { width: 74px; font-size: 10px; color: var(--ink3); }
+.ly-dense .kt td.k2 { width: 74px; font-size: 10px; color: var(--ink3); padding-left: 18px; }
+.ly-dense .kt td.v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ly-dense .kt td.v2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+
+/* ══ Flexoki 皮肤（pele.run 用的那套色板） ══ */
+.app[data-skin="flexoki"] {
+  --bg: #100f0f; --panel: #1c1b1a; --panel2: #282726; --rail: #100f0f;
+  --ink: #cecdc3; --ink2: #b7b5ac; --ink3: #878580; --ink4: #575653;
+  --line: #282726; --line2: #1c1b1a; --accent: #cecdc3; --accent-ink: #100f0f;
+  --ok: #879a39; --warn: #d0a215; --bad: #d14d41; --radius: 6px; --row: 34px;
+  --fx-red: #d14d41; --fx-orange: #da702c; --fx-yellow: #d0a215; --fx-green: #879a39;
+  --fx-cyan: #3aa99f; --fx-blue: #4385be; --fx-purple: #8b7ec8; --fx-magenta: #ce5d97;
+}
+.app[data-skin="flexoki-paper"] {
+  --bg: #fffcf0; --panel: #f2f0e5; --panel2: #e6e4d9; --rail: #f2f0e5;
+  --ink: #100f0f; --ink2: #403e3c; --ink3: #6f6e69; --ink4: #b7b5ac;
+  --line: #dad8ce; --line2: #e6e4d9; --accent: #100f0f; --accent-ink: #fffcf0;
+  --ok: #66800b; --warn: #ad8301; --bad: #af3029; --radius: 6px; --row: 34px;
+  --fx-red: #af3029; --fx-orange: #bc5215; --fx-yellow: #ad8301; --fx-green: #66800b;
+  --fx-cyan: #24837b; --fx-blue: #205ea6; --fx-purple: #5e409d; --fx-magenta: #a02f6f;
+}
+
+/* ══ 13 · kanban 看板 ══ */
+.ly-kanban { display: flex; gap: 8px; height: 100%; }
+.ly-kanban .col { flex: 1; min-width: 0; background: var(--panel); border-radius: var(--radius);
+  border: 1px solid var(--line2); display: flex; flex-direction: column; }
+.ly-kanban .ch { display: flex; align-items: center; gap: 6px; padding: 9px 10px; border-bottom: 1px solid var(--line2); }
+.ly-kanban .ch .t { font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-kanban .ch .c { margin-left: auto; font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); }
+.ly-kanban .ch i { width: 5px; height: 5px; border-radius: 50%; background: var(--ink4); }
+.ly-kanban .ch i.ok { background: var(--ok); } .ly-kanban .ch i.warn { background: var(--warn); } .ly-kanban .ch i.bad { background: var(--bad); }
+.ly-kanban .cb { padding: 7px; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.ly-kanban .kc { background: var(--bg); border: 1px solid var(--line2); border-radius: 4px; padding: 8px 9px; }
+.ly-kanban .kc .k { font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); margin-bottom: 4px; }
+.ly-kanban .kc .v { font-size: 11.5px; line-height: 1.35; word-break: break-word; }
+
+/* ══ 14 · treemap 矩形树 ══ */
+.ly-tree { display: flex; flex-direction: column; gap: 4px; height: 100%; }
+.ly-tree .row { display: flex; gap: 4px; }
+.ly-tree .cell { background: var(--panel); border: 1px solid var(--line2); border-radius: 4px; padding: 9px 10px;
+  display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; min-height: 0; }
+.ly-tree .cell .k { font-size: 8px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-tree .cell .v { font-size: 12px; line-height: 1.3; word-break: break-word; }
+.ly-tree .cell .v small { display: block; color: var(--ink3); font-size: 10px; margin-top: 2px; }
+.ly-tree .cell.big .v { font-size: 15px; }
+.ly-tree .cell.acc { border-color: color-mix(in srgb, var(--fx-blue) 45%, transparent); background: color-mix(in srgb, var(--fx-blue) 8%, var(--panel)); }
+
+/* ══ 15 · gantt 甘特 ══ */
+.ly-gantt { display: flex; flex-direction: column; height: 100%; }
+.ly-gantt .gh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.ly-gantt .gh h1 { font-size: 18px; font-weight: 600; }
+.ly-gantt .gh .sum { font-size: 10.5px; color: var(--ink3); }
+.ly-gantt .axis { margin-left: 108px; display: flex; height: 16px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.ly-gantt .axis span { flex: 1; font-family: JBMono, monospace; font-size: 8px; color: var(--ink4); }
+.ly-gantt .gr { display: flex; align-items: center; height: 30px; }
+.ly-gantt .gr .k { width: 108px; flex: 0 0 108px; font-size: 10.5px; color: var(--ink2); }
+.ly-gantt .gr .track { flex: 1; height: 12px; position: relative; }
+.ly-gantt .gr .bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.ly-gantt .gr .bar.ok { background: color-mix(in srgb, var(--fx-green) 55%, transparent); }
+.ly-gantt .gr .bar.warn { background: color-mix(in srgb, var(--fx-yellow) 50%, transparent); }
+.ly-gantt .gr .bar.bad { background: color-mix(in srgb, var(--fx-red) 55%, transparent); }
+.ly-gantt .gr .val { width: 62px; flex: 0 0 62px; text-align: right; font-family: JBMono, monospace; font-size: 9px; color: var(--ink3); }
+
+/* ══ 16 · quadrant 四象限 ══ */
+.ly-quad { display: flex; flex-direction: column; height: 100%; }
+.ly-quad .qh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.ly-quad .qh h1 { font-size: 18px; font-weight: 600; }
+.ly-quad .wrap { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; position: relative; }
+.ly-quad .q { border: 1px solid var(--line2); border-radius: 4px; padding: 9px 10px; background: var(--panel); overflow: auto; }
+.ly-quad .q .t { font-size: 8px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; margin-bottom: 6px; }
+.ly-quad .q .item { font-size: 11px; padding: 3px 0; display: flex; gap: 6px; align-items: baseline; }
+.ly-quad .q .item .n { color: var(--ink3); font-size: 9.5px; font-family: JBMono, monospace; }
+.ly-quad .q.hi { border-color: color-mix(in srgb, var(--fx-blue) 40%, transparent); }
+.ly-quad .q.bad { border-color: color-mix(in srgb, var(--fx-red) 45%, transparent); }
+.ly-quad .ax { position: absolute; font-size: 8px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink4); }
+
+/* ══ 17 · mindmap 思维导图 ══ */
+.ly-mind { display: flex; flex-direction: column; height: 100%; }
+.ly-mind .mh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.ly-mind .mh h1 { font-size: 17px; font-weight: 600; }
+.ly-mind svg { flex: 1; width: 100%; min-height: 0; overflow: visible; }
+.ly-mind text { font-family: Inter, sans-serif; }
+
+/* ══ 18 · radar 雷达 ══ */
+.ly-radar { display: flex; flex-direction: column; height: 100%; align-items: center; }
+.ly-radar .rh { width: 100%; display: flex; align-items: baseline; gap: 10px; }
+.ly-radar .rh h1 { font-size: 17px; font-weight: 600; }
+.ly-radar svg { width: 100%; flex: 1; min-height: 0; }
+.ly-radar .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 9.5px; color: var(--ink3); }
+.ly-radar .legend i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+/* ══ 19 · sankey 流图 ══ */
+.ly-sankey { display: flex; flex-direction: column; height: 100%; }
+.ly-sankey .sh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.ly-sankey .sh h1 { font-size: 17px; font-weight: 600; }
+.ly-sankey svg { flex: 1; width: 100%; min-height: 0; }
+.ly-sankey text { font-family: Inter, sans-serif; font-size: 10px; }
+
+/* ══ 20 · state 状态机 ══ */
+.ly-state { display: flex; flex-direction: column; height: 100%; }
+.ly-state .sth { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
+.ly-state .sth h1 { font-size: 18px; font-weight: 600; }
+.ly-state .chain { display: flex; align-items: center; gap: 0; margin-bottom: 22px; }
+.ly-state .st { flex: 1; text-align: center; padding: 14px 6px 12px; border: 1px solid var(--line2); border-radius: 4px;
+  background: var(--panel); position: relative; }
+.ly-state .st .dot { width: 8px; height: 8px; border-radius: 50%; margin: 0 auto 7px; background: var(--ink4); }
+.ly-state .st .lb { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-state .st .tx { font-size: 10.5px; margin-top: 5px; color: var(--ink2); }
+.ly-state .st.on { border-color: color-mix(in srgb, var(--fx-blue) 55%, transparent);
+  background: color-mix(in srgb, var(--fx-blue) 9%, var(--panel)); }
+.ly-state .st.on .dot { background: var(--fx-blue); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fx-blue) 18%, transparent); }
+.ly-state .st.on .tx { color: var(--ink); }
+.ly-state .arrow { width: 22px; flex: 0 0 22px; height: 1px; background: var(--line); }
+.ly-state .kv { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px 22px; }
+.ly-state .kv .f .k { margin-bottom: 3px; }
+.ly-state .kv .f .v { font-size: 11.5px; }
+
+
+/* ══ 21 · receipt 热敏小票 ══ */
+.ly-receipt { display: flex; justify-content: center; align-items: flex-start; height: 100%; overflow: auto; }
+.ly-receipt .rc { width: 322px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 2px; padding: 18px 18px 12px; font-family: JBMono, monospace; font-size: 10.5px;
+  line-height: 1.9; color: var(--ink2); display: flex; flex-direction: column; }
+.ly-receipt .rc .shop { text-align: center; letter-spacing: .22em; text-transform: uppercase;
+  font-size: 9px; color: var(--ink3); }
+.ly-receipt .rc .big { text-align: center; font-family: var(--font, Manrope); font-size: 17px;
+  letter-spacing: -.01em; color: var(--ink); margin: 5px 0 2px; }
+.ly-receipt .rc .dash { border-top: 1px dashed var(--line); margin: 10px 0; }
+.ly-receipt .rc .li { display: flex; gap: 6px; align-items: baseline; }
+.ly-receipt .rc .li .n { color: var(--ink3); }
+.ly-receipt .rc .li .dots { flex: 1; border-bottom: 1px dotted var(--line); transform: translateY(-3px); }
+.ly-receipt .rc .li .v { color: var(--ink); }
+.ly-receipt .rc .total { display: flex; justify-content: space-between; color: var(--ink); font-weight: 600; }
+.ly-receipt .rc .bar { margin-top: 12px; flex: 0 0 26px; height: 26px; display: flex; gap: 2px; align-items: stretch; }
+.ly-receipt .rc .bar i { flex: 1; background: var(--ink3); opacity: .55; }
+.ly-receipt .rc .bar i:nth-child(3n) { flex: .5; } .ly-receipt .rc .bar i:nth-child(4n) { flex: 1.6; }
+
+/* ══ 22 · palette 命令面板 ══ */
+.ly-palette { display: flex; flex-direction: column; height: 100%; max-width: 520px; }
+.ly-palette .pbox { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+.ly-palette .psearch { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line2); }
+.ly-palette .psearch .ph { flex: 1; font-size: 12px; color: var(--ink3); }
+.ly-palette .psearch .kbd { font-family: JBMono, monospace; font-size: 9px; border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; color: var(--ink4); }
+.ly-palette .prow { display: flex; align-items: center; gap: 9px; padding: 7px 12px; font-size: 11.5px; }
+.ly-palette .prow.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--accent); }
+.ly-palette .prow .ic { width: 14px; height: 14px; border-radius: 3px; background: var(--line); display: grid; place-items: center; font-size: 8px; color: var(--ink3); }
+.ly-palette .prow .lb { width: 88px; color: var(--ink3); font-size: 10px; letter-spacing: .06em; }
+.ly-palette .prow .vl { flex: 1; }
+.ly-palette .prow .key { font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); }
+.ly-palette .pfoot { display: flex; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line2); font-size: 9px; color: var(--ink4); font-family: JBMono, monospace; }
+
+/* ══ 23 · dashboard 小部件 ══ */
+.ly-dash { display: flex; flex-direction: column; height: 100%; }
+.ly-dash .dh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.ly-dash .dh h1 { font-size: 17px; font-weight: 600; }
+.ly-dash .dh .meta { margin-left: auto; font-family: JBMono, monospace; font-size: 9px; color: var(--ink3); }
+.ly-dash .wg { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 156px; gap: 7px; align-content: start; }
+.ly-dash .w { border: 1px solid var(--line2); border-radius: var(--radius); background: var(--panel); padding: 10px 11px;
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ly-dash .w .k { font-size: 8px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-dash .w .n { margin-top: auto; font-size: 20px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+.ly-dash .w .n small { font-size: 10.5px; color: var(--ink3); font-weight: 400; margin-left: 3px; }
+.ly-dash .w .sub { font-size: 10px; color: var(--ink3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ly-dash .w .bars { display: flex; gap: 2px; margin-top: 8px; align-items: flex-end; height: 22px; }
+.ly-dash .w .bars i { flex: 1; background: color-mix(in srgb, var(--fx-blue) 55%, transparent); border-radius: 1px; }
+.ly-dash .w .pips { display: flex; gap: 3px; margin-top: 8px; }
+.ly-dash .w .pips i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.ly-dash .w .pips i.ok { background: var(--fx-green); }
+
+/* ══ 24 · sequence 时序 ══ */
+.ly-seq { display: flex; flex-direction: column; height: 100%; }
+.ly-seq .sh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.ly-seq .sh h1 { font-size: 17px; font-weight: 600; }
+.ly-seq svg { flex: 1; width: 100%; min-height: 0; }
+.ly-seq text { font-family: Inter, sans-serif; font-size: 10px; }
+
+/* ══ 25 · journey 旅程 ══ */
+.ly-journey { display: flex; flex-direction: column; height: 100%; }
+.ly-journey .jh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.ly-journey .jh h1 { font-size: 17px; font-weight: 600; }
+.ly-journey svg { width: 100%; height: 180px; }
+.ly-journey .steps { display: flex; gap: 0; margin-top: 4px; }
+.ly-journey .steps .s { flex: 1; text-align: center; padding: 0 4px; }
+.ly-journey .steps .s .t { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-journey .steps .s .d { font-size: 10px; color: var(--ink2); margin-top: 4px; line-height: 1.35; }
+.ly-journey .kv { margin-top: auto; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 20px; }
+.ly-journey .kv .f .k { margin-bottom: 2px; }
+.ly-journey .kv .f .v { font-size: 11px; }
+
+/* ══ 26 · swimlane 泳道 ══ */
+.ly-swim { display: flex; flex-direction: column; height: 100%; gap: 6px; }
+.ly-swim .sh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.ly-swim .sh h1 { font-size: 17px; font-weight: 600; }
+.ly-swim .lane { display: flex; border: 1px solid var(--line2); border-radius: 4px; background: var(--panel); overflow: hidden; }
+.ly-swim .lane .ln { width: 54px; flex: 0 0 54px; background: var(--panel2); border-right: 1px solid var(--line2);
+  display: flex; align-items: center; justify-content: center; }
+.ly-swim .lane .ln span { writing-mode: vertical-rl; font-size: 8px; letter-spacing: .22em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-swim .lane .items { flex: 1; display: flex; gap: 0; overflow: auto; }
+.ly-swim .lane .it { flex: 1; min-width: 0; padding: 9px 10px; border-right: 1px solid var(--line2); }
+.ly-swim .lane .it:last-child { border-right: 0; }
+.ly-swim .lane .it .k { font-size: 8px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink3); margin-bottom: 3px; }
+.ly-swim .lane .it .v { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ══ 27 · fishbone 鱼骨 ══ */
+.ly-fish { display: flex; flex-direction: column; height: 100%; }
+.ly-fish .fh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.ly-fish .fh h1 { font-size: 17px; font-weight: 600; }
+.ly-fish svg { flex: 1; width: 100%; min-height: 0; }
+.ly-fish text { font-family: Inter, sans-serif; font-size: 9.5px; }
+
+/* ══ 28 · packet 数据包 ══ */
+.ly-packet { display: flex; flex-direction: column; height: 100%; font-family: JBMono, monospace; }
+.ly-packet .ph { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; font-family: Inter, sans-serif; }
+.ly-packet .ph h1 { font-size: 17px; font-weight: 600; }
+.ly-packet .blk { margin-bottom: 10px; }
+.ly-packet .blk .bt { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); margin-bottom: 5px;
+  display: flex; gap: 8px; align-items: baseline; }
+.ly-packet .blk .bt .off { color: var(--ink4); font-size: 8.5px; }
+.ly-packet .cells { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 2px; }
+.ly-packet .cells .c { height: 22px; display: grid; place-items: center; font-size: 9px;
+  background: var(--panel); border: 1px solid var(--line2); border-radius: 2px; color: var(--ink2); overflow: hidden; }
+.ly-packet .cells .c.hi { background: color-mix(in srgb, var(--fx-cyan) 20%, var(--panel)); border-color: color-mix(in srgb, var(--fx-cyan) 40%, transparent); color: var(--ink); }
+.ly-packet .cells .c.wide { grid-column: span 4; justify-items: start; padding: 0 6px; }
+
+/* ══ 29 · headline 报纸头版 ══ */
+.ly-head { display: flex; flex-direction: column; height: 100%; }
+.ly-head .mast { display: flex; align-items: baseline; gap: 10px; border-bottom: 3px double var(--ink); padding-bottom: 6px; }
+.ly-head .mast .paper { font-size: 8px; letter-spacing: .3em; text-transform: uppercase; color: var(--ink3); }
+.ly-head .mast .date { margin-left: auto; font-family: JBMono, monospace; font-size: 8.5px; color: var(--ink3); }
+.ly-head h1 { font-size: 34px; line-height: 1.05; letter-spacing: -.03em; font-weight: 600; margin: 10px 0 6px; }
+.ly-head .dek { font-size: 12.5px; color: var(--ink2); line-height: 1.5; max-width: 52ch; margin-bottom: 12px; }
+.ly-head .cols { flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 0; border-top: 1px solid var(--line); padding-top: 10px; }
+.ly-head .cols .col { padding: 0 12px; border-left: 1px solid var(--line2); }
+.ly-head .cols .col:first-child { border-left: 0; padding-left: 0; }
+.ly-head .cols .f { padding: 7px 0; border-bottom: 1px solid var(--line2); }
+.ly-head .cols .f .k { font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); margin-bottom: 3px; }
+.ly-head .cols .f .v { font-size: 11.5px; line-height: 1.35; }
+.ly-head .quote { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; gap: 10px; align-items: flex-start; }
+.ly-head .quote .qm { font-size: 34px; line-height: .8; color: var(--ink3); font-family: var(--font, Manrope); }
+.ly-head .quote .qt { font-size: 12px; line-height: 1.55; color: var(--ink2); font-style: italic; }
+
+/* ══ 30 · flip 翻面卡 ══ */
+.ly-flip { display: flex; align-items: center; justify-content: center; height: 100%; perspective: 1200px; }
+.ly-flip .card { width: 400px; height: 340px; position: relative; transform-style: preserve-3d;
+  transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+.ly-flip.flipped .card { transform: rotateY(180deg); }
+.ly-flip .face { position: absolute; inset: 0; backface-visibility: hidden; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--panel); padding: 22px 24px; display: flex; flex-direction: column; }
+.ly-flip .face.back { transform: rotateY(180deg); overflow: auto; }
+.ly-flip .front .crumb { margin-bottom: 14px; }
+.ly-flip .front h1 { font-size: 30px; font-weight: 600; letter-spacing: -.025em; }
+.ly-flip .front .sum { margin-top: 8px; font-size: 12.5px; line-height: 1.6; color: var(--ink2); }
+.ly-flip .front .foot { margin-top: auto; display: flex; align-items: center; gap: 8px; }
+.ly-flip .front .hint { margin-left: auto; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink4); }
+.ly-flip .back .r { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line2); font-size: 11px; }
+.ly-flip .back .r .k { width: 84px; flex: 0 0 84px; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); }
+
+
+/* ══ 31 · terminal 终端 ══ */
+.ly-term { height: 100%; display: flex; flex-direction: column; background: #0b0b0b; border-radius: 4px;
+  border: 1px solid var(--line); font-family: JBMono, monospace; font-size: 11px; line-height: 1.85;
+  color: #c8c8c8; overflow: hidden; }
+.ly-term .tbar { display: flex; gap: 5px; padding: 7px 10px; background: #141414; border-bottom: 1px solid #222; }
+.ly-term .tbar i { width: 8px; height: 8px; border-radius: 50%; background: #333; }
+.ly-term .tbody { padding: 12px 14px; overflow: auto; flex: 1; }
+.ly-term .p { color: #6b7280; }
+.ly-term .cmd { color: #e5e5e5; }
+.ly-term .key { color: #7dd3fc; }
+.ly-term .str { color: #a7f3d0; }
+.ly-term .warn { color: #fbbf24; }
+.ly-term .err { color: #f87171; }
+.ly-term .dim { color: #6b7280; }
+.ly-term .box { border: 1px solid #252525; padding: 8px 10px; margin: 6px 0; border-radius: 3px; }
+.ly-term .row { display: flex; }
+.ly-term .row .k { width: 92px; color: #7dd3fc; flex: 0 0 92px; }
+.ly-term .row .v { color: #e5e5e5; }
+
+/* ══ 32 · repo 代码仓库 ══ */
+.ly-repo { height: 100%; display: flex; gap: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.ly-repo .tree { width: 186px; flex: 0 0 186px; background: var(--panel); border-right: 1px solid var(--line2);
+  padding: 8px 0; font-family: JBMono, monospace; font-size: 10.5px; overflow: auto; }
+.ly-repo .tree .th { padding: 4px 12px; color: var(--ink3); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+.ly-repo .tree .n { padding: 4px 12px; color: var(--ink2); display: flex; gap: 6px; align-items: center; }
+.ly-repo .tree .n.on { background: var(--panel2); color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+.ly-repo .tree .n .m { margin-left: auto; color: var(--ok); font-size: 9px; }
+.ly-repo .tree .n.sub { padding-left: 24px; }
+.ly-repo .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ly-repo .ph { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line2);
+  font-family: JBMono, monospace; font-size: 10px; color: var(--ink3); }
+.ly-repo .ph .st { margin-left: auto; color: var(--warn); }
+.ly-repo .code { flex: 1; overflow: auto; font-family: JBMono, monospace; font-size: 10.5px; line-height: 1.75; padding: 6px 0; }
+.ly-repo .code .l { display: flex; padding: 0 12px; }
+.ly-repo .code .no { width: 26px; flex: 0 0 26px; text-align: right; padding-right: 10px; color: var(--ink4); user-select: none; }
+.ly-repo .code .t { white-space: pre-wrap; word-break: break-word; }
+.ly-repo .code .k { color: var(--fx-blue); }
+.ly-repo .code .s { color: var(--fx-green); }
+.ly-repo .code .b { color: var(--fx-orange); }
+
+/* ══ 33 · chat 对话 ══ */
+.ly-chat { height: 100%; display: flex; flex-direction: column; gap: 10px; overflow: auto; padding-right: 4px; }
+.ly-chat .msg { display: flex; gap: 9px; align-items: flex-start; max-width: 92%; }
+.ly-chat .msg.me { margin-left: auto; flex-direction: row-reverse; }
+.ly-chat .av { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 24px;
+  background: var(--panel2); border: 1px solid var(--line); display: grid; place-items: center;
+  font-size: 9px; color: var(--ink3); font-family: JBMono, monospace; }
+.ly-chat .msg.me .av { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.ly-chat .bub { background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; padding: 8px 11px; }
+.ly-chat .msg.me .bub { background: color-mix(in srgb, var(--fx-blue) 16%, var(--panel)); border-color: transparent; }
+.ly-chat .bub .q { font-size: 11px; color: var(--ink3); margin-bottom: 3px; }
+.ly-chat .bub .a { font-size: 12px; line-height: 1.5; }
+.ly-chat .bub .a.mono { font-family: JBMono, monospace; font-size: 11px; }
+.ly-chat .typing { display: flex; gap: 3px; padding: 4px 0; }
+.ly-chat .typing i { width: 4px; height: 4px; border-radius: 50%; background: var(--ink4); }
+
+/* ══ 34 · ticket 工单 ══ */
+.ly-ticket { height: 100%; display: flex; flex-direction: column; }
+.ly-ticket .th { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.ly-ticket .th .no { font-family: JBMono, monospace; font-size: 11px; color: var(--ink3); }
+.ly-ticket .th h1 { font-size: 19px; font-weight: 600; }
+.ly-ticket .badge { height: 20px; padding: 0 8px; border-radius: 999px; font-size: 9.5px; display: inline-flex;
+  align-items: center; gap: 5px; background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.ly-ticket .badge i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.ly-ticket .body { flex: 1; display: flex; gap: 22px; padding-top: 14px; min-height: 0; }
+.ly-ticket .main { flex: 1; min-width: 0; overflow: auto; }
+.ly-ticket .desc { font-size: 12.5px; line-height: 1.65; color: var(--ink2); margin-bottom: 16px; }
+.ly-ticket .comment { display: flex; gap: 9px; padding: 10px 0; border-top: 1px solid var(--line2); }
+.ly-ticket .comment .av { width: 22px; height: 22px; border-radius: 50%; background: var(--panel2);
+  border: 1px solid var(--line); flex: 0 0 22px; display: grid; place-items: center; font-size: 8px; color: var(--ink3); }
+.ly-ticket .comment .c { flex: 1; }
+.ly-ticket .comment .c .by { font-size: 10px; color: var(--ink3); margin-bottom: 3px; }
+.ly-ticket .comment .c .tx { font-size: 12px; line-height: 1.55; }
+.ly-ticket .side2 { width: 190px; flex: 0 0 190px; border-left: 1px solid var(--line2); padding-left: 16px; }
+.ly-ticket .side2 .f { padding: 8px 0; border-bottom: 1px solid var(--line2); }
+.ly-ticket .side2 .f .k { font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); margin-bottom: 3px; }
+.ly-ticket .side2 .f .v { font-size: 11.5px; }
+
+/* ══ 35 · album 专辑 ══ */
+.ly-album { height: 100%; display: flex; gap: 22px; }
+.ly-album .cover { width: 220px; height: 220px; flex: 0 0 220px; align-self: flex-start; aspect-ratio: 1; border-radius: 4px; position: relative; overflow: hidden;
+  background: linear-gradient(135deg, var(--fx-blue), var(--fx-purple) 55%, var(--fx-magenta)); }
+.ly-album .cover .tx { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 14px; }
+.ly-album .cover .tx .n { font-size: 19px; font-weight: 600; color: #fff; letter-spacing: -.02em; }
+.ly-album .cover .tx .s { font-size: 9.5px; color: rgba(255,255,255,.75); letter-spacing: .18em; text-transform: uppercase; margin-top: 3px; }
+.ly-album .tracks { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ly-album .tracks .th { display: flex; align-items: baseline; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.ly-album .tracks .th .t { font-size: 12px; font-weight: 600; }
+.ly-album .tracks .th .c { margin-left: auto; font-family: JBMono, monospace; font-size: 9px; color: var(--ink3); }
+.ly-album .tr { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line2); }
+.ly-album .tr .i { font-family: JBMono, monospace; font-size: 9.5px; color: var(--ink4); width: 16px; }
+.ly-album .tr.on .i { color: var(--fx-blue); }
+.ly-album .tr .k { width: 66px; flex: 0 0 66px; font-size: 10px; color: var(--ink3); }
+.ly-album .tr .v { flex: 1; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ly-album .tr .d { font-family: JBMono, monospace; font-size: 9.5px; color: var(--ink4); }
+
+/* ══ 36 · weather 模块卡 ══ */
+.ly-weather { height: 100%; display: flex; flex-direction: column; gap: 7px; }
+.ly-weather .grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 7px; }
+.ly-weather .c { border-radius: 14px; padding: 13px 15px; display: flex; flex-direction: column; position: relative; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line2); }
+.ly-weather .c.hero { background: linear-gradient(160deg, color-mix(in srgb, var(--fx-blue) 55%, var(--panel)), color-mix(in srgb, var(--fx-cyan) 40%, var(--panel))); border-color: transparent; }
+.ly-weather .c.hero .k { color: rgba(255,255,255,.7); }
+.ly-weather .c .k { font-size: 8.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-weather .c .big { margin-top: auto; font-size: 40px; line-height: 1; font-weight: 500; letter-spacing: -.04em; }
+.ly-weather .c .big small { font-size: 15px; color: var(--ink3); font-weight: 400; margin-left: 3px; }
+.ly-weather .c .sub { font-size: 10.5px; color: var(--ink3); margin-top: 5px; }
+.ly-weather .c.hero .big, .ly-weather .c.hero .sub { color: #fff; }
+.ly-weather .c .spark { margin-top: 8px; display: flex; gap: 3px; align-items: flex-end; height: 26px; }
+.ly-weather .c .spark i { flex: 1; background: color-mix(in srgb, var(--fx-blue) 50%, transparent); border-radius: 2px; }
+
+/* ══ 37 · net 节点网络 ══ */
+.ly-net { height: 100%; display: flex; flex-direction: column; }
+.ly-net .nh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.ly-net .nh h1 { font-size: 17px; font-weight: 600; }
+.ly-net svg { flex: 1; width: 100%; min-height: 0; }
+.ly-net text { font-family: Inter, sans-serif; }
+
+/* ══ 38 · sheet 电子表格 ══ */
+.ly-sheet2 { height: 100%; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
+  font-family: JBMono, monospace; font-size: 10.5px; }
+.ly-sheet2 .row { display: flex; border-bottom: 1px solid var(--line2); }
+.ly-sheet2 .row.hd { background: var(--panel2); color: var(--ink3); font-size: 9px; letter-spacing: .08em; }
+.ly-sheet2 .cell { flex: 1; padding: 6px 8px; border-right: 1px solid var(--line2); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ly-sheet2 .cell:last-child { border-right: 0; }
+.ly-sheet2 .cell.rn { flex: 0 0 30px; text-align: right; color: var(--ink4); background: var(--panel); }
+.ly-sheet2 .cell.k { flex: 0 0 108px; color: var(--ink3); }
+.ly-sheet2 .cell.v { color: var(--ink); }
+.ly-sheet2 .cell.on { background: color-mix(in srgb, var(--fx-blue) 12%, transparent); outline: 1px solid var(--fx-blue); }
+
+/* ══ 39 · deck 幻灯片 ══ */
+.ly-deck { height: 100%; display: flex; flex-direction: column; }
+.ly-deck .slide { flex: 1; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+  padding: 34px 40px; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+.ly-deck .slide .pg { position: absolute; right: 18px; bottom: 14px; font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); }
+.ly-deck .slide .tag { font-size: 8.5px; letter-spacing: .24em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-deck .slide h1 { font-size: 36px; line-height: 1.05; letter-spacing: -.035em; font-weight: 500; margin: 14px 0 10px; }
+.ly-deck .slide .lead { font-size: 13.5px; line-height: 1.6; color: var(--ink2); max-width: 44ch; }
+.ly-deck .slide .pairs { margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 26px; }
+.ly-deck .slide .pairs .p .k { font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); margin-bottom: 3px; }
+.ly-deck .slide .pairs .p .v { font-size: 12px; }
+.ly-deck .nav { display: flex; align-items: center; gap: 8px; padding-top: 10px; }
+.ly-deck .nav .dots { display: flex; gap: 5px; margin: 0 auto; }
+.ly-deck .nav .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); cursor: pointer; }
+.ly-deck .nav .dots i.on { background: var(--ink); }
+
+/* ══ 40 · player 播放器 ══ */
+.ly-player { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
+.ly-player .art { width: 240px; height: 240px; border-radius: 8px; position: relative; overflow: hidden;
+  background: conic-gradient(from 210deg, var(--fx-purple), var(--fx-blue), var(--fx-cyan), var(--fx-purple)); }
+.ly-player .art .tx { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.35); }
+.ly-player .art .tx .n { font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+.ly-player .art .tx .s { font-size: 9px; letter-spacing: .22em; text-transform: uppercase; opacity: .8; margin-top: 5px; }
+.ly-player .meta { text-align: center; }
+.ly-player .meta .t { font-size: 14px; font-weight: 600; }
+.ly-player .meta .a { font-size: 10.5px; color: var(--ink3); margin-top: 3px; }
+.ly-player .bar { width: 300px; height: 3px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.ly-player .bar i { display: block; height: 100%; width: 38%; background: var(--ink); }
+.ly-player .times { display: flex; gap: 10px; font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); width: 300px; justify-content: space-between; }
+.ly-player .wave { display: flex; gap: 2px; align-items: center; height: 34px; width: 300px; justify-content: center; }
+.ly-player .wave i { width: 2px; background: color-mix(in srgb, var(--ink) 45%, transparent); border-radius: 1px; }
+.ly-player .ctl { display: flex; gap: 14px; align-items: center; color: var(--ink2); }
+.ly-player .ctl .play { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--bg);
+  display: grid; place-items: center; font-size: 12px; }
+
+</style>
+<script>
+window.addEventListener("error", (e) => {
+  const app = document.getElementById("app");
+  if (app) app.insertAdjacentHTML("beforeend",
+    `<pre style="position:fixed;bottom:0;left:0;right:0;background:#fff;color:#c00;font:11px/1.5 monospace;padding:8px;z-index:99;white-space:pre-wrap">${e.message}\n${e.filename}:${e.lineno}:${e.colno}\n${(e.error && e.error.stack || "").split("\n").slice(0,3).join("\n")}</pre>`);
+});
+</script>
+</head>
+<body>
+
+<aside class="bar">
+  <h1>Template 工作台</h1>
+  <p class="sub">第一版「功能齐全」的原型：三栏、两段、详情/盘面/JSON/对比、新建、发布、归档、彻底删、开对话。真数据。</p>
+
+  <section>
+    <h2>右栏排版 · 40 套</h2>
+    <div class="opts grid2" id="opt-layout"></div>
+  </section>
+
+  <section>
+    <h2>皮肤 · 只影响颜色</h2>
+    <div class="opts grid2" id="opt-skin"></div>
+  </section>
+
+  <p class="hint">
+    这版是「功能验收稿」，皮肤只是变量差异。<br>
+    点左边类别筛选、点卡片换详情、右栏四个 tab（详情/盘面/JSON/对比）、<br>
+    ⋯ 菜单里有归档与彻底删、底部有发布。<br>
+    <code>Esc</code> 关弹层。
+  </p>
+</aside>
+
+<main class="win"><div class="app" id="app" data-skin="graphite"></div></main>
+
+<script src="data.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const ST = window.DATA.sections["Session-Template"];
+const UT = window.DATA.sections["Ultimate-Template"];
+const PENDING = { "st": window.DATA.pending, "ut": window.DATA.pendingUT };
+const DIFFS = window.DATA.diffs;
+
+const LAYOUT_NAME = {
+  flow: '1 · 纵向流', table: '2 · 表格式', tiles: '3 · 卡片网格', mono: '4 · 巨碑',
+  sheet: '5 · 铭牌', split: '6 · 对开', gauge: '7 · 圆环', columns: '8 · 三栏',
+  timeline: '9 · 轴线', acc: '10 · 折叠', insp: '11 · 检视栏', dense: '12 · 极密',
+  kanban: '13 · 看板', tree: '14 · 矩形树', gantt: '15 · 甘特', quad: '16 · 四象限',
+  mind: '17 · 导图', radar: '18 · 雷达', sankey: '19 · 流图', state: '20 · 状态机',
+  receipt: '21 · 小票', palette: '22 · 命令面板', dash: '23 · 仪表盘', seq: '24 · 时序',
+  journey: '25 · 旅程', swim: '26 · 泳道', fish: '27 · 鱼骨', packet: '28 · 数据包',
+  headline: '29 · 头版', flip: '30 · 翻面卡',
+  term: '31 · 终端', repo: '32 · 代码仓', chat: '33 · 对话', ticket: '34 · 工单',
+  album: '35 · 专辑', weather: '36 · 模块卡', net: '37 · 节点图', sheet2: '38 · 电子表',
+  deck: '39 · 幻灯片', player: '40 · 播放器',
+};
+
+const state = {
+  skin: "graphite", section: "st", selected: "deep-dive",
+  cat: null, view: "list", q: "",
+  tab: "detail", unit: 0, layer: null, menu: null, toast: null, mode: "detail",
+  layout: "flow", openGrp: 0, flipped: false, slide: 0, draft: { name: "", summary: "", category: "", start: "blank" },
+};
+
+const sec = () => (state.section === "st" ? ST : UT);
+const presets = () => sec().presets;
+const pending = () => PENDING[state.section];
+const current = () => presets().find((p) => p.name === state.selected) || presets()[0];
+
+const fmtEpoch = (v) => {
+  if (typeof v !== "number") return String(v ?? "—");
+  const d = new Date(v * 1000), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+/* ── 数据整形 ────────────────────────────────────────────── */
+function fields(p) {
+  if (state.section === "ut") {
+    const t = p.resolved?.trigger || {};
+    return [
+      { k: "触发器", v: p.spec?.trigger || "—", sub: t.value },
+      { k: "参数", v: (t.params || []).map((x) => `${x.label} ${fmtEpoch(x.value)}`).join(" · ") || "没有参数" },
+      { k: "会话模板", v: p.spec?.session || "没钉" },
+      { k: "类别", v: (p.spec?.category || []).join(" / ") || "未分类" },
+      { k: "开关", v: p.spec?.enabled ? "开着" : "关掉" },
+      { k: "发布", v: p.tracked ? "HEAD 里有" : "未发布" },
+    ];
+  }
+  const m = p.resolved?.model;
+  const ref = m?.ref || (p.spec?.model ? `${p.spec.model.provider}/${p.spec.model.modelId}` : "");
+  const [prov, ...rest] = String(ref).split("/");
+  return [
+    { k: "模型", v: prov || "跟随默认", sub: rest.join("/"), mono: true },
+    { k: "思考档", v: p.spec?.thinkingLevel || "默认" },
+    { k: "技能", v: (p.spec?.skills || []).join(" · ") || "不要" },
+    { k: "模板", v: p.spec?.template || "跟随默认" },
+    { k: "扩展", v: (p.spec?.extensions || []).join(" · ") || "不要" },
+    { k: "工作目录", v: p.spec?.cwd || "默认" },
+    { k: "机器", v: p.spec?.machine || "本机" },
+    { k: "只读", v: p.spec?.readOnly ? "是" : "否" },
+  ];
+}
+
+function refs(p) {
+  if (state.section === "ut") {
+    const out = [];
+    if (p.resolved?.trigger) out.push({ kind: "触发器", name: p.resolved.trigger.ref, state: p.resolved.trigger.state });
+    if (p.resolved?.session) out.push({ kind: "会话模板", name: p.resolved.session.ref, state: p.resolved.session.state });
+    return out;
+  }
+  const out = [];
+  (p.resolved?.skills || []).forEach((s) => out.push({ kind: "技能", name: s.ref, state: s.state }));
+  if (p.resolved?.template) out.push({ kind: "模板", name: p.resolved.template.ref, state: p.resolved.template.state });
+  (p.resolved?.extensions || []).forEach((s) => out.push({ kind: "扩展", name: s.ref, state: s.state }));
+  return out;
+}
+
+const dirty = () => !!sec().repo?.dirty;
+const head = () => (sec().repo?.head || "").slice(0, 7);
+
+function cats() {
+  const all = sec().categories || [];
+  const counts = new Map();
+  presets().forEach((p) => {
+    const c = (p.spec?.category || []);
+    if (!c.length) counts.set("__uncat", (counts.get("__uncat") || 0) + 1);
+    c.forEach((x) => counts.set(x, (counts.get(x) || 0) + 1));
+  });
+  return { all, counts, uncat: counts.get("__uncat") || 0 };
+}
+
+function filtered() {
+  let out = presets();
+  if (state.cat === "__uncat") out = out.filter((p) => !(p.spec?.category || []).length);
+  else if (state.cat) out = out.filter((p) => (p.spec?.category || []).some((c) => c === state.cat || c.startsWith(state.cat + "/")));
+  if (state.q) {
+    const q = state.q.toLowerCase();
+    out = out.filter((p) => (p.name + " " + p.summary + " " + (p.spec?.category || []).join(" ")).toLowerCase().includes(q));
+  }
+  return out;
+}
+
+/* ── 图标 ───────────────────────────────────────────────── */
+const ICON = {
+  chat: '<path d="M3 4.5h10v6H6.5L3 13.5z"/>',
+  book: '<path d="M2.5 3h5v10h-5zM8.5 3h5v10h-5z"/>',
+  box: '<path d="M2.5 5.5 8 2.5l5.5 3v5L8 13.5l-5.5-3z"/>',
+  gear: '<circle cx="8" cy="8" r="2"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4"/>',
+  plus: '<path d="M8 3v10M3 8h10"/>',
+  dots: '<circle cx="3.5" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12.5" cy="8" r="1"/>',
+  list: '<path d="M2.5 4h11M2.5 8h11M2.5 12h11"/>',
+  grid: '<path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/>',
+  caret: '<path d="M6 4l4 4-4 4"/>',
+};
+const icon = (n) => `<svg class="i" viewBox="0 0 16 16">${ICON[n] || ""}</svg>`;
+
+/* ── 左：图标条 + 类别 ──────────────────────────────────── */
+function rail() {
+  return `<div class="rail">
+    <div class="logo"></div>
+    <button title="会话">${icon("chat")}</button>
+    <button class="on" title="模板">${icon("book")}</button>
+    <button title="归档">${icon("box")}</button>
+    <div class="spacer"></div>
+    <button title="设置">${icon("gear")}</button>
+  </div>`;
+}
+
+function side() {
+  const { all, counts, uncat } = cats();
+  const total = presets().length;
+  const rows = [
+    `<div class="row ${state.cat === null ? "on" : ""}" data-act="cat" data-cat="">
+       <span class="dot"></span>全部<span class="n">${total}</span></div>`,
+  ];
+  const roots = all.filter((c) => !c.includes("/"));
+  roots.forEach((root) => {
+    const kids = all.filter((c) => c.startsWith(root + "/"));
+    const n = counts.get(root) || 0;
+    rows.push(`<div class="row ${state.cat === root ? "on" : ""}" data-act="cat" data-cat="${esc(root)}">
+      ${kids.length ? `<span style="opacity:.5">▾</span>` : `<span class="dot"></span>`}
+      ${esc(root)}<span class="n">${n}</span></div>`);
+    kids.forEach((k) => {
+      rows.push(`<div class="row sub ${state.cat === k ? "on" : ""}" data-act="cat" data-cat="${esc(k)}">
+        <span class="dot"></span>${esc(k.split("/").slice(1).join("/"))}<span class="n">${counts.get(k) || 0}</span></div>`);
+    });
+  });
+  rows.push(`<div class="row ${state.cat === "__uncat" ? "on" : ""}" data-act="cat" data-cat="__uncat">
+    <span class="dot"></span>未分类<span class="n">${uncat}</span></div>`);
+
+  return `<div class="side">
+    <div class="side-head">
+      <span class="side-title">Template</span>
+      <span class="count">${total} 条</span>
+    </div>
+    <div class="seg">
+      <button class="${state.section === "st" ? "on" : ""}" data-act="sec" data-sec="st">Session-Template</button>
+      <button class="${state.section === "ut" ? "on" : ""}" data-act="sec" data-sec="ut">Ultimate-Template</button>
+    </div>
+    <div class="side-actions">
+      <button class="btn-s solid" data-act="new">${icon("plus")} 新建</button>
+      <button class="btn-s" data-act="newcat">＋ 类别</button>
+    </div>
+    <div class="tree">${rows.join("")}</div>
+    <div class="side-foot">
+      <span class="${dirty() ? "badge" : ""}">${dirty() ? "●" : "○"}</span>
+      <span>${head()}</span>
+      <span style="margin-left:auto">${dirty() ? "未提交" : "干净"}</span>
+    </div>
+  </div>`;
+}
+
+/* ── 中：列表 ───────────────────────────────────────────── */
+function list() {
+  const items = filtered();
+  const cards = items.map((p) => {
+    const st = p.specError ? { t: "坏了", c: "bad" } : !p.tracked ? { t: "未发布", c: "warn" } : null;
+    const tags = (p.spec?.category || []).map((c) => `<span class="tag">${esc(c)}</span>`);
+    if (p.spec?.thinkingLevel) tags.push(`<span class="tag k">${esc(p.spec.thinkingLevel)}</span>`);
+    if (p.spec?.trigger) tags.push(`<span class="tag k">${esc(p.spec.trigger)}</span>`);
+    return `<div class="card ${p.name === state.selected ? "on" : ""}" data-act="pick" data-name="${esc(p.name)}">
+      <div class="top">
+        <span class="name">${esc(p.name)}</span>
+        ${st ? `<span class="st ${st.c}">${st.t}</span>` : ""}
+      </div>
+      <div class="sum">${esc(p.summary)}</div>
+      <div class="tags">${tags.join("")}</div>
+    </div>`;
+  }).join("");
+
+  return `<div class="list">
+    <div class="list-head">
+      <input class="search" placeholder="搜索名字 / 摘要 / 类别" value="${esc(state.q)}" data-act="search">
+      <div class="viewsw">
+        <button class="${state.view === "list" ? "on" : ""}" data-act="view" data-view="list">${icon("list")}</button>
+        <button class="${state.view === "grid" ? "on" : ""}" data-act="view" data-view="grid">${icon("grid")}</button>
+      </div>
+    </div>
+    <div class="cards">${cards || `<div class="empty"><div class="big">这一栏是空的</div><div class="small">换个类别，或者新建一条</div></div>`}</div>
+    <div class="list-foot">
+      <span>${items.length} / ${presets().length}</span>
+      <span class="${dirty() ? "dirty" : ""}">${dirty() ? "● 未提交" : "○ 已同步"}</span>
+      <span class="sync" data-act="goto-diff">待同步 ${pending().units.length} 个文件 →</span>
+    </div>
+  </div>`;
+}
+
+/* ── 右：12 套排版 ──────────────────────────────────────── */
+const crumbOf = () => (state.section === "st" ? "Session-Template" : "Ultimate-Template");
+
+function stdHead(p) {
+  const rf = refs(p);
+  const bad = rf.some((r) => r.state !== "ok");
+  return `<div class="dt-head">
+    <div class="crumb">${crumbOf()}</div>
+    <div class="dt-title"><h1>${esc(p.name)}</h1><span class="dir">${esc(p.dir || "")}</span></div>
+    <p class="dt-sum">${esc(p.summary)}</p>
+    <div class="chips">
+      ${dirty() ? `<span class="chip warn"><i></i>已保存 · 未提交</span>` : `<span class="chip"><i></i>已发布</span>`}
+      <span class="chip ${bad ? "bad" : ""}"><i></i>${bad ? "引用失效" : "引用正常"}</span>
+      ${state.section === "ut"
+        ? `<span class="chip"><i></i>${p.spec?.enabled ? "开着" : "关掉"}</span>`
+        : `<span class="chip"><i></i>可启动</span>`}
+    </div>
+  </div>`;
+}
+
+function chipsRow(p) {
+  const bad = refs(p).some((r) => r.state !== "ok");
+  return `<div class="chips">
+    ${dirty() ? `<span class="chip warn"><i></i>未提交</span>` : `<span class="chip"><i></i>已发布</span>`}
+    <span class="chip ${bad ? "bad" : ""}"><i></i>${bad ? "引用失效" : "引用正常"}</span>
+    ${state.section === "ut" ? `<span class="chip"><i></i>${p.spec?.enabled ? "开着" : "关掉"}</span>` : `<span class="chip"><i></i>可启动</span>`}
+  </div>`;
+}
+
+const valHtml = (f) => `${f.mono ? `<span class="ly-mono" style="font-size:11.5px">${esc(f.v)}</span>` : esc(f.v)}${f.sub ? `<span class="ly-sub">${esc(f.sub)}</span>` : ""}`;
+
+/* 1 flow */
+function lyFlow(p) {
+  return `<div class="ly-flow">
+    <div class="fhead"><h1 class="ly-name">${esc(p.name)}</h1>
+      <p class="sum">${esc(p.summary)}</p>${chipsRow(p)}</div>
+    <div class="rows">
+      ${fields(p).map((f) => `<div class="row"><span class="k ly-k">${esc(f.k)}</span><span class="v">${valHtml(f)}</span></div>`).join("")}
+    </div>
+    <div class="sec-t" style="margin-top:22px">引用 ${refs(p).length}</div>
+    <div class="refs">${refs(p).map((r) => `<div class="ref"><span>${esc(r.name)}</span><span class="kind">${esc(r.kind)}</span><span class="ok ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("") || `<div class="ref">没有外部引用</div>`}</div>
+    ${p.description ? `<p class="notes" style="margin-top:16px">${esc(p.description)}</p>` : ""}
+  </div>`;
+}
+
+/* 2 table */
+function lyTable(p) {
+  const f = fields(p);
+  const half = Math.ceil(f.length / 2);
+  return `<div class="ly-table">
+    <h1 class="ly-name">${esc(p.name)}</h1>
+    <p class="sum">${esc(p.summary)}</p>
+    <table>
+      ${f.map((x) => `<tr><th>${esc(x.k)}</th><td>${valHtml(x)}</td></tr>`).join("")}
+      <tr class="grp"><th>引用</th><td></td></tr>
+      ${refs(p).map((r) => `<tr><th>${esc(r.kind)}</th><td>${esc(r.name)}<span class="ly-sub" style="margin-left:8px">${r.state === "ok" ? "OK" : "失效"}</span></td></tr>`).join("")}
+    </table>
+  </div>`;
+}
+
+/* 3 tiles */
+function lyTiles(p) {
+  return `<div class="ly-tiles">
+    <h1 class="ly-name">${esc(p.name)}</h1>
+    <p class="sum">${esc(p.summary)}</p>
+    <div class="grid">
+      ${fields(p).map((f) => `<div class="t"><span class="k">${esc(f.k)}</span>
+        <span class="v">${f.mono ? `<span class="ly-mono">${esc(f.v)}</span>` : esc(f.v)}${f.sub ? `<small>${esc(f.sub)}</small>` : ""}</span></div>`).join("")}
+      <div class="t" style="grid-column: span 2"><span class="k">引用 ${refs(p).length}</span>
+        <span class="v" style="font-size:12px">${refs(p).map((r) => esc(r.name)).join(" · ") || "没有外部引用"}</span></div>
+    </div>
+  </div>`;
+}
+
+/* 4 monolith */
+function lyMono(p) {
+  const f = fields(p).slice(0, 3);
+  return `<div class="ly-mono">
+    <div class="top"><span class="ly-k">${crumbOf()}</span><span class="ly-k ly-mono">${head()}</span></div>
+    <h1 class="ly-name">${esc(p.name)}</h1>
+    <div class="rule"></div>
+    <p class="sum">${esc(p.summary)}</p>
+    <div class="bottom">
+      ${f.map((x) => `<div><div class="k ly-k">${esc(x.k)}</div>
+        <div class="v">${esc(x.v)}${x.sub ? `<small>${esc(x.sub)}</small>` : ""}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 5 sheet */
+function lySheet(p) {
+  const f = fields(p);
+  return `<div class="ly-sheet">
+    <div class="spine"><span>${crumbOf()}</span></div>
+    <div class="main">
+      <h1 class="ly-name">${esc(p.name)}</h1>
+      <div class="band"></div>
+      ${f.map((x, i) => `<div class="r"><span class="no">${String(i + 1).padStart(3, "0")}</span>
+        <span class="k ly-k">${esc(x.k)}</span><span class="v">${valHtml(x)}</span></div>`).join("")}
+      ${refs(p).length ? `<div class="r"><span class="no">${String(f.length + 1).padStart(3, "0")}</span>
+        <span class="k ly-k">引用</span><span class="v">${refs(p).map((r) => esc(r.name)).join(" / ")}</span></div>` : ""}
+    </div>
+  </div>`;
+}
+
+/* 6 split */
+function lySplit(p) {
+  const f = fields(p);
+  const rf = refs(p);
+  return `<div class="ly-split">
+    <div class="up">
+      <div class="crumb">${crumbOf()}</div>
+      <h1 class="ly-name">${esc(p.name)}</h1>
+      <p class="sum">${esc(p.summary)}</p>
+      <div class="states">
+        <div>提交<b>${dirty() ? "未提交" : "已发布"}</b></div>
+        <div>引用<b>${rf.every((r) => r.state === "ok") ? "正常" : "失效"}</b></div>
+        <div>${state.section === "ut" ? "开关" : "状态"}<b>${state.section === "ut" ? (p.spec?.enabled ? "开着" : "关掉") : "可启动"}</b></div>
+      </div>
+    </div>
+    <div class="down">
+      ${f.map((x) => `<div><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}${x.sub ? `<span class="ly-sub" style="display:block;font-size:10.5px;margin-top:2px">${esc(x.sub)}</span>` : ""}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 7 gauge */
+function lyGauge(p) {
+  const f = fields(p);
+  const rf = refs(p);
+  const total = Math.max(rf.length, 1), ok = rf.filter((r) => r.state === "ok").length, pct = ok / total;
+  const R = 100, C = 2 * Math.PI * R, L = C * 0.75;
+  const ticks = Array.from({ length: 55 }, (_, i) => {
+    const a = Math.PI * 0.75 + (i / 54) * Math.PI * 1.5;
+    const long = i % 5 === 0, r1 = R + 10, r2 = R + (long ? 17 : 14);
+    return `<line x1="${130 + Math.cos(a) * r1}" y1="${130 + Math.sin(a) * r1}" x2="${130 + Math.cos(a) * r2}" y2="${130 + Math.sin(a) * r2}"
+      stroke="${i / 54 <= pct ? "var(--ink)" : "var(--line)"}" stroke-width="${long ? 1.3 : 1}" />`;
+  }).join("");
+  return `<div class="ly-gauge">
+    <div class="ring">
+      <svg viewBox="0 0 260 260">
+        <circle cx="130" cy="130" r="${R}" fill="none" stroke="var(--line)" stroke-width="1"
+          stroke-dasharray="${L} ${C}" transform="rotate(135 130 130)" />
+        <circle cx="130" cy="130" r="${R}" fill="none" stroke="var(--ink)" stroke-width="2.5"
+          stroke-dasharray="${L * pct} ${C}" transform="rotate(135 130 130)" />
+        ${ticks}
+      </svg>
+      <div class="center"><span class="n">${esc(p.name)}</span>
+        <span class="s">${ok}/${rf.length || 0} refs</span></div>
+    </div>
+    <p class="cap">${esc(p.summary)}</p>
+    <div class="cells">
+      ${f.slice(2, 6).map((x) => `<div class="c"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 8 columns */
+function lyColumns(p) {
+  const f = fields(p);
+  const per = Math.ceil(f.length / 3);
+  const cols = [f.slice(0, per), f.slice(per, per * 2), f.slice(per * 2)];
+  return `<div class="ly-columns">
+    <div class="hd"><h1 class="ly-name">${esc(p.name)}</h1><div class="sum">${esc(p.summary)}</div></div>
+    <div class="cols">
+      ${cols.map((col) => `<div class="col">
+        ${col.map((x) => `<div class="f"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+      </div>`).join("")}
+    </div>
+    <div class="sec-t" style="margin-top:16px">引用</div>
+    <div class="refs">${refs(p).map((r) => `<div class="ref"><span>${esc(r.name)}</span><span class="kind">${esc(r.kind)}</span><span class="ok ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("")}</div>
+  </div>`;
+}
+
+/* 9 timeline */
+function lyTimeline(p) {
+  return `<div class="ly-timeline">
+    <div class="hd"><h1 class="ly-name">${esc(p.name)}</h1><p class="sum">${esc(p.summary)}</p></div>
+    <div class="tl">
+      ${fields(p).map((x) => `<div class="n"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}${x.sub ? `<span class="ly-sub" style="margin-left:8px">${esc(x.sub)}</span>` : ""}</div></div>`).join("")}
+      ${refs(p).map((r) => `<div class="n"><div class="k ly-k">引用 · ${esc(r.kind)}</div><div class="v">${esc(r.name)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 10 accordion */
+function lyAcc(p) {
+  const f = fields(p);
+  const groups = [
+    { t: "配置", items: f.slice(0, 4) },
+    { t: "运行", items: f.slice(4) },
+    { t: "引用", items: refs(p).map((r) => ({ k: r.kind, v: r.name })) },
+  ];
+  return `<div class="ly-acc">
+    <div class="hd"><h1 class="ly-name">${esc(p.name)}</h1>${chipsRow(p)}</div>
+    ${groups.map((g, gi) => {
+      const open = state.openGrp === gi;
+      return `<div class="grp ${open ? "open" : ""}">
+        <div class="gh" data-act="grp" data-i="${gi}">
+          <span class="caret">${icon("caret")}</span>
+          <span class="t">${esc(g.t)}</span>
+          <span class="c">${g.items.length}</span>
+        </div>
+        <div class="gb">
+          ${g.items.map((x) => `<div class="r"><span class="k ly-k">${esc(x.k)}</span><span class="v">${esc(x.v)}</span></div>`).join("")}
+        </div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+/* 11 inspector */
+function lyInsp(p) {
+  return `<div class="ly-insp">
+    <div class="main">
+      <div class="crumb">${crumbOf()}</div>
+      <h1 class="ly-name" style="margin-top:8px">${esc(p.name)}</h1>
+      <p class="sum">${esc(p.summary)}</p>
+      ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ""}
+      <div class="refs">
+        ${refs(p).map((r) => `<div class="ref"><span>${esc(r.name)}</span><span class="kind">${esc(r.kind)}</span><span class="ok ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("")}
+      </div>
+    </div>
+    <div class="side2">
+      ${fields(p).map((x) => `<div class="f"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 12 dense */
+function lyDense(p) {
+  const f = fields(p);
+  const rows = [];
+  for (let i = 0; i < f.length; i += 2) rows.push([f[i], f[i + 1]]);
+  return `<div class="ly-dense">
+    <div class="hd"><h1 class="ly-name">${esc(p.name)}</h1>
+      <span class="ly-sub">${esc(p.summary)}</span>
+      <span class="meta">${head()} · ${pending().units.length} 待同步</span></div>
+    <table class="kt">
+      ${rows.map(([a, b]) => `<tr>
+        <td class="k">${esc(a.k)}</td><td class="v">${esc(a.v)}</td>
+        <td class="k2">${b ? esc(b.k) : ""}</td><td class="v2">${b ? esc(b.v) : ""}</td>
+      </tr>`).join("")}
+      ${refs(p).map((r) => `<tr><td class="k">${esc(r.kind)}</td><td class="v">${esc(r.name)}</td><td class="k2"></td><td class="v2"></td></tr>`).join("")}
+    </table>
+  </div>`;
+}
+
+
+/* 13 kanban */
+function lyKanban(p) {
+  const f = fields(p), rf = refs(p);
+  const isUT = state.section === "ut";
+  const cols = isUT
+    ? [
+        { t: "身份", items: f.slice(0, 1), s: "" },
+        { t: "运行", items: f.slice(1, 4), s: "" },
+        { t: "状态", items: f.slice(4), s: p.spec?.enabled ? "ok" : "warn" },
+        { t: "引用", items: rf.map((r) => ({ k: r.kind, v: r.name })), s: rf.every((r) => r.state === "ok") ? "ok" : "bad" },
+      ]
+    : [
+        { t: "身份", items: f.slice(0, 2), s: "" },
+        { t: "运行", items: f.slice(2, 6), s: "" },
+        { t: "环境", items: f.slice(6), s: "" },
+        { t: "引用", items: rf.map((r) => ({ k: r.kind, v: r.name })), s: rf.every((r) => r.state === "ok") ? "ok" : "bad" },
+      ];
+  return `<div class="ly-kanban">
+    ${cols.map((c) => `<div class="col">
+      <div class="ch"><i class="${c.s}"></i><span class="t">${esc(c.t)}</span><span class="c">${c.items.length}</span></div>
+      <div class="cb">${c.items.map((x) => `<div class="kc"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}</div>
+    </div>`).join("")}
+  </div>`;
+}
+
+/* 14 treemap */
+function lyTree(p) {
+  const f = fields(p), rf = refs(p);
+  const [a, b, c, d, e, g2, h2, i2] = [f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]];
+  const cell = (x, cls = "", flex = 1) => x
+    ? `<div class="cell ${cls}" style="flex:${flex}"><span class="k">${esc(x.k)}</span>
+        <span class="v">${esc(x.v)}${x.sub ? `<small>${esc(x.sub)}</small>` : ""}</span></div>` : "";
+  return `<div class="ly-tree">
+    <div class="row" style="flex:1.4">
+      ${cell(a, "big", 2.2)}${cell(b, "", 1)}${cell(c, "", 1)}
+    </div>
+    <div class="row" style="flex:1">
+      ${cell(d, "", 1)}${cell(e, "", 1)}${cell(g2, "", 1)}
+    </div>
+    <div class="row" style="flex:0.9">
+      ${cell(h2, "", 1)}${cell(i2, "", 1)}
+      <div class="cell acc" style="flex:1.4"><span class="k">引用 ${rf.length}</span>
+        <span class="v">${rf.map((r) => esc(r.name)).join(" · ") || "—"}</span></div>
+    </div>
+  </div>`;
+}
+
+/* 15 gantt */
+function lyGantt(p) {
+  const f = fields(p), rf = refs(p);
+  const bad = rf.some((r) => r.state !== "ok");
+  const width = (x, i) => (x.v === "不要" || x.v === "没钉" ? 32 : x.v === "未发布" ? 48 : 62 + ((i * 7) % 36));
+  const cls = (x) => (x.v === "不要" || x.v === "没钉" ? "warn" : x.v === "未发布" ? "warn" : "ok");
+  return `<div class="ly-gantt">
+    <div class="gh"><h1 class="ly-name">${esc(p.name)}</h1><span class="sum">${esc(p.summary)}</span></div>
+    <div class="axis"><span>HEAD</span><span>盘上</span><span>待同步</span><span>已发布</span></div>
+    ${f.map((x, i) => `<div class="gr"><span class="k">${esc(x.k)}</span>
+      <span class="track"><span class="bar ${cls(x)}" style="left:0;width:${width(x, i)}%"></span></span>
+      <span class="val">${esc(x.v === "不要" || x.v === "没钉" ? "—" : x.v === "未发布" ? "unpub" : "ok")}</span></div>`).join("")}
+    ${rf.map((r) => `<div class="gr"><span class="k">引用 · ${esc(r.kind)}</span>
+      <span class="track"><span class="bar ${r.state === "ok" ? "ok" : "bad"}" style="left:0;width:${r.state === "ok" ? 78 : 34}%"></span></span>
+      <span class="val">${r.state === "ok" ? "ok" : "invalid"}</span></div>`).join("")}
+    <div style="margin-top:auto;font-size:9.5px;color:var(--ink3);font-family:JBMono,monospace">
+      ${bad ? "有引用失效 —— 修好再发布" : "全部引用正常"}
+    </div>
+  </div>`;
+}
+
+/* 16 quadrant */
+function lyQuad(p) {
+  const f = fields(p), rf = refs(p);
+  const key = new Set(["模型", "技能", "模板", "触发器", "会话模板", "思考档"]);
+  const hi = f.filter((x) => key.has(x.k));
+  const lo = f.filter((x) => !key.has(x.k));
+  const q = (t, items, cls = "") => `<div class="q ${cls}"><div class="t">${t}</div>
+    ${items.map((x) => `<div class="item"><span class="n">${esc(x.k)}</span><span>${esc(x.v)}</span></div>`).join("")}
+    ${items.length ? "" : `<div class="item" style="color:var(--ink4)">—</div>`}</div>`;
+  const refItems = rf.map((r) => ({ k: r.kind, v: r.name }));
+  return `<div class="ly-quad">
+    <div class="qh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary)}</span></div>
+    <div class="wrap">
+      ${q("重要 · 已定", hi)}
+      ${q("重要 · 跟随默认", [{ k: "扩展", v: (p.spec?.extensions || []).length ? "有" : "不要" }], "hi")}
+      ${q("引用", refItems, rf.every((r) => r.state === "ok") ? "" : "bad")}
+      ${q("次要", lo)}
+      <span class="ax" style="left:50%;top:-2px;transform:translateX(-50%)">↑ 重要</span>
+      <span class="ax" style="left:0;bottom:-2px">← 主要</span>
+    </div>
+  </div>`;
+}
+
+/* 17 mindmap */
+function lyMind(p) {
+  const f = fields(p).slice(0, 4), rf = refs(p).slice(0, 2);
+  const W = 620, H = 470, cx = 96, cy = H / 2;
+  const branches = [...f.slice(0, 3).map((x) => ({ k: x.k, v: x.v })), ...rf.map((r) => ({ k: r.kind, v: r.name }))];
+  const step = H / (branches.length + 1);
+  const nodes = branches.map((b, i) => {
+    const y = step * (i + 1);
+    const midX = (cx + 250) / 2;
+    return `<path d="M${cx + 46} ${cy} C ${midX} ${cy}, ${midX} ${y}, 250 ${y}" stroke="var(--line)" fill="none" />
+      <circle cx="250" cy="${y}" r="3.5" fill="var(--fx-blue)" />
+      <text x="262" y="${y - 3}" fill="var(--ink3)" font-size="8.5" letter-spacing="1.4">${esc(b.k.toUpperCase())}</text>
+      <text x="262" y="${y + 12}" fill="var(--ink)" font-size="11.5">${esc(b.v).slice(0, 30)}</text>`;
+  }).join("");
+  return `<div class="ly-mind">
+    <div class="mh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 40)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMid meet">
+      <rect x="0" y="${cy - 26}" width="96" height="52" rx="6" fill="var(--panel)" stroke="var(--line)" />
+      <text x="48" y="${cy + 4}" text-anchor="middle" fill="var(--ink)" font-size="12">${esc(p.name).slice(0, 11)}</text>
+      ${nodes}
+    </svg>
+  </div>`;
+}
+
+/* 18 radar */
+function lyRadar(p) {
+  const f = fields(p);
+  const LOW = ["不要", "没钉", "否", "未分类", "未发布", "关掉", "默认", "没有参数"];
+  const axes = f.slice(0, 6).map((x) => ({ k: x.k, v: LOW.some((w) => String(x.v).includes(w)) ? 0.32 : 1 }));
+  const W = 460, H = 400, cx = W / 2, cy = H / 2 - 4, R = 132;
+  const pt = (i, r) => {
+    const a = (i / axes.length) * 2 * Math.PI - Math.PI / 2;
+    return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  };
+  const rings = [0.33, 0.66, 1].map((k) =>
+    `<polygon points="${axes.map((_, i) => pt(i, R * k).join(",")).join(" ")}" fill="none" stroke="var(--line)" />`).join("");
+  const spokes = axes.map((_, i) => { const [x, y] = pt(i, R); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)" />`; }).join("");
+  const poly = axes.map((a, i) => pt(i, R * a.v).join(",")).join(" ");
+  const labels = axes.map((a, i) => {
+    const [x, y] = pt(i, R + 20);
+    return `<text x="${x}" y="${y}" text-anchor="middle" fill="var(--ink3)" font-size="8.5" letter-spacing="1.2">${esc(a.k.toUpperCase())}</text>`;
+  }).join("");
+  return `<div class="ly-radar">
+    <div class="rh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 44)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${rings}${spokes}${labels}
+      <polygon points="${poly}" fill="color-mix(in srgb, var(--fx-blue) 22%, transparent)" stroke="var(--fx-blue)" stroke-width="1.5" />
+      ${axes.map((a, i) => { const [x, y] = pt(i, R * a.v); return `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--fx-blue)" />`; }).join("")}
+    </svg>
+    <div class="legend">${axes.map((a) => `<span><i style="background:var(--fx-blue)"></i>${esc(a.k)} ${Math.round(a.v * 100)}%</span>`).join("")}</div>
+  </div>`;
+}
+
+/* 19 sankey */
+function lySankey(p) {
+  const f = fields(p).slice(0, 3), rf = refs(p);
+  const W = 620, H = 520;
+  const left = { x: 24, y: H / 2 - 22, w: 12, h: 44 };
+  const midX = 300, nodeH = 26, gap = 20;
+  const items = [...f.map((x) => ({ k: x.k, v: x.v, c: "var(--fx-blue)" })), ...rf.map((r) => ({ k: r.kind, v: r.name, c: r.state === "ok" ? "var(--fx-green)" : "var(--fx-red)" }))];
+  const total = items.length;
+  const startY = (H - (total * nodeH + (total - 1) * gap)) / 2;
+  const nodes = items.map((it, i) => {
+    const y = startY + i * (nodeH + gap);
+    return `<path d="M${left.x + left.w} ${left.y + left.h / 2} C ${midX - 120} ${left.y + left.h / 2}, ${midX - 90} ${y + nodeH / 2}, ${midX} ${y + nodeH / 2}"
+        stroke="${it.c}" stroke-opacity=".35" stroke-width="${6 + (i % 3) * 3}" fill="none" />
+      <rect x="${midX}" y="${y}" width="10" height="${nodeH}" rx="2" fill="${it.c}" />
+      <text x="${midX + 20}" y="${y + 11}" fill="var(--ink3)" font-size="8" letter-spacing="1.2">${esc(it.k.toUpperCase())}</text>
+      <text x="${midX + 20}" y="${y + 23}" fill="var(--ink)" font-size="10.5">${esc(it.v).slice(0, 26)}</text>`;
+  }).join("");
+  return `<div class="ly-sankey">
+    <div class="sh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 46)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMid meet">
+      <rect x="${left.x}" y="${left.y}" width="${left.w}" height="${left.h}" rx="2" fill="var(--ink)" />
+      <text x="${left.x + left.w + 12}" y="${left.y + 18}" fill="var(--ink)" font-size="11">${esc(p.name)}</text>
+      <text x="${left.x + left.w + 12}" y="${left.y + 33}" fill="var(--ink3)" font-size="9">${crumbOf()}</text>
+      ${nodes}
+    </svg>
+  </div>`;
+}
+
+/* 20 state */
+function lyState(p) {
+  const f = fields(p);
+  const tracked = p.tracked !== false;
+  const idx = dirty() ? 0 : tracked ? 2 : 1;
+  const steps = [
+    { t: "草稿", x: dirty() ? "未提交" : "干净" },
+    { t: "已提交", x: tracked ? "HEAD 里有" : "没进过 HEAD" },
+    { t: "已发布", x: tracked ? "远端可见" : "只在本地" },
+    { t: "归档", x: "不动它就别去" },
+  ];
+  return `<div class="ly-state">
+    <div class="sth"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 40)}</span></div>
+    <div class="chain">
+      ${steps.map((s, i) => `<div class="st ${i === idx ? "on" : ""}"><div class="dot"></div>
+        <div class="lb">${esc(s.t)}</div><div class="tx">${esc(s.x)}</div></div>
+        ${i < steps.length - 1 ? `<div class="arrow"></div>` : ""}`).join("")}
+    </div>
+    <div class="kv">
+      ${f.map((x) => `<div class="f"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+
+/* 21 receipt */
+function lyReceipt(p) {
+  const f = fields(p), rf = refs(p);
+  const line = (k, v) => `<div class="li"><span class="n">${esc(k)}</span><span class="dots"></span><span class="v">${esc(v)}</span></div>`;
+  return `<div class="ly-receipt"><div class="rc">
+    <div class="shop">${crumbOf()}</div>
+    <div class="big">${esc(p.name)}</div>
+    <div class="dash"></div>
+    ${f.map((x) => line(x.k, x.v)).join("")}
+    <div class="dash"></div>
+    ${rf.map((r) => line(r.kind, r.name)).join("") || line("引用", "无")}
+    <div class="dash"></div>
+    <div class="total"><span>合计 ${f.length} 项</span><span>${rf.every((r) => r.state === "ok") ? "OK" : "检查"}</span></div>
+    <div class="bar">${Array.from({ length: 28 }, () => "<i></i>").join("")}</div>
+    <div style="text-align:center;font-size:8.5px;letter-spacing:.28em;color:var(--ink4);margin-top:6px">${head()} · ${dirty() ? "UNCOMMITTED" : "CLEAN"}</div>
+  </div></div>`;
+}
+
+/* 22 palette */
+function lyPalette(p) {
+  const f = fields(p), rf = refs(p);
+  const rows = [...f.map((x) => ({ i: "▸", lb: x.k, vl: x.v, k: "" })), ...rf.map((r) => ({ i: "◆", lb: r.kind, vl: r.name, k: r.state === "ok" ? "↵" : "!" }))];
+  return `<div class="ly-palette">
+    <div class="pbox">
+      <div class="psearch"><span>⌕</span><span class="ph">${esc(p.name)} · 字段与引用</span><span class="kbd">⌘K</span></div>
+      ${rows.map((r, i) => `<div class="prow ${i === 0 ? "on" : ""}">
+        <span class="ic">${r.i}</span><span class="lb">${esc(r.lb)}</span>
+        <span class="vl">${esc(r.vl)}</span><span class="key">${esc(r.k)}</span></div>`).join("")}
+      <div class="pfoot"><span>↑↓ 选择</span><span>↵ 打开</span><span>⌘E 编辑</span><span style="margin-left:auto">${f.length + rf.length} 项</span></div>
+    </div>
+    <p style="margin-top:12px;font-size:11px;color:var(--ink3);line-height:1.6">${esc(p.summary)}</p>
+  </div>`;
+}
+
+/* 23 dashboard */
+function lyDash(p) {
+  const f = fields(p), rf = refs(p);
+  const okN = rf.filter((r) => r.state === "ok").length;
+  const w = (k, n, sub, extra = "") => `<div class="w"><div class="k">${esc(k)}</div>
+    ${extra}<div class="n">${n}</div><div class="sub">${esc(sub)}</div></div>`;
+  return `<div class="ly-dash">
+    <div class="dh"><h1 class="ly-name">${esc(p.name)}</h1>
+      <span class="meta">${head()} · ${dirty() ? "dirty" : "clean"}</span></div>
+    <div class="wg">
+      ${w(f[0].k, esc(String(f[0].v).slice(0, 12)), f[0].sub || "—")}
+      ${w(f[1].k, esc(f[1].v), "—")}
+      ${w("引用", `${okN}<small>/ ${rf.length || 0}</small>`, rf.every((r) => r.state === "ok") ? "全部正常" : "有失效",
+        `<div class="pips">${rf.map((r) => `<i class="${r.state === "ok" ? "ok" : ""}"></i>`).join("")}</div>`)}
+      ${w("待同步", `${pending().units.length}<small>个文件</small>`, pending().units[0]?.name ?? "无")}
+      ${w(f[2].k, esc(String(f[2].v).slice(0, 10)), "—")}
+      ${w(f[3].k, esc(String(f[3].v).slice(0, 10)), f[3].sub || "—",
+        `<div class="bars">${[6, 12, 8, 16, 10, 18, 9].map((hh) => `<i style="height:${hh}px"></i>`).join("")}</div>`)}
+    </div>
+  </div>`;
+}
+
+/* 24 sequence */
+function lySeq(p) {
+  const f = fields(p).slice(0, 4), rf = refs(p).slice(0, 2);
+  const parts = ["预设", "模型", "技能", "模板"];
+  const W = 620, H = 420, top = 34, stepY = 62;
+  const xs = parts.map((_, i) => 84 + i * ((W - 168) / (parts.length - 1)));
+  const heads = parts.map((t, i) => `<rect x="${xs[i] - 40}" y="8" width="80" height="22" rx="3"
+      fill="var(--panel)" stroke="var(--line)" />
+    <text x="${xs[i]}" y="23" text-anchor="middle" fill="var(--ink)" font-size="10">${t}</text>
+    <line x1="${xs[i]}" y1="30" x2="${xs[i]}" y2="${H - 10}" stroke="var(--line)" stroke-dasharray="3 4" />`).join("");
+  const msgs = [
+    { from: 0, to: 1, t: String(f[0].v), ok: true },
+    { from: 0, to: 2, t: String(f[2].v), ok: true },
+    { from: 0, to: 3, t: String(f[3].v), ok: true },
+    { from: 1, to: 0, t: "生效值", ok: true },
+    { from: 3, to: 0, t: rf[0]?.state === "ok" ? "OK" : "失效", ok: rf[0]?.state === "ok" },
+  ];
+  const arrows = msgs.map((m, i) => {
+    const y = top + 40 + i * stepY;
+    const x1 = xs[m.from], x2 = xs[m.to];
+    const dir = x2 > x1 ? 1 : -1;
+    const colors = ["var(--fx-blue)", "var(--fx-cyan)", "var(--fx-purple)", "var(--fx-green)", "var(--fx-orange)"];
+    const c = m.ok ? colors[i % colors.length] : "var(--fx-red)";
+    return `<line x1="${x1}" y1="${y}" x2="${x2 - dir * 6}" y2="${y}" stroke="${c}" stroke-width="1.4"
+        marker-end="url(#ah${i})" />
+      <text x="${(x1 + x2) / 2}" y="${y - 6}" text-anchor="middle" fill="var(--ink2)" font-size="9.5">${esc(String(m.t).slice(0, 22))}</text>`;
+  }).join("");
+  const defs = msgs.map((m, i) => `<marker id="ah${i}" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 z" fill="${m.ok ? "var(--ink2)" : "var(--fx-red)"}" /></marker>`).join("");
+  return `<div class="ly-seq">
+    <div class="sh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 46)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      <defs>${defs}</defs>
+      ${heads}${arrows}
+    </svg>
+  </div>`;
+}
+
+/* 25 journey */
+function lyJourney(p) {
+  const f = fields(p);
+  const steps = ["建", "校验", "保存", "发布", "开对话"];
+  const curve = [0.25, 0.62, 0.48, 0.88, 0.95];
+  const W = 620, H = 180, pad = 30;
+  const pts = curve.map((v, i) => [pad + i * ((W - pad * 2) / (curve.length - 1)), H - 30 - v * (H - 60)]);
+  const path = pts.map((p2, i) => (i ? "L" : "M") + p2.join(" ")).join(" ");
+  return `<div class="ly-journey">
+    <div class="jh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 44)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <path d="${path}" fill="none" stroke="var(--fx-blue)" stroke-width="2" />
+      ${pts.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="4" fill="var(--panel)" stroke="var(--fx-blue)" stroke-width="2" />
+        <text x="${x}" y="${y - 12}" text-anchor="middle" fill="var(--ink3)" font-size="9">${Math.round(curve[i] * 100)}</text>`).join("")}
+    </svg>
+    <div class="steps">
+      ${steps.map((s) => `<div class="s"><div class="t">${s}</div></div>`).join("")}
+    </div>
+    <div class="kv" style="margin-top:16px">
+      ${f.slice(0, 4).map((x) => `<div class="f"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 26 swimlane */
+function lySwim(p) {
+  const f = fields(p), rf = refs(p);
+  const lane = (t, items) => `<div class="lane"><div class="ln"><span>${esc(t)}</span></div>
+    <div class="items">${items.map((x) => `<div class="it"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}</div></div>`;
+  const isUT = state.section === "ut";
+  return `<div class="ly-swim">
+    <div class="sh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 42)}</span></div>
+    ${lane("身份", isUT ? f.slice(0, 1) : f.slice(0, 2))}
+    ${lane("运行", isUT ? f.slice(1, 4) : f.slice(2, 6))}
+    ${lane("环境", isUT ? f.slice(4) : f.slice(6))}
+    ${lane("引用", rf.map((r) => ({ k: r.kind, v: r.name })))}
+  </div>`;
+}
+
+/* 27 fishbone */
+function lyFish(p) {
+  const f = fields(p), rf = refs(p);
+  const W = 620, H = 420;
+  const spineY = H / 2, x0 = 40, x1 = W - 130;
+  const bones = [
+    { side: -1, x: 170, items: f.slice(0, 2) },
+    { side: -1, x: 330, items: f.slice(2, 4) },
+    { side: 1, x: 170, items: f.slice(4, 6) },
+    { side: 1, x: 330, items: rf.map((r) => ({ k: r.kind, v: r.name })).slice(0, 2) },
+  ];
+  const bonesSvg = bones.map((b) => {
+    const bx = b.x, by = spineY;
+    const ex = bx - 30, ey = spineY + b.side * 96;
+    const label = `<line x1="${bx}" y1="${by}" x2="${ex}" y2="${ey}" stroke="var(--line)" stroke-width="1.5" />`;
+    const items = b.items.map((it, i) => {
+      const t = (i + 1) / (b.items.length + 1);
+      const px = bx + (ex - bx) * t, py = by + (ey - by) * t;
+      return `<line x1="${px}" y1="${py}" x2="${px + 34}" y2="${py}" stroke="var(--line)" />
+        <text x="${px + 38}" y="${py + 3}" fill="var(--ink3)" font-size="8.5">${esc(it.k)}</text>
+        <text x="${px + 38}" y="${py + 15}" fill="var(--ink)" font-size="10">${esc(String(it.v).slice(0, 14))}</text>`;
+    }).join("");
+    return label + items;
+  }).join("");
+  return `<div class="ly-fish">
+    <div class="fh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 44)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      <line x1="${x0}" y1="${spineY}" x2="${x1}" y2="${spineY}" stroke="var(--ink3)" stroke-width="1.5" />
+      <path d="M${x1 - 14} ${spineY - 9} L${x1 + 8} ${spineY} L${x1 - 14} ${spineY + 9} z" fill="var(--ink3)" />
+      ${bonesSvg}
+      <text x="${x0}" y="${spineY - 10}" fill="var(--ink)" font-size="11">${esc(p.name)}</text>
+    </svg>
+  </div>`;
+}
+
+/* 28 packet */
+function lyPacket(p) {
+  const f = fields(p), rf = refs(p);
+  const cell = (ch, hi) => `<div class="c ${hi ? "hi" : ""}">${esc(ch)}</div>`;
+  const block = (t, off, text, hi = false) => {
+    const chars = Array.from(String(text).toUpperCase()).concat(Array.from({ length: 48 }, () => "·"));
+    const cells = chars.slice(0, 48).map((ch, i) => cell(ch === " " ? "·" : ch, hi && i < 14)).join("");
+    return `<div class="blk"><div class="bt">${esc(t)}<span class="off">0x${off}</span></div>
+      <div class="cells">${cells}</div></div>`;
+  };
+  return `<div class="ly-packet">
+    <div class="ph"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${crumbOf()}</span></div>
+    ${f.map((x, i) => block(x.k, String(i * 48).padStart(3, "0"), x.v, i === 0)).join("")}
+    ${rf.length ? block("REF", String(f.length * 48).padStart(3, "0"), rf.map((r) => r.name).join(" "), true) : ""}
+  </div>`;
+}
+
+/* 29 headline */
+function lyHeadline(p) {
+  const f = fields(p), rf = refs(p);
+  const per = Math.ceil(f.length / 3);
+  const cols = [f.slice(0, per), f.slice(per, per * 2), f.slice(per * 2)];
+  return `<div class="ly-head">
+    <div class="mast"><span class="paper">${crumbOf()}</span>
+      <span class="date">${head()} · ${dirty() ? "未提交" : "已发布"}</span></div>
+    <h1 class="ly-name">${esc(p.name)}</h1>
+    <p class="dek">${esc(p.summary)}</p>
+    <div class="cols">
+      ${cols.map((col) => `<div class="col">${col.map((x) => `<div class="f">
+        <div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}${x.sub ? `<span style="color:var(--ink3);font-size:10px"> ${esc(x.sub)}</span>` : ""}</div></div>`).join("")}</div>`).join("")}
+    </div>
+    <div class="quote"><span class="qm">“</span>
+      <span class="qt">${esc(p.description || `引用 ${rf.length} 条，${rf.every((r) => r.state === "ok") ? "全部可用" : "有失效引用，修好再开"}。`)}</span></div>
+  </div>`;
+}
+
+/* 30 flip */
+function lyFlip(p) {
+  const f = fields(p), rf = refs(p);
+  return `<div class="ly-flip ${state.flipped ? "flipped" : ""}">
+    <div class="card">
+      <div class="face front">
+        <div class="crumb">${crumbOf()}</div>
+        <h1 class="ly-name">${esc(p.name)}</h1>
+        <p class="sum">${esc(p.summary)}</p>
+        <div class="foot">
+          <button class="btn" data-act="flip">翻面</button>
+          <span class="hint">${f.length} 项 · ${rf.length} 引用</span>
+        </div>
+      </div>
+      <div class="face back">
+        ${f.map((x) => `<div class="r"><span class="k">${esc(x.k)}</span><span>${esc(x.v)}</span></div>`).join("")}
+        ${rf.map((r) => `<div class="r"><span class="k">${esc(r.kind)}</span><span>${esc(r.name)}</span></div>`).join("")}
+        <div style="margin-top:auto;padding-top:10px"><button class="btn ghost" data-act="flip">翻回去</button></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+
+/* 31 terminal */
+function lyTerm(p) {
+  const f = fields(p), rf = refs(p);
+  return `<div class="ly-term">
+    <div class="tbar"><i></i><i></i><i></i></div>
+    <div class="tbody">
+      <div><span class="p">~/Nous-Template $</span> <span class="cmd">preset show ${esc(p.name)}</span></div>
+      <div class="box">
+        <div class="row"><span class="k">section</span><span class="v">${crumbOf()}</span></div>
+        ${f.map((x) => `<div class="row"><span class="k">${esc(x.k)}</span><span class="v">${esc(x.v)}</span></div>`).join("")}
+      </div>
+      <div><span class="p">~/Nous-Template $</span> <span class="cmd">preset refs --check</span></div>
+      ${rf.map((r) => `<div><span class="${r.state === "ok" ? "str" : "err"}">${r.state === "ok" ? "✓" : "✗"}</span> ${esc(r.kind)} <span class="dim">→</span> <span class="key">${esc(r.name)}</span></div>`).join("") || `<div class="dim">no references</div>`}
+      <div style="margin-top:6px"><span class="p">~/Nous-Template $</span> <span class="cmd">git status --short</span></div>
+      <div class="warn">${dirty() ? " M  " + esc(pending().units[0]?.files?.[0]?.path ?? "preset.json") : "nothing to commit"}</div>
+      <div class="dim">${pending().units.length} file(s) pending · HEAD ${head()}</div>
+      <div style="margin-top:6px"><span class="p">~/Nous-Template $</span> <span class="cmd">▍</span></div>
+    </div>
+  </div>`;
+}
+
+/* 32 repo */
+function lyRepo(p) {
+  const f = fields(p);
+  const text = JSON.stringify(p.spec || {}, null, 2).split("\n");
+  return `<div class="ly-repo">
+    <div class="tree">
+      <div class="th">${crumbOf()}</div>
+      <div class="n on">▾ ${esc(p.name)}</div>
+      <div class="n sub on">preset.json<span class="m">M</span></div>
+      <div class="n sub">PRESET.md</div>
+      <div class="n">▸ categories.json</div>
+      <div class="n" style="color:var(--ink4)">${dirty() ? "1 modified" : "clean"}</div>
+    </div>
+    <div class="pane">
+      <div class="ph"><span>preset.json</span><span>${text.length} lines</span>
+        <span class="st">${dirty() ? "M" : ""}</span></div>
+      <div class="code">${text.map((l, i) => {
+        const hl = l.replace(/(&)/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"([^"]+)":/g, '<span class="k">"$1"</span>:')
+          .replace(/: "([^"]*)"/g, ': <span class="s">"$1"</span>')
+          .replace(/: (true|false|null|\d+)/g, ': <span class="b">$1</span>');
+        return `<div class="l"><span class="no">${i + 1}</span><span class="t">${hl}</span></div>`;
+      }).join("")}</div>
+    </div>
+  </div>`;
+}
+
+/* 33 chat */
+function lyChat(p) {
+  const f = fields(p), rf = refs(p);
+  const bub = (me, q, a, mono) => `<div class="msg ${me ? "me" : ""}">
+    <div class="av">${me ? "我" : "N"}</div>
+    <div class="bub">${q ? `<div class="q">${esc(q)}</div>` : ""}<div class="a ${mono ? "mono" : ""}">${esc(a)}</div></div></div>`;
+  return `<div class="ly-chat">
+    ${bub(true, "", `这条「${p.name}」到底钉了什么？`)}
+    ${bub(false, "", p.summary)}
+    ${f.slice(0, 4).map((x) => bub(true, x.k, x.v, x.mono)).join("")}
+    ${rf.length ? bub(false, "引用了什么", rf.map((r) => r.name).join("、") + (rf.every((r) => r.state === "ok") ? "（都在）" : "（有失效）")) : ""}
+    ${f.length > 4 ? bub(true, "其余", f.slice(4).map((x) => `${x.k} ${x.v}`).join("，")) : ""}
+    <div class="msg"><div class="av">N</div><div class="bub"><div class="typing"><i></i><i></i><i></i></div></div></div>
+  </div>`;
+}
+
+/* 34 ticket */
+function lyTicket(p) {
+  const f = fields(p), rf = refs(p);
+  return `<div class="ly-ticket">
+    <div class="th"><span class="no">#${String(1024 + (p.name.length * 7) % 900)}</span>
+      <h1 class="ly-name">${esc(p.name)}</h1>
+      <span class="badge"><i></i>${dirty() ? "未提交" : "已发布"}</span></div>
+    <div class="body">
+      <div class="main">
+        <p class="desc">${esc(p.summary)}${p.description ? " " + esc(p.description) : ""}</p>
+        <div class="comment"><div class="av">N</div><div class="c">
+          <div class="by">nous · 刚刚</div>
+          <div class="tx">${rf.length ? `引用 ${rf.length} 条：${rf.map((r) => r.name).join("、")}。${rf.every((r) => r.state === "ok") ? "全部可用。" : "有失效，先修再发。"}` : "没有外部引用，可以独立跑。"}</div>
+        </div></div>
+        <div class="comment"><div class="av">C</div><div class="c">
+          <div class="by">engine · 3 分钟前</div>
+          <div class="tx">${esc(f[0].k)} = ${esc(f[0].v)}${f[0].sub ? ` (${esc(f[0].sub)})` : ""}；${esc(f[1].k)} = ${esc(f[1].v)}。</div>
+        </div></div>
+        <div class="comment"><div class="av">C</div><div class="c">
+          <div class="by">engine · 3 分钟前</div>
+          <div class="tx">${pending().units.length} 个文件待同步，HEAD ${head()}。</div>
+        </div></div>
+      </div>
+      <div class="side2">
+        ${f.map((x) => `<div class="f"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+        <div class="f"><div class="k">引用</div><div class="v">${rf.length} 条</div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* 35 album */
+function lyAlbum(p) {
+  const f = fields(p), rf = refs(p);
+  const tracks = [...f.map((x) => ({ k: x.k, v: x.v })), ...rf.map((r) => ({ k: r.kind, v: r.name }))];
+  return `<div class="ly-album">
+    <div class="cover"><div class="tx"><div class="n">${esc(p.name)}</div>
+      <div class="s">${crumbOf()}</div></div></div>
+    <div class="tracks">
+      <div class="th"><span class="t">${tracks.length} 项</span><span class="c">${head()}</span></div>
+      ${tracks.map((t, i) => `<div class="tr ${i === 0 ? "on" : ""}">
+        <span class="i">${String(i + 1).padStart(2, "0")}</span>
+        <span class="k">${esc(t.k)}</span>
+        <span class="v">${esc(t.v)}</span>
+        <span class="d">${String(2 + (i % 4)).padStart(2, "0")}:${String(10 + (i * 13) % 49).padStart(2, "0")}</span></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 36 weather */
+function lyWeather(p) {
+  const f = fields(p), rf = refs(p);
+  const card = (k, big, unit, sub, cls = "", spark = false) => `<div class="c ${cls}">
+    <div class="k">${esc(k)}</div>
+    <div class="big">${esc(String(big).slice(0, 10))}${unit ? `<small>${esc(unit)}</small>` : ""}</div>
+    <div class="sub">${esc(sub)}</div>
+    ${spark ? `<div class="spark">${[8, 14, 10, 20, 16, 24, 12, 18].map((h) => `<i style="height:${h}px"></i>`).join("")}</div>` : ""}
+  </div>`;
+  return `<div class="ly-weather">
+    <div class="grid">
+      ${card(f[0].k, f[0].v, "", f[0].sub || "—", "hero")}
+      ${card(f[1].k, f[1].v, "", "当前")}
+      ${card("引用", `${rf.filter((r) => r.state === "ok").length}`, `/ ${rf.length || 0}`, rf.every((r) => r.state === "ok") ? "全部正常" : "有失效", "", true)}
+      ${card("待同步", `${pending().units.length}`, "文件", pending().units[0]?.name ?? "无")}
+    </div>
+  </div>`;
+}
+
+/* 37 net */
+function lyNet(p) {
+  const f = fields(p).slice(0, 5), rf = refs(p).slice(0, 2);
+  const W = 620, H = 460, cx = W / 2, cy = H / 2 - 10;
+  const nodes = [...f.map((x) => ({ t: x.k, s: x.v, c: "var(--fx-blue)" })), ...rf.map((r) => ({ t: r.kind, s: r.name, c: r.state === "ok" ? "var(--fx-green)" : "var(--fx-red)" }))];
+  const R = 158;
+  const pos = nodes.map((_, i) => {
+    const a = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
+    return [cx + Math.cos(a) * R, cy + Math.sin(a) * R];
+  });
+  const edges = pos.map(([x, y]) => `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)" stroke-width="1" />`).join("");
+  const rings = [0.5, 1].map((k) => `<circle cx="${cx}" cy="${cy}" r="${R * k}" fill="none" stroke="var(--line)" stroke-dasharray="2 5" />`).join("");
+  const dots = nodes.map((n, i) => {
+    const [x, y] = pos[i];
+    const left = x < cx;
+    return `<circle cx="${x}" cy="${y}" r="6" fill="var(--panel)" stroke="${n.c}" stroke-width="2" />
+      <text x="${x + (left ? -12 : 12)}" y="${y - 2}" text-anchor="${left ? "end" : "start"}" fill="var(--ink3)" font-size="8.5" letter-spacing="1.1">${esc(n.t.toUpperCase())}</text>
+      <text x="${x + (left ? -12 : 12)}" y="${y + 11}" text-anchor="${left ? "end" : "start"}" fill="var(--ink)" font-size="10">${esc(String(n.s).slice(0, 16))}</text>`;
+  }).join("");
+  return `<div class="ly-net">
+    <div class="nh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 44)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${rings}${edges}
+      <circle cx="${cx}" cy="${cy}" r="30" fill="var(--ink)" />
+      <text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="var(--bg)" font-size="10">${esc(p.name).slice(0, 9)}</text>
+      ${dots}
+    </svg>
+  </div>`;
+}
+
+/* 38 sheet2 */
+function lySheet2(p) {
+  const f = fields(p), rf = refs(p);
+  const cols = ["字段", "值", "状态", "来源"];
+  return `<div class="ly-sheet2">
+    <div class="row hd"><span class="cell rn"></span>${cols.map((c) => `<span class="cell">${c}</span>`).join("")}</div>
+    ${f.map((x, i) => `<div class="row"><span class="cell rn">${i + 1}</span>
+      <span class="cell k">${esc(x.k)}</span>
+      <span class="cell v ${i === 0 ? "on" : ""}">${esc(x.v)}</span>
+      <span class="cell">${esc(x.v === "不要" || x.v === "未发布" ? "空" : "已设")}</span>
+      <span class="cell">preset.json</span></div>`).join("")}
+    ${rf.map((r, i) => `<div class="row"><span class="cell rn">${f.length + i + 1}</span>
+      <span class="cell k">${esc(r.kind)}</span>
+      <span class="cell v">${esc(r.name)}</span>
+      <span class="cell">${r.state === "ok" ? "OK" : "失效"}</span>
+      <span class="cell">ref</span></div>`).join("")}
+  </div>`;
+}
+
+/* 39 deck */
+function lyDeck(p) {
+  const f = fields(p), rf = refs(p);
+  const total = 3;
+  const i = Math.min(state.slide, total - 1);
+  const pages = [
+    `<div class="tag">${crumbOf()}</div><h1 class="ly-name">${esc(p.name)}</h1>
+     <p class="lead">${esc(p.summary)}</p>
+     <div class="pairs">${f.slice(0, 4).map((x) => `<div class="p"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}</div>`,
+    `<div class="tag">引用 · ${rf.length}</div><h1 class="ly-name" style="font-size:30px">它靠什么跑</h1>
+     <p class="lead">${rf.length ? "下面每一条都得在盘上，缺一条就开不了。" : "没有外部引用，独立可跑。"}</p>
+     <div class="pairs">${rf.map((r) => `<div class="p"><div class="k">${esc(r.kind)} · ${r.state === "ok" ? "OK" : "失效"}</div><div class="v">${esc(r.name)}</div></div>`).join("") || `<div class="p"><div class="k">—</div><div class="v">无</div></div>`}</div>`,
+    `<div class="tag">状态</div><h1 class="ly-name" style="font-size:30px">${dirty() ? "还没提交" : "已发布"}</h1>
+     <p class="lead">${dirty() ? `${pending().units.length} 个文件改在盘上，HEAD ${head()}。发布后远端才看得见。` : `HEAD ${head()}，远端可见。`}</p>
+     <div class="pairs">${f.slice(4).map((x) => `<div class="p"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}</div>`,
+  ];
+  return `<div class="ly-deck">
+    <div class="slide">${pages[i]}<div class="pg">${i + 1} / ${total}</div></div>
+    <div class="nav">
+      <button class="btn ghost" data-act="slide" data-i="${Math.max(0, i - 1)}">←</button>
+      <div class="dots">${Array.from({ length: total }, (_, k) => `<i class="${k === i ? "on" : ""}" data-act="slide" data-i="${k}"></i>`).join("")}</div>
+      <button class="btn ghost" data-act="slide" data-i="${Math.min(total - 1, i + 1)}">→</button>
+    </div>
+  </div>`;
+}
+
+/* 40 player */
+function lyPlayer(p) {
+  const f = fields(p);
+  return `<div class="ly-player">
+    <div class="art"><div class="tx"><div class="n">${esc(p.name)}</div><div class="s">${crumbOf()}</div></div></div>
+    <div class="meta"><div class="t">${esc(p.summary).slice(0, 40)}</div><div class="a">${esc(f[0].k)} · ${esc(f[0].v)}</div></div>
+    <div class="wave">${Array.from({ length: 48 }, (_, i) => `<i style="height:${4 + ((i * 17) % 26)}px"></i>`).join("")}</div>
+    <div class="bar"><i></i></div>
+    <div class="times"><span>1:24</span><span>${esc(head())}</span></div>
+    <div class="ctl"><span>⏮</span><span class="play">▶</span><span>⏭</span></div>
+  </div>`;
+}
+
+const LAYOUTS = {
+  flow: lyFlow, table: lyTable, tiles: lyTiles, mono: lyMono,
+  sheet: lySheet, split: lySplit, gauge: lyGauge, columns: lyColumns,
+  timeline: lyTimeline, acc: lyAcc, insp: lyInsp, dense: lyDense,
+  kanban: lyKanban, tree: lyTree, gantt: lyGantt, quad: lyQuad,
+  mind: lyMind, radar: lyRadar, sankey: lySankey, state: lyState,
+  receipt: lyReceipt, palette: lyPalette, dash: lyDash, seq: lySeq, journey: lyJourney,
+  swim: lySwim, fish: lyFish, packet: lyPacket, headline: lyHeadline, flip: lyFlip,
+  term: lyTerm, repo: lyRepo, chat: lyChat, ticket: lyTicket, album: lyAlbum,
+  weather: lyWeather, net: lyNet, sheet2: lySheet2, deck: lyDeck, player: lyPlayer,
+};
+
+/* 通用 tab：盘面 / JSON / 对比 */
+function tabBoard(p) {
+  const f = fields(p);
+  return `<div class="board">
+    ${f.map((x) => `<div class="brow">
+      <span class="k">${esc(x.k)}</span>
+      <span class="v">${x.mono ? `<span class="ly-mono" style="font-size:11.5px">${esc(x.v)}</span>` : esc(x.v)}${x.sub ? `<span class="ly-sub">${esc(x.sub)}</span>` : ""}</span>
+      <span class="act" data-act="change" data-k="${esc(x.k)}">改</span>
+    </div>`).join("")}
+    <div class="brow"><span class="k">起手</span>
+      <span class="v"><span class="segment">
+        <button class="${!p.spec?.model ? "on" : ""}">空白</button>
+        <button class="${p.spec?.model ? "on" : ""}">钉住默认模型</button></span></span>
+      <span class="act">—</span></div>
+    <div class="brow"><span class="k">扩展</span>
+      <span class="v"><span class="pill">${esc((p.spec?.extensions || []).join(" · ") || "不要")}</span>
+        <span class="pill add">＋ 挑几个</span></span>
+      <span class="act">—</span></div>
+  </div>`;
+}
+
+function tabJson(p) {
+  const text = JSON.stringify(p.spec || {}, null, 2).split("\n");
+  return `<div class="code">${text.map((l, i) =>
+    `<div class="l"><span class="n">${i + 1}</span><span class="t">${esc(l)}</span></div>`).join("")}</div>`;
+}
+
+function lcs(before, after) {
+  const a = (before ?? "").split("\n"), b = (after ?? "").split("\n");
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: "ctx", text: a[i], n: i + 1 }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", text: a[i], n: i + 1 }); i++; }
+    else { out.push({ t: "add", text: b[j], n: j + 1 }); j++; }
+  }
+  while (i < n) out.push({ t: "del", text: a[i++], n: i });
+  while (j < m) out.push({ t: "add", text: b[j++], n: j });
+  return out;
+}
+
+function tabDiff() {
+  const units = pending().units;
+  if (!units.length) return `<div class="empty"><div class="big">这一段没有待同步的改动</div><div class="small">盘上和 HEAD 一致</div></div>`;
+  const u = units[Math.min(state.unit, units.length - 1)];
+  const path = u.files?.[0]?.path;
+  const d = DIFFS[path];
+  const rows = d ? lcs(d.before, d.after) : null;
+  return `<div class="units">${units.map((x, i) => `<button class="unit ${i === state.unit ? "on" : ""}" data-act="unit" data-i="${i}">
+      ${esc(x.name ?? "categories.json")}
+      ${x.added ? `<span class="plus">+${x.added}</span>` : ""}${x.removed ? `<span class="minus">−${x.removed}</span>` : ""}
+    </button>`).join("")}</div>
+    ${rows
+      ? `<div class="diff">${rows.map((r) => `<div class="l ${r.t}"><span class="n">${r.n}</span><span class="t">${esc(r.text)}</span></div>`).join("")}</div>`
+      : `<div class="empty"><div class="big">未发布 · HEAD 里没有这个文件</div><div class="small">发布之后才有 diff</div></div>`}`;
+}
+
+function tabsBar() {
+  const t = [["detail", "详情"], ["board", "盘面"], ["json", "JSON"], ["diff", `对比${pending().units.length ? "·" + pending().units.length : ""}`]];
+  return `<div class="dt-tabs" style="padding:0 26px">
+    ${t.map(([k, label]) => `<button class="${state.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${label}</button>`).join("")}
+    <span class="sp"></span>
+    <span class="ly-k" style="align-self:center">${LAYOUT_NAME[state.layout]}</span>
+  </div>`;
+}
+
+function right() {
+  if (state.mode === "new") return newForm();
+  const p = current();
+  const isUT = state.section === "ut";
+  const inner = state.tab === "detail" ? LAYOUTS[state.layout](p)
+    : `<div class="dt-head" style="padding-bottom:10px"><div class="crumb">${crumbOf()}</div>
+        <div class="dt-title"><h1>${esc(p.name)}</h1></div></div>
+      <div class="dt-body">${state.tab === "board" ? tabBoard(p) : state.tab === "json" ? tabJson(p) : tabDiff()}</div>`;
+  return `<div class="detail" data-layout="${state.layout}">
+    ${tabsBar()}
+    ${state.tab === "detail" ? `<div class="dt-body lywrap">${inner}</div>` : inner}
+    <div class="dt-foot">
+      <button class="btn primary" data-act="launch">${isUT ? "发布" : "开一条新对话"}</button>
+      <button class="btn" data-act="edit">编辑</button>
+      <button class="btn ghost" data-act="menu-dots">${icon("dots")}</button>
+      <span class="note">HEAD ${head()} · ${pending().units.length} 个文件待同步</span>
+    </div>
+  </div>`;
+}
+
+/* ── 弹层 ───────────────────────────────────────────────── */
+function layer() {
+  if (!state.layer) return "";
+  const p = current();
+  const units = pending().units;
+  const files = units.flatMap((u) => (u.files || []).map((f) => ({ ...f, unit: u.name ?? "categories.json" })));
+
+  if (state.layer === "publish") {
+    return `<div class="layer" data-act="close-layer"><div class="modal" onclick="event.stopPropagation()">
+      <div class="mh"><h3>发布这一段</h3><p>形状闸 → 重扫 index → commit → push。闸不过一个字节都不动。</p></div>
+      <div class="mb">
+        <div class="filelist">
+          ${files.map((f) => `<div class="filerow">
+            <span>${esc(f.path)}</span>
+            ${f.added ? `<span class="plus">+${f.added}</span>` : ""}
+            ${f.removed ? `<span class="minus">−${f.removed}</span>` : ""}
+            <span class="st">${esc(f.status)}</span>
+          </div>`).join("") || `<div class="filerow"><span>没有待提交的文件</span></div>`}
+        </div>
+        <div style="margin-top:12px;font-size:10.5px;color:var(--ink3)">提交信息：<span style="font-family:JBMono">session: 更新预设仓库</span></div>
+      </div>
+      <div class="mf"><button class="btn ghost" data-act="close-layer">取消</button>
+        <button class="btn primary" data-act="do-publish">发布</button></div>
+    </div></div>`;
+  }
+  if (state.layer === "archive" || state.layer === "purge") {
+    const purge = state.layer === "purge";
+    return `<div class="layer" data-act="close-layer"><div class="modal" onclick="event.stopPropagation()">
+      <div class="mh">
+        <h3>${purge ? "彻底删除" : "归档"} ${esc(p.name)}</h3>
+        <p>${purge
+          ? "活库那行和归档库那份一起没，不进回收站，也不能撤销。"
+          : "移到归档库，主列表不再出现；随时可以还原。"}</p>
+      </div>
+      <div class="mb">
+        <div class="filelist">
+          <div class="filerow"><span>${esc(p.dir || p.name)}/</span><span class="st">整个目录</span></div>
+        </div>
+        ${purge ? `<div class="err" style="margin-top:12px">这一步不可逆，输一下名字确认：</div>
+          <input class="search" style="margin-top:6px;height:30px" placeholder="${esc(p.name)}" data-act="purge-input">` : ""}
+      </div>
+      <div class="mf"><button class="btn ghost" data-act="close-layer">取消</button>
+        <button class="btn ${purge ? "danger" : "primary"}" data-act="do-${purge ? "purge" : "archive"}">${purge ? "彻底删除" : "归档"}</button></div>
+    </div></div>`;
+  }
+  if (state.layer === "newcat") {
+    return `<div class="layer" data-act="close-layer"><div class="modal" style="width:380px" onclick="event.stopPropagation()">
+      <div class="mh"><h3>新建类别</h3><p>类别是这一段的词表，写路径可以分层（写作/周报）。</p></div>
+      <div class="mb"><div class="form"><div class="field"><label>类别名</label>
+        <input type="text" placeholder="写作/周报" data-act="newcat-input"></div></div></div>
+      <div class="mf"><button class="btn ghost" data-act="close-layer">取消</button>
+        <button class="btn primary" data-act="do-newcat">建</button></div>
+    </div></div>`;
+  }
+  if (state.layer === "launch") {
+    return `<div class="layer" data-act="close-layer"><div class="modal" onclick="event.stopPropagation()">
+      <div class="mh"><h3>开一条新对话</h3><p>用 ${esc(p.name)} 起手。建完把盘上那只眼睛切过去。</p></div>
+      <div class="mb">
+        <div class="form">
+          <div class="field"><label>会话名</label>
+            <input type="text" placeholder="${esc(p.name + "-" + new Date().toISOString().slice(5, 10).replace("-", ""))}" data-act="session-name"></div>
+          <div class="field"><label>生效值（服务端回来的，不是我们发的）</label>
+            <div class="chip solid" style="margin-right:5px">模型 ${esc(p.spec?.model?.modelId || "跟随默认")}</div>
+            <div class="chip solid" style="margin-right:5px">思考 ${esc(p.spec?.thinkingLevel || "默认")}</div>
+            <div class="chip solid">技能 ${esc((p.spec?.skills || []).join("、") || "无")}</div>
+          </div>
+        </div>
+      </div>
+      <div class="mf"><button class="btn ghost" data-act="close-layer">取消</button>
+        <button class="btn primary" data-act="do-launch">开对话</button></div>
+    </div></div>`;
+  }
+  return "";
+}
+
+function menu() {
+  if (!state.menu) return "";
+  const p = current();
+  const { left, top } = state.menu;
+  return `<div class="menu" style="left:${left}px;top:${top}px" data-act="menu">
+    <div class="cap">${esc(p.name)}</div>
+    <button data-act="edit">编辑</button>
+    <button data-act="menu-cat">改类别…</button>
+    <button data-act="menu-copy">复制目录路径</button>
+    <button data-act="launch">开一条新对话</button>
+    <div class="sep"></div>
+    <button data-act="menu-archive">归档</button>
+    <button class="danger" data-act="menu-purge">彻底删除…</button>
+  </div>`;
+}
+
+/* ── 装配 ───────────────────────────────────────────────── */
+function render() {
+  const app = $("#app");
+  app.dataset.skin = state.skin;
+  app.innerHTML = rail() + side() + list() + right() + layer() + menu()
+    + (state.toast ? `<div class="toast">${esc(state.toast)}</div>` : "");
+}
+
+function toast(msg) {
+  state.toast = msg;
+  render();
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { state.toast = null; render(); }, 1800);
+}
+
+function setSkin(k) {
+  state.skin = k;
+  $$("#opt-skin .opt").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === k)));
+  render();
+}
+
+$("#app").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-act]");
+  if (!t) return;
+  const act = t.dataset.act;
+
+  if (act === "cat") { state.cat = t.dataset.cat || null; render(); }
+  else if (act === "sec") {
+    state.section = t.dataset.sec;
+    state.selected = presets()[0]?.name;
+    state.cat = null; state.tab = "detail"; state.unit = 0;
+    render();
+  }
+  else if (act === "pick") { state.selected = t.dataset.name; state.tab = state.tab === "diff" ? "detail" : state.tab; render(); }
+  else if (act === "view") { state.view = t.dataset.view; render(); }
+  else if (act === "tab") { state.tab = t.dataset.tab; render(); }
+  else if (act === "layout") { state.layout = t.dataset.k; paintLayout(); render(); }
+  else if (act === "grp") { state.openGrp = state.openGrp === +t.dataset.i ? -1 : +t.dataset.i; render(); }
+  else if (act === "flip") { state.flipped = !state.flipped; render(); }
+  else if (act === "slide") { state.slide = +t.dataset.i; render(); }
+  else if (act === "unit") { state.unit = +t.dataset.i; render(); }
+  else if (act === "goto-diff") { state.tab = "diff"; render(); }
+  else if (act === "new") { state.mode = "new"; state.tab = "detail"; state.draft = { name: "", summary: "", category: "", start: "blank" }; render(); }
+  else if (act === "newcat") { state.layer = "newcat"; render(); }
+  else if (act === "edit") { state.tab = "board"; state.menu = null; render(); }
+  else if (act === "launch") { state.layer = "launch"; state.menu = null; render(); }
+  else if (act === "menu-dots") {
+    const r = t.getBoundingClientRect();
+    state.menu = { left: Math.max(8, r.left - 176), top: r.top - 220 };
+    render();
+  }
+  else if (act === "menu-copy") { state.menu = null; navigator.clipboard?.writeText(current().dir || ""); toast("目录路径已复制"); }
+  else if (act === "menu-archive") { state.layer = "archive"; state.menu = null; render(); }
+  else if (act === "menu-purge") { state.layer = "purge"; state.menu = null; render(); }
+  else if (act === "menu-cat") { state.menu = null; toast("改类别抽屉（单独做）"); }
+  else if (act === "close-layer") { state.layer = null; state.menu = null; render(); }
+  else if (act === "do-publish") { state.layer = null; toast("发布成功 · 已 commit + push"); }
+  else if (act === "do-archive") { state.layer = null; toast("已归档 · 可在归档库还原"); }
+  else if (act === "do-purge") { state.layer = null; toast("已彻底删除（demo 里没真删）"); }
+  else if (act === "do-launch") { state.layer = null; toast("会话已创建，眼睛切过去了"); }
+  else if (act === "do-newcat") { state.layer = null; toast("类别已加进词表"); }
+  else if (act === "change") { toast(`改「${t.dataset.k}」`); }
+  else if (act === "start") { state.draft.start = t.dataset.v; render(); }
+  else if (act === "do-create") { state.mode = "detail"; toast("已建（demo 里没真写盘）"); }
+  else if (act === "cancel-new") { state.mode = "detail"; render(); }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { state.layer = null; state.menu = null; render(); }
+});
+
+$("#app").addEventListener("input", (e) => {
+  const f = e.target.closest("[data-field]");
+  if (f) {
+    state.draft[f.dataset.field] = f.value;
+    return;
+  }
+  const t = e.target.closest("[data-act='search']");
+  if (!t) return;
+  state.q = t.value;
+  render();
+  const box = $("#app .search");
+  if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+});
+
+const LAYOUT_GROUPS = [
+  { t: "基础", keys: ["flow","table","tiles","mono","sheet","split","gauge","columns","timeline","acc","insp","dense"] },
+  { t: "图表式", keys: ["kanban","tree","gantt","quad","mind","radar","sankey","state"] },
+  { t: "更多形态", keys: ["receipt","palette","dash","seq","journey","swim","fish","packet","headline","flip"] },
+  { t: "场景式", keys: ["term","repo","chat","ticket","album","weather","net","sheet2","deck","player"] },
+];
+const SKIN_NAME = { graphite: "石墨 暗", paper: "纸 亮", mono: "单色", steel: "冷钢",
+  amber: "琥珀", industrial: "工业", flexoki: "Flexoki 暗", "flexoki-paper": "Flexoki 纸" };
+
+function buildChoosers() {
+  const box = $("#opt-layout");
+  if (!box || box.childElementCount) return;
+  box.innerHTML = LAYOUT_GROUPS.map((g) =>
+    `<div class="grp-t">${g.t}</div>` +
+    g.keys.map((k) => `<button class="opt cmp" data-k="${k}">${LAYOUT_NAME[k]}</button>`).join("")).join("");
+  const skin = $("#opt-skin");
+  skin.innerHTML = Object.entries(SKIN_NAME).map(([k, n]) =>
+    `<button class="opt cmp" data-k="${k}">${n}</button>`).join("");
+  $$("#opt-layout .opt").forEach((b) => b.addEventListener("click", () => {
+    state.layout = b.dataset.k; paintLayout(); render();
+  }));
+  }
+
+function paintLayout() {
+  $$("#opt-layout .opt").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === state.layout)));
+}
+buildChoosers();
+paintLayout();
+$$("#opt-skin .opt").forEach((b) => b.addEventListener("click", () => setSkin(b.dataset.k)));
+
+const H = (location.hash.replace("#", "") || "").split(",");
+const SKINS = ["graphite","paper","mono","steel","amber","industrial","flexoki","flexoki-paper"];
+if (H[2] === "new") state.mode = "new";
+if (H[2] === "publish" || H[2] === "archive" || H[2] === "purge" || H[2] === "launch" || H[2] === "newcat") state.layer = H[2];
+if (H[1]) state.tab = H[1];
+if (H[3] === "ut") { state.section = "ut"; state.selected = UT.presets[0]?.name; }
+if (H[4] && LAYOUT_NAME[H[4]]) state.layout = H[4];
+setSkin(SKINS.includes(H[0]) ? H[0] : "graphite");
+paintLayout();
+</script>
+</body>
+</html>

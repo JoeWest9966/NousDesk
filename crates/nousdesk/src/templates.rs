@@ -17,6 +17,7 @@
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
 use gpui_kit::assets::IconName;
@@ -24,7 +25,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use nous_engine::EngineError;
-use nous_engine::types::{CreateSession, CreatedSession, Preset, Presets};
+use nous_engine::types::{CreateSession, CreatedSession, NewPreset, Preset, Presets};
 
 use crate::app::{Bar, Desktop, Tab};
 
@@ -37,6 +38,18 @@ pub(crate) const SECTIONS: [(&str, &str); 2] = [
     ("Session-Template", "Session-Template"),
     ("Ultimate-Template", "Ultimate-Template"),
 ];
+
+/// 圆/方块里放名字时先截断：`text_overflow` 在居中容器里会**两头**都裁，
+/// 长名字会变成 `ad-only-review` 那种看着像坏了的形状。
+fn short_name(name: &str, max: usize) -> String {
+    let n = name.chars().count();
+    if n <= max {
+        return name.to_string();
+    }
+    let mut s: String = name.chars().take(max.saturating_sub(1)).collect();
+    s.push('…');
+    s
+}
 
 /// 未分类不是词表里的类别，是我们自己的兜底桶。用这个哨兵值放进同一个「当前类别」槽。
 const UNCATEGORIZED: &str = "∅";
@@ -97,6 +110,31 @@ pub(crate) struct CatNode {
     pub depth: usize,
     pub count: usize,
     pub has_children: bool,
+}
+
+/// 「新建一条」的表单草稿。`Desktop::new_preset` 是 `Some` 时右栏被它占着。
+///
+/// 三个输入框现建现扔：每次点「新建」都是干净的一张白纸，不用手动清空。
+pub(crate) struct NewPresetDraft {
+    pub name: Entity<InputState>,
+    pub summary: Entity<InputState>,
+    pub category: Entity<InputState>,
+    /// 起手式：`true` = 跟设备默认模型起手（引擎填 `spec.model`）；`false` = 空白。
+    pub from_device: bool,
+    pub busy: bool,
+    /// 本地先挡的那道错（名字空 / 摘要空）。引擎的 400 也落这儿。
+    pub err: Option<String>,
+}
+
+/// 「新建类别」弹层。`input` 是 `Some` = 开着。
+///
+/// 类别是这一段的**词表**（`categories.json`），不是一个字段值 —— 所以要单独一条
+/// 端点，不能混进「新建预设」的表单里。
+#[derive(Default)]
+pub(crate) struct NewCatDraft {
+    pub input: Option<Entity<InputState>>,
+    pub busy: bool,
+    pub err: Option<String>,
 }
 
 impl Desktop {
@@ -190,6 +228,7 @@ impl Desktop {
         }
         self.section = i;
         self.preset_closed.clear();
+        self.drop_picked();
         if let Some(d) = &self.sections[i].data {
             let tree = facet_tree(&d.categories, &d.presets);
             self.preset_cat = keep_category(&self.preset_cat, &tree);
@@ -201,7 +240,16 @@ impl Desktop {
     /// 选类别（`None` = 全部，`Some("∅")` = 未分类）。
     fn pick_category(&mut self, cat: Option<String>, cx: &mut Context<Self>) {
         self.preset_cat = cat;
+        // 换了类别，右栏那条多半不在视图里了 —— 留着它会显示「这条已经不在列表里」，
+        // 像坏了。宁可让它回到空状态。
+        self.drop_picked();
         cx.notify();
+    }
+
+    /// 清掉右栏的选中（换段 / 换类别 / Esc 都走这里，别在各处抄一遍）。
+    fn drop_picked(&mut self) {
+        self.picked_preset = None;
+        self.picked_node = None;
     }
 
     fn toggle_closed(&mut self, path: String, cx: &mut Context<Self>) {
@@ -213,6 +261,356 @@ impl Desktop {
 
     /// 从模板开一条会话：`POST /v1/sessions { preset: "Session-Template/<name>", name }`。
     /// 成功后重拉会话列表、选中新会话、切回聊天页。
+    /// 点列表一行：右栏那张关系图换到这条上。**不开会话**（那是行尾圆按钮的事）。
+    /// 打开「新建一条」表单。右栏被表单占住，关系图让开。
+    pub(crate) fn open_new_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.new_preset.is_some() {
+            return;
+        }
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("deep-dive"));
+        let summary = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("一句话说清这条模板干什么")
+        });
+        let category = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("工程 —— 可写 写作/周报 分层")
+        });
+        self.new_preset = Some(NewPresetDraft {
+            name,
+            summary,
+            category,
+            from_device: false,
+            busy: false,
+            err: None,
+        });
+        self.picked_preset = None;
+        self.picked_node = None;
+        cx.notify();
+    }
+
+    /// 收起表单（取消 / Esc / 建完）。
+    pub(crate) fn close_new_preset(&mut self, cx: &mut Context<Self>) {
+        if self.new_preset.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// 切起手式。`from_device` 只影响发给引擎的 `from` 字段。
+    pub(crate) fn set_new_from(&mut self, device: bool, cx: &mut Context<Self>) {
+        if let Some(d) = self.new_preset.as_mut() {
+            d.from_device = device;
+            cx.notify();
+        }
+    }
+
+    /// 真的建。**本地只挡「名字空 / 摘要空」两道**，其余（重名、在归档区、形状闸）
+    /// 一律交给引擎 —— 它那边判得更全，本地再写一遍只会两边慢慢不一致。
+    pub(crate) fn submit_new_preset(&mut self, cx: &mut Context<Self>) {
+        let Some(draft) = self.new_preset.as_ref() else {
+            return;
+        };
+        if draft.busy {
+            return;
+        }
+        let name = draft.name.read(cx).value().trim().to_string();
+        let summary = draft.summary.read(cx).value().trim().to_string();
+        let raw_cat = draft.category.read(cx).value().trim().to_string();
+        let from_device = draft.from_device;
+
+        let local_err = if name.is_empty() {
+            Some("名字不能空 —— 它就是落盘时的目录名".to_string())
+        } else if summary.is_empty() {
+            Some("摘要不能空 —— 人靠这一行决定开不开它".to_string())
+        } else {
+            None
+        };
+        if let Some(e) = local_err {
+            if let Some(d) = self.new_preset.as_mut() {
+                d.err = Some(e);
+            }
+            cx.notify();
+            return;
+        }
+
+        let Some(engine) = self.engine.clone() else {
+            if let Some(d) = self.new_preset.as_mut() {
+                d.err = Some("还没连上引擎".into());
+            }
+            cx.notify();
+            return;
+        };
+
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        let body = NewPreset {
+            name: name.clone(),
+            summary,
+            // 逗号分一项，空项扔掉。分层路径（`写作/周报`）原样发，引擎自己拆。
+            category: raw_cat
+                .split([',', '，'])
+                .map(|c| c.trim().to_string())
+                .filter(|c| !c.is_empty())
+                .collect(),
+            from: from_device.then(|| "device".to_string()),
+        };
+        if let Some(d) = self.new_preset.as_mut() {
+            d.busy = true;
+            d.err = None;
+        }
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let result: Option<Result<serde_json::Value, EngineError>> = match &handle {
+                Some(h) => h
+                    .spawn(async move { engine.create_preset(section_id, &body).await })
+                    .await
+                    .ok(),
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(_)) => {
+                        // 建完就收表单、重拉这一段（新行得出现），并把它选中。
+                        this.new_preset = None;
+                        this.picked_preset = Some(name);
+                        this.picked_node = None;
+                        this.load_section(sec_idx, true, cx);
+                    }
+                    Some(Err(e)) => {
+                        if let Some(d) = this.new_preset.as_mut() {
+                            d.busy = false;
+                            d.err = Some(e.to_string());
+                        }
+                    }
+                    None => {
+                        if let Some(d) = this.new_preset.as_mut() {
+                            d.busy = false;
+                            d.err = Some("任务没跑完".into());
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    // ── 新建类别 ────────────────────────────────────────────
+
+    pub(crate) fn open_new_category(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.new_cat.input.is_some() {
+            return;
+        }
+        let input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("写作/周报 —— 写斜杠就是分层")
+        });
+        self.new_cat = NewCatDraft {
+            input: Some(input),
+            busy: false,
+            err: None,
+        };
+        cx.notify();
+    }
+
+    pub(crate) fn close_new_category(&mut self, cx: &mut Context<Self>) {
+        if self.new_cat.input.take().is_some() {
+            self.new_cat.busy = false;
+            self.new_cat.err = None;
+            cx.notify();
+        }
+    }
+
+    /// 建类别。引擎回的是**整段重算过**的词表 + 名册，直接覆盖本地。
+    pub(crate) fn submit_new_category(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = self.new_cat.input.clone() else {
+            return;
+        };
+        if self.new_cat.busy {
+            return;
+        }
+        let name = input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            self.new_cat.err = Some("类别名不能空".into());
+            cx.notify();
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.new_cat.err = Some("还没连上引擎".into());
+            cx.notify();
+            return;
+        };
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        self.new_cat.busy = true;
+        self.new_cat.err = None;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let body = nous_engine::types::CategoryOp {
+                op: "add".into(),
+                name: name.clone(),
+                to: None,
+            };
+            let handle = crate::TOKIO.get().cloned();
+            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> =
+                match &handle {
+                    Some(h) => h
+                        .spawn(async move { engine.mutate_categories(section_id, &body).await })
+                        .await
+                        .ok(),
+                    _ => None,
+                };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(r)) => {
+                        this.new_cat = NewCatDraft::default();
+                        // 只信 `categories`（词表就是这条端点的事）。名册那份是**半成品**，
+                        // 不覆盖 —— 重拉一次那一段，拿带 `tracked`/`resolved` 的完整数据。
+                        if let Some(d) = this.sections[sec_idx].data.as_mut() {
+                            d.categories = r.categories;
+                        }
+                        this.preset_closed.clear();
+                        // 建完就停在那个类别上：看不见刚建的类别等于没建。
+                        this.preset_cat = Some(name);
+                        this.load_section(sec_idx, true, cx);
+                    }
+                    Some(Err(e)) => {
+                        this.new_cat.busy = false;
+                        this.new_cat.err = Some(e.to_string());
+                    }
+                    None => {
+                        this.new_cat.busy = false;
+                        this.new_cat.err = Some("任务没跑完".into());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 弹层本体。罩子点掉 = 关闭；弹窗吃掉点击。
+    pub(crate) fn new_cat_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let input = self.new_cat.input.clone()?;
+        let busy = self.new_cat.busy;
+        let err = self.new_cat.err.clone();
+        let sec = SECTIONS[self.section].1;
+
+        let scrim = div()
+            .id("newcat-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_new_category(cx)));
+
+        let dialog = div()
+            .id("newcat-dialog")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            // **必须 stop**：不拦的话同一次点击会继续传给它下面的罩子，
+            // 表现成「点『建』没反应、弹窗还自己关了」。
+            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(t().d(380.))
+                    .rounded(t().r(10.))
+                    .bg(rgb(t().p.panel))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .shadow_lg()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(18.))
+                            .text_size(t().fs(14.))
+                            .text_color(rgb(t().p.text))
+                            .child("新建类别"),
+                    )
+                    .child(
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(4.))
+                            .pb(t().d(14.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .child(format!(
+                                "{sec} 的词表。写 写作/周报 就是分层路径。"
+                            )),
+                    )
+                    .child(div().px(t().d(20.)).child(Input::new(&input)))
+                    .children(err.map(|e| {
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(8.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.danger_fg))
+                            .child(e)
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .px(t().d(20.))
+                            .py(t().d(16.))
+                            .child(
+                                div()
+                                    .id("newcat-cancel")
+                                    .flex()
+                                    .items_center()
+                                    .h(t().d(28.))
+                                    .px(t().d(12.))
+                                    .rounded(t().r(6.))
+                                    .text_size(t().fs(12.))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.close_new_category(cx)
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("newcat-ok")
+                                    .flex()
+                                    .items_center()
+                                    .h(t().d(28.))
+                                    .px(t().d(14.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                                    .text_size(t().fs(12.))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.submit_new_category(cx)
+                                    }))
+                                    .child(if busy { "建…" } else { "建" }),
+                            ),
+                    ),
+            );
+
+        Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
+    }
+
+    fn pick_preset(&mut self, preset_name: String, cx: &mut Context<Self>) {
+        if self.picked_preset.as_deref() == Some(preset_name.as_str()) {
+            // 再点一次 = 收起右栏，来回切不会卡在一条上。
+            self.picked_preset = None;
+        } else {
+            self.picked_preset = Some(preset_name);
+        }
+        self.picked_node = None;
+        cx.notify();
+    }
+
     fn launch_preset(&mut self, preset_name: String, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
@@ -284,6 +682,65 @@ impl Desktop {
     // ── 渲染：类别树 ────────────────────────────────────────
 
     /// Template 页的左栏：段切换 + 类别树 + 段脚注。
+    /// 段按钮下面那行：**新建**（实心）+ **类别**（描边）。
+    ///
+    /// 这两个不是一类东西：新建建一条预设（落盘成一个目录），类别改这一段的词表
+    /// （`categories.json`）—— 所以别合并成「＋」下拉，两条路的分叉点就在这儿。
+    fn preset_actions(&self, cx: &mut Context<Self>) -> AnyElement {
+
+        div()
+            .flex()
+            .flex_row()
+            .gap(t().d(6.))
+            .px(t().d(14.))
+            .pb(t().d(10.))
+            .child(
+                div()
+                    .id("new-preset")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(t().d(4.))
+                    .h(t().d(24.))
+                    .px(t().d(9.))
+                    .rounded(t().r(6.))
+                    .bg(rgb(t().p.accent))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.on_accent))
+                    .cursor_pointer()
+                    .hover(|h| h.bg(rgb(t().p.accent_hover)))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_new_preset(window, cx)))
+                    .child(
+                        Icon::new(IconName::Plus)
+                            .size(t().d(12.))
+                            .text_color(rgb(t().p.on_accent)),
+                    )
+                    .child("新建"),
+            )
+            .child(
+                div()
+                    .id("new-category")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(t().d(24.))
+                    .px(t().d(9.))
+                    .rounded(t().r(6.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.text_2))
+                    .cursor_pointer()
+                    .hover(|h| {
+                        h.border_color(rgb(t().p.text_2))
+                            .text_color(rgb(t().p.text))
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| this.open_new_category(window, cx)))
+                    .child("＋ 类别"),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn render_preset_tree(&self, cx: &mut Context<Self>) -> AnyElement {
         let sec = &self.sections[self.section];
         let tree = sec
@@ -439,6 +896,7 @@ impl Desktop {
                     ),
             )
             .child(segments)
+            .child(self.preset_actions(cx))
             .child(
                 div()
                     .id("preset-tree-area")
@@ -672,7 +1130,7 @@ impl Desktop {
             .w(px(t().template_list_w))
             .h_full()
             .flex_none()
-            .bg(rgb(super::app::LIST_BG))
+            .bg(rgb(t().p.list_bg))
             .border_r(t().d(1.))
             .border_color(rgb(t().p.line))
             .child(
@@ -758,7 +1216,9 @@ impl Desktop {
         let can_open = self.sections[self.section].id == SECTIONS[0].0;
         let ok = can_open && launchable(p);
         let name = p.name.clone();
+        let pick_name = p.name.clone();
         let creating = self.creating.as_deref() == Some(p.name.as_str());
+        let picked = self.picked_preset.as_deref() == Some(p.name.as_str());
         let cat = self.preset_cat.clone().unwrap_or_default();
 
         // 状态字：判据全是引擎算好的，客户端只挑颜色。
@@ -773,20 +1233,41 @@ impl Desktop {
         };
 
         div()
+            .relative()
             .flex()
             .gap(t().d(10.))
             .p(t().d(10.))
             .border_b(t().d(1.))
             .border_color(rgb(t().p.line_strong))
-            // 行永远是 Stateful：id 挂住，能开才接 on_click。
+            // 行永远是 Stateful，且**点行 = 选中**（看右栏那张图），不是直接开会话。
+            // 开会话挪到行尾那个圆按钮上 —— 微信里点联系人是看资料，不是发消息。
             .id(ElementId::Name(format!("preset-{}", p.name).into()))
-            .when(ok, |el| {
-                el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.launch_preset(name.clone(), cx);
-                }))
-            })
-            .when(ok, |el| el.hover(|h| h.bg(rgb(t().p.line_soft))))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.pick_preset(pick_name.clone(), cx);
+            }))
+            .hover(|h| h.bg(rgb(t().p.line_soft)))
             .when(creating, |el| el.bg(rgb(t().p.accent_soft)))
+            .when(picked, |el| el.bg(rgb(t().p.accent_soft)))
+            // 选中的那一行左侧一条竖线：颜色之外还得有个不用辨认形状的信号。
+            .when(picked, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(t().d(7.))
+                        .bottom(t().d(7.))
+                        .w(t().d(2.))
+                        .rounded(t().r(1.))
+                        .bg(rgb(t().p.accent))
+                        // 120ms：竖条是「选中了」的信号，短到不需要等它长完。
+                        .with_animation(
+                            ElementId::Name(format!("pick-bar-{}", p.name).into()),
+                            Animation::new(std::time::Duration::from_millis(120))
+                                .with_easing(ease_out_quint()),
+                            |el, delta| el.opacity(delta),
+                        ),
+                )
+            })
             .child(
                 // 头像方块：能开的用蓝底白字首字，开不了的置灰。
                 div()
@@ -839,14 +1320,28 @@ impl Desktop {
                             .collect::<Vec<_>>(),
                     ),
             )
-            // 能开的行右侧画个「发起聊天」的箭头，像微信通讯录的入口。
+            // 行尾：能开的行给一个「开一条新对话」的圆按钮。
+            // 行体只负责选中 —— 两个动作分开，多一次辨认，少一堆误触。
             .when(ok, |el| {
                 el.child(
-                    div().flex_none().items_center().child(
-                        Icon::new(IconName::ChevronRight)
-                            .with_size(Size::Size(t().d(16.)))
-                            .text_color(rgb(muted())),
-                    ),
+                    div()
+                        .id(ElementId::Name(format!("open-{}", p.name).into()))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(t().d(26.))
+                        .rounded(t().r(6.))
+                        .text_color(rgb(muted()))
+                        .hover(|h| h.bg(rgb(t().p.line)).text_color(rgb(t().p.link)))
+                        .child(
+                            Icon::new(IconName::MessageCirclePlus)
+                                .with_size(Size::Size(t().d(15.))),
+                        )
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.launch_preset(name.clone(), cx);
+                        })),
                 )
             })
     }
@@ -1187,5 +1682,788 @@ mod tests {
             Some(UNCATEGORIZED.into())
         );
         assert_eq!(keep_category(&None, &tree), None);
+    }
+}
+
+// ── 渲染：右栏关系图（37 节点图） ──────────────────────────
+
+impl Desktop {
+    /// Template 页第三栏：选中那条预设的**关系图**。
+    ///
+    /// 图是「看一眼就走」的：中心 = 这条预设，一圈 = 它钉住的维度，外圈 = 具体的
+    /// 技能/扩展。节点颜色直接抄引擎的 `resolved.*.state` —— 这边不算「能不能开」。
+    /// 右栏的「新建一条」表单 —— **清单式**（demo `new-preset.html` 的 9 号）。
+    ///
+    /// 四行竖着排，每行左边一个圈：必填两项（名字 / 摘要）填完才打勾，
+    /// 另两项（类别 / 起手式）有默认值，圈是空的、标题右边标「可改」。
+    ///
+    /// **进度只跟必填项走**：把「类别留空 = 未分类」也算进进度，会让人以为
+    /// 不选类别就建不了。所以分母恒为 2，不是 4。
+    pub(crate) fn render_new_preset(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(draft) = self.new_preset.as_ref() else {
+            return div().into_any_element();
+        };
+        let sec = SECTIONS[self.section].1;
+        let busy = draft.busy;
+        let err = draft.err.clone();
+        let has_err = err.is_some();
+        let from_device = draft.from_device;
+        let name_ok = !draft.name.read(cx).value().trim().is_empty();
+        let sum_ok = !draft.summary.read(cx).value().trim().is_empty();
+        let done: u8 = u8::from(name_ok) + u8::from(sum_ok);
+        let pct = f32::from(done) / 2.;
+        let can = name_ok && sum_ok && !busy;
+        // 类别候选：这一段的词表（前 5 个）。点一下就是把它填进输入框 ——
+        // 不是另一套状态，输入框里那串字始终是唯一的真相。
+        let cats: Vec<String> = self.sections[self.section]
+            .data
+            .as_ref()
+            .map(|d| d.categories.iter().take(5).cloned().collect())
+            .unwrap_or_default();
+
+        // 一行清单。`done` 只决定圈和标题颜色，行里的控件不受影响。
+        let item = |done: bool, title: &'static str, hint: Option<&'static str>, body: AnyElement| {
+            div()
+                .flex()
+                .flex_row()
+                .gap(t().d(12.))
+                .py(t().d(13.))
+                .border_b(t().d(1.))
+                .border_color(rgb(t().p.line_soft))
+                .child(
+                    div()
+                        .w(t().d(16.))
+                        .h(t().d(16.))
+                        .mt(t().d(2.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(t().r(8.))
+                        .when(done, |e| {
+                            e.bg(rgb(t().p.accent))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.accent))
+                        })
+                        .when(!done, |e| {
+                            e.border(t().d(1.)).border_color(rgb(t().p.line))
+                        })
+                        .children(done.then(|| {
+                            div()
+                                .text_size(t().fs(10.))
+                                .line_height(px(10.))
+                                .text_color(rgb(t().p.on_accent))
+                                .child("✓")
+                        })),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(t().d(0.))
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(t().d(6.))
+                                .child(
+                                    div()
+                                        .text_size(t().fs(12.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(rgb(if done { t().p.text } else { t().p.text_2 }))
+                                        .child(title),
+                                )
+                                .children(hint.map(|h| {
+                                    div()
+                                        .text_size(t().fs(10.))
+                                        .text_color(rgb(t().p.faint))
+                                        .child(h)
+                                })),
+                        )
+                        .child(body),
+                )
+                .into_any_element()
+        };
+
+        let pill = |text: String, on: bool| {
+            div()
+                .flex()
+                .items_center()
+                .h(t().d(22.))
+                .px(t().d(9.))
+                .rounded(t().r(11.))
+                .border(t().d(1.))
+                .border_color(rgb(if on { t().p.accent } else { t().p.line }))
+                .bg(rgb(if on { t().p.accent } else { t().p.panel }))
+                .text_size(t().fs(11.))
+                .text_color(rgb(if on { t().p.on_accent } else { t().p.text_2 }))
+                .child(text)
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .h_full()
+            .min_w(t().d(0.))
+            .bg(rgb(t().p.chat_bg))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .h(t().d(40.))
+                    .px(t().d(26.))
+                    .border_b(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .gap(t().d(8.))
+                    .child(
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .child(format!("{sec} · 新建")),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(t().p.faint))
+                            .child(if done >= 2 {
+                                "必填项都填了".to_string()
+                            } else {
+                                format!("必填 {} 项 · 还差 {} 项", 2, 2 - done)
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .id("new-preset-body")
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .overflow_y_scroll()
+                    .px(t().d(26.))
+                    .py(t().d(20.))
+                    .child(
+                        div()
+                            .max_w(t().d(540.))
+                            .flex()
+                            .flex_col()
+                            // 标题 + 百分比
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_end()
+                                    .gap(t().d(12.))
+                                    .child(
+                                        div()
+                                            .text_size(t().fs(20.))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child("新建模板"),
+                                    )
+                                    .child(div().flex_1())
+                                    .child(
+                                        div()
+                                            .text_size(t().fs(11.))
+                                            .text_color(rgb(t().p.muted))
+                                            .child(format!("{}%", (pct * 100.) as i32)),
+                                    ),
+                            )
+                            // 进度条：一条细线，两条 flex 按比例分宽度
+                            .child(
+                                div()
+                                    .mt(t().d(12.))
+                                    .mb(t().d(18.))
+                                    .h(t().d(3.))
+                                    .w_full()
+                                    .rounded(t().r(2.))
+                                    .bg(rgb(t().p.line_soft))
+                                    .flex()
+                                    .child(
+                                        div()
+                                            .h_full()
+                                            .flex_grow(pct)
+                                            .bg(rgb(t().p.accent)),
+                                    )
+                                    .child(div().h_full().flex_grow(1. - pct)),
+                            )
+                            .child(item(
+                                name_ok,
+                                "名字",
+                                None,
+                                div().pt(t().d(8.)).child(Input::new(&draft.name)).into_any_element(),
+                            ))
+                            .child(item(
+                                sum_ok,
+                                "摘要",
+                                Some(if sum_ok { "" } else { "必填" }),
+                                div().pt(t().d(8.)).child(Input::new(&draft.summary)).into_any_element(),
+                            ))
+                            .child(item(
+                                false,
+                                "类别",
+                                Some("可改 · 留空 = 未分类"),
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(t().d(8.))
+                                    .pt(t().d(8.))
+                                    .child(Input::new(&draft.category))
+                                    .children((!cats.is_empty()).then(|| {
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .flex_wrap()
+                                            .gap(t().d(6.))
+                                            .children(cats.iter().enumerate().map(|(i, c)| {
+                                                let fill = c.clone();
+                                                div()
+                                                    .id(ElementId::Name(
+                                                        format!("new-cat-{i}").into(),
+                                                    ))
+                                                    .flex()
+                                                    .items_center()
+                                                    .h(t().d(22.))
+                                                    .px(t().d(9.))
+                                                    .rounded(t().r(11.))
+                                                    .border(t().d(1.))
+                                                    .border_color(rgb(t().p.line))
+                                                    .text_size(t().fs(11.))
+                                                    .text_color(rgb(t().p.text_2))
+                                                    .cursor_pointer()
+                                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                                    .on_click(cx.listener(
+                                                        move |this, _: &ClickEvent, window, cx| {
+                                                            if let Some(d) = this.new_preset.as_ref() {
+                                                                let fill = fill.clone();
+                                                                d.category.update(cx, |s, cx| {
+                                                                    s.set_value(fill, window, cx)
+                                                                });
+                                                            }
+                                                            cx.notify();
+                                                        },
+                                                    ))
+                                                    .child(c.clone())
+                                            }))
+                                    }))
+                                    .into_any_element(),
+                            ))
+                            .child(item(
+                                false,
+                                "起手式",
+                                Some("可改"),
+                                div()
+                                    .pt(t().d(8.))
+                                    .flex()
+                                    .flex_row()
+                                    .gap(t().d(6.))
+                                    .child(
+                                        div()
+                                            .id("new-from-blank")
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                this.set_new_from(false, cx)
+                                            }))
+                                            .child(pill("空白 —— 一条都不写".to_string(), !from_device)),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("new-from-device")
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                this.set_new_from(true, cx)
+                                            }))
+                                            .child(pill("跟设备默认模型".to_string(), from_device)),
+                                    )
+                                    .into_any_element(),
+                            )),
+                    ),
+            )
+            // 底栏：创建（没填完时置灰，但点了会说出缺哪一项）/ 提示 / 取消
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(10.))
+                    .px(t().d(26.))
+                    .py(t().d(14.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .child(
+                        div()
+                            .id("new-preset-submit")
+                            .flex()
+                            .items_center()
+                            .h(t().d(30.))
+                            .px(t().d(16.))
+                            .rounded(t().r(6.))
+                            .bg(rgb(if can { t().p.accent } else { t().p.disabled }))
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(if can { t().p.on_accent } else { t().p.text }))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.submit_new_preset(cx)
+                            }))
+                            .child(if busy { "建…" } else { "创建" }),
+                    )
+                    .children(err.map(|e| {
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.danger_fg))
+                            .child(e)
+                    }))
+                    .children((!can && !has_err).then(|| {
+                        div()
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(t().p.faint))
+                            .child("名字和摘要是必填，填完就能建")
+                    }))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .id("new-preset-cancel")
+                            .flex()
+                            .items_center()
+                            .h(t().d(30.))
+                            .px(t().d(12.))
+                            .rounded(t().r(6.))
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(t().p.text_2))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_new_preset(cx)))
+                            .child("取消"),
+                    ),
+            )
+            // `window` 只在类别 chip 里用到（写输入框）；不用的话编译器会警告。
+            .when(false, |e| e.child(format!("{}", window.is_window_active())))
+            .into_any_element()
+    }
+
+    pub(crate) fn render_detail(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let dw = t().detail_w;
+        if dw <= 0. {
+            return div().into_any_element();
+        }
+
+        let shell = |inner: AnyElement| {
+            div()
+                .flex()
+                .flex_col()
+                // 右栏吃掉剩余宽度（`detail_w` 是最小宽）：窗口更宽时图居中留白，
+                // 而不是在右边露出一条没人用的墙。
+                .flex_1()
+                .min_w(px(dw))
+                .h_full()
+                .bg(rgb(t().p.panel))
+                .border_l(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .child(inner)
+                .into_any_element()
+        };
+
+        let Some(name) = self.picked_preset.clone() else {
+            return shell(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(t().d(6.))
+                    .size_full()
+                    .text_center()
+                    .child(
+                        div()
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(muted()))
+                            .child("选一条模板"),
+                    )
+                    .child(
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.faint))
+                            .child("右边会画出它钉了什么、哪些走默认"),
+                    )
+                    .into_any_element(),
+            );
+        };
+
+        let sec = &self.sections[self.section];
+        if sec.loading && sec.data.is_none() {
+            return shell(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(t().d(8.))
+                    .p(t().d(16.))
+                    .child(
+                        div()
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(muted()))
+                            .child("拉这一段的模板中…"),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(t().d(8.))
+                            .children((0..3).map(|i| {
+                                div()
+                                    .h(t().d(34.))
+                                    .w_full()
+                                    .rounded(t().r(7.))
+                                    .bg(rgb(t().p.panel_alt))
+                                    .opacity(0.9 - i as f32 * 0.22)
+                            }))
+                            // 脉动只在这一层：它是「在等」的信号，不是装饰。
+                            // 900ms 一轮，明暗 0.55–0.95 —— 再快像坏掉，再慢像卡住。
+                            .with_animation(
+                                ElementId::Name("graph-skeleton".into()),
+                                Animation::new(std::time::Duration::from_millis(900))
+                                    .repeat()
+                                    .with_easing(pulsating_between(0.55, 0.95)),
+                                |el, delta| el.opacity(delta),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let Some(p) = sec
+            .data
+            .as_ref()
+            .and_then(|d| d.presets.iter().find(|x| x.name == name))
+        else {
+            return shell(
+                div()
+                    .p(t().d(16.))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(muted()))
+                    .child("这条已经不在列表里了")
+                    .into_any_element(),
+            );
+        };
+
+        let nodes = crate::templates_graph::nodes(p);
+        // 右栏是 `flex_1`，实际宽度跟窗口走 —— 半径必须按**真实宽度**算。
+        let vw = f32::from(window.viewport_size().width);
+        let vh = f32::from(window.viewport_size().height);
+        let rail = t().rail_w;
+        let used = rail + t().preset_tree_w + t().template_list_w;
+        let col = (vw - used).max(dw);
+        let (gw, gh) = (
+            (col - t().d(24.).as_f32()).max(220.),
+            (vh - t().d(150.).as_f32()).max(300.),
+        );
+        let pts = crate::templates_graph::layout(&nodes, gw, gh);
+        let (cx0, cy0) = (gw / 2., gh / 2. - 10.);
+        let r0 = (gw * 0.40).min(gh * 0.37);
+
+        // demo 37 的点色是 Flexoki 的固定三色，**不跟皮肤走** —— 这是这张图的识别度。
+        // 换了工业皮之后，蓝色描边在暖纸底上照样是蓝的，这才对。
+        const FX_BLUE: u32 = 0x4385be;
+        const FX_GREEN: u32 = 0x879a39;
+        const FX_RED: u32 = 0xd14d41;
+
+        let dot_color = |n: &crate::templates_graph::Node| -> u32 {
+            match n.state {
+                crate::templates_graph::State::Invalid => FX_RED,
+                crate::templates_graph::State::Auto => t().p.muted,
+                crate::templates_graph::State::Unknown => t().p.muted,
+                // 引用用绿、字段用蓝 —— demo 里那个「两种颜色」就是这个意思。
+                crate::templates_graph::State::Ok => {
+                    if n.is_ref {
+                        FX_GREEN
+                    } else {
+                        FX_BLUE
+                    }
+                }
+            }
+        };
+
+        // 连线：中心 → 每个点。demo 里是实线、直接穿过标签文字，不避让。
+        // demo 里两层环和连线都是 `var(--line)` —— 工业皮下就是纯黑，
+        // 在浅色皮（flexoki-paper）里它自己会变浅。跟着皮肤走，别写死。
+        let ring: gpui::Hsla = rgb(t().p.line).into();
+        let segs: Vec<(f32, f32, gpui::Hsla)> = nodes
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, n)| {
+                let c = match n.state {
+                    crate::templates_graph::State::Invalid => FX_RED,
+                    _ => t().p.line,
+                };
+                (
+                    pts[i].x,
+                    pts[i].y,
+                    rgb(c).opacity(if n.state.is_auto() { 0.45 } else { 1.0 }).into(),
+                )
+            })
+            .collect();
+
+        let canvas_layer = div()
+            .id(ElementId::Name("graph-bg".into()))
+            .absolute()
+            .top_0()
+            .left_0()
+            .w(px(gw))
+            .h(px(gh))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                if this.picked_node.take().is_some() {
+                    cx.notify();
+                }
+            }))
+            .child(
+                canvas(
+                    move |_, _, _| (cx0, cy0, r0, segs.clone(), ring),
+                    |bounds, (cx, cy, r, segs, ring), window, _| {
+                        let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+                        let circle = |rad: f32| {
+                            let mut v = Vec::with_capacity(120);
+                            for i in 0..120 {
+                                let a = std::f32::consts::TAU * i as f32 / 120.;
+                                v.push(point(
+                                    px(ox + cx + rad * a.cos()),
+                                    px(oy + cy + rad * a.sin()),
+                                ));
+                            }
+                            v
+                        };
+                        // 两层点线环（demo 的 0.5 / 1.0）。
+                        for k in [0.48f32, 1.0] {
+                            let mut b =
+                                PathBuilder::stroke(px(1.)).dash_array(&[px(2.), px(5.)]);
+                            b.add_polygon(&circle(r * k), true);
+                            if let Ok(path) = b.build() {
+                                window.paint_path(path, ring);
+                            }
+                        }
+                        for (x, y, color) in segs {
+                            let mut b = PathBuilder::stroke(px(1.));
+                            b.move_to(point(px(ox + cx), px(oy + cy)));
+                            b.line_to(point(px(ox + x), px(oy + y)));
+                            if let Ok(path) = b.build() {
+                                window.paint_path(path, color);
+                            }
+                        }
+                    },
+                )
+                .size_full(),
+            );
+
+        // 点 + 悬浮标签。中心圆单独一块（它是实心的，不是空心点）。
+        let mut layer = div().absolute().top_0().left_0().w(px(gw)).h(px(gh));
+
+        layer = layer.child(
+            div()
+                .id(ElementId::Name("graph-center".into()))
+                .absolute()
+                .left(px(cx0 - 31.))
+                .top(px(cy0 - 31.))
+                .size(px(62.))
+                .rounded_full()
+                .bg(rgb(t().p.text))
+                .flex()
+                .items_center()
+                .justify_center()
+                .px(px(6.))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.picked_node = None;
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .text_size(t().fs(9.))
+                        .text_color(rgb(t().p.on_accent))
+                        .whitespace_nowrap()
+                        .text_overflow(TextOverflow::Truncate("…".into()))
+                        // 62px 的圆放不下长名字，两边都会被裁（`read-only-review` 会变成
+                        // "ad-only-review"）。按 demo 的做法先截到 9 个字。
+                        .child(short_name(&p.name, 9)),
+                ),
+        );
+
+        for i in 1..nodes.len() {
+            let n = &nodes[i];
+            let (x, y) = (pts[i].x, pts[i].y);
+            let left_side = x < cx0;
+            let color = dot_color(n);
+            let picked = self.picked_node.as_deref() == Some(n.id.as_str());
+            let dot_id = n.id.clone();
+
+            layer = layer.child(
+                div()
+                    .id(ElementId::Name(format!("gd-{}", n.id).into()))
+                    .absolute()
+                    .left(px(x - 6.))
+                    .top(px(y - 6.))
+                    .size(px(12.))
+                    .rounded_full()
+                    .border(px(if picked { 3. } else { 2. }))
+                    .border_color(rgb(color))
+                    .bg(rgb(t().p.panel))
+                    .hover(|h| h.bg(rgb(color)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.picked_node = Some(dot_id.clone());
+                        cx.notify();
+                    })),
+            );
+
+            // 标签：左半圈右对齐到点的左侧，右半圈左对齐到点的右侧。
+            // 宽度按到边界的距离收 —— 否则最左/最右那两个会顶出画布。
+            let (lw, lx) = if left_side {
+                let w = (x - 16.).clamp(40., 132.);
+                (w, x - 10. - w)
+            } else {
+                let w = (gw - x - 16.).clamp(40., 132.);
+                (w, x + 10.)
+            };
+            let label_id = n.id.clone();
+            layer = layer.child(
+                div()
+                    .id(ElementId::Name(format!("gl-{}", n.id).into()))
+                    .absolute()
+                    .left(px(lx))
+                    .top(px(y - 17.))
+                    .w(px(lw))
+                    .h(px(34.))
+                    .flex()
+                    .flex_col()
+                    .justify_center()
+                    .gap(px(1.))
+                    .when(left_side, |el| el.items_end())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.picked_node = Some(label_id.clone());
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .text_size(t().fs(8.5))
+                            .text_color(rgb(muted()))
+                            .whitespace_nowrap()
+                            .child(n.label.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(if picked { t().p.accent } else { t().p.text }))
+                            .whitespace_nowrap()
+                            .text_overflow(TextOverflow::Truncate("…".into()))
+                            .child(if n.value.is_empty() {
+                                "未设".to_string()
+                            } else {
+                                n.value.clone()
+                            }),
+                    ),
+            );
+        }
+
+        let open_name = p.name.clone();
+        let can_open = sec.id == SECTIONS[0].0 && launchable(p);
+
+        shell(
+            div()
+                .flex()
+                .flex_col()
+                .size_full()
+                // 头：名字 17px 与摘要**同一行**（demo 的 baseline 排版），
+                // 开会话的按钮挪到这一行右端，不再占一整条底栏。
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(t().d(10.))
+                        .px(t().d(14.))
+                        .pt(t().d(12.))
+                        .pb(t().d(4.))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(t().fs(17.))
+                                .font_weight(FontWeight::BOLD)
+                                .child(p.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(t().d(0.))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(muted()))
+                                .whitespace_nowrap()
+                                .text_overflow(TextOverflow::Truncate("…".into()))
+                                .child(p.summary.clone()),
+                        )
+                        .when(can_open, |el| {
+                            el.child(
+                                div()
+                                    .flex_none()
+                                    .px(t().d(10.))
+                                    .py(t().d(5.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.text))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .text_size(t().fs(11.))
+                                    .id(ElementId::Name("detail-open".into()))
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.launch_preset(open_name.clone(), cx);
+                                    }))
+                                    .child("开一条新对话"),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_h(t().d(0.))
+                        .overflow_hidden()
+                        .items_center()
+                        .justify_center()
+                        .when(nodes.len() <= 1, |el| {
+                            el.child(
+                                div()
+                                    .max_w(t().d(240.))
+                                    .text_center()
+                                    .text_size(t().fs(11.))
+                                    .text_color(rgb(muted()))
+                                    .child("这一条没有可摊开的关系数据 —— 引擎没给 resolved，spec 也没写多少"),
+                            )
+                        })
+                        .when(nodes.len() > 1, |el| {
+                            let w = gw;
+                            let h = gh;
+                            el.child(
+                                div()
+                                    .relative()
+                                    .w(px(w))
+                                    .h(px(h))
+                                    .child(canvas_layer)
+                                    .child(layer)
+                                    .with_animation(
+                                        ElementId::Name(format!("graph-fade-{}", p.name).into()),
+                                        Animation::new(std::time::Duration::from_millis(160))
+                                            .with_easing(ease_out_quint()),
+                                        |el, delta| el.opacity(delta),
+                                    ),
+                            )
+                        }),
+                )
+                .into_any_element(),
+        )
     }
 }

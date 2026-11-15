@@ -103,7 +103,7 @@ pub fn render_purge_confirm(
             .id(ElementId::Name("purge-scrim".into()))
             .absolute()
             .inset_0()
-            .bg(rgb(t().p.scrim))
+            .bg(rgba(t().p.scrim))
             .on_click(on_close.clone())
     };
 
