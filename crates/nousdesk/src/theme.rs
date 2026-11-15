@@ -381,13 +381,10 @@ impl Palette {
 
 // ── 排版 / 尺寸 ─────────────────────────────────────────────────────────
 
-/// 窗口骨架。加新布局要同步 `board_art::pane_width`。
-
 /// 一套皮的全部外观 token。`Copy`，渲染函数里随手传。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Skin {
     pub p: Palette,
-
 
     /// 界面字体族名。`""` = **沿用 GPUI 默认**（出厂观感，Linux 上会由
     /// gpui-component 解析成系统字体）。换皮时给一个真实存在的族名
