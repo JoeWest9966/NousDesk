@@ -10,9 +10,9 @@ use url::Url;
 
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
-    ArchiveGens, ConfigPatch, CreateSession, CreatedSession, Device, Dirs, Entries, Forked,
-    Machines, Models, Presets, Prompts, ReadReceipt, SessionConfig, Sessions, Skills, Submission,
-    Unread,
+    ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
+    Dirs, Entries, Forked, Machines, Models, NewPreset, Presets, Prompts, ReadReceipt,
+    SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -292,6 +292,37 @@ impl EngineClient {
         let resp = self
             .http
             .get(self.url(&format!("v1/presets/{section}"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 新建一条预设。引擎会先过形状闸（终极模板再过引用闸），不过就 400 且一个字节都不写。
+    pub async fn create_preset(
+        &self,
+        section: &str,
+        body: &NewPreset,
+    ) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/create"))?)
+            .json(body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 类别词表增删改名。回包里带着**重算过**的 `categories` + `presets`，
+    /// 调用方直接拿去覆盖本地，别自己改数组（改名会连带改预设上的挂载）。
+    pub async fn mutate_categories(
+        &self,
+        section: &str,
+        body: &CategoryOp,
+    ) -> Result<CategoriesResult, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/categories"))?)
+            .json(body)
             .send()
             .await?;
         self.json(resp).await

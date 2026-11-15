@@ -133,6 +133,48 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
   font-family: JBMono, monospace; display: flex; align-items: center; gap: 6px; }
 .side-foot .badge { color: var(--warn); }
 
+/* ── 新建表单（右栏整栏换掉） ───────────────────────────── */
+function newForm() {
+  const d = state.draft || { name: "", summary: "", category: "", start: "blank" };
+  const isUT = state.section === "ut";
+  const sec = isUT ? "Ultimate-Template" : "Session-Template";
+  return `<div class="detail">
+    <div class="dt-tabs" style="padding:0 26px">
+      <span class="ly-k" style="align-self:center">${sec} · 新建</span>
+      <span class="sp"></span>
+      <span class="ly-k" style="align-self:center">还没落盘</span>
+    </div>
+    <div class="dt-body">
+      <div class="dt-head" style="padding-bottom:10px">
+        <div class="crumb">${sec}</div>
+        <div class="dt-title"><h1>新建模板</h1></div>
+      </div>
+      <div class="form" style="max-width:560px">
+        <div class="field"><label>名字</label>
+          <input type="text" data-field="name" placeholder="deep-dive" value="${esc(d.name)}">
+          <div class="help">落盘时就是目录名，建完不改。</div></div>
+        <div class="field"><label>摘要</label>
+          <input type="text" data-field="summary" placeholder="一句话说清这条模板干什么" value="${esc(d.summary)}">
+          <div class="help">人靠这一行决定开不开它，不能空。</div></div>
+        <div class="field"><label>类别</label>
+          <input type="text" data-field="category" placeholder="工程" value="${esc(d.category)}">
+          <div class="help">写 <code>写作/周报</code> 就是分层路径；留空 = 未分类。</div></div>
+        <div class="field"><label>起手式</label>
+          <div class="chips" style="margin-top:0">
+            <button class="chip ${d.start === "blank" ? "solid" : ""}" data-act="start" data-v="blank">空白 —— 一条都不写</button>
+            <button class="chip ${d.start === "device" ? "solid" : ""}" data-act="start" data-v="device">跟设备默认模型</button>
+          </div>
+          <div class="help">空白 = 所有可选键都不写，等同于跟随仓库默认。</div></div>
+      </div>
+    </div>
+    <div class="dt-foot">
+      <button class="btn primary" data-act="do-create">创建</button>
+      <button class="btn ghost" data-act="cancel-new">取消</button>
+      <span class="note">建完落盘，发布还是另一步</span>
+    </div>
+  </div>`;
+}
+
 /* ── 中：列表 ───────────────────────────────────────────── */
 .list { width: 330px; flex: 0 0 330px; background: var(--bg); border-right: 1px solid var(--line);
   display: flex; flex-direction: column; }

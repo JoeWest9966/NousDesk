@@ -267,6 +267,10 @@ pub struct Desktop {
     pub(crate) picked_preset: Option<String>,
     /// 图上点了哪个节点（`dim:model` 这种 id）。只影响那一行说明。
     pub(crate) picked_node: Option<String>,
+    /// 「新建一条」表单。`Some` = 右栏被表单占着，关系图让开。
+    pub(crate) new_preset: Option<crate::templates::NewPresetDraft>,
+    /// 「新建类别」弹层。
+    pub(crate) new_cat: crate::templates::NewCatDraft,
     _subs: Vec<Subscription>,
     /// 「New Manual」盘面。只占右侧聊天区那一格（外形照 qrd3wh 的 hb7k3j 页）。
     pub(crate) newchat: crate::board::NewChat,
@@ -400,6 +404,14 @@ impl Desktop {
                             if this.tab != Tab::Templates {
                                 return false;
                             }
+                            if this.new_cat.input.is_some() {
+                                this.close_new_category(cx);
+                                return true;
+                            }
+                            if this.new_preset.take().is_some() {
+                                cx.notify();
+                                return true;
+                            }
                             if this.picked_node.take().is_some() {
                                 cx.notify();
                                 return true;
@@ -520,6 +532,8 @@ impl Desktop {
             creating: None,
             picked_preset: None,
             picked_node: None,
+            new_preset: None,
+            new_cat: crate::templates::NewCatDraft::default(),
             newchat: crate::board::NewChat::new(window, cx),
             nav: SessionNav::new(),
             _subs: subs,
@@ -3643,7 +3657,11 @@ impl Render for Desktop {
                     .min_w(t().d(0.))
                     .child(self.render_preset_tree(cx))
                     .child(self.render_templates(cx))
-                    .child(self.render_detail(window, cx))
+                    .child(if self.new_preset.is_some() {
+                        self.render_new_preset(cx)
+                    } else {
+                        self.render_detail(window, cx)
+                    })
                     .into_any_element(),
             })
             // 会话内跳转目录（J）：只在聊天页、选中了会话、且**盘面没开**时出现。
@@ -3685,6 +3703,8 @@ impl Render for Desktop {
             .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
             // 「撕原件」确认（盖在菜单之上）
             .children(self.purge_overlay(cx))
+            // 「新建类别」弹层
+            .children(self.new_cat_overlay(cx))
             // 轻提示：最后一层，永远看得见。
             .children(self.render_notice());
 

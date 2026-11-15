@@ -292,6 +292,54 @@ pub struct Presets {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// `POST /v1/presets/<段>/create` 的请求体。
+///
+/// 只带「建的时候就知道的」四样：名字、摘要、类别、起手式。`spec` 整份原样落的路
+/// 这一刀不做（表单里没有盘面），`from: "device"` 让引擎拿设备默认模型填 `spec.model`。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct NewPreset {
+    pub name: String,
+    /// **不能空** —— 引擎直接 400（人靠这一行决定开不开）。
+    pub summary: String,
+    #[serde(default)]
+    pub category: Vec<String>,
+    /// `"device"` = 跟设备默认模型起手；不传 = 空白（所有可选键都不写）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+}
+
+/// `POST /v1/presets/<段>/categories` 的请求体：类别词表的增 / 删 / 改名。
+#[derive(Debug, Clone, Serialize)]
+pub struct CategoryOp {
+    /// `"add"` | `"rename"` | `"remove"`。
+    pub op: String,
+    pub name: String,
+    /// 只有 `rename` 用。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+}
+
+/// `POST /v1/presets/<段>/categories` 的回包。引擎顺手把新的名册 / 词表带回来 ——
+/// 客户端**别自己拼**（改名会连带改预设上的挂载，本地猜必错）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoriesResult {
+    #[serde(default)]
+    pub categories: Vec<String>,
+    /// 引擎顺带回的名册。**形状和 `Presets` 端点不一样** —— 这里没有 `tracked`
+    /// 和 `resolved`（那两个只在 `GET /presets/:section` 里补）。所以客户端不解析它，
+    /// 拿到 `categories` 之后重拉一次那一段，别拿半份名册覆盖本地完整数据。
+    #[serde(default)]
+    pub presets: Vec<serde_json::Value>,
+    /// 引擎说碰了几个文件。**是数字**（不是文件名数组），当 `Value` 收着最稳。
+    #[serde(default)]
+    pub touched: serde_json::Value,
+    #[serde(default)]
+    pub load_error: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 /// `POST /v1/sessions` 的请求体。
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CreateSession {

@@ -17,6 +17,7 @@
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
 use gpui_kit::assets::IconName;
@@ -24,7 +25,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use nous_engine::EngineError;
-use nous_engine::types::{CreateSession, CreatedSession, Preset, Presets};
+use nous_engine::types::{CreateSession, CreatedSession, NewPreset, Preset, Presets};
 
 use crate::app::{Bar, Desktop, Tab};
 
@@ -109,6 +110,31 @@ pub(crate) struct CatNode {
     pub depth: usize,
     pub count: usize,
     pub has_children: bool,
+}
+
+/// 「新建一条」的表单草稿。`Desktop::new_preset` 是 `Some` 时右栏被它占着。
+///
+/// 三个输入框现建现扔：每次点「新建」都是干净的一张白纸，不用手动清空。
+pub(crate) struct NewPresetDraft {
+    pub name: Entity<InputState>,
+    pub summary: Entity<InputState>,
+    pub category: Entity<InputState>,
+    /// 起手式：`true` = 跟设备默认模型起手（引擎填 `spec.model`）；`false` = 空白。
+    pub from_device: bool,
+    pub busy: bool,
+    /// 本地先挡的那道错（名字空 / 摘要空）。引擎的 400 也落这儿。
+    pub err: Option<String>,
+}
+
+/// 「新建类别」弹层。`input` 是 `Some` = 开着。
+///
+/// 类别是这一段的**词表**（`categories.json`），不是一个字段值 —— 所以要单独一条
+/// 端点，不能混进「新建预设」的表单里。
+#[derive(Default)]
+pub(crate) struct NewCatDraft {
+    pub input: Option<Entity<InputState>>,
+    pub busy: bool,
+    pub err: Option<String>,
 }
 
 impl Desktop {
@@ -236,6 +262,344 @@ impl Desktop {
     /// 从模板开一条会话：`POST /v1/sessions { preset: "Session-Template/<name>", name }`。
     /// 成功后重拉会话列表、选中新会话、切回聊天页。
     /// 点列表一行：右栏那张关系图换到这条上。**不开会话**（那是行尾圆按钮的事）。
+    /// 打开「新建一条」表单。右栏被表单占住，关系图让开。
+    pub(crate) fn open_new_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.new_preset.is_some() {
+            return;
+        }
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("deep-dive"));
+        let summary = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("一句话说清这条模板干什么")
+        });
+        let category = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("工程 —— 可写 写作/周报 分层")
+        });
+        self.new_preset = Some(NewPresetDraft {
+            name,
+            summary,
+            category,
+            from_device: false,
+            busy: false,
+            err: None,
+        });
+        self.picked_preset = None;
+        self.picked_node = None;
+        cx.notify();
+    }
+
+    /// 收起表单（取消 / Esc / 建完）。
+    pub(crate) fn close_new_preset(&mut self, cx: &mut Context<Self>) {
+        if self.new_preset.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// 切起手式。`from_device` 只影响发给引擎的 `from` 字段。
+    pub(crate) fn set_new_from(&mut self, device: bool, cx: &mut Context<Self>) {
+        if let Some(d) = self.new_preset.as_mut() {
+            d.from_device = device;
+            cx.notify();
+        }
+    }
+
+    /// 真的建。**本地只挡「名字空 / 摘要空」两道**，其余（重名、在归档区、形状闸）
+    /// 一律交给引擎 —— 它那边判得更全，本地再写一遍只会两边慢慢不一致。
+    pub(crate) fn submit_new_preset(&mut self, cx: &mut Context<Self>) {
+        let Some(draft) = self.new_preset.as_ref() else {
+            return;
+        };
+        if draft.busy {
+            return;
+        }
+        let name = draft.name.read(cx).value().trim().to_string();
+        let summary = draft.summary.read(cx).value().trim().to_string();
+        let raw_cat = draft.category.read(cx).value().trim().to_string();
+        let from_device = draft.from_device;
+
+        let local_err = if name.is_empty() {
+            Some("名字不能空 —— 它就是落盘时的目录名".to_string())
+        } else if summary.is_empty() {
+            Some("摘要不能空 —— 人靠这一行决定开不开它".to_string())
+        } else {
+            None
+        };
+        if let Some(e) = local_err {
+            if let Some(d) = self.new_preset.as_mut() {
+                d.err = Some(e);
+            }
+            cx.notify();
+            return;
+        }
+
+        let Some(engine) = self.engine.clone() else {
+            if let Some(d) = self.new_preset.as_mut() {
+                d.err = Some("还没连上引擎".into());
+            }
+            cx.notify();
+            return;
+        };
+
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        let body = NewPreset {
+            name: name.clone(),
+            summary,
+            // 逗号分一项，空项扔掉。分层路径（`写作/周报`）原样发，引擎自己拆。
+            category: raw_cat
+                .split([',', '，'])
+                .map(|c| c.trim().to_string())
+                .filter(|c| !c.is_empty())
+                .collect(),
+            from: from_device.then(|| "device".to_string()),
+        };
+        if let Some(d) = self.new_preset.as_mut() {
+            d.busy = true;
+            d.err = None;
+        }
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let result: Option<Result<serde_json::Value, EngineError>> = match &handle {
+                Some(h) => h
+                    .spawn(async move { engine.create_preset(section_id, &body).await })
+                    .await
+                    .ok(),
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(_)) => {
+                        // 建完就收表单、重拉这一段（新行得出现），并把它选中。
+                        this.new_preset = None;
+                        this.picked_preset = Some(name);
+                        this.picked_node = None;
+                        this.load_section(sec_idx, true, cx);
+                    }
+                    Some(Err(e)) => {
+                        if let Some(d) = this.new_preset.as_mut() {
+                            d.busy = false;
+                            d.err = Some(e.to_string());
+                        }
+                    }
+                    None => {
+                        if let Some(d) = this.new_preset.as_mut() {
+                            d.busy = false;
+                            d.err = Some("任务没跑完".into());
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    // ── 新建类别 ────────────────────────────────────────────
+
+    pub(crate) fn open_new_category(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.new_cat.input.is_some() {
+            return;
+        }
+        let input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("写作/周报 —— 写斜杠就是分层")
+        });
+        self.new_cat = NewCatDraft {
+            input: Some(input),
+            busy: false,
+            err: None,
+        };
+        cx.notify();
+    }
+
+    pub(crate) fn close_new_category(&mut self, cx: &mut Context<Self>) {
+        if self.new_cat.input.take().is_some() {
+            self.new_cat.busy = false;
+            self.new_cat.err = None;
+            cx.notify();
+        }
+    }
+
+    /// 建类别。引擎回的是**整段重算过**的词表 + 名册，直接覆盖本地。
+    pub(crate) fn submit_new_category(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = self.new_cat.input.clone() else {
+            return;
+        };
+        if self.new_cat.busy {
+            return;
+        }
+        let name = input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            self.new_cat.err = Some("类别名不能空".into());
+            cx.notify();
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.new_cat.err = Some("还没连上引擎".into());
+            cx.notify();
+            return;
+        };
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        self.new_cat.busy = true;
+        self.new_cat.err = None;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let body = nous_engine::types::CategoryOp {
+                op: "add".into(),
+                name: name.clone(),
+                to: None,
+            };
+            let handle = crate::TOKIO.get().cloned();
+            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> =
+                match &handle {
+                    Some(h) => h
+                        .spawn(async move { engine.mutate_categories(section_id, &body).await })
+                        .await
+                        .ok(),
+                    _ => None,
+                };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(r)) => {
+                        this.new_cat = NewCatDraft::default();
+                        // 只信 `categories`（词表就是这条端点的事）。名册那份是**半成品**，
+                        // 不覆盖 —— 重拉一次那一段，拿带 `tracked`/`resolved` 的完整数据。
+                        if let Some(d) = this.sections[sec_idx].data.as_mut() {
+                            d.categories = r.categories;
+                        }
+                        this.preset_closed.clear();
+                        // 建完就停在那个类别上：看不见刚建的类别等于没建。
+                        this.preset_cat = Some(name);
+                        this.load_section(sec_idx, true, cx);
+                    }
+                    Some(Err(e)) => {
+                        this.new_cat.busy = false;
+                        this.new_cat.err = Some(e.to_string());
+                    }
+                    None => {
+                        this.new_cat.busy = false;
+                        this.new_cat.err = Some("任务没跑完".into());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 弹层本体。罩子点掉 = 关闭；弹窗吃掉点击。
+    pub(crate) fn new_cat_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let input = self.new_cat.input.clone()?;
+        let busy = self.new_cat.busy;
+        let err = self.new_cat.err.clone();
+        let sec = SECTIONS[self.section].1;
+
+        let scrim = div()
+            .id("newcat-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_new_category(cx)));
+
+        let dialog = div()
+            .id("newcat-dialog")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            // **必须 stop**：不拦的话同一次点击会继续传给它下面的罩子，
+            // 表现成「点『建』没反应、弹窗还自己关了」。
+            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(t().d(380.))
+                    .rounded(t().r(10.))
+                    .bg(rgb(t().p.panel))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .shadow_lg()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(18.))
+                            .text_size(t().fs(14.))
+                            .text_color(rgb(t().p.text))
+                            .child("新建类别"),
+                    )
+                    .child(
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(4.))
+                            .pb(t().d(14.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .child(format!(
+                                "{sec} 的词表。写 写作/周报 就是分层路径。"
+                            )),
+                    )
+                    .child(div().px(t().d(20.)).child(Input::new(&input)))
+                    .children(err.map(|e| {
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(8.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.danger_fg))
+                            .child(e)
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .px(t().d(20.))
+                            .py(t().d(16.))
+                            .child(
+                                div()
+                                    .id("newcat-cancel")
+                                    .flex()
+                                    .items_center()
+                                    .h(t().d(28.))
+                                    .px(t().d(12.))
+                                    .rounded(t().r(6.))
+                                    .text_size(t().fs(12.))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.close_new_category(cx)
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("newcat-ok")
+                                    .flex()
+                                    .items_center()
+                                    .h(t().d(28.))
+                                    .px(t().d(14.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                                    .text_size(t().fs(12.))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.submit_new_category(cx)
+                                    }))
+                                    .child(if busy { "建…" } else { "建" }),
+                            ),
+                    ),
+            );
+
+        Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
+    }
+
     fn pick_preset(&mut self, preset_name: String, cx: &mut Context<Self>) {
         if self.picked_preset.as_deref() == Some(preset_name.as_str()) {
             // 再点一次 = 收起右栏，来回切不会卡在一条上。
@@ -318,6 +682,65 @@ impl Desktop {
     // ── 渲染：类别树 ────────────────────────────────────────
 
     /// Template 页的左栏：段切换 + 类别树 + 段脚注。
+    /// 段按钮下面那行：**新建**（实心）+ **类别**（描边）。
+    ///
+    /// 这两个不是一类东西：新建建一条预设（落盘成一个目录），类别改这一段的词表
+    /// （`categories.json`）—— 所以别合并成「＋」下拉，两条路的分叉点就在这儿。
+    fn preset_actions(&self, cx: &mut Context<Self>) -> AnyElement {
+
+        div()
+            .flex()
+            .flex_row()
+            .gap(t().d(6.))
+            .px(t().d(14.))
+            .pb(t().d(10.))
+            .child(
+                div()
+                    .id("new-preset")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(t().d(4.))
+                    .h(t().d(24.))
+                    .px(t().d(9.))
+                    .rounded(t().r(6.))
+                    .bg(rgb(t().p.accent))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.on_accent))
+                    .cursor_pointer()
+                    .hover(|h| h.bg(rgb(t().p.accent_hover)))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_new_preset(window, cx)))
+                    .child(
+                        Icon::new(IconName::Plus)
+                            .size(t().d(12.))
+                            .text_color(rgb(t().p.on_accent)),
+                    )
+                    .child("新建"),
+            )
+            .child(
+                div()
+                    .id("new-category")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(t().d(24.))
+                    .px(t().d(9.))
+                    .rounded(t().r(6.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.text_2))
+                    .cursor_pointer()
+                    .hover(|h| {
+                        h.border_color(rgb(t().p.text_2))
+                            .text_color(rgb(t().p.text))
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| this.open_new_category(window, cx)))
+                    .child("＋ 类别"),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn render_preset_tree(&self, cx: &mut Context<Self>) -> AnyElement {
         let sec = &self.sections[self.section];
         let tree = sec
@@ -473,6 +896,7 @@ impl Desktop {
                     ),
             )
             .child(segments)
+            .child(self.preset_actions(cx))
             .child(
                 div()
                     .id("preset-tree-area")
@@ -1268,6 +1692,200 @@ impl Desktop {
     ///
     /// 图是「看一眼就走」的：中心 = 这条预设，一圈 = 它钉住的维度，外圈 = 具体的
     /// 技能/扩展。节点颜色直接抄引擎的 `resolved.*.state` —— 这边不算「能不能开」。
+    /// 右栏的「新建一条」表单。和关系图互斥（`Desktop::new_preset` 只有一个方向）。
+    ///
+    /// 字段只有四个：名字、摘要、类别、起手式。**不在这儿摆盘面** —— 盘面是「编辑」的事，
+    /// 建的时候多摆十个输入框只会让人以为非得填完才能建。
+    pub(crate) fn render_new_preset(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(draft) = self.new_preset.as_ref() else {
+            return div().into_any_element();
+        };
+        let sec = SECTIONS[self.section].1;
+        let busy = draft.busy;
+        let err = draft.err.clone();
+        let from_device = draft.from_device;
+
+        let label = |text: &'static str| {
+            div()
+                .pb(t().d(6.))
+                .text_size(t().fs(9.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(t().p.muted))
+                .child(text)
+        };
+        let help = |text: &'static str| {
+            div()
+                .pt(t().d(5.))
+                .text_size(t().fs(10.5))
+                .text_color(rgb(t().p.faint))
+                .child(text)
+        };
+
+        let chip = |text: &'static str, on: bool, device: bool, cx: &mut Context<Self>| {
+            div()
+                .id(if device { "new-from-device" } else { "new-from-blank" })
+                .flex()
+                .items_center()
+                .h(t().d(22.))
+                .px(t().d(8.))
+                .rounded(t().r(5.))
+                .border(t().d(1.))
+                .border_color(rgb(if on { t().p.accent } else { t().p.line }))
+                .bg(rgb(if on { t().p.accent_soft } else { t().p.panel }))
+                .text_size(t().fs(11.))
+                .text_color(rgb(if on { t().p.text } else { t().p.text_2 }))
+                .cursor_pointer()
+                .hover(|h| h.border_color(rgb(t().p.text_2)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.set_new_from(device, cx)
+                }))
+                .child(text)
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .h_full()
+            .min_w(t().d(0.))
+            .bg(rgb(t().p.chat_bg))
+            // 顶行：段名 + 「还没落盘」
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .h(t().d(40.))
+                    .px(t().d(26.))
+                    .border_b(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .child(
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .child(format!("{sec} · 新建")),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(t().p.faint))
+                            .child("还没落盘"),
+                    ),
+            )
+            .child(
+                div()
+                    .id("new-preset-body")
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .overflow_y_scroll()
+                    .px(t().d(26.))
+                    .py(t().d(22.))
+                    .child(
+                        div()
+                            .max_w(t().d(520.))
+                            .flex()
+                            .flex_col()
+                            .gap(t().d(18.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .child(label("名字"))
+                                    .child(Input::new(&draft.name))
+                                    .child(help("落盘时就是目录名，建完不改。")),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .child(label("摘要"))
+                                    .child(Input::new(&draft.summary))
+                                    .child(help("人靠这一行决定开不开它，不能空。")),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .child(label("类别"))
+                                    .child(Input::new(&draft.category))
+                                    .child(help("写 写作/周报 就是分层路径；留空 = 未分类。")),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .child(label("起手式"))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .gap(t().d(6.))
+                                            .child(chip("空白 —— 一条都不写", !from_device, false, cx))
+                                            .child(chip("跟设备默认模型", from_device, true, cx)),
+                                    )
+                                    .child(help("空白 = 所有可选键都不写，等同于跟随仓库默认。")),
+                            ),
+                    ),
+            )
+            // 底栏：创建 / 取消 / 一句错
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(10.))
+                    .px(t().d(26.))
+                    .py(t().d(14.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .child(
+                        div()
+                            .id("new-preset-submit")
+                            .flex()
+                            .items_center()
+                            .h(t().d(30.))
+                            .px(t().d(16.))
+                            .rounded(t().r(6.))
+                            .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(t().p.on_accent))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.submit_new_preset(cx)))
+                            .child(if busy { "建…" } else { "创建" }),
+                    )
+                    .child(
+                        div()
+                            .id("new-preset-cancel")
+                            .flex()
+                            .items_center()
+                            .h(t().d(30.))
+                            .px(t().d(12.))
+                            .rounded(t().r(6.))
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(t().p.text_2))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_new_preset(cx)))
+                            .child("取消"),
+                    )
+                    .children(err.map(|e| {
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.danger_fg))
+                            .child(e)
+                    }))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(t().p.faint))
+                            .child("建完落盘，发布还是另一步"),
+                    ),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn render_detail(
         &self,
         window: &mut Window,
