@@ -11,8 +11,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
 use gpui_kit::assets::IconName;
@@ -2249,10 +2251,21 @@ impl Desktop {
         self.search.read(cx).value().trim().to_string()
     }
 
-    /// 列表顶上那个搜索框。常驻，不藏起来 —— 会话上百条之后「找得到」比「好看」重要。
+    /// 列表顶上那个搜索框（现在是左列最上面一行）。常驻，不藏起来 ——
+    /// 会话上百条之后「找得到」比「好看」重要。
+    ///
+    /// `q` / `total` / `hits` 都从调用点传进来：命中口径必须跟列表用的是同一个
+    /// （`search::hit`），在这里再算一遍迟早会跟列表对不上。
     ///
     /// 高度交给组件（单行的 `.h()` 只管多行，设了也不生效 —— 试过了）。
-    fn render_search_box(&self) -> AnyElement {
+    fn render_search_box(&self, q: &str, total: usize, hits: usize) -> AnyElement {
+        // 计数写在框里（`suffix`），不另起一行：不搜索报总数，搜索中报「命中 / 总数」。
+        // 一行省下来就是列表的 20px —— 会话上百条时这 20px 比一个字好看。
+        let count = if q.is_empty() {
+            format!("{total}")
+        } else {
+            format!("{hits} / {total}")
+        };
         Input::new(&self.search)
             .small()
             .cleanable(true)
@@ -2261,6 +2274,44 @@ impl Desktop {
                     .text_color(rgb(t().p.faint))
                     .size(t().d(14.)),
             )
+            .suffix(
+                div()
+                    .flex_none()
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.muted))
+                    .child(count),
+            )
+            .into_any_element()
+    }
+
+    /// 建会话的入口：一颗 `＋`，点开是一个下拉菜单。
+    ///
+    /// 菜单交给库的 `DropdownMenu`（`Popover` 那层）：Esc / 点外面 / 点完自动收起都由它管，
+    /// 正好满足 `decisions.md` 那条「浮层至少两条出口」，本文件不另造浮层和开合状态。
+    /// 现在菜单里只有一项（New Manual = 从零配的盘面）；以后加「从模板起 / 复制这条」
+    /// 只加 `.item(...)`，不用改这段的骨架。
+    fn render_new_chat_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        let weak = cx.weak_entity();
+        Button::new("new-chat-btn")
+            .ghost()
+            .small()
+            .compact()
+            .icon(Icon::new(IconName::Plus).size(t().d(15.)))
+            .tooltip("新建会话")
+            // `TopRight`：菜单落在按钮**下方**、右边缘对齐（`Anchor` 说的是浮层自己
+            // 贴着触发器的哪条边 —— 写 `BottomRight` 会翻到按钮上方去）。
+            .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
+                let weak = weak.clone();
+                menu.min_w(t().d(180.)).item(
+                    PopupMenuItem::new("New Manual")
+                        .icon(Icon::new(IconName::PenLine))
+                        .on_click(move |_, window, cx| {
+                            if let Some(this) = weak.upgrade() {
+                                this.update(cx, |this, cx| this.board_open(window, cx));
+                            }
+                        }),
+                )
+            })
             .into_any_element()
     }
 
@@ -2387,6 +2438,17 @@ impl Desktop {
             .filter_map(|id| mainline.iter().find(|s| s.id == id).copied())
             .collect();
         let q = self.query(cx);
+        // 计数：不搜索报总数，搜索时报「命中 / 总数」。命中用 `search::hit` ——
+        // 跟列表同一个口径，不另算一遍（两个口径迟早会不一致）。
+        let total = mainline.len();
+        let hits = if q.is_empty() {
+            total
+        } else {
+            mainline
+                .iter()
+                .filter(|s| crate::search::hit(s, &q).is_some())
+                .count()
+        };
         let rows: Vec<AnyElement> = if q.is_empty() {
             // 没在搜：老样子。**一行都不动** —— 搜索不能把常态列表的顺序改了。
             ordered
@@ -2403,32 +2465,29 @@ impl Desktop {
             .h_full()
             .bg(rgb(t().p.list_bg))
             .child(
+                // 顶部就一行：搜索框（计数内嵌右端）+ 一颗 `＋`。
+                // 「NousDesk」那行删掉了 —— 四个不带任何操作的字白占 30px；新建入口也从
+                // 一行文字缩成图标，点开是菜单（见 `render_new_chat_button`）。
                 div()
-                    .p(t().d(12.))
+                    .px(t().d(12.))
+                    .pt(t().d(12.))
+                    .pb(t().d(8.))
                     .flex()
                     .items_center()
                     .gap(t().d(6.))
-                    .child("NousDesk")
-                    .child(div().flex_1())
-                    // 建会话的唯一入口。以前只能从模板起，现在多一条「从零配」的路。
                     .child(
                         div()
-                            .id("new-chat-btn")
-                            .px(t().d(8.))
-                            .py(t().d(3.))
-                            .rounded(t().r(4.))
-                            .text_size(t().fs(12.))
-                            .text_color(rgb(t().p.accent))
-                            .hover(|s| s.bg(rgb(t().p.accent_soft)))
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.board_open(window, cx);
-                            }))
-                            .child("+ New Manual"),
-                    ),
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .child(self.render_search_box(&q, total, hits)),
+                    )
+                    .child(self.render_new_chat_button(cx)),
             )
-            .child(div().px(t().d(12.)).child(self.status_line(cx)))
-            // 搜索框：常驻在列表顶上（方案 6）。空着就是一行灰字，不占额外的排。
-            .child(div().px(t().d(12.)).pb(t().d(8.)).child(self.render_search_box()))
+            // 连引擎中 / 连不上才占一行；正常时这行根本不存在（计数已经进了搜索框）。
+            .children(
+                self.status_line(cx)
+                    .map(|s| div().px(t().d(12.)).pb(t().d(6.)).child(s)),
+            )
             .child(
                 div()
                     .id("session-scroll-area")
@@ -2995,11 +3054,20 @@ impl Desktop {
 
     // ── 列表 / 气泡 ─────────────────────────────────────────
 
-    fn status_line(&self, _cx: &mut Context<Self>) -> impl IntoElement {
+    /// 只在「连引擎中 / 连不上」时占一行。
+    ///
+    /// 会话数量原来也在这儿（`N 个会话`），现在搬进搜索框右端（`render_search_box` 的
+    /// `suffix`）—— 两行并成一行，列表多出 20px。
+    fn status_line(&self, _cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.loading {
-            return div().text_size(t().fs(12.)).child("连引擎中…");
+            return Some(
+                div()
+                    .text_size(t().fs(12.))
+                    .child("连引擎中…")
+                    .into_any_element(),
+            );
         }
-        if let Some(e) = &self.error {
+        let e = self.error.as_ref()?;
             // 连不上就告诉用户「改哪个文件」，别让他猜。
             // 没找到配置时把**找过的地方**全列出来 —— 只说「没找到」等于让人干瞪眼。
             let hint = match Config::path() {
@@ -3013,24 +3081,22 @@ impl Desktop {
                         .join(" · ")
                 ),
             };
-            return div()
-                .flex()
-                .flex_col()
-                .gap(t().d(4.))
-                .text_size(t().fs(12.))
-                .text_color(rgb(t().p.danger))
-                .child(format!("连不上：{e}"))
-                .child(
-                    div()
-                        .text_size(t().fs(11.))
-                        .text_color(rgb(t().p.muted))
-                        .child(hint),
-                );
-        }
-        div().text_size(t().fs(12.)).child(format!(
-            "{} 个会话",
-            self.sessions.iter().filter(|s| s.parent.is_none()).count()
-        ))
+            Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(t().d(4.))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(t().p.danger))
+                    .child(format!("连不上：{e}"))
+                    .child(
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .child(hint),
+                    )
+                    .into_any_element(),
+            )
     }
 
     fn session_row(&self, s: &Session, q: &str, cx: &mut Context<Self>) -> AnyElement {
