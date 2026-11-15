@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Manual · 盘面外观 10 方案</title>
+<style>
+/* ───────────────────────────── 基础 ───────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ui:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,"Noto Sans","Noto Sans CJK SC","DejaVu Sans",sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code",Consolas,"DejaVu Sans Mono","Noto Sans Mono CJK SC",monospace;
+  /* 左栏（现状：微信基线浅皮）*/
+  --rail:#f4f3f1; --listbg:#fdfdfc; --line:#e8e6e2; --ink:#1c1b1a; --ink2:#6d6a66; --ink3:#a8a49e;
+}
+html,body{background:#0b0b0c;color:#fff;font-family:var(--ui);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+body{padding:0 0 40px}
+
+/* ───────────────────────────── 顶部方案条 ───────────────────────────── */
+.bar{position:sticky;top:0;z-index:50;background:#0b0b0c;border-bottom:1px solid #1c1c1e;padding:14px 24px 12px}
+.bar-in{max-width:1400px;margin:0 auto}
+.bar-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.bar-title{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#6f6d69}
+.tabs{display:grid;grid-template-columns:repeat(10,1fr);gap:6px}
+.tabs button{display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:8px 10px;border:1px solid #1e1e21;border-radius:8px;color:#9b9893;transition:.12s}
+.tabs button b{font:600 10px/1 var(--mono);color:#5c5a56;letter-spacing:.08em}
+.tabs button span{font-size:11.5px;white-space:nowrap}
+.tabs button.on{background:#f4f3f1;border-color:#f4f3f1;color:#111}
+.tabs button.on b{color:#8a867f}
+.tabs button:hover:not(.on){border-color:#33333a;color:#e6e3df}
+.bar-sub{margin-top:10px;font-size:12.5px;color:#8b8884;display:flex;gap:10px;align-items:baseline}
+.bar-sub b{color:#f4f3f1;font-weight:600}
+@media (max-width:1100px){.tabs{grid-template-columns:repeat(5,minmax(0,1fr))}.win{height:78vh}}
+
+/* ───────────────────────────── 窗口 ───────────────────────────── */
+.win{position:relative;width:min(1400px,calc(100vw - 48px));height:860px;margin:22px auto 0;display:flex;overflow:hidden;border-radius:10px;background:#fff;box-shadow:0 40px 90px rgba(0,0,0,.66),0 0 0 1px rgba(255,255,255,.06)}
+.rail{width:56px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;border-right:1px solid var(--line)}
+.rail .ri{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:#8b8781}
+.rail .ri svg{width:20px;height:20px}
+.rail .ri.on{background:#e7e5e1;color:#2a2825}
+.rail .sp{flex:1}
+.list{width:280px;flex:none;background:var(--listbg);border-right:1px solid var(--line);display:flex;flex-direction:column;color:var(--ink)}
+.list-head{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px}
+.list-head .t{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.newbtn{font-size:11.5px;color:#4a4744;background:#f0eeea;border:1px solid #e2dfda;border-radius:7px;padding:5px 9px}
+.search{margin:2px 12px 10px;display:flex;align-items:center;gap:7px;padding:7px 10px;background:#f1efec;border-radius:8px;color:var(--ink3);font-size:12.5px}
+.search svg{width:13px;height:13px}
+.rows{flex:1;overflow:hidden;border-top:1px solid #f0eeea}
+.row{display:flex;align-items:center;gap:8px;padding:16px 16px;border-bottom:1px solid #f1efeb;font-size:13.5px}
+.row .pin{color:#8b8781;font-size:11px;width:14px;flex:none;text-align:center}
+.row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#211f1d}
+.row .tm{font-size:11px;color:#a8a49e;flex:none}
+.row.hov{background:#f6f5f2}
+.pane{position:relative;flex:1;min-width:0;overflow:hidden}
+
+/* ───────────────────────────── 通用盘面元素 ───────────────────────────── */
+.board{position:absolute;inset:0;display:none;overflow:hidden}
+.board.on{display:block}
+.h-lead{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#7d7973}
+.mono{font-family:var(--mono)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:4px 9px;border-radius:6px;border:1px solid currentColor;opacity:.9}
+.flash{font:11px/1.4 var(--mono);letter-spacing:.04em}
+
+/* ═════════════ 01 · 单色网格 ═════════════ */
+.v1{background:#09090a;color:#eae8e5;font-family:var(--ui)}
+.v1 .g{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+.v1 .c{position:relative;display:flex;flex-direction:column;padding:38px 44px;border-right:1px solid #191919;border-bottom:1px solid #191919}
+.v1 .c:nth-child(2){border-right:0;align-items:flex-end;text-align:right}
+.v1 .c:nth-child(3){border-bottom:0;justify-content:flex-end}
+.v1 .c:nth-child(4){border-right:0;border-bottom:0;align-items:flex-end;text-align:right;justify-content:flex-end}
+.v1 .idx{font:600 10px/1 var(--mono);letter-spacing:.14em;color:#4e4c49;margin-bottom:12px}
+.v1 h3{font-size:22px;font-weight:600;letter-spacing:-.015em}
+.v1 .val{margin-top:16px;font:13px/1.5 var(--mono);color:#c8c4bf;max-width:min(380px,100%)}
+.v1 .met{margin-top:7px;font-size:12px;color:#6a6662;font-style:italic}
+.v1 .lk{align-self:flex-start;margin-top:18px;font-size:12.5px;color:#8b8782;border-bottom:1px solid #2a2a2c;padding-bottom:1px}
+.v1 .c:nth-child(2) .lk,.v1 .c:nth-child(4) .lk{align-self:flex-end}
+.v1 .lk:hover{color:#fff;border-color:#fff}
+.v1 .card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:452px;background:#101012;border:1px solid #222225;border-radius:16px;padding:30px 30px 26px;box-shadow:0 48px 90px rgba(0,0,0,.72),0 0 0 6px #09090a}
+.v1 .card h2{font-size:22px;font-weight:600;letter-spacing:-.02em}
+.v1 .card .sub{margin-top:5px;font-size:11.5px;font-style:italic;color:#77736e;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v1 .inp{margin-top:22px;width:100%;background:transparent;border:0;border-bottom:1px solid #2a2a2d;padding:10px 0;color:#f4f2ef;font:13.5px var(--ui);outline:none}
+.v1 .inp::placeholder{color:#5a5754}
+.v1 .inp:focus{border-color:#7f5af0}
+.v1 .pair{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.v1 .pair button{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:9px 11px;border:1px solid #222225;border-radius:8px;color:#b7b3ae;background:#0c0c0e}
+.v1 .pair button span{font:11px var(--mono);color:#66625e}
+.v1 .pair button:hover{border-color:#3a3a3f;color:#fff}
+.v1 .go{margin-top:16px;width:100%;padding:13px;border-radius:9px;background:#f4f2ef;color:#0b0b0c;font-size:13.5px;font-weight:600;letter-spacing:.01em}
+.v1 .go:hover{background:#fff}
+.v1 .fl{margin-top:12px;font:10.5px/1.4 var(--mono);color:#5f8f5a;letter-spacing:.03em}
+
+/* ═════════════ 02 · 纸面 ═════════════ */
+.v2{background:#fff;color:#191715;font-family:var(--ui)}
+.v2 .g{position:absolute;inset:20px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:14px}
+.v2 .c{background:#f7f6f3;border-radius:16px;padding:30px 34px;display:flex;flex-direction:column}
+.v2 .c:nth-child(3),.v2 .c:nth-child(4){justify-content:flex-end}
+.v2 .c:nth-child(2),.v2 .c:nth-child(4){align-items:flex-end;text-align:right}
+.v2 .k{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#a19c95;margin-bottom:14px}
+.v2 h3{font-size:22px;font-weight:600;letter-spacing:-.015em;color:#151311}
+.v2 .val{margin-top:14px;font:13px/1.5 var(--mono);color:#3f3b36;max-width:min(380px,100%)}
+.v2 .met{margin-top:7px;font-size:12px;color:#948f88}
+.v2 .lk{margin-top:18px;font-size:12.5px;color:#57534e;text-decoration:underline;text-decoration-color:#d6d1c9;text-underline-offset:4px}
+.v2 .card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:456px;background:#fff;border:1px solid #e9e5df;border-radius:20px;padding:30px;box-shadow:0 32px 70px rgba(40,33,25,.13),0 2px 6px rgba(40,33,25,.05)}
+.v2 .card h2{font-size:22px;font-weight:600;letter-spacing:-.02em}
+.v2 .card .sub{margin-top:5px;font-size:11.5px;font-style:italic;color:#8f8a83;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v2 .inp{margin-top:22px;width:100%;background:#f7f6f3;border:1px solid #eeebe5;border-radius:9px;padding:11px 12px;color:#191715;font:13.5px var(--ui);outline:none}
+.v2 .inp::placeholder{color:#a8a39c}
+.v2 .inp:focus{border-color:#191715;background:#fff}
+.v2 .pair{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.v2 .pair button{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:10px 12px;border:1px solid #eeebe5;border-radius:9px;color:#3b3733;background:#fff}
+.v2 .pair button span{font:11px var(--mono);color:#a19c95}
+.v2 .pair button:hover{border-color:#c9c3ba}
+.v2 .go{margin-top:14px;width:100%;padding:13px;border-radius:10px;background:#191715;color:#fff;font-size:13.5px;font-weight:600}
+.v2 .go:hover{background:#2e2a26}
+.v2 .fl{margin-top:12px;font:10.5px/1.4 var(--mono);color:#5c7a53}
+
+/* ═════════════ 03 · 蓝图 ═════════════ */
+.v3{background:#070c12;background-image:radial-gradient(rgba(120,168,220,.15) 1px,transparent 1px);background-size:22px 22px;color:#c9dcee;font-family:var(--ui)}
+.v3 .q{position:absolute;width:50%;height:50%;border:1px dashed #1e3348}
+.v3 .q1{left:0;top:0}.v3 .q2{left:50%;top:0}.v3 .q3{left:0;top:50%}.v3 .q4{left:50%;top:50%}
+.v3 .q::before,.v3 .q::after{content:"";position:absolute;width:9px;height:9px;border:1px solid #4d7ba6}
+.v3 .q::before{left:-1px;top:-1px;border-right:0;border-bottom:0}
+.v3 .q::after{right:-1px;bottom:-1px;border-left:0;border-top:0}
+.v3 .c{position:absolute;padding:26px 30px;width:50%}
+.v3 .c1{left:0;top:0}.v3 .c2{right:0;top:0;text-align:right}
+.v3 .c3{left:0;bottom:0}.v3 .c4{right:0;bottom:0;text-align:right}
+.v3 .k{font:11px/1 var(--mono);letter-spacing:.22em;color:#4d7599;margin-bottom:9px}
+.v3 h3{font-size:15px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#dceafa}
+.v3 .val{margin-top:11px;font:12px/1.5 var(--mono);color:#93b6d4;max-width:min(320px,100%);margin-left:auto;margin-right:0}
+.v3 .c1 .val,.v3 .c3 .val{margin-left:0}
+.v3 .met{margin-top:5px;font:10.5px/1.4 var(--mono);color:#4d7599}
+.v3 .lk{align-self:flex-start;margin-top:12px;font:11px var(--mono);letter-spacing:.08em;color:#6ee7d0}
+.v3 .c2 .lk,.v3 .c4 .lk{align-self:flex-end}
+.v3 .dial{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:372px;height:372px;border-radius:50%;border:1px solid #2c4c69;background:rgba(7,12,18,.9);box-shadow:0 0 0 10px rgba(7,12,18,.55),0 30px 70px rgba(0,0,0,.6);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:34px 30px;text-align:center}
+.v3 .dial::before{content:"";position:absolute;inset:14px;border:1px dashed #22405a;border-radius:50%}
+.v3 .dial h2{font-size:18px;font-weight:600;letter-spacing:.02em}
+.v3 .dial .sub{margin-top:4px;font:10.5px/1.5 var(--mono);color:#5d87ab;max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v3 .inp{margin-top:16px;width:100%;background:transparent;border:1px solid #25445f;border-radius:4px;padding:9px 11px;color:#e4f0fb;font:12.5px var(--ui);outline:none;text-align:center}
+.v3 .inp::placeholder{color:#4d7599}
+.v3 .inp:focus{border-color:#6ee7d0}
+.v3 .row2{margin-top:8px;display:flex;gap:6px;width:100%}
+.v3 .row2 button{flex:1;font:11px var(--mono);color:#9dc0da;border:1px solid #25445f;border-radius:4px;padding:7px 6px;background:rgba(110,231,208,.04)}
+.v3 .row2 button:hover{border-color:#3d6b8e;color:#dff}
+.v3 .go{margin-top:12px;width:100%;padding:11px;border-radius:4px;background:#6ee7d0;color:#05100e;font:600 12.5px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.v3 .go:hover{background:#8bf5e1}
+.v3 .fl{margin-top:10px;font:10px/1.4 var(--mono);color:#4d7599;letter-spacing:.06em}
+.v3 .axis{position:absolute;font:9.5px/1 var(--mono);color:#33546f;letter-spacing:.2em}
+.v3 .axis.x{left:50%;bottom:10px;transform:translateX(-50%)}
+.v3 .axis.y{left:12px;top:50%;transform:rotate(-90deg) translateX(0);transform-origin:left top}
+
+/* ═════════════ 04 · 流水线 ═════════════ */
+.v4{background:#0c0c0d;color:#e9e7e4;font-family:var(--ui)}
+.v4.on{display:flex}
+.v4 .steps{width:46%;padding:44px 0 44px 44px;display:flex;flex-direction:column;justify-content:center;gap:2px;position:relative}
+.v4 .steps::before{content:"";position:absolute;left:59px;top:44px;bottom:44px;width:1px;background:#1e1e20;mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent);-webkit-mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent)}
+.v4 .st{position:relative;display:flex;gap:16px;padding:16px 20px 16px 0;z-index:1}
+.v4 .st .dot{width:31px;height:31px;flex:none;border-radius:50%;background:#0c0c0d;border:1px solid #2c2c30;display:grid;place-items:center;font:10.5px var(--mono);color:#75716c}
+.v4 .st.done .dot{border-color:#2f4a35;color:#7fbf87;background:#0e1410}
+.v4 .st.cur .dot{border-color:#f4f2ef;color:#0b0b0c;background:#f4f2ef}
+.v4 .st .body{flex:1;min-width:0;padding-top:3px}
+.v4 .st h4{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.v4 .st .v{margin-top:5px;font:12px/1.4 var(--mono);color:#a8a49f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v4 .st .m{margin-top:3px;font-size:11px;color:#67635f;font-style:italic}
+.v4 .st .ch{font-size:11.5px;color:#7e7a75;padding-top:5px;flex:none}
+.v4 .st.cur .ch{color:#f4f2ef}
+.v4 .st:hover h4{color:#fff}
+.v4 .st:hover .dot{border-color:#4a4a50}
+.v4 .form{flex:1;border-left:1px solid #1c1c1e;padding:44px 44px;display:flex;flex-direction:column;justify-content:center;background:#0f0f11}
+.v4 .form h2{font-size:26px;font-weight:600;letter-spacing:-.025em}
+.v4 .form .sub{margin-top:6px;font:11.5px/1.5 var(--mono);color:#77736e}
+.v4 .lab{margin-top:30px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6b6762}
+.v4 .inp{margin-top:9px;width:100%;background:#0b0b0c;border:1px solid #232326;border-radius:9px;padding:12px 13px;color:#f4f2ef;font:13.5px var(--ui);outline:none}
+.v4 .inp::placeholder{color:#57534f}
+.v4 .inp:focus{border-color:#f4f2ef}
+.v4 .pick{margin-top:10px;display:grid;gap:8px}
+.v4 .pick button{display:flex;justify-content:space-between;align-items:center;font:12px var(--mono);padding:12px 13px;border:1px solid #232326;border-radius:9px;color:#b1ada8;background:#0b0b0c}
+.v4 .pick button span{color:#5f5b57}
+.v4 .pick button:hover{border-color:#3d3d42;color:#fff}
+.v4 .go{margin-top:22px;width:100%;padding:14px;border-radius:10px;background:#f4f2ef;color:#0b0b0c;font-size:14px;font-weight:600}
+.v4 .form .inp{max-width:420px}
+.v4 .pick{max-width:420px}
+.v4 .go{max-width:420px}
+.v4 .fl{margin-top:12px;font:10.5px var(--mono);color:#6f9c6a}
+
+/* ═════════════ 05 · 提纯 Cynefin ═════════════ */
+.v5{background:#0b0b0c;color:#e6e4e0;font-family:var(--ui);--r1:#1a1a1d;--r2:#111113;--r3:#141417;--r4:#1e1e21;--ln:#323236;--cliff:#4a4a50}
+.v5 .topo{position:absolute;inset:0;width:100%;height:100%}
+.v5 .lab{position:absolute;width:50%;padding:30px 34px;z-index:2}
+.v5 .l1{left:0;top:0}.v5 .l2{right:0;top:0;text-align:right}
+.v5 .l3{left:0;bottom:0}.v5 .l4{right:0;bottom:0;text-align:right}
+.v5 .lab .k{font:10px/1 var(--mono);letter-spacing:.2em;color:#6d6963;margin-bottom:8px}
+.v5 h3{font-size:15px;font-weight:600;letter-spacing:.01em;color:#cfccc7}
+.v5 .lab .v{margin-top:9px;font:11.5px/1.45 var(--mono);color:#8f8b86;max-width:min(300px,100%);margin-left:auto}
+.v5 .l1 .v,.v5 .l3 .v{margin-left:0}
+.v5 .lab .lk{align-self:flex-start;margin-top:9px;font-size:11.5px;color:#7d7973;border-bottom:1px solid #2b2b2e}
+.v5 .l2 .lk,.v5 .l4 .lk{align-self:flex-end}
+.v5 .lab .lk:hover{color:#fff;border-color:#fff}
+.v5 .glass{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:34%;min-width:330px;height:31%;min-height:250px;border-radius:50%;background:rgba(255,255,255,.055);backdrop-filter:blur(18px) saturate(120%);border:1px solid rgba(255,255,255,.15);box-shadow:0 40px 90px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 40px;text-align:center}
+.v5 .glass h2{font-size:15px;font-weight:600;letter-spacing:.02em;color:#f2f0ed}
+.v5 .glass .sub{margin-top:4px;font:10.5px/1.5 var(--mono);color:#8d8983;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v5 .inp{margin-top:14px;width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:9px 11px;color:#f2f0ed;font:12.5px var(--ui);outline:none;text-align:center}
+.v5 .inp::placeholder{color:#7a766f}
+.v5 .inp:focus{border-color:rgba(255,255,255,.4)}
+.v5 .row2{margin-top:7px;display:flex;gap:6px;width:100%}
+.v5 .row2 button{flex:1;font:10.5px var(--mono);color:#a09c96;border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:6px 4px;background:rgba(0,0,0,.25);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v5 .row2 button:hover{border-color:rgba(255,255,255,.3);color:#fff}
+.v5 .go{margin-top:10px;width:100%;padding:9px;border-radius:7px;background:#f4f2ef;color:#0b0b0c;font:600 12px var(--ui)}
+.v5 .fl{margin-top:7px;font:9.5px var(--mono);color:#6f9c6a}
+.v5 .hint{position:absolute;right:22px;bottom:16px;font:10px/1 var(--mono);letter-spacing:.16em;color:#4a4a4e}
+
+/* ═════════════ 06 · Bento ═════════════ */
+.v6{background:#0a0a0b;color:#e9e7e4;font-family:var(--ui)}
+.v6 .bento{position:absolute;inset:16px;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr);gap:10px}
+.v6 .bx{background:#121214;border:1px solid #1d1d20;border-radius:16px;padding:22px 24px;display:flex;flex-direction:column;transition:border-color .15s,background .15s;min-width:0}
+.v6 .bx:hover{border-color:#31313a;background:#141416}
+.v6 .bx .k{font:10px/1 var(--mono);letter-spacing:.2em;color:#67635e;margin-bottom:10px}
+.v6 .bx h3{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.v6 .bx .v{margin-top:10px;font:12px/1.5 var(--mono);color:#a8a49f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v6 .bx .m{margin-top:5px;font-size:11px;color:#67635e;font-style:italic}
+.v6 .bx .lk{margin-top:14px;font-size:11.5px;color:#8d8983}
+.v6 .bx .lk:hover{color:#fff}
+.v6 .m1{grid-area:1/1/2/3}
+.v6 .sk{grid-area:2/1/3/2}
+.v6 .pr{grid-area:2/2/3/3}
+.v6 .ex{grid-area:3/1/4/2}
+.v6 .pe{grid-area:3/2/4/3;opacity:.55}
+.v6 .hub{grid-area:1/3/4/5;background:#101012;border-color:#232327;align-items:center;justify-content:center;text-align:center;padding:34px}
+.v6 .hub h2{font-size:22px;font-weight:600;letter-spacing:-.02em}
+.v6 .hub .sub{margin-top:5px;font:10.5px/1.5 var(--mono);color:#77736e;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v6 .hub .inp{margin-top:20px;width:100%;max-width:360px;background:#0a0a0b;border:1px solid #26262a;border-radius:9px;padding:11px 13px;color:#f4f2ef;font:13px var(--ui);outline:none;text-align:center}
+.v6 .hub .inp::placeholder{color:#57534f}
+.v6 .hub .inp:focus{border-color:#f4f2ef}
+.v6 .hub .pick{margin-top:9px;display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;max-width:360px}
+.v6 .hub .pick button{display:flex;justify-content:space-between;font:11.5px var(--mono);padding:9px 11px;border:1px solid #24242a;border-radius:8px;color:#aeaaa5;background:#0c0c0e}
+.v6 .hub .pick button span{color:#5f5b57}
+.v6 .hub .pick button:hover{border-color:#3d3d44;color:#fff}
+.v6 .hub .go{margin-top:14px;width:100%;max-width:360px;padding:12px;border-radius:9px;background:#f4f2ef;color:#0b0b0c;font-size:13.5px;font-weight:600}
+.v6 .hub .fl{margin-top:11px;font:10.5px var(--mono);color:#6f9c6a}
+
+/* ═════════════ 07 · 轨道 ═════════════ */
+.v7{background:radial-gradient(120% 90% at 50% 42%,#16161a 0%,#0a0a0b 60%);color:#e9e7e4;font-family:var(--ui)}
+.v7 .wires{position:absolute;inset:0;width:100%;height:100%}
+.v7 .core{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);width:184px;height:184px;border-radius:50%;background:#f4f2ef;color:#0b0b0c;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 34px 70px rgba(0,0,0,.62),0 0 0 16px rgba(244,242,239,.035),0 0 0 34px rgba(244,242,239,.018);transition:transform .18s}
+.v7 .core:hover{transform:translate(-50%,-50%) scale(1.035)}
+.v7 .core .p{font-size:19px;font-weight:600;letter-spacing:-.02em}
+.v7 .core .s{margin-top:3px;font:9.5px var(--mono);letter-spacing:.12em;color:#6a6660}
+.v7 .node{position:absolute;width:236px;padding:16px 18px;background:rgba(18,18,21,.9);border:1px solid #222226;border-radius:12px;backdrop-filter:blur(6px);transition:.15s}
+.v7 .node:hover{border-color:#3a3a42}
+.v7 .node .k{font:9.5px/1 var(--mono);letter-spacing:.2em;color:#615d58;margin-bottom:8px}
+.v7 .node h4{font-size:13.5px;font-weight:600}
+.v7 .node .v{margin-top:6px;font:11px/1.45 var(--mono);color:#948f89;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .node .lk{margin-top:9px;font-size:11px;color:#807b75}
+.v7 .node .lk:hover{color:#fff}
+.v7 .n1{left:5.5%;top:11%}.v7 .n2{right:5.5%;top:11%;text-align:right}
+.v7 .n3{left:5.5%;bottom:26%}.v7 .n4{right:5.5%;bottom:26%;text-align:right}
+.v7 .dock{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);width:min(740px,84%);display:flex;align-items:center;gap:8px;padding:8px;background:rgba(17,17,20,.94);border:1px solid #212126;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.v7 .dock .inp{flex:1;min-width:0;background:transparent;border:0;padding:9px 10px;color:#f4f2ef;font:13px var(--ui);outline:none}
+.v7 .dock .inp::placeholder{color:#57534f}
+.v7 .dock button{flex:none;font:11px var(--mono);padding:8px 10px;border:1px solid #26262c;border-radius:8px;color:#a8a49f;white-space:nowrap}
+.v7 .dock button:hover{border-color:#3d3d46;color:#fff}
+.v7 .dock .go{background:#f4f2ef;color:#0b0b0c;border-color:#f4f2ef;font-weight:600;font-family:var(--ui);font-size:12.5px;padding:9px 18px}
+.v7 .dock .hint{flex:none;font:10px var(--mono);letter-spacing:.1em;color:#5f5b57;padding:0 8px;white-space:nowrap}
+
+/* ═════════════ 08 · man page ═════════════ */
+.v8{background:#0b0b0b;color:#d6d2cc;font-family:var(--mono);padding:34px 56px 40px;overflow:auto}
+.v8 .mh{display:flex;justify-content:space-between;font:10.5px/1 var(--mono);letter-spacing:.2em;color:#6f6a64;border-bottom:1px solid #242422;padding-bottom:10px}
+.v8 h2{font-size:27px;font-weight:600;letter-spacing:.05em;margin:26px 0 8px;color:#f2efe9}
+.v8 .desc{font-size:12.5px;line-height:1.75;color:#948e86;max-width:840px}
+.v8 .sec{margin-top:22px;border-top:1px solid #1a1a18;padding-top:14px}
+.v8 .sec h4{font:600 11px/1 var(--mono);letter-spacing:.24em;color:#6ee7d0;margin-bottom:10px}
+.v8 .sec .pv{margin-left:26px;font-size:12.5px;line-height:1.75}
+.v8 .sec .pv b{font-weight:400;color:#f2efe9}
+.v8 .sec .pv em{color:#7d7770;font-style:normal}
+.v8 .sec .pv .lk{color:#c9c4bd;border-bottom:1px dotted #45423e}
+.v8 .sec .pv .lk:hover{color:#6ee7d0;border-color:#6ee7d0}
+.v8 .sec .inp{margin-top:6px;width:min(430px,100%);display:block;background:transparent;border:0;border-bottom:1px dashed #3a3833;padding:7px 0;color:#f2efe9;font:13px var(--mono);outline:none}
+.v8 .sec .inp::placeholder{color:#5c5852}
+.v8 .sec .inp:focus{border-bottom-color:#6ee7d0}
+.v8 .run{margin-top:26px;padding:14px 16px;background:#111110;border:1px solid #232320;border-radius:6px;display:flex;align-items:center;gap:12px;max-width:880px}
+.v8 .run .cmd{flex:1;font:12.5px var(--mono);color:#a9a39a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v8 .run .cmd b{color:#6ee7d0;font-weight:400}
+.v8 .run .go{flex:none;font:600 11.5px var(--mono);letter-spacing:.12em;padding:8px 14px;background:#6ee7d0;color:#05100e;border-radius:4px}
+.v8 .run .go:hover{background:#8bf5e1}
+.v8 .ok{margin-top:10px;font:10.5px var(--mono);color:#5f8f5a;letter-spacing:.06em}
+
+/* ═════════════ 09 · 编辑流 ═════════════ */
+.v9{background:#f4f2ee;color:#171512;font-family:var(--ui)}
+.v9 .ed{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;padding:50px 60px}
+.v9 .e{position:relative;display:flex;flex-direction:column;padding:6px 0}
+.v9 .e:nth-child(2),.v9 .e:nth-child(4){padding-left:52px}
+.v9 .e:nth-child(3),.v9 .e:nth-child(4){justify-content:flex-end}
+.v9 .no{font:10.5px/1 var(--mono);letter-spacing:.22em;color:#a49b8e}
+.v9 h3{font-size:38px;font-weight:500;letter-spacing:-.035em;line-height:1;margin-top:16px}
+.v9 .v{margin-top:14px;font:12.5px/1.6 var(--mono);color:#4d463c;max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.v9 .m{margin-top:4px;font-size:11.5px;color:#8b8377}
+.v9 .lk{margin-top:12px;font-size:12px;color:#5c5447;text-decoration:underline;text-underline-offset:4px;text-decoration-color:#cfc6b8}
+.v9 .card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:432px;background:#fffdfa;border:1px solid #e4ded3;border-radius:6px;padding:32px;box-shadow:0 44px 80px rgba(62,50,34,.17),0 2px 4px rgba(62,50,34,.05)}
+.v9 .card h2{font-size:21px;font-weight:600;letter-spacing:-.02em}
+.v9 .card .sub{margin-top:5px;font:11px/1.5 var(--mono);color:#948b7d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v9 .card .inp{margin-top:20px;width:100%;background:transparent;border:0;border-bottom:1px solid #ddd5c8;padding:9px 0;color:#171512;font:13.5px var(--ui);outline:none}
+.v9 .card .inp::placeholder{color:#a89f91}
+.v9 .card .inp:focus{border-color:#171512}
+.v9 .card .pair{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.v9 .card .pair button{display:flex;justify-content:space-between;font-size:11.5px;padding:9px 11px;border:1px solid #e4ded3;border-radius:5px;color:#4d463c;background:#fbf8f3}
+.v9 .card .pair button span{font:10.5px var(--mono);color:#a49b8e}
+.v9 .card .go{margin-top:14px;width:100%;padding:13px;border-radius:5px;background:#171512;color:#fffdfa;font-size:13.5px;font-weight:600}
+.v9 .card .fl{margin-top:11px;font:10px var(--mono);color:#6c8a62}
+
+/* ═════════════ 10 · 上下分屏 ═════════════ */
+.v10{background:#0a0a0b;color:#e9e7e4;font-family:var(--ui);--r1:#232327;--r2:#171719;--r3:#1b1b1e;--r4:#2a2a2e;--ln:#3c3c42;--cliff:#5a5a60}
+.v10.on{display:flex}
+.v10{flex-direction:column}
+.v10 .top{position:relative;height:54%;flex:none;border-bottom:1px solid #1c1c1e;overflow:hidden;background:#0c0c0d}
+.v10 .top .topo{position:absolute;inset:0;width:100%;height:100%}
+.v10 .top .cap{position:absolute;left:18px;top:13px;font:9.5px/1 var(--mono);letter-spacing:.2em;color:#5d5953;z-index:2}
+.v10 .top .mlab{position:absolute;font-size:11.5px;color:#8b877f;z-index:2;letter-spacing:.02em}
+.v10 .top .mlab b{display:block;font-size:13px;color:#c3bfb8;font-weight:600;margin-bottom:4px}
+.v10 .top .m1{left:13%;top:30%}.v10 .top .m2{right:11%;top:30%;text-align:right}
+.v10 .top .m3{left:13%;bottom:22%}.v10 .top .m4{right:11%;bottom:22%;text-align:right}
+.v10 .top .pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:13px;height:13px;border-radius:50%;background:#f4f2ef;box-shadow:0 0 0 6px rgba(244,242,239,.12),0 0 0 15px rgba(244,242,239,.05);z-index:2}
+.v10 .top .pin::after{content:"DISORDER";position:absolute;left:50%;top:22px;transform:translateX(-50%);font:8.5px/1 var(--mono);letter-spacing:.22em;color:#8d8983;white-space:nowrap}
+.v10 .bot{flex:1;min-height:0;padding:26px 40px 24px;display:flex;flex-direction:column;justify-content:center}
+.v10 .bot .r1{display:flex;align-items:baseline;gap:14px}
+.v10 .bot h2{font-size:24px;font-weight:600;letter-spacing:-.025em}
+.v10 .bot .sub{font:10.5px/1.5 var(--mono);color:#77736e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v10 .chips{display:flex;gap:8px;margin-top:15px;flex-wrap:wrap}
+.v10 .chips .c{display:flex;align-items:baseline;gap:8px;padding:8px 11px;border:1px solid #222226;border-radius:9px;background:#111113;font-size:11.5px;color:#a8a49f;white-space:nowrap}
+.v10 .chips .c i{font:10px var(--mono);letter-spacing:.14em;color:#615d58;font-style:normal}
+.v10 .chips .c b{font:11px var(--mono);color:#d8d4ce;font-weight:400}
+.v10 .chips .c:hover{border-color:#3a3a42}
+.v10 .brow{display:flex;gap:8px;margin-top:14px}
+.v10 .inp{flex:1;min-width:0;background:#0a0a0b;border:1px solid #232326;border-radius:9px;padding:12px 13px;color:#f4f2ef;font:13px var(--ui);outline:none}
+.v10 .inp::placeholder{color:#57534f}
+.v10 .inp:focus{border-color:#f4f2ef}
+.v10 .brow button{flex:none;font:11.5px var(--mono);padding:0 14px;border:1px solid #232326;border-radius:9px;color:#a8a49f;background:#0f0f11;white-space:nowrap}
+.v10 .brow button:hover{border-color:#3a3a42;color:#fff}
+.v10 .brow .go{background:#f4f2ef;color:#0b0b0c;border-color:#f4f2ef;font:600 13px var(--ui);padding:0 22px}
+.v10 .brow .go:hover{background:#fff;color:#0b0b0c}
+.v10 .fl{margin-top:9px;font:10px var(--mono);color:#6f9c6a}
+</style>
+</head>
+<body>
+
+<header class="bar"><div class="bar-in">
+  <div class="bar-top">
+    <div class="bar-title">New Manual · 盘面外观方案</div>
+    <nav class="tabs" id="tabs">
+      <button data-v="1" class="on"><b>01</b><span>单色网格</span></button>
+      <button data-v="2"><b>02</b><span>纸面</span></button>
+      <button data-v="3"><b>03</b><span>蓝图</span></button>
+      <button data-v="4"><b>04</b><span>流水线</span></button>
+      <button data-v="5"><b>05</b><span>提纯 Cynefin</span></button>
+      <button data-v="6"><b>06</b><span>Bento</span></button>
+      <button data-v="7"><b>07</b><span>轨道</span></button>
+      <button data-v="8"><b>08</b><span>man page</span></button>
+      <button data-v="9"><b>09</b><span>编辑流</span></button>
+      <button data-v="0"><b>10</b><span>上下分屏</span></button>
+    </nav>
+  </div>
+  <div class="bar-sub"><b id="noteTitle">01 单色网格</b><span id="note">把地形图拆成四张表，中央换成一块真正的表单卡；一个空间只承担一件事。</span></div>
+</div></header>
+
+<main class="win">
+
+  <!-- 左栏：现状骨架，所有方案共用 -->
+  <nav class="rail">
+    <button class="ri on" title="会话">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.6a8 8 0 0 1-8 8H8.4L4 22.5V16.8A8 8 0 1 1 21 11.6Z"/></svg>
+    </button>
+    <button class="ri" title="模板">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M9 16.5 12 9l3 7.5M10.2 14h3.6"/></svg>
+    </button>
+    <div class="sp"></div>
+    <button class="ri" title="更多">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </nav>
+
+  <aside class="list">
+    <div class="list-head"><span class="t">NousDesk</span><button class="newbtn">+ New Manual</button></div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+      <span>搜索会话</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="pin">⚲</span><span class="nm">真模型</span><span class="tm">6 天前</span></div>
+      <div class="row"><span class="pin">⚲</span><span class="nm">经宿主真模型</span><span class="tm">5 分支</span></div>
+      <div class="row"><span class="pin"></span><span class="nm">deep-dive · 37087</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">scratch 11-13 21:29</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">weekly-report</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">read-only-review</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">deep-dive · 35579</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">scratch 11-13 21:18</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">deep-dive · 9505</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">scratch 11-13 21:17</span><span class="tm"></span></div>
+    </div>
+  </aside>
+
+  <section class="pane" id="pane">
+
+    <!-- ══════ 01 ══════ -->
+    <div class="board v1 on">
+      <div class="g">
+        <div class="c"><div class="idx">01 / MODEL</div><h3>Model</h3><div class="val">volc-ark/deepseek-v4-flash-260425</div><div class="met">3 个供应商 · 242 个模型</div><button class="lk">change →</button></div>
+        <div class="c"><div class="idx">02 / CONTEXT</div><h3>Context</h3><div class="val">Skills 0/5 · Prompt smart-ass</div><div class="met">随会话注入的知识与语气</div><button class="lk">change →</button></div>
+        <div class="c"><div class="idx">03 / EXTENSIONS</div><h3>Extensions</h3><div class="val">none</div><div class="met">Nous extensions</div><button class="lk">choose →</button></div>
+        <div class="c"><div class="idx">04 / PERMISSIONS</div><h3>Permissions</h3><div class="val">—</div><div class="met">内核页还没做</div><button class="lk" disabled style="opacity:.4">soon</button></div>
+      </div>
+      <div class="card">
+        <h2>New Manual</h2>
+        <div class="sub">Disorder · ready · volc-ark/deepseek-v4-flash-260425</div>
+        <input class="inp" placeholder="Name — 空着就用引擎给的名字">
+        <div class="pair"><button>本机 <span>change →</span></button><button>— <span>browse →</span></button></div>
+        <button class="go">Create</button>
+        <div class="fl">ready</div>
+      </div>
+    </div>
+
+    <!-- ══════ 02 ══════ -->
+    <div class="board v2">
+      <div class="g">
+        <div class="c"><div class="k">Model</div><h3>选哪个脑子</h3><div class="val">volc-ark/deepseek-v4-flash-260425</div><div class="met">3 个供应商 · 242 个模型</div><button class="lk">change →</button></div>
+        <div class="c"><div class="k">Context</div><h3>带什么进去</h3><div class="val">Skills 0/5 · Prompt smart-ass</div><div class="met">随会话注入的知识与语气</div><button class="lk">change →</button></div>
+        <div class="c"><div class="k">Extensions</div><h3>能多做什么</h3><div class="val">none</div><div class="met">Nous extensions</div><button class="lk">choose →</button></div>
+        <div class="c"><div class="k">Permissions</div><h3>能动什么</h3><div class="val">—</div><div class="met">内核页还没做</div><button class="lk" disabled style="opacity:.4">soon</button></div>
+      </div>
+      <div class="card">
+        <h2>New Manual</h2>
+        <div class="sub">Disorder · ready · volc-ark/deepseek-v4-flash-260425</div>
+        <input class="inp" placeholder="Name — 空着就用引擎给的名字">
+        <div class="pair"><button>本机 <span>change →</span></button><button>— <span>browse →</span></button></div>
+        <button class="go">Create</button>
+        <div class="fl">ready</div>
+      </div>
+    </div>
+
+    <!-- ══════ 03 ══════ -->
+    <div class="board v3">
+      <div class="q q1"></div><div class="q q2"></div><div class="q q3"></div><div class="q q4"></div>
+      <div class="c c1"><div class="k">R1 / MODEL</div><h3>Model</h3><div class="val">volc-ark/deepseek-v4-flash-260425</div><div class="met">3 个供应商 · 242 个模型</div><button class="lk">change →</button></div>
+      <div class="c c2"><div class="k">R2 / CONTEXT</div><h3>Context</h3><div class="val">Skills 0/5 · Prompt smart-ass</div><div class="met">随会话注入的知识与语气</div><button class="lk">change →</button></div>
+      <div class="c c3"><div class="k">R3 / EXTENSIONS</div><h3>Extensions</h3><div class="val">none</div><div class="met">Nous extensions</div><button class="lk">choose →</button></div>
+      <div class="c c4"><div class="k">R4 / PERMISSIONS</div><h3>Permissions</h3><div class="val">—</div><div class="met">内核页还没做</div><button class="lk" disabled style="opacity:.35">soon</button></div>
+      <div class="axis x">X · CONTEXT →</div>
+      <div class="dial">
+        <h2>New Manual</h2>
+        <div class="sub">Disorder · ready · volc-ark/deepseek-v4-flash-260425</div>
+        <input class="inp" placeholder="Name — 空着就用引擎给的名字">
+        <div class="row2"><button>本机 change →</button><button>— browse →</button></div>
+        <button class="go">Create</button>
+        <div class="fl">ready</div>
+      </div>
+    </div>
+
+    <!-- ══════ 04 ══════ -->
+    <div class="board v4">
+      <div class="steps">
+        <div class="st done"><div class="dot">01</div><div class="body"><h4>Model</h4><div class="v">volc-ark/deepseek-v4-flash-260425</div><div class="m">3 个供应商 · 242 个模型</div></div><span class="ch">change ›</span></div>
+        <div class="st done"><div class="dot">02</div><div class="body"><h4>Context</h4><div class="v">Skills 0/5 · Prompt smart-ass</div><div class="m">随会话注入的知识与语气</div></div><span class="ch">change ›</span></div>
+        <div class="st cur"><div class="dot">03</div><div class="body"><h4>Extensions</h4><div class="v">none</div><div class="m">Nous extensions</div></div><span class="ch">choose ›</span></div>
+        <div class="st"><div class="dot">04</div><div class="body"><h4>Permissions</h4><div class="v">—</div><div class="m">内核页还没做</div></div><span class="ch">soon</span></div>
+      </div>
+      <div class="form">
+        <h2>New Manual</h2>
+        <div class="sub">Disorder · ready · 4 项里 2 项已定</div>
+        <div class="lab">Name</div>
+        <input class="inp" placeholder="空着就用引擎给的名字">
+        <div class="lab">Machine / Dir</div>
+        <div class="pick"><button>本机 <span>change ›</span></button><button>— <span>browse ›</span></button></div>
+        <button class="go">Create</button>
+        <div class="fl">ready</div>
+      </div>
+    </div>
+
+    <!-- ══════ 05 ══════ -->
+    <div class="board v5">
+      <svg class="topo" viewBox="0 0 640 440" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0,0L314.04,0C315.06,27.5,322.13,27.5,323.15,55C315.14,82.5,335.41,82.5,327.39,110C328.99,137.5,322.51,137.5,324.11,165C319.92,192.5,324.19,192.5,320,220C280,225.07,280,210.71,240,215.78C200,204.86,200,227.13,160,216.22C120,223.83,120,218.6,80,226.21C40,222.27,40,221.52,0,217.58Z" fill="var(--r1)"/>
+        <path d="M314.04,0L640,0L640,222.23C600,231.87,600,212.95,560,222.59C520,213.69,520,227.54,480,218.63C440,224.66,440,213.77,400,219.8C360,218.1,360,221.69,320,220C324.19,192.5,319.92,192.5,324.11,165C322.51,137.5,328.99,137.5,327.39,110C335.41,82.5,315.14,82.5,323.15,55C322.13,27.5,315.06,27.5,314.04,0Z" fill="var(--r2)"/>
+        <path d="M0,217.58C40,221.52,40,222.27,80,226.21C120,218.6,120,223.83,160,216.22C200,227.13,200,204.86,240,215.78C280,210.71,280,225.07,320,220C339.2,264,291.2,341,329.6,385C300.8,407,325.76,429,320,440L0,440Z" fill="var(--r4)"/>
+        <path d="M320,220C360,221.69,360,218.1,400,219.8C440,213.77,440,224.66,480,218.63C520,227.54,520,213.69,560,222.59C600,212.95,600,231.87,640,222.23L640,440L320,440C325.76,429,300.8,407,329.6,385C291.2,341,339.2,264,320,220Z" fill="var(--r3)"/>
+        <g fill="none" stroke="var(--ln)" stroke-width="1" stroke-dasharray="4 5">
+          <path d="M314.04,0C315.06,27.5,322.13,27.5,323.15,55C315.14,82.5,335.41,82.5,327.39,110C328.99,137.5,322.51,137.5,324.11,165C319.92,192.5,324.19,192.5,320,220"/>
+          <path d="M0,217.58C40,221.52,40,222.27,80,226.21C120,218.6,120,223.83,160,216.22C200,227.13,200,204.86,240,215.78C280,210.71,280,225.07,320,220"/>
+          <path d="M320,220C360,221.69,360,218.1,400,219.8C440,213.77,440,224.66,480,218.63C520,227.54,520,213.69,560,222.59C600,212.95,600,231.87,640,222.23"/>
+        </g>
+        <path d="M320,220C339.2,264,291.2,341,329.6,385C300.8,407,325.76,429,320,440" fill="none" stroke="var(--cliff)" stroke-width="2"/>
+      </svg>
+      <div class="lab l1"><div class="k">MODEL</div><h3>Model</h3><div class="v">volc-ark/deepseek-v4-flash-260425</div><div class="met flash" style="color:#6d6963;margin-top:4px">3 个供应商 · 242 个模型</div><button class="lk">change →</button></div>
+      <div class="lab l2"><div class="k">CONTEXT</div><h3>Context</h3><div class="v">Skills 0/5 · Prompt smart-ass</div><div class="met flash" style="color:#6d6963;margin-top:4px">随会话注入的知识与语气</div><button class="lk">change →</button></div>
+      <div class="lab l3"><div class="k">EXTENSIONS</div><h3>Extensions</h3><div class="v">none</div><div class="met flash" style="color:#6d6963;margin-top:4px">Nous extensions</div><button class="lk">choose →</button></div>
+      <div class="lab l4"><div class="k">PERMISSIONS</div><h3>Permissions</h3><div class="v">—</div><div class="met flash" style="color:#6d6963;margin-top:4px">内核页还没做</div></div>
+      <div class="glass">
+        <h2>New Manual</h2>
+        <div class="sub">Disorder · ready · volc-ark/deepseek-v4-flash-260425</div>
+        <input class="inp" placeholder="Name — 空着就用引擎给的名字">
+        <div class="row2"><button>本机 change →</button><button>— browse →</button></div>
+        <button class="go">Create</button>
+        <div class="fl">ready</div>
+      </div>
+      <div class="hint">FLEXOKI · DISORDER</div>
+    </div>
+
+    <!-- ══════ 06 ══════ -->
+    <div class="board v6">
+      <div class="bento">
+        <div class="bx m1"><div class="k">MODEL</div><h3>Model</h3><div class="v">volc-ark/deepseek-v4-flash-260425</div><div class="m">3 个供应商 · 242 个模型</div><button class="lk">change →</button></div>
+        <div class="bx sk"><div class="k">SKILLS</div><h3>0 / 5</h3><div class="m">还没选技能</div><button class="lk">choose →</button></div>
+        <div class="bx pr"><div class="k">PROMPT</div><h3>smart-ass</h3><div class="m">语气模板</div><button class="lk">change →</button></div>
+        <div class="bx ex"><div class="k">EXTENSIONS</div><h3>none</h3><div class="m">Nous extensions</div><button class="lk">choose →</button></div>
+        <div class="bx pe"><div class="k">PERMISSIONS</div><h3>—</h3><div class="m">内核页还没做</div><button class="lk">soon</button></div>
+        <div class="bx hub">
+          <h2>New Manual</h2>
+          <div class="sub">Disorder · ready · volc-ark/deepseek-v4-flash-260425</div>
+          <input class="inp" placeholder="Name — 空着就用引擎给的名字">
+          <div class="pick"><button>本机 <span>change →</span></button><button>— <span>browse →</span></button></div>
+          <button class="go">Create</button>
+          <div class="fl">ready</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════ 07 ══════ -->
+    <div class="board v7">
+      <svg class="wires" viewBox="0 0 1000 800" preserveAspectRatio="none" aria-hidden="true">
+        <g stroke="#2b2b30" stroke-width="1" stroke-dasharray="3 6" fill="none">
+          <path d="M165 144C260 200 380 270 500 336"/>
+          <path d="M835 144C740 200 620 270 500 336"/>
+          <path d="M165 545C260 480 380 410 500 336"/>
+          <path d="M835 545C740 480 620 410 500 336"/>
+        </g>
+        <g fill="#4a4a50">
+          <circle cx="165" cy="144" r="2.5"/><circle cx="835" cy="144" r="2.5"/>
+          <circle cx="165" cy="545" r="2.5"/><circle cx="835" cy="545" r="2.5"/>
+        </g>
+      </svg>
+      <button class="core"><span class="p">＋ Create</span><span class="s">NEW MANUAL · DISORDER</span></button>
+      <div class="node n1"><div class="k">MODEL</div><h4>Model</h4><div class="v">volc-ark/deepseek-v4-flash-260425</div><button class="lk">change →</button></div>
+      <div class="node n2"><div class="k">CONTEXT</div><h4>Context</h4><div class="v">Skills 0/5 · Prompt smart-ass</div><button class="lk">change →</button></div>
+      <div class="node n3"><div class="k">EXTENSIONS</div><h4>Extensions</h4><div class="v">none</div><button class="lk">choose →</button></div>
+      <div class="node n4"><div class="k">PERMISSIONS</div><h4>Permissions</h4><div class="v">—</div><button class="lk">soon</button></div>
+      <div class="dock">
+        <input class="inp" placeholder="Name — 空着就用引擎给的名字">
+        <button>本机 ›</button><button>— ›</button>
+        <span class="hint">↵ CREATE</span>
+      </div>
+    </div>
+
+    <!-- ══════ 08 ══════ -->
+    <div class="board v8">
+      <div class="mh"><span>NEW MANUAL(1)</span><span>NOUSDESK MANUAL</span><span>NEW MANUAL(1)</span></div>
+      <h2>NEW MANUAL</h2>
+      <p class="desc">建一个会话：挑脑子、带上下文、开扩展、定权限，然后在中央按 Create。
+      这一页只负责建，不负责聊 —— Esc 或点左栏任意会话立刻回聊天。</p>
+
+      <div class="sec"><h4>MODEL</h4><div class="pv"><b>volc-ark/deepseek-v4-flash-260425</b><br><em>3 个供应商 · 242 个模型</em><br><a class="lk">change →</a></div></div>
+      <div class="sec"><h4>CONTEXT</h4><div class="pv">Skills <b>0 / 5</b>　<em>集合，可多选</em><br>Prompt <b>smart-ass</b>　<em>单值</em><br><a class="lk">change →</a></div></div>
+      <div class="sec"><h4>EXTENSIONS</h4><div class="pv"><b>none</b>　<em>Nous extensions</em><br><a class="lk">choose →</a></div></div>
+      <div class="sec"><h4>PERMISSIONS</h4><div class="pv"><b>—</b>　<em>内核页还没做</em></div></div>
+      <div class="sec"><h4>NAME</h4><div class="pv"><input class="inp" placeholder="空着就用引擎给的名字"><em>机器 本机 · 目录 —</em></div></div>
+
+      <div class="run">
+        <div class="cmd">$ <b>create</b> --model volc-ark/deepseek-v4-flash-260425 --skills 0/5 --prompt smart-ass</div>
+        <button class="go">ENTER ↵</button>
+      </div>
+      <div class="ok">ready</div>
+    </div>
+
+    <!-- ══════ 09 ══════ -->
+    <div class="board v9">
+      <div class="ed">
+        <div class="e"><div class="no">01</div><h3>Model</h3><div class="v">volc-ark/deepseek-v4-flash-260425</div><div class="m">3 个供应商 · 242 个模型</div><button class="lk">change →</button></div>
+        <div class="e"><div class="no">02</div><h3>Context</h3><div class="v">Skills 0/5 · Prompt smart-ass</div><div class="m">随会话注入的知识与语气</div><button class="lk">change →</button></div>
+        <div class="e"><div class="no">03</div><h3>Extensions</h3><div class="v">none</div><div class="m">Nous extensions</div><button class="lk">choose →</button></div>
+        <div class="e"><div class="no">04</div><h3>Permissions</h3><div class="v">—</div><div class="m">内核页还没做</div><button class="lk">soon</button></div>
+      </div>
+      <div class="card">
+        <h2>New Manual</h2>
+        <div class="sub">Disorder · ready · volc-ark/deepseek-v4-flash-260425</div>
+        <input class="inp" placeholder="Name — 空着就用引擎给的名字">
+        <div class="pair"><button>本机 <span>change →</span></button><button>— <span>browse →</span></button></div>
+        <button class="go">Create</button>
+        <div class="fl">ready</div>
+      </div>
+    </div>
+
+    <!-- ══════ 10 ══════ -->
+    <div class="board v10">
+      <div class="top">
+        <svg class="topo" viewBox="0 0 640 440" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0,0L314.04,0C315.06,27.5,322.13,27.5,323.15,55C315.14,82.5,335.41,82.5,327.39,110C328.99,137.5,322.51,137.5,324.11,165C319.92,192.5,324.19,192.5,320,220C280,225.07,280,210.71,240,215.78C200,204.86,200,227.13,160,216.22C120,223.83,120,218.6,80,226.21C40,222.27,40,221.52,0,217.58Z" fill="var(--r1)"/>
+          <path d="M314.04,0L640,0L640,222.23C600,231.87,600,212.95,560,222.59C520,213.69,520,227.54,480,218.63C440,224.66,440,213.77,400,219.8C360,218.1,360,221.69,320,220C324.19,192.5,319.92,192.5,324.11,165C322.51,137.5,328.99,137.5,327.39,110C335.41,82.5,315.14,82.5,323.15,55C322.13,27.5,315.06,27.5,314.04,0Z" fill="var(--r2)"/>
+          <path d="M0,217.58C40,221.52,40,222.27,80,226.21C120,218.6,120,223.83,160,216.22C200,227.13,200,204.86,240,215.78C280,210.71,280,225.07,320,220C339.2,264,291.2,341,329.6,385C300.8,407,325.76,429,320,440L0,440Z" fill="var(--r4)"/>
+          <path d="M320,220C360,221.69,360,218.1,400,219.8C440,213.77,440,224.66,480,218.63C520,227.54,520,213.69,560,222.59C600,212.95,600,231.87,640,222.23L640,440L320,440C325.76,429,300.8,407,329.6,385C291.2,341,339.2,264,320,220Z" fill="var(--r3)"/>
+          <g fill="none" stroke="var(--ln)" stroke-width="1" stroke-dasharray="4 5">
+            <path d="M314.04,0C315.06,27.5,322.13,27.5,323.15,55C315.14,82.5,335.41,82.5,327.39,110C328.99,137.5,322.51,137.5,324.11,165C319.92,192.5,324.19,192.5,320,220"/>
+            <path d="M0,217.58C40,221.52,40,222.27,80,226.21C120,218.6,120,223.83,160,216.22C200,227.13,200,204.86,240,215.78C280,210.71,280,225.07,320,220"/>
+            <path d="M320,220C360,221.69,360,218.1,400,219.8C440,213.77,440,224.66,480,218.63C520,227.54,520,213.69,560,222.59C600,212.95,600,231.87,640,222.23"/>
+          </g>
+          <path d="M320,220C339.2,264,291.2,341,329.6,385C300.8,407,325.76,429,320,440" fill="none" stroke="var(--cliff)" stroke-width="2"/>
+        </svg>
+        <span class="cap">MAP · DISORDER</span>
+        <span class="mlab m1"><b>Model</b>3 个供应商 · 242 个模型</span>
+        <span class="mlab m2"><b>Context</b>Skills 0/5 · Prompt smart-ass</span>
+        <span class="mlab m3"><b>Extensions</b>none</span>
+        <span class="mlab m4"><b>Permissions</b>—</span>
+        <span class="pin"></span>
+      </div>
+      <div class="bot">
+        <div class="r1"><h2>New Manual</h2><div class="sub">Disorder · ready · volc-ark/deepseek-v4-flash-260425</div></div>
+        <div class="chips">
+          <span class="c"><i>MODEL</i><b>volc-ark/deepseek-v4-flash-260425</b></span>
+          <span class="c"><i>SKILLS</i><b>0 / 5</b></span>
+          <span class="c"><i>PROMPT</i><b>smart-ass</b></span>
+          <span class="c"><i>EXT</i><b>none</b></span>
+        </div>
+        <div class="brow">
+          <input class="inp" placeholder="Name — 空着就用引擎给的名字">
+          <button>本机 ›</button><button>— ›</button>
+          <button class="go">Create</button>
+        </div>
+        <div class="fl">ready</div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<script>
+const notes = {
+  1:["01 单色网格","把地形图拆成四张表，中央换成一块真正的表单卡；一个空间只承担一件事，靠 1px 线和对齐分区。"],
+  2:["02 纸面","和左栏同一张纸，右格不再硬切深色；白天用、截图用、打印用都成立。"],
+  3:["03 蓝图","既然整页是一张参数图，就按工程图纸画：点阵底、虚线分区、角标、尺寸轴 —— 一眼看出哪里还没接。"],
+  4:["04 流水线","四象限本来就有依赖顺序，摊成一条创建流水线；左边选，右边永远是那一个表单。"],
+  5:["05 提纯 Cynefin","骨架和你现在这版一样（真地形图 + 中央椭圆），只把四块彩色拿掉、给中央加玻璃层 —— 改动最小的一档。"],
+  6:["06 Bento","格子的尺寸就是重要性：Model 最大、Permissions 最小并标 soon；中央 Create 占主位，不用画分隔线。"],
+  7:["07 轨道","中心只有一个动作（Create），四个维度是它的参数，连线把「谁喂给谁」说清楚；表单收进底部一条薄栏。"],
+  8:["08 man page","名字就叫 New Manual —— 干脆照 man page 排版：全等宽字、段标题、命令式的一行 create。"],
+  9:["09 编辑流","字号和留白当层级，不用框线；四个词用 40px 站着，中央一块白卡压在交叉点上。"],
+  0:["10 上下分屏","上半永远是完整的地图（比例不变形），下半永远是可读的表单；半屏 / 窄窗里地图不会被压成一枚竖条。"],
+};
+const tabs = [...document.querySelectorAll('#tabs button')];
+const boards = [...document.querySelectorAll('.board')];
+const noteTitle = document.getElementById('noteTitle');
+const noteText = document.getElementById('note');
+function set(v){
+  const key = (v === '0' || v === 0) ? 'v10' : 'v' + v;
+  tabs.forEach(b=>b.classList.toggle('on', b.dataset.v === String(v)));
+  boards.forEach(b=>b.classList.toggle('on', b.classList.contains(key)));
+  const [t,n] = notes[v] || notes[1];
+  noteTitle.textContent = t; noteText.textContent = n;
+  history.replaceState(null,'','#'+v);
+}
+tabs.forEach(b=>b.addEventListener('click',()=>set(b.dataset.v)));
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
+  const order=['1','2','3','4','5','6','7','8','9','0'];
+  let i = order.indexOf(e.key);
+  if(i>=0){ set(order[i]); return; }
+  const cur = tabs.findIndex(t=>t.classList.contains('on'));
+  if(e.key==='ArrowRight') set(order[(cur+1)%10]);
+  if(e.key==='ArrowLeft') set(order[(cur+9)%10]);
+});
+const h = location.hash.replace('#','');
+set(notes[h] ? h : 1);
+</script>
+</body>
+</html>

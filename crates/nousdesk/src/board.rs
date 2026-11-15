@@ -1,23 +1,26 @@
 //! 「New Manual」盘面。
 //!
-//! 外观照抄 qrd3wh 的面板页 `/p/<board>/hb7k3j/`（Pele / Flexoki dark）：
-//! 四块象限 + 中间一颗虚线椭圆，模型 / 上下文 / 扩展 / 权限各占一角，
-//! 建会话的参数全在椭圆里，点哪块开哪块的弹层。
+//! 外观是**轨道**（`demo/new-manual#7` 那一套）：四张参数卡围着中央一颗 `Create`，
+//! 虚线把「谁喂给谁」连出来。不再画 Cynefin 那张四象限图 —— 四块色在深色底上
+//! 只有 14% alpha，缩进右格里会糊成一块脏砖红。
+//!
+//! 弹层是**就地弹出**（`demo/new-manual-7#3`）：贴着被点的那张卡，不居中、
+//! 不把盘面糊掉 —— 选参数的时候还想看得见盘面。
 //!
 //! **只占右侧聊天区那一格**，不再盖住整窗：左导航和会话列表永远在，
 //! 点某个会话 / Esc 就回到聊天。尺寸基准因此从整窗 vmin 换成右格 cqmin。
 //!
-//! 三条纪律（和页面对齐，不是我自己编的）：
+//! 三条纪律（和 demo 对齐，不是我自己编的）：
 //! - **一屏不滚**：尺寸全走右格 cqmin，右格变了跟着缩，盘面永远填满右格。
-//! - **形状说语义**：模型是「供应商 › 模型 › 思考」三段语法链，画成铁路图；
-//!   技能 / 模板 / 目录是平铺清单，因为它们不是链（一个是集合、一个是单值、
-//!   一个是导航）。把后者硬套成语法图就是把语义搞错。
-//! - **单选不关窗、多选也不关窗**：模型点一下就收（它是单值、也没有别的要看）；
-//!   技能要勾好几下，勾完按「完成」—— 在「点了就关」的窗口里做多选是做不了的事。
+//! - **形状说语义**：模型是「供应商 › 模型 › 思考」三段语法链，画成三列；
+//!   技能 / 模板 / 目录是平铺清单，因为它们不是链（集合 / 单值 / 导航）。
+//! - **一个动作一个入口**：Create 只有中间那颗圆，dock 里只放名字 / 机器 / 目录。
 
 // 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
-fn t() -> crate::theme::Skin { crate::theme::cur() }
+fn t() -> crate::theme::Skin {
+    crate::theme::cur()
+}
 
 use std::collections::BTreeSet;
 
@@ -184,33 +187,27 @@ impl NewChat {
         out
     }
 
-    /// 椭圆里那行状态。**只说现在差什么**，不说欢迎语。
+    /// 圆底下那行状态。**只说现在差什么**，不说欢迎语，也不重复卡片上的值。
     fn hub_sub(&self) -> String {
-        if self.load_err.is_some() {
-            return "Disorder · 拿不到清单".into();
+        if let Some(err) = &self.load_err {
+            return err.clone();
         }
         if !self.open {
             return String::new();
         }
+        if self.creating {
+            return "creating…".into();
+        }
         if self.models.is_none() {
             return if self.loading {
-                "Disorder · loading".into()
+                "loading…".into()
             } else {
-                "Disorder · no models".into()
+                "no models".into()
             };
         }
-        match self.picked_label() {
-            Some(m) => {
-                let mut s = format!("Disorder · ready · {m}");
-                if let Some(machine) = &self.machine {
-                    s.push_str(&format!(" · {machine}"));
-                }
-                if let Some(dir) = &self.dir {
-                    s.push_str(&format!(" · {}", tail_path(dir)));
-                }
-                s
-            }
-            None => "Disorder · pick a model".into(),
+        match self.picked {
+            Some(_) => "ready".into(),
+            None => "pick a model".into(),
         }
     }
 }
@@ -458,23 +455,63 @@ impl Desktop {
         // 基准是**右格**不是整窗：盘面现在是三栏里的一格。
         let m = art::M::new(window.viewport_size(), self.tab);
         let b = &self.newchat;
+        let model_value = b.picked_label().unwrap_or_else(|| "—".into());
 
         let body = div()
             .relative()
             .flex_1()
             .min_h(t().d(0.))
-            .px(m.v(1.6))
-            .pb(m.v(1.6))
-            .child(self.board_canvas(&m))
-            .child(self.board_regions(&m, cx))
-            .child(self.board_hub(&m, cx));
+            .child(self.board_wires(&m))
+            .child(self.board_core(&m, cx))
+            .child(self.board_card(
+                &m,
+                art::Slot::Model,
+                "board-model",
+                "MODEL",
+                "Model",
+                model_value,
+                "change ›",
+                b.models.is_some(),
+                cx,
+                |this, _cx| this.newchat.sheet = Some(Sheet::Model),
+            ))
+            .child(self.board_context(&m, cx))
+            .child(self.board_card(
+                &m,
+                art::Slot::Ext,
+                "board-ext",
+                "EXTENSIONS",
+                "Extensions",
+                "none".into(),
+                "choose ›",
+                true,
+                cx,
+                |this, cx| {
+                    // 数据在 vbe4pt 块里，这一版没有端点 —— 如实说，不假装能选。
+                    this.newchat.flash = Some("扩展来自扩展块（vbe4pt），这一版没接".into());
+                    cx.notify();
+                },
+            ))
+            .child(self.board_card(
+                &m,
+                art::Slot::Perms,
+                "board-perms",
+                "PERMISSIONS",
+                "Permissions",
+                "—".into(),
+                "soon",
+                false,
+                cx,
+                |_, _| {},
+            ))
+            .child(self.board_dock(&m, cx));
 
         div()
             .relative()
             .flex()
             .flex_col()
             .flex_1()
-            // flex 项不写 min_w(0)、h_full 会被内容撑到比右格还宽（坑 16）。
+            // flex 项不写 min_w(0) 会被内容撑到比右格还宽（坑 16）。
             .min_w(t().d(0.))
             .h_full()
             .bg(rgb(art::BG))
@@ -493,528 +530,496 @@ impl Desktop {
                     cx.notify();
                 }
             }))
-            // 没有顶栏：右格自己没有标题行，和 HTML demo 一致。
-            // 出口是 Esc、以及左栏点任意一个会话。
             .child(body)
             .children(self.board_sheet(&m, cx))
             .into_any_element()
     }
 
-    /// 那张图：四块象限 + 三条虚线 + 一道崖。
-    ///
-    /// 用 `canvas` 直画路径，**不用 `svg()` 元素** —— 那个只走 alpha 蒙版、一个颜色，
-    /// 四块色会糊成一块。图本来就是矢量，这里原样把 `d` 摊成 `PathBuilder`。
-    fn board_canvas(&self, _m: &art::M) -> AnyElement {
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .bg(rgb(art::PANEL))
-            .child(
-                canvas(
-                    move |bounds, _, _| art::shapes(bounds),
-                    |_bounds, shapes, window, _| {
-                        for shape in shapes {
-                            window.paint_path(shape.path, shape.color);
-                        }
-                    },
-                )
-                .size_full(),
-            )
-            .into_any_element()
-    }
-
-    /// 四块象限。位置和页面一一对应：r1 左上、r2 右上、r4 左下、r3 右下。
-    fn board_regions(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
-        let b = &self.newchat;
-        let muted = rgb(art::MUTED);
-
-        let h2 = |text: &'static str| {
-            div()
-                .text_size(m.f(1.85, 12., 17.))
-                .font_weight(FontWeight::BOLD)
-                .child(text)
-        };
-        let sub = move |text: String| {
-            div()
-                .italic()
-                .text_size(m.f(1.5, 10., 13.))
-                .text_color(muted)
-                .child(text)
-        };
-
-        // 模型那格：`volc-ark/deepseek-v4-flash` + `change ›`
-        let model_id = b.picked_label().unwrap_or_else(|| "—".into());
-        let model_node = self.board_node(
-            "board-model",
-            &model_id,
-            "change ›",
-            b.models.is_some(),
-            m,
-            cx,
-            |this, _cx| this.newchat.sheet = Some(Sheet::Model),
-        );
-
-        // 上下文那格：两个小框，不是一个 —— 技能是集合（多选），模板是单值（单选）。
-        let skills_count = b.picked_skills.len();
-        let skills_total = b.skill_list().len();
-        let prompt_label = b.template.clone().unwrap_or_else(|| "none".into());
-        let skills_node = self.board_node(
-            "board-skills",
-            "Skills",
-            &format!("{skills_count}/{skills_total} ›"),
-            true,
-            m,
-            cx,
-            |this, _cx| this.newchat.sheet = Some(Sheet::Skills),
-        );
-        let prompt_node = self.board_node(
-            "board-prompt",
-            "Prompt",
-            &format!("{prompt_label} ›"),
-            true,
-            m,
-            cx,
-            |this, _cx| this.newchat.sheet = Some(Sheet::Prompt),
-        );
-
-        // 扩展那格：qrd3wh 没有这个端点（数据在 vbe4pt 块），先如实说。
-        let ext_node = self.board_node(
-            "board-ext",
-            "none",
-            "choose ›",
-            true,
-            m,
-            cx,
-            |this, cx| {
-                this.newchat.flash = Some("扩展来自扩展块（vbe4pt），这一版没接".into());
-                cx.notify();
-            },
-        );
-
-        let region = |x: f32, y: f32, kids: Vec<AnyElement>, justify_top: bool| {
-            div()
-                .absolute()
-                .left(relative(x))
-                .top(relative(y))
-                .w(relative(0.5))
-                .h(relative(0.5))
-                .flex()
-                .flex_col()
-                .items_center()
-                .text_center()
-                .pt(m.v(5.5))
-                .px(m.v(3.))
-                .children(kids)
-                .when(!justify_top, |el| el.child(div().flex_1()))
-                .into_any_element()
-        };
-
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .child(region(
-                0.,
-                0.,
-                vec![
-                    h2("Model").into_any_element(),
-                    sub(b
-                        .models
-                        .as_ref()
-                        .map(|x| format!("{} 个供应商 · {} 个模型", providers_of(x), x.items.len()))
-                        .unwrap_or_else(|| "available".into()))
-                    .into_any_element(),
-                    div().mt(m.v(1.8)).child(model_node).into_any_element(),
-                ],
-                true,
-            ))
-            .child(region(
-                0.5,
-                0.,
-                vec![
-                    h2("Context").into_any_element(),
-                    sub(format!(
-                        "skills {skills_count}/{skills_total} · prompt {}",
-                        prompt_label
-                    ))
-                    .into_any_element(),
-                    div()
-                        .mt(m.v(1.8))
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap(m.v(1.))
-                        .child(skills_node)
-                        .child(prompt_node)
-                        .into_any_element(),
-                ],
-                true,
-            ))
-            .child(region(
-                0.,
-                0.5,
-                vec![
-                    h2("Extensions").into_any_element(),
-                    sub("Nous extensions".into()).into_any_element(),
-                    div().mt(m.v(1.8)).child(ext_node).into_any_element(),
-                ],
-                true,
-            ))
-            // 第四格照页面留空：那格是 Permissions，内核页也还没做。
-            .child(region(
-                0.5,
-                0.5,
-                vec![h2("Permissions").into_any_element()],
-                true,
-            ))
-            .into_any_element()
-    }
-
-    /// 中央那颗虚线椭圆：名字、机器、目录、Create、状态行。
-    fn board_hub(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
-        let b = &self.newchat;
-        // 盘面尺寸 = 右格减去四周留白。椭圆是盘面的 36% × 30%（同 HTML demo），
-
-        // 用 cqmin 算会变成正圆 —— 那个比例是宽/高的百分比。
-        let board_w = m.w - 2. * f32::from(m.v(1.6));
-        let board_h = m.h - f32::from(m.v(1.6));
-        let w = (0.36 * board_w).clamp(220., 560.);
-        let h = (0.30 * board_h).clamp(180., 320.);
-        let muted = rgb(art::MUTED);
-
-        let machine_label = b.machine.clone().unwrap_or_else(|| "本机".into());
-        let dir_label = b
-            .dir
-            .as_ref()
-            .map(|d| tail_path(d))
-            .unwrap_or_else(|| "—".into());
-
-        // 椭圆 + 虚线边只能自己画：`rounded(px)` 是绝对半径，宽 620 高 250 时会被夹成
-        // 一枚胶囊（两头是半圆），不是椭圆；而 GPUI 的 border 又没有 dashed。
-        // 画在 canvas 上两件事一起解决 —— 而且这就是页面里那个 `border-radius:50%` 的真形状。
-        let ellipse = canvas(
-            move |_bounds, _, _| (w, h),
-            move |bounds, (w, h), window, _| {
+    /// 四条虚线：圆心 → 四张卡（终点会被卡片盖住，正好停在边上）。
+    fn board_wires(&self, m: &art::M) -> AnyElement {
+        let m = *m;
+        let slots = [
+            art::Slot::Model,
+            art::Slot::Context,
+            art::Slot::Ext,
+            art::Slot::Perms,
+        ];
+        canvas(
+            move |_bounds, _, _| slots.map(|s| art::wire(&m, s)),
+            |bounds, wires, window, _| {
+                // `paint_path` 吃的是**绝对坐标**：canvas 的原点不一定在 (0,0)，
+                // 忘了加就是整条线平移一个输出区偏移（现状 hub 那颗椭圆也踩过）。
                 let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
-                let rx = (w / 2. - 0.5).max(1.);
-                let ry = (h / 2. - 0.5).max(1.);
-                let mut pts = Vec::with_capacity(96);
-                for i in 0..96 {
-                    let t = std::f32::consts::TAU * i as f32 / 96.;
-                    pts.push(point(
-                        px(ox + w / 2. + rx * t.cos()),
-                        px(oy + h / 2. + ry * t.sin()),
-                    ));
-                }
-                // 先铺不透明的 panel 底（参考 `.hub { background: var(--panel) }`），
-                // 再叠 18% 的青（参考 `.hub::before { background: var(--s5); opacity: .18 }`）。
-                // 少了这层底，象限色和 cliff 会从椭圆里透出来 —— 中心就发脏了。
-                let mut base = PathBuilder::fill();
-                base.add_polygon(&pts, true);
-                if let Ok(path) = base.build() {
-                    window.paint_path(path, rgb(art::PANEL));
-                }
-                let mut tint = PathBuilder::fill();
-                tint.add_polygon(&pts, true);
-                if let Ok(path) = tint.build() {
-                    window.paint_path(path, rgb(art::S5).opacity(art::HUB_ALPHA));
-                }
-                let mut edge = PathBuilder::stroke(t().d(1.)).dash_array(&[t().d(3.), t().d(3.)]);
-                edge.add_polygon(&pts, true);
-                let edge_color: Hsla = rgb(art::BORDER).into();
-                if let Ok(path) = edge.build() {
-                    window.paint_path(path, edge_color);
+                for (a, b) in wires {
+                    let mut pb = PathBuilder::stroke(px(1.)).dash_array(&[px(3.), px(6.)]);
+                    pb.move_to(point(px(ox + a.0), px(oy + a.1)));
+                    pb.line_to(point(px(ox + b.0), px(oy + b.1)));
+                    if let Ok(path) = pb.build() {
+                        window.paint_path(path, rgb(art::WIRE));
+                    }
                 }
             },
-        );
+        )
+        .size_full()
+        .into_any_element()
+    }
 
-        let hub = div()
-            .relative()
+    /// 中央那颗白圆：整页唯一的主动作。
+    fn board_core(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let (ccx, ccy) = art::core_center(&m);
+        let r = art::core_r(&m);
+        let halo = 18.;
+        let b = &self.newchat;
+        // 状态行：`flash` 是失败（绿字和 ready 撞色，所以用红调），否则说还差什么。
+        let status = b.flash.clone().map(|f| (f, rgb(0xd14d41))).or_else(|| {
+            let s = b.hub_sub();
+            (!s.is_empty()).then(|| (s, rgb(art::OK)))
+        });
+
+        div()
+            .absolute()
+            .left(px(ccx - r - halo))
+            .top(px(ccy - r - halo))
+            .w(px(2. * (r + halo)))
             .flex()
             .flex_col()
             .items_center()
-            .justify_center()
-            .gap(m.v(0.7))
-            .text_center()
-            .w(px(w))
-            .h(px(h))
-            // 参考 `.hub { padding: 3% 9% }`：CSS 的 % 相对宽度，所以上下 3%、左右 9% 都乘 w。
-            .px(px(w * 0.09))
-            .py(px(w * 0.03))
             .child(
                 div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .child(ellipse.size_full()),
-            )
-            .child(
-                div()
-                    .text_size(m.f(1.85, 12., 17.))
-                    .font_weight(FontWeight::BOLD)
-                    .child("New Manual"),
-            )
-            .child(
-                div()
-                    .italic()
-                    .text_size(m.f(1.4, 9., 12.5))
-                    .text_color(muted)
-                    .child(b.hub_sub()),
-            )
-            .child(
-                div()
-                    .w(px(f32::from(m.v(34.)).min(w * 0.82)))
-                    .mt(m.v(0.6))
-                    .px(m.v(1.))
-                    .py(m.v(0.3))
-                    .bg(rgb(art::PANEL))
-                    .border_1()
-                    .border_color(rgb(art::BORDER))
-                    .rounded(t().r(6.))
-                    .text_size(m.f(1.5, 11., 13.5))
+                    .w(px(2. * (r + halo)))
+                    .h(px(2. * (r + halo)))
+                    .rounded_full()
+                    .bg(rgb(art::ACCENT).opacity(0.035))
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .child(
-                        Textarea::new(&b.name_input)
-                            .appearance(false)
-                            .bordered(false),
+                        div()
+                            .id(ElementId::Name("board-create".into()))
+                            .size(px(2. * r))
+                            .rounded_full()
+                            .bg(rgb(art::ACCENT))
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .justify_center()
+                            .text_color(rgb(art::BG))
+                            .hover(|s| s.opacity(0.94))
+                            .on_click(
+                                cx.listener(|this, _: &ClickEvent, _, cx| this.board_create(cx)),
+                            )
+                            .child(
+                                div()
+                                    .text_size(m.f(1.6, 12., 17.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child("+ Create"),
+                            )
+                            .child(
+                                div()
+                                    .mt(m.v(0.3))
+                                    .font_family(art::MONO)
+                                    .text_size(m.f(0.7, 6.5, 8.5))
+                                    .text_color(rgb(0x6a6660))
+                                    .child("NEW MANUAL · DISORDER"),
+                            ),
                     ),
             )
-            .child(self.board_node(
-                "board-machine",
-                &machine_label,
-                "change ›",
-                true,
-                m,
-                cx,
-                |this, _cx| this.newchat.sheet = Some(Sheet::Machine),
-            ))
-            .child(self.board_node(
-                "board-dir",
-                &dir_label,
-                "browse ›",
-                true,
-                m,
-                cx,
-                |this, _cx| this.newchat.sheet = Some(Sheet::Dir),
-            ))
-            .child(
+            .children(status.map(|(s, color)| {
                 div()
-                    .id(ElementId::Name("board-create".into()))
-                    .px(m.v(1.6))
-                    .py(m.v(0.5))
-                    .bg(rgb(art::PANEL))
-                    .rounded(t().r(6.))
-                    .border_1()
-                    .border_color(rgb(art::BORDER))
-                    .text_size(m.f(1.6, 11., 14.5))
-                    .when(b.picked.is_some(), |el| {
-                        el.hover(|s| s.bg(rgb(art::SURFACE)).border_color(rgb(art::LINE)))
-                    })
-                    .when(b.picked.is_none(), |el| el.opacity(0.45))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.board_create(cx);
-                    }))
-                    .child(if b.creating { "creating…" } else { "Create" }),
-            )
-            .child(
-                div()
-                    .h(m.f(1.35, 9., 12.))
-                    .text_size(m.f(1.35, 9., 12.))
+                    .mt(px(10.))
+                    .w(px(2. * (r + halo)))
+                    .text_center()
                     .font_family(art::MONO)
-                    .text_color(rgb(art::S4))
-                    .child(b.flash.clone().unwrap_or_default()),
-            );
-
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(hub)
+                    .text_size(m.f(1.15, 8.5, 10.5))
+                    .text_color(color)
+                    .child(s)
+            }))
             .into_any_element()
     }
 
-    /// 一个 `node`：panel 底、1px 边、6px 圆角、等宽字的 id + 灰色小 tag。
+    /// 一张参数卡（Model / Extensions / Permissions 共用这个形状）。
     #[allow(clippy::too_many_arguments)]
-    fn board_node(
+    fn board_card(
         &self,
-        id: &'static str,
-        value: &str,
-        tag: &str,
-        enabled: bool,
         m: &art::M,
+        slot: art::Slot,
+        id: &'static str,
+        k: &'static str,
+        title: &'static str,
+        value: String,
+        tag: &'static str,
+        enabled: bool,
         cx: &mut Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> AnyElement {
+        let m = *m;
+        let r = art::node_rect(&m, slot);
         div()
             .id(ElementId::Name(id.into()))
+            .absolute()
+            .left(px(r.x))
+            .top(px(r.y))
+            .w(px(r.w))
+            .h(px(r.h))
             .flex()
-            .items_center()
-            .gap(m.v(0.7))
-            .px(m.v(0.95))
-            .py(m.v(0.42))
+            .flex_col()
+            .gap(m.v(0.25))
+            .px(m.v(1.1))
+            .py(m.v(0.85))
             .bg(rgb(art::PANEL))
             .border_1()
             .border_color(rgb(art::BORDER))
-            .rounded(t().r(6.))
+            .rounded(t().r(10.))
             .when(enabled, |el| {
-                el.hover(|s| s.border_color(rgb(art::FAINT)))
+                el.hover(|s| s.border_color(rgb(art::LINE)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
             })
-            .when(!enabled, |el| el.opacity(0.45))
-            // 每格只有右格的一半（`region` 里 `.w(relative(0.5))` + 左右内边距），
-            // 不封顶的话长模型名会把节点顶出格子的两边，表现是「左边那截被裁掉」。
-            // 44cqmin 在宽窗（短边是高度）和窄窗（短边是宽度）里都落在半格内。
-            .max_w(m.v(44.))
+            .when(!enabled, |el| el.opacity(0.55))
             .child(
                 div()
-                    .flex_1()
-                    .min_w(t().d(0.))
                     .font_family(art::MONO)
-                    .text_size(m.f(1.55, 10., 14.))
-                    .truncate()
-                    .child(value.to_string()),
+                    .text_size(m.f(1.05, 8., 10.))
+                    .text_color(rgb(art::FAINT))
+                    .child(k),
             )
             .child(
                 div()
-                    .flex_none()
-                    .text_size(m.f(1.55 * 0.82, 9., 12.))
+                    .text_size(m.f(1.6, 11., 14.))
+                    .font_weight(FontWeight::BOLD)
+                    .child(title),
+            )
+            .child(
+                div()
+                    .mt(m.v(0.45))
+                    .min_w(t().d(0.))
+                    .font_family(art::MONO)
+                    .text_size(m.f(1.3, 10., 12.))
                     .text_color(rgb(art::MUTED))
-                    .child(tag.to_string()),
+                    .truncate()
+                    .child(value),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .text_size(m.f(1.15, 8.5, 10.5))
+                    .text_color(rgb(art::FAINT))
+                    .child(tag),
             )
             .into_any_element()
     }
 
-    // ── 弹层 ─────────────────────────────────────────────────────────
+    /// Context 那张卡：里面是**两个**可点子块 —— 技能是集合（多选），
+    /// 模板是单值（单选），塞进一个按钮里会让人以为它们一样。
+    fn board_context(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let b = &self.newchat;
+        let r = art::node_rect(&m, art::Slot::Context);
+        let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
+        let prompt = b.template.clone().unwrap_or_else(|| "none".into());
+        let sub =
+            |id: &'static str, k: &'static str, v: String, cx: &mut Context<Self>, open: Sheet| {
+                div()
+                    .id(ElementId::Name(id.into()))
+                    .flex()
+                    .flex_col()
+                    .gap(m.v(0.2))
+                    .flex_1()
+                    .min_w(t().d(0.))
+                    .px(m.v(0.7))
+                    .py(m.v(0.45))
+                    .border_1()
+                    .border_color(rgb(art::BORDER))
+                    .rounded(t().r(7.))
+                    .bg(rgb(art::BG))
+                    .hover(|s| s.border_color(rgb(art::LINE)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.newchat.sheet = Some(open);
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .font_family(art::MONO)
+                            .text_size(m.f(1.05, 8., 10.))
+                            .text_color(rgb(art::FAINT))
+                            .child(k),
+                    )
+                    .child(
+                        div()
+                            .font_family(art::MONO)
+                            .text_size(m.f(1.2, 9., 11.))
+                            .text_color(rgb(art::FG))
+                            .truncate()
+                            .child(v),
+                    )
+            };
 
-    fn board_sheet(&self, m: &art::M, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let sheet = self.newchat.sheet?;
-        // 弹层实际有多宽：三列铁路图按它算，不再假定 720（半屏下按 720 算会把
-        // 第三列「思考档位」切在弹层外面）。
-        let sheet_w = (0.94 * m.w).min(720.);
-        let (title, hint, body): (String, String, AnyElement) = match sheet {
-            Sheet::Model => (
-                "选择模型".into(),
-                "供应商 › 模型 › 思考 · 点模型选中即收回".into(),
-                self.sheet_model(m, sheet_w, cx),
-            ),
-            Sheet::Skills => (
-                "上下文 · 技能".into(),
-                "勾完按「完成」· 多选".into(),
-                self.sheet_skills(m, cx),
-            ),
-            Sheet::Prompt => (
-                "上下文 · 提示词模板".into(),
-                "单值：这一条每轮都带 · 再点一次取消".into(),
-                self.sheet_prompt(m, cx),
-            ),
-            Sheet::Dir => (
-                "工作目录".into(),
-                "列的是引擎那台机器上的目录 · 点一层进去".into(),
-                self.sheet_dir(m, cx),
-            ),
-            Sheet::Machine => (
-                "机器".into(),
-                "会话跑在哪台机器上 · 默认本机".into(),
-                self.sheet_machine(m, cx),
-            ),
+        div()
+            .id(ElementId::Name("board-context".into()))
+            .absolute()
+            .left(px(r.x))
+            .top(px(r.y))
+            .w(px(r.w))
+            .h(px(r.h))
+            .flex()
+            .flex_col()
+            .gap(m.v(0.45))
+            .px(m.v(1.1))
+            .py(m.v(0.85))
+            .bg(rgb(art::PANEL))
+            .border_1()
+            .border_color(rgb(art::BORDER))
+            .rounded(t().r(10.))
+            .child(
+                div()
+                    .font_family(art::MONO)
+                    .text_size(m.f(1.05, 8., 10.))
+                    .text_color(rgb(art::FAINT))
+                    .child("CONTEXT"),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(m.v(0.6))
+                    .child(sub("board-skills", "SKILLS", skills, cx, Sheet::Skills))
+                    .child(sub("board-prompt", "PROMPT", prompt, cx, Sheet::Prompt)),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .text_size(m.f(1.05, 8., 10.))
+                    .text_color(rgb(art::FAINT))
+                    .child("随会话注入的知识与语气"),
+            )
+            .into_any_element()
+    }
+
+    /// 底部一条：名字 + 机器 + 目录。Create 不在这儿 —— 它是中间那颗圆，
+    /// 一个动作一个入口。
+    fn board_dock(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let b = &self.newchat;
+        let d = art::dock_rect(&m);
+        let machine = b.machine.clone().unwrap_or_else(|| "本机".into());
+        let dir = b
+            .dir
+            .as_ref()
+            .map(|p| tail_path(p))
+            .unwrap_or_else(|| "—".into());
+        let chip = |id: &'static str, text: String, cx: &mut Context<Self>, sheet: Sheet| {
+            div()
+                .id(ElementId::Name(id.into()))
+                .flex_none()
+                .px(m.v(0.9))
+                .py(m.v(0.4))
+                .border_1()
+                .border_color(rgb(art::BORDER))
+                .rounded(t().r(7.))
+                .font_family(art::MONO)
+                .text_size(m.f(1.2, 9., 11.))
+                .text_color(rgb(art::MUTED))
+                .hover(|s| s.border_color(rgb(art::LINE)).text_color(rgb(art::FG)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.sheet = Some(sheet);
+                    cx.notify();
+                }))
+                .child(format!("{text} ›"))
         };
 
-        let scrim = div()
+        div()
             .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
+            .left(px(d.x))
+            .top(px(d.y))
+            .w(px(d.w))
+            .h(px(d.h))
             .flex()
             .items_center()
-            .justify_center()
-            .bg(rgba(t().p.scrim))
-            .id(ElementId::Name("board-scrim".into()))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.newchat.sheet = None;
-                cx.notify();
-            }));
+            .gap(m.v(0.7))
+            .px(m.v(0.8))
+            .bg(rgb(0x111114).opacity(0.94))
+            .border_1()
+            .border_color(rgb(art::BORDER))
+            .rounded(t().r(12.))
+            .child(
+                div().flex_1().min_w(t().d(0.)).px(m.v(0.6)).child(
+                    Textarea::new(&b.name_input)
+                        .appearance(false)
+                        .bordered(false),
+                ),
+            )
+            .child(chip("dock-machine", machine, cx, Sheet::Machine))
+            .child(chip("dock-dir", dir, cx, Sheet::Dir))
+            .child(
+                div()
+                    .flex_none()
+                    .px(m.v(0.6))
+                    .font_family(art::MONO)
+                    .text_size(m.f(1.05, 8., 10.))
+                    .text_color(rgb(art::FAINT))
+                    .child("↵ CREATE"),
+            )
+            .into_any_element()
+    }
 
+    /// 弹层：「就地弹出」。**贴着被点的那张卡**，不是居中一个模态框 ——
+    /// 选参数的时候还想看得见盘面（点空白处 / Esc 关闭）。
+    fn board_sheet(&self, m: &art::M, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let m = *m;
+        let sheet = self.newchat.sheet?;
+        let (title, hint, slot) = match sheet {
+            Sheet::Model => (
+                "选择模型",
+                "供应商 › 模型 › 思考 · 点模型即收回",
+                Some(art::Slot::Model),
+            ),
+            Sheet::Skills => (
+                "上下文 · 技能",
+                "勾完按「完成」· 多选",
+                Some(art::Slot::Context),
+            ),
+            Sheet::Prompt => (
+                "上下文 · 提示词模板",
+                "单值：这条每轮都带 · 再点一次取消",
+                Some(art::Slot::Context),
+            ),
+            Sheet::Dir => ("工作目录", "列的是引擎那台机器上的目录 · 点一层进去", None),
+            Sheet::Machine => ("机器", "会话跑在哪台机器上 · 默认本机", None),
+        };
+
+        let pop = art::pop_rect(&m, slot, sheet == Sheet::Model);
+        let body = match sheet {
+            Sheet::Model => self.sheet_model(&m, pop.w, cx),
+            Sheet::Skills => self.sheet_skills(&m, cx),
+            Sheet::Prompt => self.sheet_prompt(&m, cx),
+            Sheet::Dir => self.sheet_dir(&m, cx),
+            Sheet::Machine => self.sheet_machine(&m, cx),
+        };
+
+        let header = div()
+            .flex_none()
+            .flex()
+            .items_start()
+            .justify_between()
+            .gap(m.v(1.))
+            .px(m.v(1.6))
+            .pt(m.v(1.3))
+            .pb(m.v(0.95))
+            .border_b(t().d(1.))
+            .border_color(rgb(art::BORDER))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(m.v(0.25))
+                    .child(
+                        div()
+                            .text_size(m.f(1.3, 10., 12.5))
+                            .font_weight(FontWeight::BOLD)
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .italic()
+                            .text_size(m.f(1.05, 8., 10.))
+                            .text_color(rgb(art::MUTED))
+                            .child(hint),
+                    ),
+            )
+            .child(
+                div()
+                    .id(ElementId::Name("pop-close".into()))
+                    .flex_none()
+                    .px(m.v(0.45))
+                    .py(m.v(0.05))
+                    .rounded(t().r(5.))
+                    .text_size(m.f(1.1, 8.5, 10.5))
+                    .text_color(rgb(art::MUTED))
+                    .hover(|s| s.bg(rgb(art::SURFACE)).text_color(rgb(art::FG)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.newchat.sheet = None;
+                        cx.notify();
+                    }))
+                    .child("✕"),
+            );
+
+        let footer = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_between()
+            .px(m.v(1.4))
+            .py(m.v(0.75))
+            .border_t(t().d(1.))
+            .border_color(rgb(art::BORDER))
+            .child(
+                div()
+                    .font_family(art::MONO)
+                    .text_size(m.f(0.8, 6.5, 8.5))
+                    .text_color(rgb(art::FAINT))
+                    .child("Esc 关闭 · 点空白处也关"),
+            )
+            .child(
+                div()
+                    .id(ElementId::Name("board-sheet-done".into()))
+                    .px(m.v(1.0))
+                    .py(m.v(0.3))
+                    .rounded(t().r(6.))
+                    .border_1()
+                    .border_color(rgb(art::ACCENT))
+                    .bg(rgb(art::ACCENT).opacity(0.14))
+                    .text_size(m.f(1.05, 8.5, 11.))
+                    .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.24)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.newchat.sheet = None;
+                        cx.notify();
+                    }))
+                    .child("完成 ›"),
+            );
+
+        let cap = match pop.anchor {
+            art::Anchor::Top(y) => art::dock_rect(&m).y - 14. - y,
+            art::Anchor::Bottom(_) => m.h * 0.62,
+        };
+        let max_h = cap.clamp(220., m.h * 0.62);
+        let panel = div()
+            .id(ElementId::Name("board-pop".into()))
+            .absolute()
+            .left(px(pop.x))
+            .w(px(pop.w))
+            .flex()
+            .flex_col()
+            // 显式给上限：内容多就滚，别把面板顶出右格、也别压到 dock。
+            .max_h(px(max_h))
+            .bg(rgb(art::PANEL))
+            .border_1()
+            .border_color(rgb(art::BORDER))
+            .rounded(t().r(12.))
+            .overflow_hidden();
+        let panel = match pop.anchor {
+            art::Anchor::Top(y) => panel.top(px(y)),
+            art::Anchor::Bottom(y) => panel.bottom(px(y)),
+        };
+
+        // 遮罩一整块盖住右格，浮层本体用 `block_mouse_except_scroll` 把
+        // 面板范围内的点击/滚轮留下 —— 见 坑.md 59（`occlude()` 会连滚轮一起挡）。
         Some(
-            scrim
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .id(ElementId::Name("board-scrim".into()))
+                .bg(rgba(0x05050647))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.newchat.sheet = None;
+                    cx.notify();
+                }))
                 .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .w(px(sheet_w))
-                        // 显式高度，不用 `max_h`：`flex_1` 的基准是 0，
-                        // 父容器高度由内容决定时它就会塌成一条缝（正文一格都看不见）。
-                        .h(px((0.78 * m.h).min(680.)))
-                        .bg(rgb(art::PANEL))
-                        .border_1()
-                        .border_color(rgb(art::BORDER))
-                        .rounded(t().r(14.))
-                        .overflow_hidden()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(m.v(1.))
-                                .px(m.v(1.8))
-                                .pt(m.v(1.6))
-                                .pb(m.v(1.2))
-                                .border_b(t().d(1.))
-                                .border_color(rgb(art::BORDER))
-                                .child(
-                                    div()
-                                        .text_size(m.f(1.7, 12., 15.))
-                                        .font_weight(FontWeight::BOLD)
-                                        .child(title),
-                                )
-                                .child(
-                                    div()
-                                        .italic()
-                                        .text_size(m.f(1.35, 9.5, 12.))
-                                        .text_color(rgb(art::MUTED))
-                                        .child(hint),
-                                ),
-                        )
+                    panel
+                        .block_mouse_except_scroll()
+                        .child(header)
                         .child(body)
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .px(m.v(1.8))
-                                .py(m.v(1.))
-                                .border_t(t().d(1.))
-                                .border_color(rgb(art::BORDER))
-                                .child(
-                                    div()
-                                        .font_family(art::MONO)
-                                        .text_size(m.f(1.25, 9., 11.))
-                                        .text_color(rgb(art::MUTED))
-                                        .child("Esc 关闭 · 点空白处也关"),
-                                )
-                                .child(
-                                    div()
-                                        .id(ElementId::Name("board-sheet-done".into()))
-                                        .px(m.v(1.1))
-                                        .py(m.v(0.35))
-                                        .rounded(t().r(6.))
-                                        .border_1()
-                                        .border_color(rgb(art::ACCENT))
-                                        .bg(rgb(art::ACCENT).opacity(0.18))
-                                        .text_size(m.f(1.5, 11., 13.))
-                                        .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.28)))
-                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                            this.newchat.sheet = None;
-                                            cx.notify();
-                                        }))
-                                        .child("完成 ›"),
-                                ),
-                        ),
+                        .child(footer),
                 )
                 .into_any_element(),
         )
@@ -1145,7 +1150,7 @@ impl Desktop {
                         .text_size(m.f(1.45, 10., 13.))
                         .font_family(art::MONO)
                         .truncate()
-                        .hover(|s| s.bg(rgb(art::SURFACE_ALT)))
+                        .hover(|s| s.bg(rgb(art::SURFACE)))
                         .on_click(cx.listener({
                             let label = label.clone();
                             move |this, _: &ClickEvent, _, cx| {
@@ -1687,17 +1692,6 @@ fn sheet_lanes(sheet_w: f32, pad: f32) -> ([f32; 3], [f32; 3]) {
     let cols = [width * 0.30, width * 0.42, width * 0.28];
     let xs = [0., cols[0], cols[0] + cols[1]];
     (cols, xs)
-}
-
-/// 模型清单里有几个供应商。
-fn providers_of(models: &Models) -> usize {
-    let mut seen: Vec<&str> = Vec::new();
-    for m in &models.items {
-        if !seen.contains(&m.provider.as_str()) {
-            seen.push(&m.provider);
-        }
-    }
-    seen.len()
 }
 
 #[cfg(test)]

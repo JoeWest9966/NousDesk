@@ -1,0 +1,872 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Manual · 轨道盘面 · 选择页 6 方案</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ui:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,"Noto Sans","Noto Sans CJK SC","DejaVu Sans",sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code",Consolas,"DejaVu Sans Mono","Noto Sans Mono CJK SC",monospace;
+  --rail:#f4f3f1; --listbg:#fdfdfc; --line:#e8e6e2; --ink:#1c1b1a; --ink2:#6d6a66; --ink3:#a8a49e;
+  --bg:#0a0a0b; --card:#121214; --card2:#0f0f11; --bd:#232326; --bd2:#2e2e33;
+  --fg:#e9e7e4; --mu:#77736e; --fa:#56534f; --hi:#f4f2ef; --ok:#6f9c6a; --acc:#4385be;
+}
+html,body{background:#0b0b0c;color:#fff;font-family:var(--ui);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font:inherit}
+body{padding:0 0 40px}
+
+/* ── 顶部方案条 ── */
+.bar{position:sticky;top:0;z-index:60;background:#0b0b0c;border-bottom:1px solid #1c1c1e;padding:13px 24px 11px}
+.bar-in{max-width:1400px;margin:0 auto}
+.bar-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;gap:20px}
+.bar-title{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6f6d69;white-space:nowrap}
+.tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;flex:1;max-width:900px}
+.tabs button{display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:8px 10px;border:1px solid #1e1e21;border-radius:8px;color:#9b9893;transition:.12s;min-width:0}
+.tabs button b{font:600 10px/1 var(--mono);color:#5c5a56;letter-spacing:.08em}
+.tabs button span{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tabs button.on{background:#f4f3f1;border-color:#f4f3f1;color:#111}
+.tabs button.on b{color:#8a867f}
+.tabs button:hover:not(.on){border-color:#33333a;color:#e6e3df}
+.bar-sub{font-size:12.5px;color:#8b8884;display:flex;gap:10px;align-items:baseline}
+.bar-sub b{color:#f4f3f1;font-weight:600;white-space:nowrap}
+.bar-sub i{font-style:normal;color:#6f6b66}
+
+/* ── 窗口 ── */
+.win{position:relative;width:min(1400px,calc(100vw - 48px));height:860px;margin:20px auto 0;display:flex;overflow:hidden;border-radius:10px;background:#fff;box-shadow:0 40px 90px rgba(0,0,0,.66),0 0 0 1px rgba(255,255,255,.06)}
+.rail{width:56px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;border-right:1px solid var(--line)}
+.rail .ri{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:#8b8781}
+.rail .ri svg{width:20px;height:20px}
+.rail .ri.on{background:#e7e5e1;color:#2a2825}
+.rail .sp{flex:1}
+.list{width:280px;flex:none;background:var(--listbg);border-right:1px solid var(--line);display:flex;flex-direction:column;color:var(--ink)}
+.list-head{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px}
+.list-head .t{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.newbtn{font-size:11.5px;color:#4a4744;background:#f0eeea;border:1px solid #e2dfda;border-radius:7px;padding:5px 9px}
+.search{margin:2px 12px 10px;display:flex;align-items:center;gap:7px;padding:7px 10px;background:#f1efec;border-radius:8px;color:var(--ink3);font-size:12.5px}
+.search svg{width:13px;height:13px}
+.rows{flex:1;overflow:hidden;border-top:1px solid #f0eeea}
+.row{display:flex;align-items:center;gap:8px;padding:16px;border-bottom:1px solid #f1efeb;font-size:13.5px}
+.row .pin{color:#8b8781;font-size:11px;width:14px;flex:none;text-align:center}
+.row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#211f1d}
+.row .tm{font-size:11px;color:#a8a49e;flex:none}
+.pane{position:relative;flex:1;min-width:0;overflow:hidden;background:var(--bg)}
+
+/* ══ 盘面（方案 07 轨道）══ */
+.board{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 42%,#16161a 0%,#0a0a0b 60%);color:var(--fg);font-family:var(--ui);transition:opacity .18s}
+.board.behind{opacity:.25;pointer-events:none}
+.board .wires{position:absolute;inset:0;width:100%;height:100%}
+.board .core{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);width:180px;height:180px;border-radius:50%;background:var(--hi);color:#0b0b0c;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 34px 70px rgba(0,0,0,.62),0 0 0 16px rgba(244,242,239,.035),0 0 0 34px rgba(244,242,239,.018);transition:transform .18s,box-shadow .18s}
+.board .core:hover{transform:translate(-50%,-50%) scale(1.04)}
+.board .core .p{font-size:19px;font-weight:600;letter-spacing:-.02em}
+.board .core .s{margin-top:3px;font:9.5px var(--mono);letter-spacing:.12em;color:#6a6660}
+.board .node{position:absolute;width:250px;padding:15px 17px;background:rgba(18,18,21,.92);border:1px solid var(--bd);border-radius:12px;backdrop-filter:blur(6px);text-align:left;transition:border-color .15s,transform .15s}
+.board .node:hover{border-color:#3a3a42;transform:translateY(-1px)}
+.board .node .k{font:9.5px/1 var(--mono);letter-spacing:.2em;color:#615d58;margin-bottom:8px}
+.board .node h4{font-size:13.5px;font-weight:600}
+.board .node .v{margin-top:6px;font:11px/1.45 var(--mono);color:#948f89;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.board .node .lk{margin-top:9px;font-size:11px;color:#807b75;display:inline-block}
+.board .node:hover .lk{color:#fff}
+.board .n1{left:5.5%;top:11%}.board .n2{right:5.5%;top:11%}
+.board .n3{left:5.5%;bottom:26%}.board .n4{right:5.5%;bottom:26%}
+.board .n2 .ctx{display:flex;gap:6px;margin-top:8px}
+.board .n2 .ctx button{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding:8px 9px;border:1px solid var(--bd);border-radius:8px;background:#0d0d0f;text-align:left}
+.board .n2 .ctx button:hover{border-color:#3a3a42}
+.board .n2 .ctx i{font:9px/1 var(--mono);letter-spacing:.16em;color:#615d58;font-style:normal}
+.board .n2 .ctx b{font:11px/1.3 var(--mono);color:#c3bfb8;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.board .n4{opacity:.92}
+.board .dock{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);width:min(720px,84%);display:flex;align-items:center;gap:8px;padding:8px;background:rgba(17,17,20,.94);border:1px solid #212126;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.board .dock .inp{flex:1;min-width:0;background:transparent;border:0;padding:9px 10px;color:var(--hi);font:13px var(--ui);outline:none}
+.board .dock .inp::placeholder{color:#57534f}
+.board .dock button{flex:none;font:11px var(--mono);padding:8px 10px;border:1px solid #26262c;border-radius:8px;color:#a8a49f;white-space:nowrap}
+.board .dock button:hover{border-color:#3d3d46;color:#fff}
+.board .dock .hint{flex:none;font:10px var(--mono);letter-spacing:.1em;color:#5f5b57;padding:0 8px;white-space:nowrap}
+.board .toast{position:absolute;left:50%;bottom:74px;transform:translateX(-50%);font:10.5px var(--mono);color:var(--ok);letter-spacing:.04em;opacity:0;transition:opacity .2s}
+.board .toast.on{opacity:1}
+
+/* ══ 选择页公共 ══ */
+.sheet{position:absolute;inset:0;z-index:30}
+.sheet:empty{display:none}
+.scrim{position:absolute;inset:0;background:rgba(5,5,6,.62);backdrop-filter:blur(3px)}
+.scrim.soft{background:rgba(5,5,6,.45);backdrop-filter:none}
+.scrim.faint{background:rgba(5,5,6,.28);backdrop-filter:none}
+.pbody{flex:1;min-height:0;overflow:auto;padding:10px 12px 12px}
+.pbody::-webkit-scrollbar{width:8px}
+.pbody::-webkit-scrollbar-thumb{background:#2a2a2e;border-radius:4px}
+.panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(660px,92%);max-height:78%;background:#151519;border:1px solid #33333c;border-radius:16px;display:flex;flex-direction:column;box-shadow:0 40px 90px rgba(0,0,0,.75)}
+.panel header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:20px 22px 14px;border-bottom:1px solid #1e1e22}
+.panel header h3{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.panel header p{margin-top:5px;font-size:11.5px;color:var(--mu);font-style:italic}
+.panel header .x{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:#7d7973;font-size:14px}
+.panel header .x:hover{background:#1c1c20;color:#fff}
+.panel footer{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid #1e1e22}
+.panel footer .hint{font:10px var(--mono);color:var(--fa);letter-spacing:.04em}
+.panel footer .done{padding:7px 14px;border-radius:8px;border:1px solid var(--bd2);font-size:12px;color:#dedad4}
+.panel footer .done:hover{background:#1b1b1f;border-color:#3d3d46}
+
+/* 列表行（多套共用） */
+.list-rows{display:flex;flex-direction:column;gap:2px}
+.li{display:flex;align-items:flex-start;gap:11px;width:100%;padding:10px 12px;border-radius:9px;border:1px solid transparent;text-align:left;transition:background .12s,border-color .12s}
+.li:hover{background:#18181c}
+.li.on{background:rgba(244,242,239,.09);border-color:#3f3f48}
+.li .tick{width:15px;height:15px;flex:none;margin-top:1px;border-radius:4px;border:1px solid #3a3a42;display:grid;place-items:center;font-size:9px;color:transparent}
+.li.round .tick{border-radius:50%}
+.li.round .tick::after{content:"";width:5px;height:5px;border-radius:50%;background:transparent}
+.li.on .tick{border-color:var(--hi);color:#0b0b0c;background:var(--hi)}
+.li.round.on .tick::after{background:#0b0b0c}
+.li .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.li .txt .n{font:12.5px/1.35 var(--mono);color:#dedad4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .txt .d{margin-top:3px;font-size:11.5px;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .txt .m{margin-top:2px;font:9.5px var(--mono);color:var(--fa);letter-spacing:.04em}
+.li .side{flex:none;font:10px var(--mono);color:var(--fa)}
+.li:hover .side{color:#a8a49f}
+
+/* 三列铁路图（浮层 / 抽屉 / 接管 / 弹出 共用） */
+.lanes{display:grid;grid-template-columns:.92fr 1.35fr .9fr;gap:8px;padding:2px}
+.lane{display:flex;flex-direction:column;gap:2px;min-width:0}
+.lane .lh{font:9.5px/1 var(--mono);letter-spacing:.18em;color:var(--fa);padding:4px 10px 7px}
+.lane button{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid transparent;font:11.5px/1.3 var(--mono);color:#b0aca6;text-align:left;min-width:0}
+.lane button span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lane button em{font-style:normal;font-size:10px;color:var(--fa);flex:none}
+.lane button:hover{background:#18181c}
+.lane button.on{background:rgba(244,242,239,.07);border-color:#3a3a42;color:#fff}
+.lane button .dot{width:5px;height:5px;border-radius:50%;background:#3a3a42;flex:none}
+.lane button.on .dot{background:var(--hi)}
+
+/* ══════ 01 浮层卡片 ══════ */
+.s1 .panel{width:min(680px,92%)}
+
+/* ══════ 02 右侧抽屉 ══════ */
+.drawer{position:absolute;top:0;right:0;bottom:0;width:min(440px,52%);background:#141418;border-left:1px solid var(--bd2);display:flex;flex-direction:column;box-shadow:-30px 0 70px rgba(0,0,0,.55);animation:slide .18s ease-out}
+@keyframes slide{from{transform:translateX(28px);opacity:.4}to{transform:translateX(0);opacity:1}}
+.drawer header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:22px 22px 14px;border-bottom:1px solid #1e1e22}
+.drawer header h3{font-size:16px;font-weight:600}
+.drawer header p{margin-top:5px;font-size:11.5px;color:var(--mu);font-style:italic}
+.drawer header .x{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:#7d7973;font-size:14px}
+.drawer header .x:hover{background:#1c1c20;color:#fff}
+.drawer footer{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-top:1px solid #1e1e22}
+.drawer footer .hint{font:10px var(--mono);color:var(--fa)}
+.drawer footer .done{padding:7px 14px;border-radius:8px;background:var(--hi);color:#0b0b0c;font-size:12px;font-weight:600}
+.drawer .lanes{grid-template-columns:1fr}
+.drawer .lane .lh{padding-top:10px}
+
+/* ══════ 03 就地弹出 ══════ */
+.pop{position:absolute;background:#131316;border:1px solid #2c2c32;border-radius:13px;box-shadow:0 26px 60px rgba(0,0,0,.66);display:flex;flex-direction:column;max-height:60%;animation:pop .14s ease-out}
+@keyframes pop{from{transform:translateY(6px) scale(.98);opacity:0}to{transform:none;opacity:1}}
+.pop::before{content:"";position:absolute;width:10px;height:10px;background:#131316;border-left:1px solid #2c2c32;border-top:1px solid #2c2c32;transform:rotate(45deg)}
+.pop.from-left::before{left:-6px;top:26px}
+.pop.from-right::before{right:-6px;top:26px;transform:rotate(225deg)}
+.pop.from-top::before{left:34px;top:-6px;transform:rotate(45deg)}
+.pop.from-bottom::before{left:34px;bottom:-6px;transform:rotate(225deg)}
+.pop .ph{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #1e1e22}
+.pop .ph h3{font-size:12.5px;font-weight:600}
+.pop .ph span{font:9.5px var(--mono);letter-spacing:.14em;color:var(--fa)}
+.pop .pbody{padding:8px}
+.pop .lane .lh{padding-top:8px}
+.pop .lane button em{display:none}
+
+/* ══════ 04 全屏接管 ══════ */
+.take{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column;animation:fade .16s ease-out}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.take .th{display:flex;align-items:center;gap:18px;padding:20px 34px;border-bottom:1px solid #1a1a1d}
+.take .th .back{display:flex;align-items:center;gap:7px;font-size:12px;color:#9b9691;padding:6px 10px 6px 4px;border-radius:8px}
+.take .th .back:hover{color:#fff;background:#141417}
+.take .th .crumbs{margin-left:auto;display:flex;gap:8px;align-items:center;font:10.5px var(--mono);color:var(--fa);letter-spacing:.06em}
+.take .th .crumbs b{color:#b9b5ae;font-weight:400}
+.take .tmain{flex:1;min-height:0;display:flex;gap:44px;padding:34px 44px 30px;overflow:hidden}
+.take .left{width:280px;flex:none;display:flex;flex-direction:column}
+.take .left h2{font-size:34px;font-weight:500;letter-spacing:-.03em;line-height:1.05}
+.take .left p{margin-top:12px;font-size:12.5px;line-height:1.65;color:var(--mu);max-width:250px}
+.take .left .cur{margin-top:auto;padding-top:20px}
+.take .left .cur i{display:block;font:9.5px/1 var(--mono);letter-spacing:.18em;color:var(--fa);font-style:normal;margin-bottom:7px}
+.take .left .cur b{font:12px/1.45 var(--mono);color:#c9c5be;font-weight:400;word-break:break-all}
+.take .right{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.take .right .tw{flex:1;min-height:0;overflow:auto;padding-right:6px;display:flex;flex-direction:column;justify-content:center}
+.take .tf{border-top:1px solid #1a1a1d;padding-top:12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;font:10px var(--mono);color:var(--fa)}
+.take .tf .done{padding:8px 16px;border-radius:8px;background:var(--hi);color:#0b0b0c;font:600 12px var(--ui)}
+.take .li{padding:15px 16px;border-radius:10px;border:1px solid transparent;border-bottom:1px solid #17171a}
+.take .li.on{background:#151519;border-color:#2e2e35}
+.take .li .txt .n{font-size:13px}
+.take .li .txt .d{font-size:12px;color:#8b867f}
+.take .lanes{grid-template-columns:.9fr 1.3fr .85fr;gap:14px}
+.take .lane button{padding:11px 12px}
+
+/* ══════ 05 旋钮 ══════ */
+.dial{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(620px,90%);max-height:76%;background:#151519;border:1px solid #33333c;border-radius:16px;display:flex;flex-direction:column;box-shadow:0 40px 90px rgba(0,0,0,.75)}
+.dial header{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #1e1e22}
+.dial header h3{font-size:14px;font-weight:600}
+.dial header .cur{font:10.5px var(--mono);color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%}
+.dial .dw{display:flex;align-items:center;gap:10px;padding:6px 18px 10px;min-height:300px}
+.dial .dl{flex:1;min-width:0}
+.dial .lh2{font:9.5px/1 var(--mono);letter-spacing:.18em;color:var(--fa);text-align:center;padding-bottom:10px}
+.dial .dt{display:flex;flex-direction:column}
+.dial .di{height:46px;display:flex;align-items:center;gap:9px;padding:0 10px;border-radius:9px;font:11.5px/1.3 var(--mono);color:#c9c5be;text-align:left;width:100%;transition:opacity .15s,background .15s}
+.dial .di span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dial .di em{font-style:normal;font-size:10px;color:var(--fa);flex:none}
+.dial .di.on{color:#0b0b0c;background:var(--hi);box-shadow:0 10px 26px rgba(0,0,0,.5)}
+.dial .di.on em{color:#6a6660}
+.dial .di:hover{background:#1a1a1f}
+.dial .di.on:hover{background:#fff}
+.dial .di.ghost{visibility:hidden;pointer-events:none}
+.dial .dh{width:16px;flex:none;display:flex;align-items:center;justify-content:center}
+.dial .dh::before{content:"›";color:#4a4a50;font-size:16px}
+.dial footer{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-top:1px solid #1e1e22}
+.dial footer .hint{font:10px var(--mono);color:var(--fa)}
+.dial footer .done{padding:8px 16px;border-radius:8px;background:var(--hi);color:#0b0b0c;font:600 12px var(--ui)}
+
+/* ══════ 06 命令面板 ══════ */
+.cmdk{position:absolute;left:50%;top:16%;transform:translateX(-50%);width:min(600px,92%);background:#121215;border:1px solid #2c2c33;border-radius:14px;box-shadow:0 40px 100px rgba(0,0,0,.75);overflow:hidden}
+.cmdk-in{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid #1f1f24}
+.cmdk-in span{font:13px var(--mono);color:#4f4f56}
+.cmdk-in input{flex:1;min-width:0;background:transparent;border:0;outline:none;color:#f0eee9;font:14px var(--ui)}
+.cmdk-in input::placeholder{color:#5a5754}
+.cmdk-in kbd{font:9.5px var(--mono);color:#5f5b57;border:1px solid #2a2a30;border-radius:4px;padding:2px 5px}
+.cmdk-list{max-height:360px;overflow:auto;padding:7px}
+.cmdk-list .li{padding:10px 11px}
+.cmdk-list .li .kbd{flex:none;font:9.5px var(--mono);color:#5f5b57}
+.cmdk-foot{display:flex;gap:16px;padding:10px 16px;border-top:1px solid #1f1f24;font:10px var(--mono);color:#5f5b57}
+.cmdk-foot b{color:#8b8680;font-weight:400}
+.empty{padding:26px;text-align:center;font-size:12px;color:#6f6b66}
+
+@media (max-width:1100px){
+  .tabs{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .win{height:78vh}
+  .take .tmain{flex-direction:column;gap:18px;padding:22px}
+  .take .left{width:auto}
+  .take .left .cur{margin-top:12px;padding-top:0}
+}
+</style>
+</head>
+<body>
+
+<header class="bar"><div class="bar-in">
+  <div class="bar-top">
+    <div class="bar-title">New Manual · 选择页</div>
+    <nav class="tabs" id="tabs">
+      <button data-v="1" class="on"><b>01</b><span>浮层卡片</span></button>
+      <button data-v="2"><b>02</b><span>右侧抽屉</span></button>
+      <button data-v="3"><b>03</b><span>就地弹出</span></button>
+      <button data-v="4"><b>04</b><span>全屏接管</span></button>
+      <button data-v="5"><b>05</b><span>旋钮</span></button>
+      <button data-v="6"><b>06</b><span>命令面板</span></button>
+    </nav>
+  </div>
+  <div class="bar-sub"><b id="noteTitle">01 浮层卡片</b><i id="note">点盘面上的 Model / Context / 扩展 / 权限，或底部「本机 / 目录」—— 六个入口都能点。</i></div>
+</div></header>
+
+<main class="win">
+  <nav class="rail">
+    <button class="ri on" title="会话">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.6a8 8 0 0 1-8 8H8.4L4 22.5V16.8A8 8 0 1 1 21 11.6Z"/></svg>
+    </button>
+    <button class="ri" title="模板">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M9 16.5 12 9l3 7.5M10.2 14h3.6"/></svg>
+    </button>
+    <div class="sp"></div>
+    <button class="ri" title="更多">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </nav>
+
+  <aside class="list">
+    <div class="list-head"><span class="t">NousDesk</span><button class="newbtn">+ New Manual</button></div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+      <span>搜索会话</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="pin">⚲</span><span class="nm">真模型</span><span class="tm">6 天前</span></div>
+      <div class="row"><span class="pin">⚲</span><span class="nm">经宿主真模型</span><span class="tm">5 分支</span></div>
+      <div class="row"><span class="pin"></span><span class="nm">deep-dive · 37087</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">scratch 11-13 21:29</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">weekly-report</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">read-only-review</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">deep-dive · 35579</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">scratch 11-13 21:18</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">deep-dive · 9505</span><span class="tm"></span></div>
+      <div class="row"><span class="pin"></span><span class="nm">scratch 11-13 21:17</span><span class="tm"></span></div>
+    </div>
+  </aside>
+
+  <section class="pane" id="pane">
+    <div class="board" id="board">
+      <svg class="wires" viewBox="0 0 1000 800" preserveAspectRatio="none" aria-hidden="true">
+        <g stroke="#2b2b30" stroke-width="1" stroke-dasharray="3 6" fill="none">
+          <path d="M165 144C260 200 380 270 500 336"/>
+          <path d="M835 144C740 200 620 270 500 336"/>
+          <path d="M165 545C260 480 380 410 500 336"/>
+          <path d="M835 545C740 480 620 410 500 336"/>
+        </g>
+        <g fill="#4a4a50">
+          <circle cx="165" cy="144" r="2.5"/><circle cx="835" cy="144" r="2.5"/>
+          <circle cx="165" cy="545" r="2.5"/><circle cx="835" cy="545" r="2.5"/>
+        </g>
+      </svg>
+
+      <button class="core" data-act="create"><span class="p">＋ Create</span><span class="s">NEW MANUAL · DISORDER</span></button>
+
+      <button class="node n1" data-act="open:model" data-node="model">
+        <div class="k">MODEL</div><h4>Model</h4>
+        <div class="v" id="v-model">volc-ark/deepseek-v4-flash-260425</div>
+        <span class="lk">change →</span>
+      </button>
+
+      <div class="node n2" data-node="context">
+        <div class="k">CONTEXT</div>
+        <div class="ctx">
+          <button data-act="open:skills"><i>SKILLS</i><b id="v-skills">0 / 5</b></button>
+          <button data-act="open:prompt"><i>PROMPT</i><b id="v-prompt">smart-ass</b></button>
+        </div>
+        <span class="lk" style="font-size:10.5px;color:#6f6b66">随会话注入的知识与语气</span>
+      </div>
+
+      <button class="node n3" data-act="open:ext" data-node="ext">
+        <div class="k">EXTENSIONS</div><h4>Extensions</h4>
+        <div class="v" id="v-ext">none</div>
+        <span class="lk">choose →</span>
+      </button>
+
+      <button class="node n4" data-act="open:perms" data-node="perms">
+        <div class="k">PERMISSIONS</div><h4>Permissions</h4>
+        <div class="v" id="v-perms">—</div>
+        <span class="lk">soon</span>
+      </button>
+
+      <div class="dock">
+        <input class="inp" id="name" placeholder="Name — 空着就用引擎给的名字">
+        <button data-act="open:machine">本机 ›</button>
+        <button data-act="open:dir">— ›</button>
+        <span class="hint">↵ CREATE</span>
+      </div>
+      <div class="toast" id="toast"></div>
+    </div>
+
+    <div class="sheet" id="sheet"></div>
+  </section>
+</main>
+
+<script>
+/* ───────────────── 数据 ───────────────── */
+const DATA = {
+  providers: [
+    {id:'volc-ark',  note:'火山方舟'},
+    {id:'openai',    note:'OpenAI'},
+    {id:'anthropic', note:'Anthropic'},
+  ],
+  models: {
+    'volc-ark': [
+      {id:'deepseek-v4-flash-260425', note:'快 · 便宜',   levels:['low','medium','high']},
+      {id:'deepseek-v4-pro',          note:'慢 · 稳',     levels:['low','medium','high']},
+      {id:'doubao-pro-32k',           note:'长上下文',    levels:['off','low']},
+    ],
+    openai: [
+      {id:'gpt-5.1-mini', note:'轻',  levels:['low','high']},
+      {id:'gpt-5.1',      note:'重',  levels:['low','medium','high']},
+    ],
+    anthropic: [
+      {id:'claude-opus-4.6',  note:'最强', levels:['low','medium']},
+      {id:'claude-haiku-4.6', note:'最快', levels:['off','low']},
+    ],
+  },
+  levelName: {off:'关', low:'快答', medium:'默认', high:'慢想'},
+  skills: [
+    {name:'code-review',   desc:'读 diff、找问题、给结论',   cat:'工程 / 审查'},
+    {name:'deep-research', desc:'多轮检索 + 交叉验证',        cat:'研究'},
+    {name:'writing',       desc:'长文结构、语气收敛',         cat:'写作'},
+    {name:'data-viz',      desc:'表格与图表选型',             cat:'数据'},
+    {name:'ops',           desc:'部署、日志、回滚',           cat:'工程 / 运维'},
+  ],
+  prompts: [
+    {name:'smart-ass', desc:'直接、不客套、先给结论', cat:'语气'},
+    {name:'formal',    desc:'正式书面语',             cat:'语气'},
+    {name:'terse',     desc:'能一句说完不说两句',     cat:'语气'},
+  ],
+  machines: [
+    {id:'__local', name:'本机',      note:'qrd3wh 跑在哪儿就是哪儿'},
+    {id:'j1900',   name:'j1900',     note:'192.168.1.7 · 低功耗'},
+    {id:'build-box', name:'build-box', note:'amd64 · 16 核'},
+  ],
+  exts: [
+    {name:'none',        desc:'不加载任何扩展', note:''},
+    {name:'nous-web',    desc:'网页抓取与摘要', note:'vbe4pt'},
+    {name:'nous-shell',  desc:'本地命令执行',   note:'vbe4pt'},
+  ],
+  perms: [
+    {name:'filesystem.read', desc:'读工作目录以外的文件', note:'未接'},
+    {name:'shell.run',       desc:'执行命令',             note:'未接'},
+    {name:'network',         desc:'出网',                 note:'未接'},
+  ],
+  dirs: {
+    '/':                        [{name:'home',path:'/home'},{name:'opt',path:'/opt'},{name:'var',path:'/var'}],
+    '/home':                    [{name:'nous',path:'/home/nous'}],
+    '/home/nous':               [{name:'work',path:'/home/nous/work'},{name:'notes',path:'/home/nous/notes'}],
+    '/home/nous/work':          [{name:'nousdesk',path:'/home/nous/work/nousdesk'}],
+    '/home/nous/notes':         [],
+    '/home/nous/work/nousdesk': [],
+    '/opt':                     [{name:'Warehousetui',path:'/opt/Warehousetui'}],
+    '/opt/Warehousetui':        [],
+    '/var':                     [{name:'log',path:'/var/log'}],
+    '/var/log':                 [],
+  },
+};
+
+const META = {
+  model:   ['选择模型',        '供应商 › 模型 › 思考 · 点模型即收回', 'Model'],
+  skills:  ['上下文 · 技能',    '勾完按「完成」· 多选',             'Skills'],
+  prompt:  ['上下文 · 提示词模板','单值：这条每轮都带 · 再点一次取消', 'Prompt'],
+  ext:     ['扩展',            'Nous extensions · 来自扩展块 vbe4pt', 'Extensions'],
+  perms:   ['权限',            '内核页还没做 · 这一版只展示',       'Permissions'],
+  machine: ['机器',            '会话跑在哪台机器上 · 默认本机',     'Machine'],
+  dir:     ['工作目录',        '列的是引擎那台机器上的目录 · 点一层进去', 'Directory'],
+};
+
+/* ───────────────── 状态 ───────────────── */
+const S = {
+  variant: 1,
+  dim: null,
+  model: {provider:'volc-ark', id:'deepseek-v4-flash-260425', level:'medium'},
+  skills: new Set(),
+  prompt: 'smart-ass',
+  ext: 'none',
+  perms: new Set(),
+  machine: '__local',
+  dir: null,
+  dirAt: '/',
+  q: '',
+};
+
+const $ = s => document.querySelector(s);
+const sheet = $('#sheet');
+const board = $('#board');
+const pane  = $('#pane');
+
+/* ───────────────── 小工具 ───────────────── */
+const modelsOf = p => DATA.models[p] || [];
+const levelsOf = () => {
+  const m = modelsOf(S.model.provider).find(x => x.id === S.model.id);
+  return m ? m.levels : ['low','medium','high'];
+};
+const clampLevel = () => {
+  const lv = levelsOf();
+  if (!lv.includes(S.model.level)) S.model.level = lv[0];
+};
+const tail = p => (p || '').split('/').filter(Boolean).pop() || p;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function curVal(){
+  switch (S.dim){
+    case 'model':   return `${S.model.provider}/${S.model.id} · ${DATA.levelName[S.model.level]}`;
+    case 'skills':  return `${S.skills.size} / ${DATA.skills.length}`;
+    case 'prompt':  return S.prompt || 'none';
+    case 'ext':     return S.ext;
+    case 'perms':   return S.perms.size ? `${S.perms.size} 个已开` : '—';
+    case 'machine': return (DATA.machines.find(m => m.id === S.machine) || {}).name || '本机';
+    case 'dir':     return S.dirAt;
+    default:        return '';
+  }
+}
+
+/* ───────────────── 盘面回填 ───────────────── */
+function paint(){
+  const mv = `${S.model.provider}/${S.model.id}`;
+  const el = $('#v-model');
+  el.textContent = mv;
+  el.title = mv;
+  $('#v-skills').textContent = `${S.skills.size} / ${DATA.skills.length}`;
+  $('#v-prompt').textContent = S.prompt || 'none';
+  $('#v-ext').textContent = S.ext;
+  $('#v-perms').textContent = S.perms.size ? `${S.perms.size} 个已开` : '—';
+  const mac = DATA.machines.find(m => m.id === S.machine);
+  pane.querySelector('[data-act="open:machine"]').textContent = `${mac ? mac.name : '本机'} ›`;
+  pane.querySelector('[data-act="open:dir"]').textContent = `${S.dir ? tail(S.dir) : '—'} ›`;
+}
+
+let toastTimer = 0;
+function toast(msg){
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 1600);
+}
+
+/* ───────────────── 列表 / 三列 ───────────────── */
+function lanesHTML(){
+  const p = DATA.providers;
+  const ms = modelsOf(S.model.provider);
+  const lv = levelsOf();
+  const lane = (col, items) => `<div class="lane" data-lane="${col}">
+      <div class="lh">${col === 'p' ? 'PROVIDER' : col === 'm' ? 'MODEL' : 'THINKING'}</div>
+      ${items.map((it, i) => {
+        const on = col === 'p' ? it.id === S.model.provider
+                 : col === 'm' ? it.id === S.model.id
+                 : it === S.model.level;
+        const act = col === 'p' ? `provider:${it.id}` : col === 'm' ? `model:${it.id}` : `level:${it}`;
+        const name = col === 'l' ? `${it} · ${DATA.levelName[it]}` : it.id;
+        const note = col === 'p' ? it.note : col === 'm' ? it.note : '';
+        return `<button data-act="${act}" class="${on ? 'on' : ''}">
+          <span class="dot"></span><span>${esc(name)}</span>${note ? `<em>${esc(note)}</em>` : ''}
+        </button>`;
+      }).join('')}
+    </div>`;
+  return `<div class="lanes">${lane('p', p)}${lane('m', ms)}${lane('l', lv)}</div>`;
+}
+
+function li(o){
+  const cls = `li${o.round ? ' round' : ''}${o.on ? ' on' : ''}`;
+  return `<button class="${cls}" data-act="${o.act}">
+      ${o.icon ? `<span class="tick" style="border:0;background:none;color:#6f6b66;width:12px">${o.icon}</span>` : `<span class="tick">✓</span>`}
+      <span class="txt">
+        <span class="n">${esc(o.n)}</span>
+        ${o.d ? `<span class="d">${esc(o.d)}</span>` : ''}
+        ${o.m ? `<span class="m">${esc(o.m)}</span>` : ''}
+      </span>
+      ${o.side ? `<span class="side">${esc(o.side)}</span>` : ''}
+    </button>`;
+}
+
+function listHTML(){
+  const d = S.dim;
+  let out = '';
+  if (d === 'skills'){
+    out = DATA.skills.map(s => li({
+      act:`skill:${s.name}`, n:s.name, d:s.desc, m:s.cat,
+      on:S.skills.has(s.name),
+    })).join('');
+  } else if (d === 'prompt'){
+    out = DATA.prompts.map(p => li({
+      act:`prompt:${p.name}`, n:p.name, d:p.desc, m:p.cat,
+      on:S.prompt === p.name, round:true,
+    })).join('');
+  } else if (d === 'ext'){
+    out = DATA.exts.map(x => li({
+      act:`ext:${x.name}`, n:x.name, d:x.desc, m:x.note,
+      on:S.ext === x.name, round:true, side:x.name === 'none' ? '默认' : '',
+    })).join('');
+  } else if (d === 'perms'){
+    out = DATA.perms.map(x => li({
+      act:`perm:${x.name}`, n:x.name, d:x.desc,
+      on:S.perms.has(x.name), side:x.note,
+    })).join('');
+  } else if (d === 'machine'){
+    out = DATA.machines.map(m => li({
+      act:`machine:${m.id}`, n:m.name, d:m.note,
+      on:S.machine === m.id, round:true, side:m.id === '__local' ? '默认' : '',
+    })).join('');
+  } else if (d === 'dir'){
+    out = dirRows();
+  }
+  return `<div class="list-rows">${out}</div>`;
+}
+
+function dirRows(){
+  const at = S.dirAt;
+  let rows = '';
+  if (at !== '/'){
+    rows += `<button class="li" data-act="up">
+      <span class="tick" style="border:0;background:none;color:#6f6b66;width:14px">..</span>
+      <span class="txt"><span class="n">${esc(at)}</span></span>
+      <span class="side">上一层</span></button>`;
+  }
+  const kids = DATA.dirs[at] || [];
+  rows += kids.map(k => `<button class="li" data-act="dir:${k.path}">
+      <span class="tick" style="border:0;background:none;color:#6f6b66;width:14px">›</span>
+      <span class="txt"><span class="n">${esc(k.path)}</span></span>
+      <span class="side">进 ›</span></button>`).join('');
+  if (!kids.length) rows += `<div class="empty">这层没有子目录</div>`;
+  return rows;
+}
+
+function footHTML(){
+  if (S.dim === 'dir') return `<button class="done" data-act="use-dir">用这个目录 ›</button>`;
+  return `<button class="done" data-act="done">完成 ›</button>`;
+}
+
+/* ───────────────── 六个方案的外壳 ───────────────── */
+function sheetHTML(){
+  const d = S.dim;
+  if (!d) return '';
+  const [title, hint] = META[d];
+  const body = d === 'model' ? lanesHTML() : listHTML();
+
+  if (S.variant === 1){
+    return `<div class="scrim" data-act="close"></div>
+      <div class="panel s1">
+        <header><div><h3>${title}</h3><p>${hint}</p></div><button class="x" data-act="close">✕</button></header>
+        <div class="pbody">${body}</div>
+        <footer><span class="hint">Esc 关闭 · 点空白处也关</span>${footHTML()}</footer>
+      </div>`;
+  }
+  if (S.variant === 2){
+    return `<div class="scrim soft" data-act="close"></div>
+      <aside class="drawer">
+        <header><div><h3>${title}</h3><p>${hint}</p></div><button class="x" data-act="close">✕</button></header>
+        <div class="pbody">${body}</div>
+        <footer><span class="hint">Esc 关闭</span>${footHTML()}</footer>
+      </aside>`;
+  }
+  if (S.variant === 3){
+    const p = popStyle();
+    return `<div class="scrim faint" data-act="close"></div>
+      <div class="pop ${p.cls}" style="left:${p.left}px;top:${p.top}px;width:${p.w}px">
+        <div class="ph"><h3>${title}</h3><span>${hint}</span></div>
+        <div class="pbody">${body}</div>
+      </div>`;
+  }
+  if (S.variant === 4){
+    return `<div class="take">
+        <div class="th">
+          <button class="back" data-act="close">‹ 返回</button>
+          <div class="crumbs"><b>New Manual</b><span>/</span><b>${META[d][2]}</b></div>
+        </div>
+        <div class="tmain">
+          <div class="left">
+            <h2>${META[d][2]}</h2>
+            <p>${hint}</p>
+            <div class="cur"><i>当前</i><b>${esc(curVal())}</b></div>
+          </div>
+          <div class="right">
+            <div class="tw">${body}</div>
+            <div class="tf"><span>Esc 返回 · 再点一次已选项可取消</span>${footHTML()}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+  if (S.variant === 5){
+    return `<div class="scrim" data-act="close"></div>
+      <div class="dial">
+        <header><h3>${title}</h3><span class="cur">${esc(curVal())}</span></header>
+        <div class="dw">${dialHTML()}</div>
+        <footer><span class="hint">点中间那一行即选中 · Esc 关闭</span>${footHTML()}</footer>
+      </div>`;
+  }
+  return `<div class="scrim" data-act="close"></div>
+    <div class="cmdk">
+      <div class="cmdk-in"><span>›</span><input id="q" autocomplete="off" placeholder="${cmdPh()}" value="${esc(S.q)}"><kbd>esc</kbd></div>
+      <div class="cmdk-list">${cmdkRows()}</div>
+      <div class="cmdk-foot"><span><b>click</b> 选中</span><span><b>esc</b> 关闭</span><span><b>${META[d][2]}</b></span></div>
+    </div>`;
+}
+
+function cmdPh(){
+  const d = S.dim;
+  return d === 'model' ? '搜供应商 / 模型…'
+       : d === 'skills' ? '搜技能…'
+       : d === 'dir' ? '搜目录…'
+       : '搜…';
+}
+
+/* 方案 3：贴着被点的节点定位 */
+function popStyle(){
+  const anchor = {
+    model:'[data-node="model"]', skills:'[data-node="context"]', prompt:'[data-node="context"]',
+    ext:'[data-node="ext"]', perms:'[data-node="perms"]',
+    machine:'[data-act="open:machine"]', dir:'[data-act="open:dir"]',
+  }[S.dim];
+  const a = pane.querySelector(anchor);
+  const pr = pane.getBoundingClientRect();
+  const r = a.getBoundingClientRect();
+  if (S.dim === 'model'){
+    const w = Math.min(600, pr.width - 28);
+    let left = Math.max(14, Math.min(r.left - pr.left, pr.width - w - 14));
+    let top = r.bottom - pr.top + 14;
+    let cls = 'from-top';
+    if (top + 260 > pr.height - 14){ top = Math.max(14, r.top - pr.top - 274); cls = 'from-bottom'; }
+    return {left, top, w, cls};
+  }
+  const w = 410;
+  let left = r.right - pr.left + 14, cls = 'from-left';
+  if (left + w > pr.width - 14){ left = r.left - pr.left - w - 14; cls = 'from-right'; }
+  left = Math.max(14, left);
+  let top = Math.max(14, Math.min(r.top - pr.top, pr.height - 400));
+  return {left, top, w, cls};
+}
+
+/* 方案 5：旋钮 */
+function dialHTML(){
+  const wrap = (title, items, curIdx) => {
+    const n = items.length;
+    if (!n) return `<div class="dl"><div class="lh2">${title}</div></div>`;
+    const op = [.32, .6, 1, .6, .32];
+    const rows = [];
+    for (let k = -2; k <= 2; k++){
+      const idx = curIdx + k;
+      if (idx < 0 || idx >= n){ rows.push('<div class="di ghost"></div>'); continue; }
+      const it = items[idx];
+      rows.push(`<button class="di ${k === 0 ? 'on' : ''}" data-act="${it.act}" style="opacity:${op[k + 2]}"><span>${esc(it.label)}</span>${it.side ? `<em>${esc(it.side)}</em>` : ''}</button>`);
+    }
+    return `<div class="dl"><div class="lh2">${title}</div><div class="dt">${rows.join('')}</div></div>`;
+  };
+  if (S.dim === 'model'){
+    const cols = [
+      ['PROVIDER', DATA.providers.map(x => ({act:`provider:${x.id}`, label:x.id, side:x.note})), DATA.providers.findIndex(x => x.id === S.model.provider)],
+      ['MODEL', modelsOf(S.model.provider).map(x => ({act:`model:${x.id}`, label:x.id, side:x.note})), modelsOf(S.model.provider).findIndex(x => x.id === S.model.id)],
+      ['THINKING', levelsOf().map(v => ({act:`level:${v}`, label:`${v} · ${DATA.levelName[v]}`})), levelsOf().indexOf(S.model.level)],
+    ];
+    return cols.map(([t, items, i], n) => wrap(t, items, Math.max(0, i)) + (n < 2 ? '<div class="dh"></div>' : '')).join('');
+  }
+  const items = dialItems();
+  const cur = Math.max(0, items.findIndex(i => i.on));
+  return wrap(META[S.dim][2].toUpperCase(), items.map(i => ({act:i.act, label:i.n, side:i.side})), cur);
+}
+
+function dialItems(){
+  const d = S.dim;
+  if (d === 'skills') return DATA.skills.map(s => ({act:`skill:${s.name}`, n:s.name, side:S.skills.has(s.name) ? '已选' : '', on:S.skills.has(s.name)}));
+  if (d === 'prompt') return DATA.prompts.map(p => ({act:`prompt:${p.name}`, n:p.name, side:p.name === S.prompt ? '当前' : '', on:S.prompt === p.name}));
+  if (d === 'ext')    return DATA.exts.map(x => ({act:`ext:${x.name}`, n:x.name, side:x.name === S.ext ? '当前' : '', on:S.ext === x.name}));
+  if (d === 'perms')  return DATA.perms.map(x => ({act:`perm:${x.name}`, n:x.name, side:S.perms.has(x.name) ? '已开' : '', on:S.perms.has(x.name)}));
+  if (d === 'machine')return DATA.machines.map(m => ({act:`machine:${m.id}`, n:m.name, side:m.id === S.machine ? '当前' : '', on:S.machine === m.id}));
+  if (d === 'dir')    return (DATA.dirs[S.dirAt] || []).map(k => ({act:`dir:${k.path}`, n:k.path, side:'目录', on:false}))
+                              .concat([{act:'use-dir', n:`用 ${S.dirAt}`, side:'确定', on:true}]);
+  return [];
+}
+
+/* 方案 6：命令面板 */
+function cmdkRows(){
+  const d = S.dim, q = S.q.trim().toLowerCase();
+  let items = [];
+  if (d === 'model'){
+    for (const p of DATA.providers)
+      for (const m of modelsOf(p.id))
+        items.push({act:`model:${p.id}|${m.id}`, n:`${p.id}/${m.id}`, d:`${p.note} · ${m.note}`,
+                    on:S.model.provider === p.id && S.model.id === m.id, side:'model'});
+  } else if (d === 'skills'){
+    items = DATA.skills.map(s => ({act:`skill:${s.name}`, n:s.name, d:s.desc, on:S.skills.has(s.name), side:s.cat}));
+  } else if (d === 'prompt'){
+    items = DATA.prompts.map(p => ({act:`prompt:${p.name}`, n:p.name, d:p.desc, on:S.prompt === p.name, side:'单选'}));
+  } else if (d === 'ext'){
+    items = DATA.exts.map(x => ({act:`ext:${x.name}`, n:x.name, d:x.desc, on:S.ext === x.name, side:x.note || '默认'}));
+  } else if (d === 'perms'){
+    items = DATA.perms.map(x => ({act:`perm:${x.name}`, n:x.name, d:x.desc, on:S.perms.has(x.name), side:x.note}));
+  } else if (d === 'machine'){
+    items = DATA.machines.map(m => ({act:`machine:${m.id}`, n:m.name, d:m.note, on:S.machine === m.id, side:m.id === '__local' ? '默认' : ''}));
+  } else if (d === 'dir'){
+    items = (DATA.dirs[S.dirAt] || []).map(k => ({act:`dir:${k.path}`, n:k.path, d:'进入', on:false, side:'›'}));
+    items.push({act:'use-dir', n:`用 ${S.dirAt}`, d:'把这一层设为工作目录', on:true, side:'确定'});
+  }
+  if (q) items = items.filter(i => (i.n + ' ' + (i.d || '')).toLowerCase().includes(q));
+  if (!items.length) return `<div class="empty">没有匹配「${esc(S.q)}」的项</div>`;
+  return items.map(i => `<button class="li ${i.on ? 'on' : ''}${d === 'model' || d === 'prompt' || d === 'ext' || d === 'machine' ? ' round' : ''}" data-act="${i.act}">
+      <span class="tick">✓</span>
+      <span class="txt"><span class="n">${esc(i.n)}</span>${i.d ? `<span class="d">${esc(i.d)}</span>` : ''}</span>
+      <span class="kbd">${esc(i.side || '')}</span></button>`).join('');
+}
+
+/* ───────────────── 交互 ───────────────── */
+function open(dim){
+  S.dim = dim;
+  S.q = '';
+  if (dim === 'dir') S.dirAt = '/';
+  render();
+  if (S.variant === 6) setTimeout(() => { const q = $('#q'); if (q) q.focus(); }, 0);
+}
+
+function close(){ S.dim = null; S.q = ''; render(); }
+
+function pickProvider(p){
+  S.model.provider = p;
+  const first = modelsOf(p)[0];
+  if (first) S.model.id = first.id;
+  clampLevel();
+}
+function pickModel(spec){
+  const i = spec.indexOf('|');
+  if (i > 0){ S.model.provider = spec.slice(0, i); S.model.id = spec.slice(i + 1); }
+  else { S.model.id = spec; }
+  clampLevel();
+  S.dim = null;                 // 点模型即收回（和现状一致）
+  toast(`model · ${S.model.id}`);
+}
+
+function handle(act){
+  const i = act.indexOf(':');
+  const k = i < 0 ? act : act.slice(0, i);
+  const v = i < 0 ? '' : act.slice(i + 1);
+  switch (k){
+    case 'open':    open(v); break;
+    case 'close':   close(); break;
+    case 'done':    close(); break;
+    case 'provider':pickProvider(v); render(); break;
+    case 'model':   pickModel(v); render(); break;
+    case 'level':   S.model.level = v; render(); break;
+    case 'skill':   S.skills.has(v) ? S.skills.delete(v) : S.skills.add(v); render(); break;
+    case 'prompt':  S.prompt = (S.prompt === v) ? null : v; render(); break;
+    case 'ext':     S.ext = v; render(); break;
+    case 'perm':    S.perms.has(v) ? S.perms.delete(v) : S.perms.add(v); render(); break;
+    case 'machine': S.machine = v; S.dim = null; toast(`machine · ${v === '__local' ? '本机' : v}`); render(); break;
+    case 'dir':     S.dirAt = v; render(); break;
+    case 'up':      S.dirAt = S.dirAt.replace(/\/[^/]+$/, '') || '/'; render(); break;
+    case 'use-dir': S.dir = S.dirAt; S.dim = null; toast(`dir · ${S.dirAt}`); render(); break;
+    case 'create':  toast(`create · ${S.model.id} · skills ${S.skills.size} · ${S.prompt || 'none'}`); break;
+  }
+}
+
+pane.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  e.preventDefault();
+  handle(el.dataset.act);
+});
+
+pane.addEventListener('input', e => {
+  if (e.target.id !== 'q') return;
+  S.q = e.target.value;
+  const box = sheet.querySelector('.cmdk-list');
+  if (box) box.innerHTML = cmdkRows();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && S.dim){ e.preventDefault(); close(); return; }
+  if (!S.dim || e.target.id === 'q') return;
+  if (S.variant === 5 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){
+    const items = dialItems().filter(i => !i.act.startsWith('use-dir'));
+    const idx = items.findIndex(i => i.on);
+    if (idx < 0) return;
+    const next = items[(idx + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length];
+    if (next){ e.preventDefault(); handle(next.act); }
+  }
+});
+
+/* ───────────────── 渲染 + 方案切换 ───────────────── */
+function render(){
+  paint();
+  board.classList.toggle('behind', S.variant === 4 && !!S.dim);
+  sheet.innerHTML = sheetHTML();
+  if (S.variant === 6 && S.dim){
+    const q = $('#q');
+    if (q && document.activeElement !== q){ q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  }
+}
+
+const NOTES = {
+  1:['01 浮层卡片','遮罩 + 居中面板，最「标准」的做法；信息密度中等，适合所有维度。'],
+  2:['02 右侧抽屉','从右边滑进来，地图还看得见；长列表（模型 / 目录）不逼人滚一屏。'],
+  3:['03 就地弹出','贴着被点的节点弹出来，箭头指回它；注意力不用离开盘面。'],
+  4:['04 全屏接管','整块右格切成选择页，左上角返回；行高最大、字最大，Tesla 车机设置那一路。'],
+  5:['05 旋钮','三列竖向滚筒，选中项停在中间横线上；最像「拧一个旋钮」，但一次只能看几行。'],
+  6:['06 命令面板','输入即过滤，像 ⌘K；维度越多越省事，但「看着选」不如列表直观。'],
+};
+
+const tabs = [...document.querySelectorAll('#tabs button')];
+function setVariant(v){
+  S.variant = +v;
+  tabs.forEach(b => b.classList.toggle('on', b.dataset.v === String(v)));
+  const [t, n] = NOTES[v];
+  $('#noteTitle').textContent = t;
+  $('#note').textContent = n;
+  render();
+}
+tabs.forEach(b => b.addEventListener('click', () => setVariant(b.dataset.v)));
+
+paint();
+
+/* 直接开在某个选择页：index.html#dir / #model / #skills … */
+const boot = location.hash.slice(1);
+if (boot && META[boot]) setTimeout(() => open(boot), 60);
+
+</script>
+</body>
+</html>
