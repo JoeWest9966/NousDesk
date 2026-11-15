@@ -190,6 +190,7 @@ impl Desktop {
         }
         self.section = i;
         self.preset_closed.clear();
+        self.drop_picked();
         if let Some(d) = &self.sections[i].data {
             let tree = facet_tree(&d.categories, &d.presets);
             self.preset_cat = keep_category(&self.preset_cat, &tree);
@@ -201,7 +202,16 @@ impl Desktop {
     /// 选类别（`None` = 全部，`Some("∅")` = 未分类）。
     fn pick_category(&mut self, cat: Option<String>, cx: &mut Context<Self>) {
         self.preset_cat = cat;
+        // 换了类别，右栏那条多半不在视图里了 —— 留着它会显示「这条已经不在列表里」，
+        // 像坏了。宁可让它回到空状态。
+        self.drop_picked();
         cx.notify();
+    }
+
+    /// 清掉右栏的选中（换段 / 换类别 / Esc 都走这里，别在各处抄一遍）。
+    fn drop_picked(&mut self) {
+        self.picked_preset = None;
+        self.picked_node = None;
     }
 
     fn toggle_closed(&mut self, path: String, cx: &mut Context<Self>) {
@@ -1292,6 +1302,30 @@ impl Desktop {
         };
 
         let sec = &self.sections[self.section];
+        if sec.loading && sec.data.is_none() {
+            return shell(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(t().d(8.))
+                    .p(t().d(16.))
+                    .child(
+                        div()
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(muted()))
+                            .child("拉这一段的模板中…"),
+                    )
+                    .children((0..3).map(|i| {
+                        div()
+                            .h(t().d(34.))
+                            .w_full()
+                            .rounded(t().r(7.))
+                            .bg(rgb(t().p.panel_alt))
+                            .opacity(0.9 - i as f32 * 0.22)
+                    }))
+                    .into_any_element(),
+            );
+        }
         let Some(p) = sec
             .data
             .as_ref()
@@ -1375,16 +1409,42 @@ impl Desktop {
                 _ => t().p.text,
             };
 
-            let body = if is_center {
+            // 背景 / 圆角 / 边框都挂在这一层（不是里面的内容层）：
+            // 这样 hover 只要改一个 `border_color`，不会出现「外框 accent + 内框灰」的双线。
+            let (rad, bg, border) = if is_center {
+                (t().r(10.), t().p.text, t().p.text)
+            } else if dot {
+                (
+                    t().r(11.),
+                    match n.state {
+                        crate::templates_graph::State::Invalid => t().p.danger,
+                        crate::templates_graph::State::Auto => t().p.faint,
+                        _ => t().p.accent,
+                    },
+                    t().p.panel,
+                )
+            } else if n.layer == 1 {
+                (
+                    t().r(7.),
+                    t().p.panel,
+                    if picked { t().p.accent } else { t().p.line },
+                )
+            } else {
+                (
+                    t().r(13.),
+                    t().p.panel_alt,
+                    if picked { t().p.accent } else { t().p.line_soft },
+                )
+            };
+
+            let body: AnyElement = if is_center {
                 div()
                     .flex()
                     .flex_col()
                     .items_center()
                     .justify_center()
-                    .gap(t().d(2.))
                     .size_full()
-                    .rounded(t().r(10.))
-                    .bg(rgb(t().p.text))
+                    .px(t().d(8.))
                     .text_color(rgb(t().p.chat_bg))
                     .child(
                         div()
@@ -1394,6 +1454,9 @@ impl Desktop {
                             .child(n.label.clone()),
                     )
                     .into_any_element()
+            } else if dot {
+                // 点里不放字：22px 放不下，名字到底部那一行看。
+                div().size_full().into_any_element()
             } else if n.layer == 1 {
                 div()
                     .flex()
@@ -1402,10 +1465,6 @@ impl Desktop {
                     .size_full()
                     .px(t().d(8.))
                     .py(t().d(6.))
-                    .rounded(t().r(7.))
-                    .bg(rgb(t().p.panel))
-                    .border(t().d(1.))
-                    .border_color(rgb(if picked { t().p.accent } else { t().p.line }))
                     .child(
                         div()
                             .text_size(t().fs(9.))
@@ -1425,26 +1484,12 @@ impl Desktop {
                             }),
                     )
                     .into_any_element()
-            } else if dot {
-                div()
-                    .size_full()
-                    .rounded(t().r(11.))
-                    .bg(rgb(match n.state {
-                        crate::templates_graph::State::Invalid => t().p.danger,
-                        crate::templates_graph::State::Auto => t().p.faint,
-                        _ => t().p.accent,
-                    }))
-                    .into_any_element()
             } else {
                 div()
                     .flex()
                     .items_center()
                     .size_full()
                     .px(t().d(7.))
-                    .rounded(t().r(13.))
-                    .bg(rgb(t().p.panel_alt))
-                    .border(t().d(1.))
-                    .border_color(rgb(if picked { t().p.accent } else { t().p.line_soft }))
                     .child(
                         div()
                             .text_size(t().fs(10.))
@@ -1464,7 +1509,14 @@ impl Desktop {
                     .top(px(y - nh.as_f32() / 2.))
                     .w(nw)
                     .h(nh)
+                    .rounded(rad)
+                    .bg(rgb(bg))
+                    .border(t().d(1.))
+                    .border_color(rgb(border))
+                    .hover(|h| h.border_color(rgb(t().p.accent)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        // 点节点不该顺带触发「点空白清选中」。
+                        cx.stop_propagation();
                         this.picked_node = Some(id.clone());
                         cx.notify();
                     }))
@@ -1472,7 +1524,20 @@ impl Desktop {
             );
         }
 
-        let canvas_layer = div().absolute().top_0().left_0().w(px(gw)).h(px(gh)).child(
+        let canvas_layer = div()
+            .id(ElementId::Name("graph-bg".into()))
+            .absolute()
+            .top_0()
+            .left_0()
+            .w(px(gw))
+            .h(px(gh))
+            // 点空白处 = 回到「整条」；节点自己会 `stop_propagation`。
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                if this.picked_node.take().is_some() {
+                    cx.notify();
+                }
+            }))
+            .child(
             canvas(
                 move |_, _, _| segs.clone(),
                 |bounds, segs, window, _| {
@@ -1544,6 +1609,7 @@ impl Desktop {
                         .flex()
                         .flex_1()
                         .min_h(t().d(0.))
+                        .overflow_hidden()
                         .items_center()
                         .justify_center()
                         // 只有中心一个节点 = 引擎没给这一段的关系数据（`Ultimate-Template`

@@ -394,6 +394,27 @@ impl Desktop {
                         app.stop_propagation();
                         return;
                     }
+                    // Template 页：Esc 先收节点说明，再收整张图（两段，不是一步收光）。
+                    let closed = weak
+                        .update(app, |this, cx| {
+                            if this.tab != Tab::Templates {
+                                return false;
+                            }
+                            if this.picked_node.take().is_some() {
+                                cx.notify();
+                                return true;
+                            }
+                            if this.picked_preset.take().is_some() {
+                                cx.notify();
+                                return true;
+                            }
+                            false
+                        })
+                        .unwrap_or(false);
+                    if closed {
+                        app.stop_propagation();
+                        return;
+                    }
                 }
                 let handled = weak
                     .update(app, |this, cx| {
