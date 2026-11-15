@@ -24,6 +24,8 @@ fn t() -> crate::theme::Skin {
 
 use std::collections::BTreeSet;
 
+use crate::app::NoticeKind;
+
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
@@ -188,6 +190,9 @@ impl NewChat {
     }
 
     /// 圆底下那行状态。**只说现在差什么**，不说欢迎语，也不重复卡片上的值。
+    ///
+    /// 就绪时把「落在哪儿」一并带出来（机器 + 目录尾巴）—— 这颗圆就是落子按钮，
+    /// 点下去之前人该看得见自己落在哪台机器、哪个目录。
     fn hub_sub(&self) -> String {
         if let Some(err) = &self.load_err {
             return err.clone();
@@ -206,9 +211,21 @@ impl NewChat {
             };
         }
         match self.picked {
-            Some(_) => "ready".into(),
+            Some(_) => {
+                let mut parts = vec!["ready".to_string()];
+                parts.push(self.machine.clone().unwrap_or_else(|| "本机".into()));
+                if let Some(d) = &self.dir {
+                    parts.push(tail_path(d));
+                }
+                parts.join(" · ")
+            }
             None => "pick a model".into(),
         }
+    }
+
+    /// 选完了吗（只看选没选模型 / 是不是正在提交）。
+    fn picked_ready(&self) -> bool {
+        !self.creating && self.picked.is_some()
     }
 }
 
@@ -236,6 +253,13 @@ fn level_label(level: &str) -> &'static str {
 
 impl Desktop {
     pub(crate) fn board_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 每次开盘面都是一次新的落子：**换一只新的输入框**，不留上次没发出去的名字
+        // （`TextareaState` 没有「清空」的口子，重建比绕路干净）。
+        self.newchat.name_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 1)
+                .placeholder("Name · 空着就用引擎给的名字")
+        });
         self.newchat.open = true;
         self.newchat.sheet = None;
         self.newchat.flash = None;
@@ -244,6 +268,11 @@ impl Desktop {
         if self.newchat.models.is_none() && !self.newchat.loading {
             self.board_load(cx);
         }
+    }
+
+    /// 按得动 Create 吗。**按钮的长相和点击都吃这一份判定**，别两处各判一次。
+    fn can_create(&self) -> bool {
+        self.newchat.picked_ready() && self.engine.is_some()
     }
 
     pub(crate) fn board_close(&mut self, cx: &mut Context<Self>) {
@@ -335,7 +364,15 @@ impl Desktop {
                     b.machines = Some(mm);
                 }
                 if let Ok(d) = dirs {
+                    // 起始目录**同时也是选中值**：不选也是落在那里，与其显示 `—`
+                    // 让人以为还没定，不如把真实落点写出来。
+                    // `path` 为空串 = board map 根（不是可选目录本身），这时落点取它
+                    // 底下第一个条目 —— 也就是引擎在 `/v1/device.startDirs` 里给的那个。
                     b.dir_at = d.path.clone();
+                    b.dir = match d.path.as_deref() {
+                        Some(p) if !p.is_empty() => Some(p.to_string()),
+                        _ => d.dirs.first().map(|x| x.path.clone()),
+                    };
                     b.dirs = Some(d);
                 }
                 cx.notify();
@@ -431,12 +468,42 @@ impl Desktop {
                 match outcome {
                     Some(Ok((created, sessions))) => {
                         let mut sessions = sessions;
-                        sessions.sort_by(|a, b| b.id.cmp(&a.id));
+                        sessions.sort_by_key(|s| std::cmp::Reverse(s.id));
                         this.sessions = sessions;
+                        // 服务端夹过的档位才是生效值：认它，不认我们发上去的那份。
+                        if let Some(lv) = created.thinking_level.as_ref().and_then(|v| v.as_str())
+                        {
+                            this.newchat.level = lv.to_string();
+                        }
+                        // 勾了但没装成的，别静默跳过 —— 跳进会话之后盘面就关了，
+                        // 这条只能走轻提示（红），把没落下的东西点名。
+                        let mut skipped: Vec<String> = Vec::new();
+                        if !created.missing.is_empty() {
+                            skipped.push(format!("技能：{}", created.missing.join("、")));
+                        }
+                        if !created.missing_templates.is_empty() {
+                            skipped.push(format!(
+                                "模板：{}",
+                                created.missing_templates.join("、")
+                            ));
+                        }
+                        if !created.missing_extensions.is_empty() {
+                            skipped.push(format!(
+                                "扩展：{}",
+                                created.missing_extensions.join("、")
+                            ));
+                        }
+                        this.newchat.flash = None;
+                        if !skipped.is_empty() {
+                            this.notify(
+                                format!("这些没装，已跳过 —— {}", skipped.join("；")),
+                                NoticeKind::Error,
+                                cx,
+                            );
+                        }
                         this.newchat.open = false;
                         this.newchat.sheet = None;
                         this.tab = crate::app::Tab::Chats;
-                        this.newchat.flash = None;
                         this.select_session(created.id, true, cx);
                     }
                     Some(Err(e)) => this.newchat.flash = Some(format!("创建失败：{e}")),
@@ -571,6 +638,10 @@ impl Desktop {
         let r = art::core_r(&m);
         let halo = 18.;
         let b = &self.newchat;
+        // 按不动和按得动**长两副样子**：灰着的时候不挂点击，点下去也不会有反应 ——
+        // 状态行已经在说「差一个模型」，按钮不必再弹一次同样的字。
+        let live = self.can_create();
+        let busy = b.creating;
         // 状态行：`flash` 是失败（绿字和 ready 撞色，所以用红调），否则说还差什么。
         let status = b.flash.clone().map(|f| (f, rgb(0xd14d41))).or_else(|| {
             let s = b.hub_sub();
@@ -599,30 +670,43 @@ impl Desktop {
                             .id(ElementId::Name("board-create".into()))
                             .size(px(2. * r))
                             .rounded_full()
-                            .bg(rgb(art::ACCENT))
+                            .bg(if live || busy {
+                                rgb(art::ACCENT)
+                            } else {
+                                rgb(art::SURFACE)
+                            })
                             .flex()
                             .flex_col()
                             .items_center()
                             .justify_center()
-                            .text_color(rgb(art::BG))
-                            .hover(|s| s.opacity(0.94))
-                            .on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.board_create(cx)),
-                            )
+                            .text_color(if live || busy {
+                                rgb(art::BG)
+                            } else {
+                                rgb(art::FAINT)
+                            })
+                            .when(busy, |el| el.opacity(0.72))
+                            .when(live, |el| {
+                                el.hover(|s| s.opacity(0.94))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.board_create(cx)
+                                    }))
+                            })
                             .child(
                                 div()
                                     .text_size(m.f(1.6, 12., 17.))
                                     .font_weight(FontWeight::BOLD)
-                                    .child("+ Create"),
+                                    .child(if busy { "Creating…" } else { "+ Create" }),
                             )
-                            .child(
-                                div()
-                                    .mt(m.v(0.3))
-                                    .font_family(art::MONO)
-                                    .text_size(m.f(0.7, 6.5, 8.5))
-                                    .text_color(rgb(0x6a6660))
-                                    .child("NEW MANUAL · DISORDER"),
-                            ),
+                            .when(!busy, |el| {
+                                el.child(
+                                    div()
+                                        .mt(m.v(0.3))
+                                        .font_family(art::MONO)
+                                        .text_size(m.f(0.7, 6.5, 8.5))
+                                        .text_color(rgb(0x6a6660))
+                                        .child("NEW MANUAL · DISORDER"),
+                                )
+                            }),
                     ),
             )
             .children(status.map(|(s, color)| {
