@@ -90,7 +90,7 @@ impl NewChat {
         let name_input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 1)
-                .placeholder("Name · 空着就用引擎给的名字")
+                .placeholder("Name")
         });
         Self {
             open: false,
@@ -258,7 +258,7 @@ impl Desktop {
         self.newchat.name_input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 1)
-                .placeholder("Name · 空着就用引擎给的名字")
+                .placeholder("Name")
         });
         self.newchat.open = true;
         self.newchat.sheet = None;
@@ -873,6 +873,16 @@ impl Desktop {
         let r = art::node_rect(&m, art::Slot::Context);
         let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
         let prompt = b.template.clone().unwrap_or_else(|| "none".into());
+        let prompt_summary = b.template.as_ref().and_then(|name| {
+            b.prompt_list().into_iter().find(|p| &p.name == name).and_then(|p| {
+                // `summary` 是模板仓库自己写的中文一句话；`description` 常常是
+                // 英文长句。先给中文那句。
+                p.summary
+                    .clone()
+                    .or_else(|| p.description.clone())
+                    .map(|d| d.replace(['\n', '\r'], " "))
+            })
+        });
         let sub =
             |id: &'static str, k: &'static str, v: String, cx: &mut Context<Self>, open: Sheet| {
                 div()
@@ -941,12 +951,19 @@ impl Desktop {
                     .child(sub("board-prompt", "PROMPT", prompt, cx, Sheet::Prompt)),
             )
             .child(div().flex_1())
-            .child(
+            // 选了模板就把它的摘要顶上来 —— 这句原本是句废话装饰，
+            // 现在同一个位置能回答「我到底选了个什么」。
+            .child(div().flex_none().truncate().child(
                 div()
                     .text_size(m.f(1.05, 8., 10.))
-                    .text_color(rgb(art::faint()))
-                    .child("随会话注入的知识与语气"),
-            )
+                    .text_color(if prompt_summary.is_some() {
+                        rgb(art::muted())
+                    } else {
+                        rgb(art::faint())
+                    })
+                    .truncate()
+                    .child(prompt_summary.unwrap_or_else(|| "随会话注入的知识与语气".into())),
+            ))
             .into_any_element()
     }
 
@@ -1132,6 +1149,7 @@ impl Desktop {
             .flex_1()
             .min_h(t().d(0.))
             .overflow_y_scroll()
+            .scrollbar_width(px(6.))
             .child(
                 div()
                     .id(ElementId::Name("board-create-stack".into()))
@@ -1360,8 +1378,16 @@ impl Desktop {
             );
 
         let cap = match pop.anchor {
-            // 弹层往下能长到哪：上面顶到 Pill 那一排，别压住环上的三个值。
-            art::Anchor::Top(y) => art::foot_rect(&m, art::Foot::Name).y - 14. - y,
+            // Wide：往上顶到环上那排 pill，别把三个值压住。
+            // 紧凑/竖排：pill 已经缩到圆下面了，弹层可以一直长到格子底，
+            // 不然 640 高的窗口里模型列表只露五行。
+            art::Anchor::Top(y) => {
+                if m.layout == art::Layout::Wide {
+                    art::foot_rect(&m, art::Foot::Name).y - 14. - y
+                } else {
+                    m.h - y - 24.
+                }
+            }
             art::Anchor::Bottom(_) => m.h * 0.62,
         };
         let max_h = cap.clamp(220., m.h * 0.62);
@@ -1726,9 +1752,9 @@ impl Desktop {
                 let name = p.name.clone();
                 let picked = b.template.as_deref() == Some(name.as_str());
                 let desc = p
-                    .description
+                    .summary
                     .clone()
-                    .or_else(|| p.summary.clone())
+                    .or_else(|| p.description.clone())
                     .unwrap_or_default()
                     .replace(['\n', '\r'], " ");
                 div()
@@ -1961,6 +1987,12 @@ impl Desktop {
                     .when(picked, |el| el.bg(rgb(art::accent()).opacity(0.14)))
                     .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        // 目录是**机器上**的路径：换机器，旧路径立刻没意义，
+                        // 留着它会让 Create 发一个对面根本不存在的 cwd。
+                        if this.newchat.machine != value {
+                            this.newchat.dir = None;
+                            this.newchat.dir_at = None;
+                        }
                         this.newchat.machine = value.clone();
                         cx.notify();
                     }))
