@@ -822,7 +822,14 @@ impl Desktop {
                         .bottom(t().d(7.))
                         .w(t().d(2.))
                         .rounded(t().r(1.))
-                        .bg(rgb(t().p.accent)),
+                        .bg(rgb(t().p.accent))
+                        // 120ms：竖条是「选中了」的信号，短到不需要等它长完。
+                        .with_animation(
+                            ElementId::Name(format!("pick-bar-{}", p.name).into()),
+                            Animation::new(std::time::Duration::from_millis(120))
+                                .with_easing(ease_out_quint()),
+                            |el, delta| el.opacity(delta),
+                        ),
                 )
             })
             .child(
@@ -1315,14 +1322,29 @@ impl Desktop {
                             .text_color(rgb(muted()))
                             .child("拉这一段的模板中…"),
                     )
-                    .children((0..3).map(|i| {
+                    .child(
                         div()
-                            .h(t().d(34.))
-                            .w_full()
-                            .rounded(t().r(7.))
-                            .bg(rgb(t().p.panel_alt))
-                            .opacity(0.9 - i as f32 * 0.22)
-                    }))
+                            .flex()
+                            .flex_col()
+                            .gap(t().d(8.))
+                            .children((0..3).map(|i| {
+                                div()
+                                    .h(t().d(34.))
+                                    .w_full()
+                                    .rounded(t().r(7.))
+                                    .bg(rgb(t().p.panel_alt))
+                                    .opacity(0.9 - i as f32 * 0.22)
+                            }))
+                            // 脉动只在这一层：它是「在等」的信号，不是装饰。
+                            // 900ms 一轮，明暗 0.55–0.95 —— 再快像坏掉，再慢像卡住。
+                            .with_animation(
+                                ElementId::Name("graph-skeleton".into()),
+                                Animation::new(std::time::Duration::from_millis(900))
+                                    .repeat()
+                                    .with_easing(pulsating_between(0.55, 0.95)),
+                                |el, delta| el.opacity(delta),
+                            ),
+                    )
                     .into_any_element(),
             );
         }
@@ -1625,13 +1647,23 @@ impl Desktop {
                             )
                         })
                         .when(nodes.len() > 1, |el| {
+                            // 160ms 淡入，id 带预设名 —— 同一 id 只播一次，
+                            // 换了预设才重播（不然切来切去整张图一直是静止的）。
+                            let w = gw;
+                            let h = gh;
                             el.child(
                                 div()
                                     .relative()
-                                    .w(px(gw))
-                                    .h(px(gh))
+                                    .w(px(w))
+                                    .h(px(h))
                                     .child(canvas_layer)
-                                    .child(layer),
+                                    .child(layer)
+                                    .with_animation(
+                                        ElementId::Name(format!("graph-fade-{}", p.name).into()),
+                                        Animation::new(std::time::Duration::from_millis(160))
+                                            .with_easing(ease_out_quint()),
+                                        |el, delta| el.opacity(delta),
+                                    ),
                             )
                         }),
                 )
