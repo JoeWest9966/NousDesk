@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>模板编辑器 · 排版挑选</title>
+<style>
+@font-face{font-family:Inter;src:url(fonts/inter-400.woff2) format("woff2");font-weight:400}
+@font-face{font-family:Inter;src:url(fonts/inter-500.woff2) format("woff2");font-weight:500}
+@font-face{font-family:Inter;src:url(fonts/inter-600.woff2) format("woff2");font-weight:600}
+@font-face{font-family:Inter;src:url(fonts/inter-700.woff2) format("woff2");font-weight:700}
+@font-face{font-family:JBMono;src:url(fonts/jetbrainsmono-400.woff2) format("woff2")}
+@font-face{font-family:Manrope;src:url(fonts/manrope-500.woff2) format("woff2")}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#141416;display:flex;flex-direction:column;align-items:center;font-family:Inter,system-ui,sans-serif;overflow:hidden}
+
+/* ── 顶栏 ── */
+.bar{width:100%;flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 14px;
+  background:#1c1c1f;border-bottom:1px solid #2a2a2e;color:#8b8b93;font-size:12px}
+.bar > *{flex:none}
+.bar b{font-weight:500;color:#5f5f68;font-size:11px;letter-spacing:.06em;white-space:nowrap}
+.grp{display:flex;gap:2px}
+.grp button{font:inherit;font-size:11.5px;color:#8b8b93;background:transparent;border:0;
+  padding:5px 7px;border-radius:5px;cursor:pointer;white-space:nowrap;min-width:26px;text-align:center}
+.grp button:hover{background:#26262a;color:#c8c8d0}
+.grp button.on{background:#e8e8ee;color:#141416;font-weight:500}
+.sep{width:1px;height:18px;background:#2a2a2e;margin:0 5px}
+.sp{flex:1}
+.hint{color:#5f5f68;font-size:11px;font-family:JBMono,monospace;white-space:nowrap}
+
+.stage{flex:1;display:flex;align-items:center;justify-content:center;padding:14px;overflow:hidden;min-height:0}
+.app{position:relative;width:1180px;max-width:100%;height:100%;display:flex;overflow:hidden;
+  background:var(--bg);color:var(--ink);font-family:var(--font);font-size:var(--fs);
+  box-shadow:0 30px 80px rgba(0,0,0,.55)}
+
+.footnote{width:100%;flex:none;display:flex;align-items:center;gap:14px;padding:10px 16px;
+  background:#1c1c1f;border-top:1px solid #2a2a2e;color:#9a9aa2;font-size:12px;line-height:1.5}
+.footnote b{color:#e8e8ee;font-weight:500;white-space:nowrap}
+.footnote span{color:#7e7e88}
+
+/* ── 皮肤 ── */
+.app[data-skin="default"]{
+  --bg:#ededed;--panel:#fff;--panel2:#fafafa;--rail:#2e2e2e;--rail-ink:#9a9a9a;--rail-on:#fff;
+  --ink:#1a1a1a;--ink2:#333;--ink3:#999;--ink4:#aaa;
+  --line:#e6e6e6;--line2:#eee;--accent:#07c160;--accent-ink:#fff;--accent-soft:#e8f7ee;
+  --ok:#07c160;--warn:#c77700;--bad:#d32f2f;--add:#e6f7ee;--del:#fdeaea;
+  --r:6px;--fs:13px;--row:34px;--font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#0000002a;
+}
+.app[data-skin="industrial"]{
+  --bg:#f4f2ee;--panel:#fbfaf7;--panel2:#f0ede8;--rail:#eae7e1;--rail-ink:#6b6a63;--rail-on:#14150f;
+  --ink:#14150f;--ink2:#3d3c35;--ink3:#6b6a63;--ink4:#9a9890;
+  --line:#14150f;--line2:#d8d4cc;--accent:#1d6b46;--accent-ink:#f4f2ee;--accent-soft:#e6ebe6;
+  --ok:#1d6b46;--warn:#b8860b;--bad:#a8281c;--add:#e3ebe4;--del:#f2e2e0;
+  --r:0px;--fs:12px;--row:34px;--font:Manrope,Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#0000002e;
+}
+.app[data-skin="mono"]{
+  --bg:#000;--panel:#000;--panel2:#0a0a0a;--rail:#000;--rail-ink:#6b6b6b;--rail-on:#fff;
+  --ink:#fff;--ink2:#a8a8a8;--ink3:#6b6b6b;--ink4:#4a4a4a;
+  --line:#fff;--line2:#2a2a2a;--accent:#fff;--accent-ink:#000;--accent-soft:#1a1a1a;
+  --ok:#fff;--warn:#fff;--bad:#ff4d4d;--add:#12200f;--del:#241010;
+  --r:0px;--fs:12.5px;--row:36px;--font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#00000066;
+}
+.app[data-skin="paper"]{
+  --bg:#fbfbfa;--panel:#fff;--panel2:#f5f5f3;--rail:#f0f0ee;--rail-ink:#9298a0;--rail-on:#171a1c;
+  --ink:#171a1c;--ink2:#62686d;--ink3:#9298a0;--ink4:#b9bec3;
+  --line:#e6e6e3;--line2:#efefec;--accent:#171a1c;--accent-ink:#fff;--accent-soft:#f0f0ee;
+  --ok:#2c8a5e;--warn:#a9761d;--bad:#c4362b;--add:#eef6f1;--del:#fbeeec;
+  --r:3px;--fs:12.5px;--row:34px;--font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#00000026;
+}
+.app[data-skin="amber"]{
+  --bg:#0d0c0a;--panel:#12110e;--panel2:#17150f;--rail:#090806;--rail-ink:#6f6656;--rail-on:#f0e9dc;
+  --ink:#f0e9dc;--ink2:#a89e8c;--ink3:#6f6656;--ink4:#504a3e;
+  --line:#251f18;--line2:#1c1712;--accent:#e8a33d;--accent-ink:#14110c;--accent-soft:#2a2113;
+  --ok:#7fb489;--warn:#e8a33d;--bad:#d8705f;--add:#14180f;--del:#1e1210;
+  --r:3px;--fs:12.5px;--row:34px;--font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;
+  --scrim:#00000066;
+}
+
+/* ── 共用零件 ── */
+.col{display:flex;flex-direction:column;min-width:0;width:100%}
+.row{display:flex;align-items:center;min-width:0}
+.gap4{gap:4px}.gap6{gap:6px}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}
+.grow{flex:1}
+.mono{font-family:var(--mono)}
+.mut{color:var(--ink3)}
+.faint{color:var(--ink4)}
+.small{font-size:11px}
+.tiny{font-size:10px}
+.upper{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4);font-weight:500}
+
+.topbar{display:flex;align-items:center;gap:9px;padding:10px 16px;border-bottom:1px solid var(--line2);flex:none}
+.topbar h1{font-size:14px;font-weight:600}
+.topbar .sub{font-size:11px;color:var(--ink4)}
+.btn{font:inherit;font-size:11.5px;padding:5px 11px;border-radius:var(--r);border:1px solid var(--line2);
+  background:var(--panel);color:var(--ink2);cursor:pointer;white-space:nowrap}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:500}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink3)}
+.btn.sm{font-size:10.5px;padding:3px 8px}
+.btn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+
+.chip{display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 7px;border-radius:9px;
+  border:1px solid currentColor;font-size:10px}
+.chip.w{color:var(--warn)}.chip.b{color:var(--bad)}.chip.g{color:var(--ok)}.chip.m{color:var(--ink4)}
+
+.field{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r);cursor:pointer}
+.field:hover{background:var(--panel2)}
+.field .k{width:112px;flex:none;font-size:11.5px;color:var(--ink3)}
+.field .v{flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.field .v.mono{font-size:11.5px}
+.field .go{color:var(--ink4);font-size:12px}
+.field.sel{background:var(--accent-soft)}
+
+.seg{display:flex;gap:0;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden}
+.seg span{padding:3px 9px;font-size:11px;color:var(--ink3);cursor:pointer}
+.seg span.on{background:var(--accent);color:var(--accent-ink)}
+.seg span+span{border-left:1px solid var(--line2)}
+
+.code{font-family:var(--mono);font-size:11.5px;line-height:1.85;overflow:hidden}
+.code .ln{display:flex;gap:10px;padding:0 10px}
+.code .ln .n{width:22px;flex:none;text-align:right;color:var(--ink4);user-select:none;font-size:10.5px}
+.code .ln .t{white-space:pre;overflow:hidden;text-overflow:clip}
+.code .key{color:var(--accent)}
+.code .str{color:var(--ok)}
+.code .num{color:var(--warn)}
+.code .ln.add{background:var(--add)}
+.code .ln.del{background:var(--del)}
+.code .ln.err{background:var(--del);box-shadow:inset 2px 0 0 var(--bad)}
+.code .ln.sel{background:var(--panel2)}
+
+.errbar{display:flex;align-items:center;gap:7px;padding:7px 14px;background:var(--del);
+  border-top:1px solid var(--line2);font-size:11px;color:var(--bad);flex:none}
+.footbar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--line2);
+  flex:none;background:var(--panel)}
+.pane{min-width:0;min-height:0;display:flex;flex-direction:column}
+.pane+.pane{border-left:1px solid var(--line2)}
+.panehd{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line2);
+  font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4);flex:none}
+.pad{padding:12px 14px}
+.scroll{flex:1;min-height:0;overflow:hidden}
+
+/* 各方案自己的小件 */
+.tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line2);flex:none}
+.tabs span{padding:8px 12px;font-size:12px;color:var(--ink3);cursor:pointer;border-bottom:2px solid transparent}
+.tabs span.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+
+.card{border:1px solid var(--line2);border-radius:calc(var(--r) + 2px);background:var(--panel);overflow:hidden}
+.card+.card{margin-top:10px}
+.cardhd{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line2);
+  font-size:11.5px;font-weight:500}
+.cardbd{padding:6px}
+
+table.kv{width:100%;border-collapse:collapse;font-size:11.5px}
+table.kv td{padding:7px 10px;border-bottom:1px solid var(--line2);vertical-align:middle}
+table.kv td:first-child{width:130px;color:var(--ink3)}
+table.kv tr:hover td{background:var(--panel2)}
+
+.step{display:flex;align-items:center;gap:7px}
+.step .dot{width:19px;height:19px;border-radius:50%;border:1px solid var(--line);display:flex;
+  align-items:center;justify-content:center;font-size:10px;color:var(--ink4)}
+.step .dot.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.step .dot.done{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.hr{width:22px;height:1px;background:var(--line2)}
+
+.big{font-size:26px;font-weight:300;letter-spacing:-.01em}
+.big2{font-size:15px;font-weight:500}
+
+.cols{display:flex;flex-direction:row;height:100%;min-height:0;width:100%}
+.dim{opacity:.35}
+.cmd{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line2);
+  cursor:pointer;font-size:12px}
+.cmd:hover{background:var(--panel2)}
+.cmd .k{width:96px;flex:none;color:var(--ink3);font-size:11px}
+.cmd .v{flex:1;min-width:0;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmd .act{color:var(--accent);font-size:11px}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <b>排版</b>
+  <div class="grp" id="ls"></div>
+  <div class="sep"></div>
+  <b>皮肤</b>
+  <div class="grp" id="sk"></div>
+  <div class="sp"></div>
+</div>
+
+<div class="stage"><div class="app" data-skin="industrial" id="app"></div></div>
+<div class="footnote" id="fn"></div>
+
+<script>
+/* ══════════ 一条真实的数据 ══════════ */
+const NAME = "deep-dive";
+const SPEC = {
+  model: { vendor: "volc-ark", model: "deepseek-v4-flash-260425", thinking: "medium" },
+  skills: { mode: "pick", list: ["smart-ass"] },
+  prompt: "session-template/deep-dive",
+  extensions: [],
+  readonly: true,
+  workdir: "~/work",
+  machine: "j1900",
+};
+const DIRTY = {
+  line: 7,
+  before: `  "thinking": "low"`,
+  after: `  "thinking": "medium"`,
+};
+
+const jsonLines = () => [
+  `{`,
+  `  "v": 1,`,
+  `  "name": "${NAME}",`,
+  `  "model": {`,
+  `    "vendor": "volc-ark",`,
+  `    "model": "deepseek-v4-flash-260425",`,
+  `    "thinking": "medium"`,
+  `  },`,
+  `  "skills": { "mode": "pick", "list": ["smart-ass"] },`,
+  `  "prompt": "session-template/deep-dive",`,
+  `  "extensions": [],`,
+  `  "readonly": true,`,
+  `  "workdir": "~/work",`,
+  `  "machine": "j1900"`,
+  `}`,
+];
+
+/* ══════════ 共用零件 ══════════ */
+const code = (opts = {}) => {
+  const lines = jsonLines();
+  const { sel = -1, add = [], del = [], err = [] } = opts;
+  return `<div class="code">${lines.map((t, i) => {
+    const n = i + 1;
+    const cls = err.includes(n) ? " err" : add.includes(n) ? " add" : del.includes(n) ? " del" : n === sel ? " sel" : "";
+    return `<div class="ln${cls}"><span class="n">${n}</span><span class="t">${t
+      .replace(/"([^"]*)":/g, '<span class="key">"$1"</span>:')
+      .replace(/: "([^"]*)"/g, ': <span class="str">"$1"</span>')
+      .replace(/: (true|false|null|\d+)/g, ': <span class="num">$1</span>')}</span></div>`;
+  }).join("")}</div>`;
+};
+
+const field = (k, v, opts = {}) =>
+  `<div class="field${opts.sel ? " sel" : ""}">
+    <span class="k">${k}</span>
+    <span class="v${opts.mono === false ? "" : " mono"}">${v}</span>
+    <span class="go">${opts.go || "›"}</span>
+  </div>`;
+
+const FIELDS = () => [
+  ["Model", `${SPEC.model.vendor} › ${SPEC.model.model} › ${SPEC.model.thinking}`],
+  ["技能", `跟随默认，另加 1 个 · smart-ass`],
+  ["模板", `钉住 ${SPEC.prompt}`],
+  ["扩展", `none`],
+  ["权限", `default`],
+  ["只读", `是`],
+  ["工作目录", SPEC.workdir],
+  ["机器", SPEC.machine],
+];
+
+const formFields = (sel = 0) =>
+  FIELDS().map(([k, v], i) => field(k, v, { sel: i === sel })).join("");
+
+const topbar = (extra = "") => `<div class="topbar">
+  <h1>${NAME}</h1>
+  <span class="sub mono">Session-Template</span>
+  <span class="chip w">未提交</span>
+  ${extra}
+  <span class="sp grow"></span>
+  <span class="btn ghost sm">重扫</span>
+  <span class="btn sm">保存</span>
+  <span class="btn pri sm">发布</span>
+</div>`;
+
+const footbar = (msg = "改动只在盘上。发布才会 commit + push。") => `<div class="footbar">
+  <span class="small mut">${msg}</span>
+  <span class="sp grow"></span>
+  <span class="btn">取消</span>
+  <span class="btn pri">保存</span>
+</div>`;
+
+const errbar = (t = `第 7 行：thinking 只能是 low / medium / high`) =>
+  `<div class="errbar"><span>⚠</span><span>${t}</span></div>`;
+
+/* ══════════ 18 套 ══════════ */
+
+/* 1 经典双栏：盘面左 / JSON 右 */
+const V1 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="cols">
+    <div class="pane" style="flex:1.35">
+      <div class="panehd">盘面<span class="sp grow"></span><span class="tiny faint">点一行改一项</span></div>
+      <div class="scroll pad">${formFields(0)}</div>
+    </div>
+    <div class="pane" style="flex:1">
+      <div class="panehd">spec.json<span class="sp grow"></span><span class="tiny faint">只读</span></div>
+      <div class="scroll">${code({ err: [7] })}</div>
+      ${errbar()}
+    </div>
+  </div>
+</div>`;
+
+/* 2 代码优先：JSON 左 / 盘面右 */
+const V2 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="cols">
+    <div class="pane" style="flex:1.5">
+      <div class="panehd">spec.json<span class="sp grow"></span><span class="tiny faint">第 7 行有错</span></div>
+      <div class="scroll">${code({ err: [7] })}</div>
+      ${errbar()}
+    </div>
+    <div class="pane" style="flex:1">
+      <div class="panehd">盘面</div>
+      <div class="scroll pad">${formFields(-1)}</div>
+    </div>
+  </div>
+</div>`;
+
+/* 3 单栏 · 顶部 tab */
+const V3 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="tabs"><span class="on">盘面</span><span>spec.json</span><span class="sp grow"></span><span class="tiny faint" style="padding:9px 0">⌘⏎ 切另一栏</span></div>
+  <div class="scroll pad" style="padding:16px 22px">${formFields(1)}</div>
+  ${footbar()}
+</div>`;
+
+/* 4 左侧竖导航 + 内容 */
+const V4 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="cols">
+    <div class="pane" style="width:190px;flex:none;background:var(--panel2)">
+      <div class="panehd">分组</div>
+      <div class="pad" style="padding:6px 8px">
+        ${["模型", "上下文", "扩展", "权限", "运行", "JSON"].map((g, i) =>
+          `<div class="cat field${i === 0 ? " sel" : ""}" style="padding:6px 9px"><span class="v small">${g}</span></div>`).join("")}
+      </div>
+    </div>
+    <div class="pane" style="flex:1">
+      <div class="panehd">模型<span class="sp grow"></span><span class="tiny faint">3 项</span></div>
+      <div class="scroll pad">${FIELDS().slice(0, 3).map(([k, v], i) => field(k, v, { sel: i === 0 })).join("")}</div>
+      <div class="pad small faint" style="border-top:1px solid var(--line2)">改完这里，右边的 JSON 会跟着变；反过来也行。</div>
+    </div>
+  </div>
+</div>`;
+
+/* 5 表格式 */
+const V5 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="scroll" style="padding:6px 0">
+    <div class="pad" style="padding:0 18px">
+      <table class="kv">
+        ${FIELDS().map(([k, v]) => `<tr><td>${k}</td><td class="mono" style="font-size:11px">${v}</td><td style="width:24px;text-align:right" class="faint">›</td></tr>`).join("")}
+      </table>
+    </div>
+    <div class="pad" style="padding:14px 18px">
+      <div class="upper">原始 JSON（折叠）</div>
+      <div class="card" style="margin-top:8px"><div class="cardbd">${code({})}</div></div>
+    </div>
+  </div>
+  ${footbar()}
+</div>`;
+
+/* 6 卡片流 */
+const V6 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="scroll" style="padding:16px 0">
+    <div style="width:640px;max-width:calc(100% - 32px);margin:0 auto">
+      ${[["模型", [0]], ["上下文", [1, 2]], ["其它", [3, 4, 5, 6, 7]]].map(([title, idx]) => `
+        <div class="card">
+          <div class="cardhd">${title}<span class="sp grow"></span><span class="tiny faint">${idx.length} 项</span></div>
+          <div class="cardbd">${idx.map(i => field(FIELDS()[i][0], FIELDS()[i][1])).join("")}</div>
+        </div>`).join("")}
+    </div>
+  </div>
+  ${footbar()}
+</div>`;
+
+/* 7 大纲 + 单列 + 右侧摘要 */
+const V7 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="cols">
+    <div class="pane" style="width:150px;flex:none;background:var(--panel2)">
+      <div class="panehd">大纲</div>
+      <div class="pad tiny" style="padding:6px 12px;line-height:2.1;color:var(--ink3)">
+        <div style="color:var(--ink)">· 模型</div><div>· 上下文</div><div>· 扩展</div><div>· 权限</div><div>· 运行</div>
+      </div>
+    </div>
+    <div class="pane" style="flex:1">
+      <div class="scroll pad" style="padding:14px 20px">${formFields(2)}</div>
+    </div>
+    <div class="pane" style="width:280px;flex:none;background:var(--panel2)">
+      <div class="panehd">生效值</div>
+      <div class="pad" style="padding:10px 14px">
+        <div class="small" style="line-height:1.9">
+          <div class="row gap6"><span class="mut" style="width:62px">模型</span><span class="mono tiny">ds-v4-flash</span></div>
+          <div class="row gap6"><span class="mut" style="width:62px">思考</span><span class="mono tiny">medium</span></div>
+          <div class="row gap6"><span class="mut" style="width:62px">技能</span><span class="mono tiny">默认 +1</span></div>
+          <div class="row gap6"><span class="mut" style="width:62px">只读</span><span class="mono tiny">是</span></div>
+        </div>
+        <div class="faint tiny" style="margin-top:12px;line-height:1.7">生效值以引擎解析为准；这里只是把 resolved 的结果摊开。</div>
+      </div>
+    </div>
+  </div>
+  ${footbar()}
+</div>`;
+
+/* 8 右侧抽屉：列表还在 */
+const V8 = () => `<div class="cols">
+  <div class="pane dim" style="width:300px;flex:none;background:var(--panel2);border-right:1px solid var(--line2)">
+    <div class="panehd">Session-Template<span class="sp grow"></span><span class="tiny faint">5 条</span></div>
+    <div class="scroll">
+      ${["deep-dive", "read-only-review", "scratch", "weekly-report", "asd"].map((n, i) => `
+        <div class="field${i === 0 ? " sel" : ""}" style="padding:10px 12px;border-bottom:1px solid var(--line2)">
+          <span class="v" style="font-size:12.5px">${n}</span>
+        </div>`).join("")}
+    </div>
+  </div>
+  <div class="pane grow" style="background:var(--panel)">
+    ${topbar()}
+    <div class="scroll pad" style="padding:12px 16px">${formFields(0)}</div>
+    ${footbar("抽屉只占右半边；左边还能看到自己在改哪一条。")}
+  </div>
+</div>`;
+
+/* 9 全屏接管 · 极简 */
+const V9 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="scroll" style="padding:34px 0;display:flex;flex-direction:column;align-items:center">
+    <div style="width:720px;max-width:100%;padding:0 24px">
+      <div class="upper" style="margin-bottom:10px">模型</div>
+      ${field("供应商", "volc-ark")}
+      ${field("模型", "deepseek-v4-flash-260425", { sel: true })}
+      ${field("思考档位", "medium")}
+      <div class="upper" style="margin:22px 0 10px">上下文</div>
+      ${field("技能", "跟随默认，另加 1 个")}
+      ${field("模板", "session-template/deep-dive")}
+      <div class="upper" style="margin:22px 0 10px">运行</div>
+      ${field("工作目录", "~/work")}
+      ${field("机器", "j1900")}
+    </div>
+  </div>
+  ${footbar("干净的一张纸，没有分栏、没有行号 —— 改模板不是改代码。")}
+</div>`;
+
+/* 10 双栏 + 底部 diff 抽屉 */
+const V10 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="cols" style="flex:1;min-height:0">
+    <div class="pane" style="flex:1">
+      <div class="panehd">盘面</div>
+      <div class="scroll pad">${formFields(0)}</div>
+    </div>
+    <div class="pane" style="flex:1">
+      <div class="panehd">spec.json</div>
+      <div class="scroll">
+        <div class="code">
+          <div class="ln"><span class="n">6</span><span class="t">    "model": "deepseek-v4-flash-260425",</span></div>
+          <div class="ln del"><span class="n">7</span><span class="t">-   "thinking": "low"</span></div>
+          <div class="ln add"><span class="n">7</span><span class="t">+   "thinking": "medium"</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="border-top:1px solid var(--line2);background:var(--panel2);flex:none">
+    <div class="panehd">待提交 · 1 个文件<span class="sp grow"></span><span class="tiny">+1 -1</span></div>
+    <div class="pad" style="padding:4px 0">
+      <div class="code">
+        <div class="ln"><span class="n"> </span><span class="t">presets/Session-Template/deep-dive/spec.json</span></div>
+        <div class="ln del"><span class="n">−</span><span class="t">  "thinking": "low"</span></div>
+        <div class="ln add"><span class="n">+</span><span class="t">  "thinking": "medium"</span></div>
+      </div>
+    </div>
+  </div>
+  ${footbar("保存之后这里会多一行；发布才会 commit + push。")}
+</div>`;
+
+/* 11 分步向导 */
+const V11 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div style="padding:14px 22px;border-bottom:1px solid var(--line2);flex:none">
+    <div class="row gap8">
+      ${["模型", "上下文", "扩展", "权限", "运行"].map((s, i) => `
+        ${i ? '<span class="hr"></span>' : ""}
+        <div class="step"><span class="dot ${i === 1 ? "on" : i < 1 ? "done" : ""}">${i < 1 ? "✓" : i + 1}</span><span class="small ${i === 1 ? "" : "mut"}">${s}</span></div>`).join("")}
+    </div>
+  </div>
+  <div class="scroll" style="padding:26px 0;display:flex;flex-direction:column;align-items:center">
+    <div style="width:560px;max-width:100%;padding:0 24px">
+      <div class="big2">第 2 步 · 上下文用什么</div>
+      <div class="small mut" style="margin:6px 0 16px">技能跟不跟默认、钉不钉模板。留空就是都不用。</div>
+      ${field("技能", "跟随默认，另加 1 个 · smart-ass", { sel: true })}
+      ${field("模板", "钉住 session-template/deep-dive")}
+    </div>
+  </div>
+  <div class="footbar">
+    <span class="small faint">第 2 / 5 步</span><span class="sp grow"></span>
+    <span class="btn">上一步</span><span class="btn pri">下一步</span>
+  </div>
+</div>`;
+
+/* 12 manifest 命令式 */
+const V12 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="cols" style="flex:1;min-height:0">
+    <div class="pane" style="flex:1.6">
+      <div class="panehd">spec.json<span class="sp grow"></span><span class="tiny faint">直接改，右边跟着解释</span></div>
+      <div class="scroll">
+        <div class="code" style="font-size:12px;line-height:2">
+          ${jsonLines().map((t, i) => `<div class="ln${i + 1 === 7 ? " sel" : ""}">
+            <span class="n">${i + 1}</span><span class="t">${t}</span>
+            <span class="faint tiny" style="margin-left:14px;font-family:var(--font)">${
+              [ "", "", "", "", "", "", "← 思考档位：low / medium / high", "", "", "", "", "", "", ""][i] || ""
+            }</span></div>`).join("")}
+        </div>
+      </div>
+      ${errbar(`第 7 行：thinking 只能是 low / medium / high`)}
+    </div>
+    <div class="pane" style="width:300px;flex:none;background:var(--panel2)">
+      <div class="panehd">文档</div>
+      <div class="pad small" style="padding:10px 14px;line-height:1.85;color:var(--ink3)">
+        <div><b style="color:var(--ink)">model</b> 必填。对象，三个键。</div>
+        <div style="margin-top:6px"><b style="color:var(--ink)">skills</b> 跟默认 / 都不要 / 挑几个。</div>
+        <div style="margin-top:6px"><b style="color:var(--ink)">readonly</b> 是的话不给写盘权限。</div>
+      </div>
+    </div>
+  </div>
+  ${footbar()}
+</div>`;
+
+/* 13 diff 即主视图 */
+const V13 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="tabs"><span>盘面</span><span class="on">待提交的改动</span><span class="sp grow"></span>
+    <span class="tiny faint" style="padding:8px 0">1 个文件 · +1 -1</span></div>
+  <div class="cols" style="flex:1;min-height:0">
+    <div class="pane" style="width:260px;flex:none;background:var(--panel2)">
+      <div class="panehd">文件</div>
+      <div class="pad" style="padding:4px 0">
+        <div class="field sel" style="padding:7px 12px"><span class="v mono tiny">spec.json</span></div>
+        <div class="field" style="padding:7px 12px"><span class="v mono tiny faint">README.md</span></div>
+      </div>
+    </div>
+    <div class="pane grow">
+      <div class="scroll">
+        <div class="code" style="line-height:2">
+          <div class="ln"><span class="n">4</span><span class="t">  "model": {</span></div>
+          <div class="ln"><span class="n">5</span><span class="t">    "vendor": "volc-ark",</span></div>
+          <div class="ln"><span class="n">6</span><span class="t">    "model": "deepseek-v4-flash-260425",</span></div>
+          <div class="ln del"><span class="n">−</span><span class="t">    "thinking": "low"</span></div>
+          <div class="ln add"><span class="n">+</span><span class="t">    "thinking": "medium"</span></div>
+          <div class="ln"><span class="n">8</span><span class="t">  },</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  ${footbar("默认落在这一栏 —— 改完先看改了什么，再决定发不发。")}
+</div>`;
+
+/* 14 三栏：目录 / 表单 / 实时 JSON */
+const V14 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="cols">
+    <div class="pane" style="width:150px;flex:none;background:var(--panel2)">
+      <div class="panehd">目录</div>
+      <div class="pad tiny" style="padding:6px 12px;line-height:2.1;color:var(--ink3)">
+        <div style="color:var(--ink)">模型</div><div>上下文</div><div>扩展</div><div>权限</div><div>运行</div>
+      </div>
+    </div>
+    <div class="pane" style="flex:1.2">
+      <div class="panehd">盘面</div>
+      <div class="scroll pad" style="padding:8px 10px">${formFields(1)}</div>
+    </div>
+    <div class="pane" style="width:330px;flex:none;background:var(--panel2)">
+      <div class="panehd">实时<span class="sp grow"></span><span class="tiny faint">跟手</span></div>
+      <div class="scroll">${code({ sel: 8 })}</div>
+    </div>
+  </div>
+  ${footbar("三栏都看得见 —— 代价是每栏都窄。")}
+</div>`;
+
+/* 15 长表单 + 粘性底栏 */
+const V15 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="scroll" style="padding:0">
+    ${[["模型", 0, 1], ["上下文", 2, 3], ["扩展与权限", 4, 5], ["运行", 6, 7]].map(([t, a, b]) => `
+      <div style="padding:14px 20px 6px;border-bottom:1px solid var(--line2)">
+        <div class="upper" style="margin-bottom:4px">${t}</div>
+        ${field(FIELDS()[a][0], FIELDS()[a][1], { sel: a === 2 })}
+        ${field(FIELDS()[b][0], FIELDS()[b][1])}
+      </div>`).join("")}
+  </div>
+  <div class="footbar" style="box-shadow:0 -8px 20px rgba(0,0,0,.06)">
+    <span class="chip w">未提交</span>
+    <span class="small mut">改完往下滚到底才有按钮，是刻意的。</span>
+    <span class="sp grow"></span>
+    <span class="btn">取消</span><span class="btn pri">保存</span>
+  </div>
+</div>`;
+
+/* 16 Tesla 大字 */
+const V16 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="scroll" style="padding:30px 0;display:flex;flex-direction:column;align-items:center">
+    <div style="width:760px;max-width:100%;padding:0 34px">
+      <div class="upper">model</div>
+      <div class="big" style="margin:6px 0 18px">deepseek-v4-flash</div>
+      <div class="row gap8 small mut" style="margin-bottom:26px">
+        <span class="mono">volc-ark</span><span>·</span><span>思考 medium</span><span>·</span><span>改动待提交</span>
+      </div>
+      <div class="upper">context</div>
+      <div class="big2" style="margin:6px 0 8px">跟随默认 + smart-ass</div>
+      <div class="small mut" style="margin-bottom:26px">模板钉住 <span class="mono">session-template/deep-dive</span></div>
+      <div class="upper">runtime</div>
+      <div class="big2" style="margin:6px 0 8px">~/work · j1900</div>
+      <div class="small mut">只读：是</div>
+    </div>
+  </div>
+  ${footbar("一句话一个值，看的是结论不是键名。")}
+</div>`;
+
+/* 17 命令面板式 */
+const V17 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="scroll">
+    ${[
+      ["模型", "volc-ark › deepseek-v4-flash-260425", "改"],
+      ["思考档位", "medium", "改"],
+      ["技能", "跟随默认，另加 1 个", "改"],
+      ["模板", "session-template/deep-dive", "改"],
+      ["扩展", "none", "加"],
+      ["权限", "default", "改"],
+      ["只读", "是", "改"],
+      ["工作目录", "~/work", "改"],
+      ["机器", "j1900", "改"],
+    ].map(([k, v, a], i) => `<div class="cmd${i === 1 ? " sel" : ""}" style="${i === 1 ? "background:var(--accent-soft)" : ""}">
+      <span class="k">${k}</span><span class="v mono">${v}</span><span class="act">${a} ›</span></div>`).join("")}
+  </div>
+  ${footbar("一行一项，点哪行改哪项 —— 像给一段配置改参数，不像填表。")}
+</div>`;
+
+/* 18 看板 */
+const V18 = () => `<div class="col" style="height:100%">
+  ${topbar()}
+  <div class="cols" style="overflow:hidden">
+    ${[["模型", ["供应商 · volc-ark", "模型 · deepseek-v4-flash", "思考 · medium"]],
+       ["上下文", ["技能 · 默认 +1", "模板 · deep-dive"]],
+       ["扩展", ["none"]],
+       ["权限", ["default", "只读 · 是"]],
+       ["运行", ["目录 · ~/work", "机器 · j1900"]]].map(([t, items]) => `
+      <div class="pane" style="flex:1;min-width:0;background:var(--panel2)">
+        <div class="panehd">${t}</div>
+        <div class="pad" style="padding:6px">
+          ${items.map(it => `<div class="card" style="margin-bottom:6px"><div class="cardbd">
+            <div class="small">${it}</div></div></div>`).join("")}
+        </div>
+      </div>`).join("")}
+  </div>
+  ${footbar("横向摊开，一屏看完所有维度 —— 窄窗会很难受，这是它的代价。")}
+</div>`;
+
+const VARIANTS = [
+  ["1 经典双栏", V1, "盘面左、JSON 右，面板原样的分工。多数人第一眼就懂，代价是两边都偏窄。"],
+  ["2 代码优先", V2, "JSON 放左边更大 —— 给「写完直接看原文」的人。表单退成参考。"],
+  ["3 单栏 tab", V3, "一次只看一样，整宽。改内容用表单，贴 JSON 时切过去，不用忍分栏的窄。"],
+  ["4 左导航", V4, "左边分组当目录，右边一次只显示一组。8 个字段分组之后不再像一张长表。"],
+  ["5 表格", V5, "键值表格，全部展开。扫得最快，但每行都长得一样，看不出轻重。"],
+  ["6 卡片流", V6, "每块一张卡，640 宽居中。留白多、层级清楚，纵向长。"],
+  ["7 大纲三栏", V7, "大纲 / 内容 / 生效值。右边那栏回答「改完到底会怎样」。"],
+  ["8 抽屉", V8, "左边列表还在，编辑器占右半。改的时候始终知道自己改的是哪一条。"],
+  ["9 全屏极简", V9, "720 宽一张纸，没有分栏没有行号 —— 改模板不是改代码。"],
+  ["10 diff 抽屉", V10, "双栏 + 底部待提交清单。保存后马上能看见「多了哪一行」。"],
+  ["11 分步向导", V11, "一步一问，5 步走完。新手友好，改一个小值要翻两步。"],
+  ["12 manifest", V12, "直接编辑 JSON，右边给行内解释。给已经知道格式的人。"],
+  ["13 diff 主视图", V13, "默认落在 diff 上，先看改了什么再决定发不发；表单退到第二 tab。"],
+  ["14 三栏", V14, "目录 / 表单 / 实时 JSON 同时在场。信息最全，每栏最窄。"],
+  ["15 长表单", V15, "全部字段一屏滚到底，按钮粘在底栏。最省点击，最像设置页。"],
+  ["16 Tesla 大字", V16, "一个值一行大字，看结论不看键名。气场最足，密度最低。"],
+  ["17 命令面板", V17, "一行一项，点哪行改哪项。像给配置改参数，不像填表。"],
+  ["18 看板", V18, "横向摊开五个维度，一屏看完。宽窗爽，窄窗难受。"],
+];
+
+const SKINS = [["default", "默认绿"], ["industrial", "工业"], ["mono", "单色"], ["paper", "纸"], ["amber", "琥珀"]];
+
+/* ══════════ 渲染 ══════════ */
+const app = document.getElementById("app");
+const ls = document.getElementById("ls"), sk = document.getElementById("sk"), fn = document.getElementById("fn");
+
+// 18 套名字太长，顶栏放不下：按钮只留编号，全名进 title 和底下的说明条。
+ls.innerHTML = VARIANTS.map(([n], i) =>
+  `<button data-l="${i + 1}" title="${n}">${i + 1}</button>`).join("");
+sk.innerHTML = SKINS.map(([k, n]) => `<button data-s="${k}">${n}</button>`).join("");
+
+function render() {
+  const l = +app.dataset.l, s = app.dataset.skin;
+  app.innerHTML = VARIANTS[l - 1][1]();
+  [...ls.children].forEach(b => b.classList.toggle("on", b.dataset.l === String(l)));
+  [...sk.children].forEach(b => b.classList.toggle("on", b.dataset.s === s));
+  fn.innerHTML = `<b>${VARIANTS[l - 1][0]}</b><span>${VARIANTS[l - 1][2]}</span>`;
+  document.title = `模板编辑器 · ${VARIANTS[l - 1][0]} · ${(SKINS.find(x => x[0] === s) || [])[1]}`;
+}
+
+ls.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; app.dataset.l = b.dataset.l; render(); });
+sk.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; app.dataset.skin = b.dataset.s; render(); });
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  const n = VARIANTS.length, l = +app.dataset.l;
+  if (e.key === "ArrowRight") { app.dataset.l = String(l % n + 1); render(); }
+  if (e.key === "ArrowLeft") { app.dataset.l = String((l - 2 + n) % n + 1); render(); }
+  const k = parseInt(e.key);
+  if (k >= 1 && k <= 5) { app.dataset.skin = SKINS[k - 1][0]; render(); }
+});
+
+const H = (location.hash.replace("#", "") || "").split(",");
+if (H[0] && +H[0] >= 1 && +H[0] <= VARIANTS.length) app.dataset.l = H[0];
+if (H[1] && SKINS.some(x => x[0] === H[1])) app.dataset.skin = H[1];
+if (!app.dataset.l) app.dataset.l = "1";
+render();
+</script>
+</body>
+</html>
