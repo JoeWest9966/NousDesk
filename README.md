@@ -91,19 +91,27 @@ crates/nousdesk/      GPUI 应用：三栏布局、会话、输入、置顶。
 ## New Manual（「盘面」）
 
 点左栏右上角的「+ New Manual」——**只顶替右侧聊天区那一格**，左导航和会话列表
-永远在。Esc 或点左栏任意一条会话就回到聊天。外形照 qrd3wh 的面板页
-`/p/<board>/hb7k3j/`（Pele / Flexoki dark）：四块象限 + 中间一颗虚线椭圆，
-模型 / 上下文 / 扩展 / 权限各占一角，建会话的参数全在椭圆里。右格里**没有顶栏**。
+永远在。Esc 或点左栏任意一条会话就回到聊天。右格里**没有顶栏**。
+
+外形是「轨道」（`demo/new-manual/#7`）：四张参数卡（Model / Context / Extensions /
+Permissions）围着中央一颗 `Create`，虚线把「谁喂给谁」连出来。四张卡各自可点，
+点开的是**就地弹出**的选择页（`demo/new-manual-7/#3`）—— 贴在卡片旁边，不是居中模态，
+选参数的时候盘面还看得见。
 
 - `crates/nousdesk/src/board.rs` —— 状态 + 渲染 + 五个弹层
-- `crates/nousdesk/src/board_art.rs` —— 调色板、cqmin 尺寸、那张 Cynefin 图的路径
-- 四块象限和 cliff 用 `PathBuilder` 现画（`canvas` + `window.paint_path`）：
-  `svg()` 元素只走单色 alpha 蒙版，四块色会糊成一块
+- `crates/nousdesk/src/board_art.rs` —— 调色板、cqmin 尺寸、四张卡的矩形、连线几何
+- 卡片和弹层的位置**只在 `board_art` 算一次**（`node_rect` / `pop_rect`）：
+  弹层要贴着卡片弹，各算各的就会错位
+- 连线用 `canvas` + `PathBuilder` 画虚线；`paint_path` 吃**窗口坐标**，
+  每个点都要加 `bounds.origin`（坑 34）
 - 尺寸全走**右格 cqmin**（`art::M`）：右格短边 = `min(右格宽, 窗高)`，
-  右格宽由 `app.rs` 里那几个栏宽常量算出来。按整窗 vmin 算会在窄右栏里挤爆。
-  右格变了跟着缩，一屏不滚 —— 和那个页面一样
-- 模型那一格是三列**铁路图**（供应商 › 模型 › 思考），技能 / 模板 / 目录是平铺清单：
+  右格宽由 `app.rs` 里那几个栏宽常量算出来。按整窗 vmin 算会在窄右栏里挤爆
+- 弹层是遮罩一整块 + 面板 `block_mouse_except_scroll()`（坑 59）：
+  少了这句，点面板里的技能行会顺手把面板关掉
+- 模型是**三列铁路图**（供应商 › 模型 › 思考），技能 / 模板 / 目录是平铺清单：
   前者是有依赖的语法链，后者不是。为版式统一把语义搞错不划算
+- Extensions 点了只给一行 `flash`（数据在 vbe4pt 块，这一版没接）；Permissions
+  内核页还没做，卡片是灰的不可点 —— 不假装能选
 
 调试两个开关（只为了不用每次手点）：
 
