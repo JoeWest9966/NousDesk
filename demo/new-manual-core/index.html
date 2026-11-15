@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Manual · 中央（hub）4 方案 × 6 状态</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ui:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,"Noto Sans","Noto Sans CJK SC","DejaVu Sans",sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code",Consolas,"DejaVu Sans Mono","Noto Sans Mono CJK SC",monospace;
+  --rail:#f4f3f1; --listbg:#fdfdfc; --line:#e8e6e2; --ink:#1c1b1a; --ink3:#a8a49e;
+  --bg:#0a0a0b; --card:#121214; --bd:#232326; --bd2:#3a3a42;
+  --fg:#e9e7e4; --mu:#8b8781; --fa:#57534f; --hi:#f4f2ef;
+  --ok:#79b06f; --warn:#d0a215; --err:#e0685c;
+}
+html,body{background:#0b0b0c;color:#fff;font-family:var(--ui);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font:inherit}
+body{padding:0 0 40px}
+
+/* ── 顶部：方案 + 状态 ── */
+.bar{position:sticky;top:0;z-index:60;background:#0b0b0c;border-bottom:1px solid #1c1c1e;padding:13px 24px 11px}
+.bar-in{max-width:1400px;margin:0 auto}
+.bar-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;gap:20px}
+.bar-title{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6f6d69;white-space:nowrap}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:1;max-width:760px}
+.tabs button{display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:8px 10px;border:1px solid #1e1e21;border-radius:8px;color:#9b9893;transition:.12s;min-width:0}
+.tabs button b{font:600 10px/1 var(--mono);color:#5c5a56;letter-spacing:.08em}
+.tabs button span{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tabs button.on{background:#f4f3f1;border-color:#f4f3f1;color:#111}
+.tabs button.on b{color:#8a867f}
+.tabs button:hover:not(.on){border-color:#33333a;color:#e6e3df}
+.states{display:flex;gap:6px;align-items:center;flex-wrap:wrap;overflow-x:auto}
+.states .lb{font-size:11px;color:#5c5a56;letter-spacing:.06em;white-space:nowrap;margin-right:2px}
+.states button{font-size:11.5px;padding:4px 9px;border-radius:20px;border:1px solid #1e1e21;color:#8b8884;white-space:nowrap}
+.states button.on{background:#1e1e23;border-color:#3a3a42;color:#f4f3f1}
+.states button:hover:not(.on){color:#d9d5cf}
+.bar-sub{margin-top:9px;font-size:12.5px;color:#8b8884;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+.bar-sub b{color:#f4f3f1;font-weight:600;white-space:nowrap}
+.bar-sub i{font-style:normal;color:#6f6b66}
+.bar-sub .kb{font:10px var(--mono);color:#4e4b47;letter-spacing:.06em;margin-left:auto;white-space:nowrap}
+
+/* ── 窗口 ── */
+.win{position:relative;width:min(1400px,calc(100vw - 48px));height:820px;margin:20px auto 0;display:flex;overflow:hidden;border-radius:10px;background:#fff;box-shadow:0 40px 90px rgba(0,0,0,.66),0 0 0 1px rgba(255,255,255,.06)}
+.rail{width:56px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;border-right:1px solid var(--line)}
+.rail .ri{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:#8b8781}
+.rail .ri svg{width:20px;height:20px}
+.rail .ri.on{background:#e7e5e1;color:#2a2825}
+.rail .sp{flex:1}
+.list{width:280px;flex:none;background:var(--listbg);border-right:1px solid var(--line);display:flex;flex-direction:column;color:var(--ink)}
+.list-head{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px}
+.list-head .t{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.newbtn{font-size:11.5px;color:#4a4744;background:#f0eeea;border:1px solid #e2dfda;border-radius:7px;padding:5px 9px}
+.search{margin:2px 12px 10px;display:flex;align-items:center;gap:7px;padding:7px 10px;background:#f1efec;border-radius:8px;color:var(--ink3);font-size:12.5px}
+.rows{flex:1;overflow:hidden;border-top:1px solid #f0eeea}
+.row{display:flex;align-items:center;gap:8px;padding:16px;border-bottom:1px solid #f1efeb;font-size:13.5px}
+.row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#211f1d}
+.row .tm{font-size:11px;color:#a8a49e;flex:none}
+.pane{position:relative;flex:1;min-width:0;overflow:hidden;background:var(--bg)}
+
+/* ══ 盘面 ══ */
+.board{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 42%,#16161a 0%,#0a0a0b 60%);color:var(--fg);font-family:var(--ui)}
+.board .wires{position:absolute;inset:0;width:100%;height:100%}
+.board .node{position:absolute;width:250px;padding:15px 17px;background:rgba(18,18,21,.92);border:1px solid var(--bd);border-radius:12px;backdrop-filter:blur(6px);text-align:left}
+.board .node .k{font:9.5px/1 var(--mono);letter-spacing:.2em;color:#615d58;margin-bottom:8px}
+.board .node h4{font-size:13.5px;font-weight:600}
+.board .node .v{margin-top:6px;font:11px/1.45 var(--mono);color:#948f89;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.board .node .lk{margin-top:9px;font-size:11px;color:#807b75;display:inline-block}
+.board .n1{left:5.5%;top:11%}.board .n2{right:5.5%;top:11%}
+.board .n3{left:5.5%;bottom:26%}.board .n4{right:5.5%;bottom:26%}
+.board .n4{opacity:.55}
+.board .n2 .ctx{display:flex;gap:6px;margin-top:8px}
+.board .n2 .ctx button{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding:8px 9px;border:1px solid var(--bd);border-radius:8px;background:#0d0d0f;text-align:left}
+.board .n2 .ctx i{font:9px/1 var(--mono);letter-spacing:.16em;color:#615d58;font-style:normal}
+.board .n2 .ctx b{font:11px/1.3 var(--mono);color:#c3bfb8;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 中央公共 */
+.board .hub{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center}
+.board .cta{display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:50%;background:var(--hi);color:#0b0b0c;transition:transform .16s,opacity .16s,background .16s}
+.board .cta .p{font-weight:600;letter-spacing:-.02em}
+.board .cta .s{margin-top:3px;font:9.5px var(--mono);letter-spacing:.12em;color:#6a6660}
+.board .cta:hover{transform:scale(1.03)}
+.board[data-state="idle"] .cta{background:#2a2a2e;color:#6f6b66;box-shadow:none;cursor:not-allowed}
+.board[data-state="idle"] .cta .s{color:#4e4b47}
+.board[data-state="idle"] .cta:hover{transform:none}
+.board[data-state="creating"] .cta{opacity:.72;cursor:progress}
+.board[data-state="creating"] .cta:hover{transform:none}
+.js-cta .lbl-busy{display:none}
+.board[data-state="creating"] .js-cta .lbl-idle{display:none}
+.board[data-state="creating"] .js-cta .lbl-busy{display:inline}
+.board[data-state="creating"] .cta .s{display:none}
+
+.board .hub-status{text-align:center;font:10.5px/1.5 var(--mono);color:var(--mu);max-width:340px;word-break:break-word}
+.board .hub-status.ok{color:var(--ok)}
+.board .hub-status.warn{color:var(--warn)}
+.board .hub-status.err{color:var(--err)}
+
+/* 小 chip（机器 / 目录） */
+.board .chip{display:inline-flex;align-items:center;gap:7px;max-width:190px;padding:6px 10px;border:1px solid var(--bd);border-radius:8px;background:rgba(13,13,16,.92);font:10.5px var(--mono);color:#a8a49f;white-space:nowrap}
+.board .chip b{font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.board .chip em{font-style:normal;color:#5f5b57;flex:none}
+.board .chip:hover{border-color:var(--bd2);color:#fff}
+
+/* 名字输入 */
+.board .name{background:transparent;border:0;border-bottom:1px solid #26262c;padding:7px 2px;color:var(--hi);font:13px var(--ui);outline:none;width:100%}
+.board .name::placeholder{color:#57534f}
+.board .name:focus{border-bottom-color:#3d3d46}
+
+/* ── dock ── */
+.board .dock{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:min(720px,84%);display:flex;align-items:center;gap:8px;padding:8px;background:rgba(17,17,20,.94);border:1px solid #212126;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.board .dock button{flex:none;font:11px var(--mono);padding:8px 10px;border:1px solid #26262c;border-radius:8px;color:#a8a49f;white-space:nowrap}
+.board .dock .hint{flex:none;font:10px var(--mono);letter-spacing:.1em;color:#5f5b57;padding:0 8px;white-space:nowrap}
+.board .dock.narrow{width:min(460px,72%)}
+[data-mode="03"] .dock .dock-chip{display:none}
+
+/* ══ 01 收拢 ══ */
+[data-mode="01"] .h02,[data-mode="01"] .h03,[data-mode="01"] .h04{display:none}
+[data-mode="01"] .cta{width:180px;height:180px;box-shadow:0 34px 70px rgba(0,0,0,.62),0 0 0 16px rgba(244,242,239,.035),0 0 0 34px rgba(244,242,239,.018)}
+[data-mode="01"] .cta .p{font-size:19px}
+[data-mode="01"] .hub-status{margin-top:12px}
+
+/* ══ 02 落子面板 ══ */
+[data-mode="02"] .h01,[data-mode="02"] .h03,[data-mode="02"] .h04{display:none}
+[data-mode="02"] .board .dock{display:none}
+[data-mode="02"] .panel-hub{width:320px;background:#121214;border:1px solid var(--bd);border-radius:16px;padding:16px;box-shadow:0 34px 70px rgba(0,0,0,.62);display:flex;flex-direction:column;gap:9px}
+[data-mode="02"] .panel-hub .hh{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+[data-mode="02"] .panel-hub .hh h3{font-size:15px;font-weight:600;letter-spacing:-.01em}
+[data-mode="02"] .panel-hub .hh span{font:9px var(--mono);letter-spacing:.14em;color:#5f5b57}
+[data-mode="02"] .panel-hub .rowline{display:flex;gap:6px}
+[data-mode="02"] .panel-hub .rowline .chip{flex:1;justify-content:space-between;max-width:none}
+[data-mode="02"] .go{width:100%;padding:9px 0;border-radius:9px;background:var(--hi);color:#0b0b0c;font-size:12.5px;font-weight:600;letter-spacing:.01em}
+[data-mode="02"] .go:hover{filter:brightness(.94)}
+[data-mode="02"][data-state="idle"] .go{background:#26262b;color:#6a6660;cursor:not-allowed}
+[data-mode="02"][data-state="creating"] .go{opacity:.7;cursor:progress}
+
+/* ══ 03 骑边 ══ */
+[data-mode="03"] .h01,[data-mode="03"] .h02,[data-mode="03"] .h04{display:none}
+[data-mode="03"] .cta{width:180px;height:180px;box-shadow:0 34px 70px rgba(0,0,0,.62),0 0 0 16px rgba(244,242,239,.035),0 0 0 34px rgba(244,242,239,.018)}
+[data-mode="03"] .cta .p{font-size:19px}
+[data-mode="03"] .hang{display:flex;gap:8px;margin-top:-16px;z-index:3}
+[data-mode="03"] .hub-status{margin-top:22px}
+
+/* ══ 04 大圆 ══ */
+[data-mode="04"] .h01,[data-mode="04"] .h02,[data-mode="04"] .h03{display:none}
+[data-mode="04"] .board .dock{display:none}
+[data-mode="04"] .big{width:240px;height:240px;border-radius:50%;background:var(--hi);color:#0b0b0c;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;box-shadow:0 40px 80px rgba(0,0,0,.66),0 0 0 16px rgba(244,242,239,.03)}
+[data-mode="04"] .big .p{font-size:21px;font-weight:600;letter-spacing:-.02em}
+[data-mode="04"] .big .name{width:150px;text-align:center;border-bottom-color:#cfccc6;color:#0b0b0c;font-size:13px;padding:5px 2px}
+[data-mode="04"] .big .name::placeholder{color:#a3a09a}
+[data-mode="04"] .big .name:focus{border-bottom-color:#0b0b0c}
+[data-mode="04"] .big .ent{font:9.5px var(--mono);letter-spacing:.14em;color:#8d8a84}
+[data-mode="04"][data-state="idle"] .big{background:#2a2a2e;color:#6f6b66}
+[data-mode="04"][data-state="idle"] .big .name{color:#6f6b66;border-bottom-color:#3a3a40}
+[data-mode="04"][data-state="idle"] .big .ent{color:#4e4b47}
+[data-mode="04"] .hang{display:flex;gap:8px;margin-top:14px}
+[data-mode="04"] .hub-status{margin-top:14px}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="bar-in">
+    <div class="bar-top">
+      <div class="bar-title">New Manual · 中央</div>
+      <div class="tabs" id="tabs">
+        <button data-mode="01" class="on"><b>01</b><span>收拢</span></button>
+        <button data-mode="02"><b>02</b><span>落子面板</span></button>
+        <button data-mode="03"><b>03</b><span>骑边</span></button>
+        <button data-mode="04"><b>04</b><span>大圆</span></button>
+      </div>
+    </div>
+    <div class="states" id="states">
+      <span class="lb">状态</span>
+      <button data-state="idle">未选模型</button>
+      <button data-state="ready" class="on">就绪</button>
+      <button data-state="creating">创建中</button>
+      <button data-state="done">成功</button>
+      <button data-state="skip">部分跳过</button>
+      <button data-state="fail">失败</button>
+    </div>
+    <div class="bar-sub">
+      <b id="why-name">01 收拢</b>
+      <span id="why">中央只留一个动作；名字 / 机器 / 目录留在底部薄栏，只把状态行补全（带机器和目录）。</span>
+      <span class="kb">1–4 切方案 · q w e r t y 切状态</span>
+    </div>
+  </div>
+</div>
+
+<div class="win">
+  <div class="rail">
+    <div class="ri on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.6a8 8 0 0 1-8 8H8.4L4 22.5V16.8A8 8 0 1 1 21 11.6Z"/></svg></div>
+    <div class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M9 16.5 12 9l3 7.5M10.2 14h3.6"/></svg></div>
+    <div class="sp"></div>
+    <div class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></div>
+  </div>
+  <div class="list">
+    <div class="list-head"><span class="t">NousDesk</span><button class="newbtn">+ New Manual</button></div>
+    <div class="search"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>搜索会话</div>
+    <div class="rows">
+      <div class="row"><span class="nm">真模型</span><span class="tm">6 天前</span></div>
+      <div class="row"><span class="nm">经宿主真模型</span><span class="tm">5 分支</span></div>
+      <div class="row"><span class="nm">deep-dive · 37087</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">deep-dive · 35579</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">scratch 11-13 21:29</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">scratch 11-13 21:28</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">scratch 11-13 21:27</span><span class="tm"></span></div>
+      <div class="row"><span class="nm">scratch 11-13 21:17</span><span class="tm"></span></div>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="board" id="board" data-mode="01" data-state="ready">
+      <svg class="wires" viewBox="0 0 1000 800" preserveAspectRatio="none" aria-hidden="true">
+        <g stroke="#2b2b30" stroke-width="1" stroke-dasharray="3 6" fill="none">
+          <path d="M165 144C260 200 380 270 500 336"/>
+          <path d="M835 144C740 200 620 270 500 336"/>
+          <path d="M165 545C260 480 380 410 500 336"/>
+          <path d="M835 545C740 480 620 410 500 336"/>
+        </g>
+        <g fill="#4a4a50">
+          <circle cx="165" cy="144" r="2.5"/><circle cx="835" cy="144" r="2.5"/>
+          <circle cx="165" cy="545" r="2.5"/><circle cx="835" cy="545" r="2.5"/>
+        </g>
+      </svg>
+
+      <button class="node n1">
+        <div class="k">MODEL</div><h4>Model</h4>
+        <div class="v" id="v-model">volc-ark/deepseek-v4-flash-260425</div>
+        <span class="lk">change →</span>
+      </button>
+      <div class="node n2">
+        <div class="k">CONTEXT</div>
+        <div class="ctx">
+          <button><i>SKILLS</i><b>3 / 5</b></button>
+          <button><i>PROMPT</i><b>smart-ass</b></button>
+        </div>
+      </div>
+      <button class="node n3">
+        <div class="k">EXTENSIONS</div><h4>Extensions</h4>
+        <div class="v">none</div>
+        <span class="lk">choose →</span>
+      </button>
+      <div class="node n4">
+        <div class="k">PERMISSIONS</div><h4>Permissions</h4>
+        <div class="v">—</div>
+        <span class="lk">soon</span>
+      </div>
+
+      <!-- 01 收拢 -->
+      <div class="hub h01">
+        <button class="cta js-cta"><span class="p lbl-idle">＋ Create</span><span class="p lbl-busy">Creating…</span><span class="s">NEW MANUAL · DISORDER</span></button>
+        <div class="hub-status js-status">ready · 本机 · …/new1/map</div>
+      </div>
+
+      <!-- 02 落子面板 -->
+      <div class="hub h02">
+        <div class="panel-hub">
+          <div class="hh"><h3>New chat</h3><span>NEW MANUAL</span></div>
+          <input class="name js-name" placeholder="Name · 空着就用引擎给的名字">
+          <div class="rowline">
+            <button class="chip"><b>本机</b><em>›</em></button>
+            <button class="chip"><b>…/new1/map</b><em>›</em></button>
+          </div>
+          <button class="go js-cta"><span class="lbl-idle">Create</span><span class="lbl-busy">Creating…</span></button>
+          <div class="hub-status js-status" style="text-align:left">ready · 本机 · …/new1/map</div>
+        </div>
+      </div>
+
+      <!-- 03 骑边 -->
+      <div class="hub h03">
+        <button class="cta js-cta"><span class="p lbl-idle">＋ Create</span><span class="p lbl-busy">Creating…</span><span class="s">NEW MANUAL · DISORDER</span></button>
+        <div class="hang">
+          <button class="chip"><b>本机</b><em>›</em></button>
+          <button class="chip"><b>…/new1/map</b><em>›</em></button>
+        </div>
+        <div class="hub-status js-status">ready</div>
+      </div>
+
+      <!-- 04 大圆 -->
+      <div class="hub h04">
+        <div class="big js-cta">
+          <span class="p lbl-idle">＋ Create</span><span class="p lbl-busy">Creating…</span>
+          <input class="name js-name" placeholder="Name">
+          <span class="ent">↵ CREATE</span>
+        </div>
+        <div class="hang">
+          <button class="chip"><b>本机</b><em>›</em></button>
+          <button class="chip"><b>…/new1/map</b><em>›</em></button>
+        </div>
+        <div class="hub-status js-status">ready</div>
+      </div>
+
+      <!-- dock：01 全量、03 只名字、02/04 不显示 -->
+      <div class="dock" id="dock">
+        <input class="name js-name" style="flex:1" placeholder="Name · 空着就用引擎给的名字">
+        <button class="chip dock-chip"><b>本机</b><em>›</em></button>
+        <button class="chip dock-chip"><b>…/new1/map</b><em>›</em></button>
+        <span class="hint" id="dock-hint">↵ CREATE</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BOARD = document.getElementById('board');
+const WHY = {
+  '01': ['01 收拢', '中央只留一个动作；名字 / 机器 / 目录留在底部薄栏，只把状态行补全（带机器和目录）。', '中央仍然空 —— 但空是这套的本意'],
+  '02': ['02 落子面板', '照参考页：中央直接是一竖排 —— 标题、状态、名字、机器、目录、Create、结果。dock 删掉。', '中央能看全四个参数；代价是「圆」没了，轨道气质弱'],
+  '03': ['03 骑边', '圆不动，机器 / 目录两枚 chip 骑在圆的下缘；名字留在更窄的 dock。', '参数贴着 Create；代价是中央附近堆了三块'],
+  '04': ['04 大圆', '圆放大到 240，名字输入进圆里，机器 / 目录挂在圆外下缘。dock 删掉。', '名字是唯一「必填感」的东西，放圆里最顺；代价是圆里点击区变窄'],
+};
+const STATE = {
+  idle:     { t:'no model · 先挑一个', c:'' },
+  ready:    { t:'ready · 本机 · …/new1/map', c:'' },
+  creating: { t:'creating…', c:'' },
+  done:     { t:'✓ chat 812 created · thinking medium · skills 3 · prompt smart-ass · 本机 · …/new1/map', c:'ok' },
+  skip:     { t:'创建了，但这些没装，已跳过 —— 技能：code-review、weekly-report', c:'warn' },
+  fail:     { t:'创建失败：会话 699 已经在活库里 —— 不用捞', c:'err' },
+};
+
+function paint() {
+  const mode = BOARD.dataset.mode, st = STATE[BOARD.dataset.state];
+  // 状态行：01/02 是「状态 + 机器 + 目录」，03/04 只写状态（机器目录在 chip 上）
+  const full = mode === '01' || mode === '02';
+  const text = (!full && st.t.startsWith('ready')) ? 'ready' :
+               (!full && BOARD.dataset.state === 'idle') ? 'pick a model' : st.t;
+  document.querySelectorAll('.js-status').forEach(el => {
+    el.textContent = text;
+    el.className = 'hub-status js-status' + (st.c ? ' ' + st.c : '') +
+      (mode === '02' ? '' : '');
+    if (mode === '02') el.style.textAlign = 'left';
+  });
+  document.getElementById('dock').style.display = mode === '02' || mode === '04' ? 'none' : 'flex';
+  document.getElementById('dock').classList.toggle('narrow', mode === '03');
+  document.getElementById('dock-hint').textContent = '↵ CREATE';
+  const w = WHY[mode];
+  document.getElementById('why-name').textContent = w[0];
+  document.getElementById('why').textContent = w[1];
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  document.querySelectorAll('#states button').forEach(b => b.classList.toggle('on', b.dataset.state === BOARD.dataset.state));
+}
+
+document.getElementById('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  BOARD.dataset.mode = b.dataset.mode; paint();
+});
+document.getElementById('states').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  BOARD.dataset.state = b.dataset.state; paint();
+});
+addEventListener('keydown', e => {
+  const modes = {'1':'01','2':'02','3':'03','4':'04'};
+  const states = {q:'idle',w:'ready',e:'creating',r:'done',t:'skip',y:'fail'};
+  if (modes[e.key]) { BOARD.dataset.mode = modes[e.key]; paint(); }
+  if (states[e.key.toLowerCase()]) { BOARD.dataset.state = states[e.key.toLowerCase()]; paint(); }
+});
+paint();
+</script>
+</body>
+</html>
