@@ -92,6 +92,22 @@ pele.run/examples 把每种 Mermaid 图都做成一页，配色是 **Flexoki**�
 皮肤新增 `flexoki`（暗）/ `flexoki-paper`（亮），色值就是 pele 那套 Flexoki。
 hash 直达：`#flexoki,detail,,st,sankey` / `#flexoki-paper,detail,,ut,radar`
 
+
+### 21–30 · 更多形态
+
+| | 排版 | 长什么样 |
+| --- | --- | --- |
+| 21 | 小票 | 等宽 + 点线引导 + 合计行 + 条形码，像热敏收据 |
+| 22 | 命令面板 | 搜索框 + 行列表 + 快捷键提示（⌘K / ↵） |
+| 23 | 仪表盘 | 3×2 小部件，数值大字 + 迷你条/圆点 |
+| 24 | 时序 | 四个参与者 + 虚线生命线 + 彩色消息箭头（Mermaid sequence） |
+| 25 | 旅程 | 情绪折线 + 五个阶段（建模→校验→保存→发布→开对话） |
+| 26 | 泳道 | 横四条泳道（身份/运行/环境/引用），左竖排标签 |
+| 27 | 鱼骨 | 中心骨架 + 四条斜骨挂字段（Ishikawa） |
+| 28 | 数据包 | 十六进制的字节格，字段按 48 字节一行铺开 |
+| 29 | 头版 | 报纸：双线报头 + 34px 标题 + 三栏 + 引文块 |
+| 30 | 翻面卡 | 正面身份、背面字段，点「翻面」3D 翻转 |
+
 hash 直达：`#皮肤,tab,弹层,段,排版`
 `#graphite,detail,,st,sheet` `#paper,detail,,ut,dense` `#industrial,detail,publish,st,split`
 
