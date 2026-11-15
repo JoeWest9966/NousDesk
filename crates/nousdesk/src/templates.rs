@@ -38,6 +38,18 @@ pub(crate) const SECTIONS: [(&str, &str); 2] = [
     ("Ultimate-Template", "Ultimate-Template"),
 ];
 
+/// 圆/方块里放名字时先截断：`text_overflow` 在居中容器里会**两头**都裁，
+/// 长名字会变成 `ad-only-review` 那种看着像坏了的形状。
+fn short_name(name: &str, max: usize) -> String {
+    let n = name.chars().count();
+    if n <= max {
+        return name.to_string();
+    }
+    let mut s: String = name.chars().take(max.saturating_sub(1)).collect();
+    s.push('…');
+    s
+}
+
 /// 未分类不是词表里的类别，是我们自己的兜底桶。用这个哨兵值放进同一个「当前类别」槽。
 const UNCATEGORIZED: &str = "∅";
 
@@ -1364,187 +1376,66 @@ impl Desktop {
         };
 
         let nodes = crate::templates_graph::nodes(p);
-        // 右栏是 `flex_1`，实际宽度跟窗口走 —— 图的半径必须按**真实宽度**算，
-        // 否则窗口一宽，图就缩在中间一小块（第一版就是这样，看着像没画完）。
+        // 右栏是 `flex_1`，实际宽度跟窗口走 —— 半径必须按**真实宽度**算。
         let vw = f32::from(window.viewport_size().width);
         let vh = f32::from(window.viewport_size().height);
-        let rail = if t().layout == crate::theme::Layout::NoRail { 0. } else { t().rail_w };
+        let rail = if t().layout == crate::theme::Layout::NoRail {
+            0.
+        } else {
+            t().rail_w
+        };
         let used = rail + t().preset_tree_w + t().template_list_w;
         let col = (vw - used).max(dw);
         let (gw, gh) = (
             (col - t().d(24.).as_f32()).max(220.),
-            (vh - t().d(188.).as_f32()).max(300.),
+            (vh - t().d(150.).as_f32()).max(300.),
         );
         let pts = crate::templates_graph::layout(&nodes, gw, gh);
+        let (cx0, cy0) = (gw / 2., gh / 2. - 10.);
+        let r0 = (gw * 0.40).min(gh * 0.37);
 
-        // 线段：中心 → 维度，维度 → 具体项。颜色 = 子节点的 state。
-        let mut segs: Vec<(f32, f32, f32, f32, bool, u32)> = Vec::new();
-        for (i, n) in nodes.iter().enumerate() {
-            let Some(parent) = n.parent.as_deref() else { continue };
-            let Some(pi) = nodes.iter().position(|x| x.id == parent) else {
-                continue;
-            };
-            // 浅色皮上 `line` 几乎看不见 —— 线用正文色的低透明度，两套明暗都清楚。
-            let color = match n.state {
-                crate::templates_graph::State::Invalid => t().p.danger,
-                crate::templates_graph::State::Auto => t().p.faint,
-                _ => t().p.text_2,
-            };
-            segs.push((
-                pts[pi].x,
-                pts[pi].y,
-                pts[i].x,
-                pts[i].y,
-                n.state.is_auto(),
-                color,
-            ));
-        }
-        let segs: Vec<(f32, f32, f32, f32, bool, gpui::Hsla)> = segs
-            .into_iter()
-            .map(|(a, b, c, d, dash, col)| (a, b, c, d, dash, rgb(col).opacity(0.55).into()))
-            .collect();
+        // demo 37 的点色是 Flexoki 的固定三色，**不跟皮肤走** —— 这是这张图的识别度。
+        // 换了工业皮之后，蓝色描边在暖纸底上照样是蓝的，这才对。
+        const FX_BLUE: u32 = 0x4385be;
+        const FX_GREEN: u32 = 0x879a39;
+        const FX_RED: u32 = 0xd14d41;
 
-        // 节点层：绝对定位，坐标和 canvas 用同一份 `pts`。
-        let mut layer = div().absolute().top_0().left_0().w(px(gw)).h(px(gh));
-        for (i, n) in nodes.iter().enumerate() {
-            let (x, y) = (pts[i].x, pts[i].y);
-            let picked = self.picked_node.as_deref() == Some(n.id.as_str());
-            let id = n.id.clone();
-            let is_center = n.layer == 0;
-            // 三个以上兄弟画成点：一个父下面四五个带文字的卡在 420px 宽的环上
-            // 必然互相压（弦长不够）。点足够点中，名字到底部那一行看。
-            let sib = crate::templates_graph::siblings(&nodes, n);
-            let dot = n.layer == 2 && sib >= 3;
-            let (nw, nh) = if is_center {
-                (t().d(132.), t().d(58.))
-            } else if n.layer == 1 {
-                (t().d(84.), t().d(40.))
-            } else if dot {
-                (t().d(22.), t().d(22.))
-            } else {
-                (t().d(70.), t().d(24.))
-            };
-            let state_color = match n.state {
-                crate::templates_graph::State::Invalid => bad(),
-                crate::templates_graph::State::Auto => t().p.faint,
+        let dot_color = |n: &crate::templates_graph::Node| -> u32 {
+            match n.state {
+                crate::templates_graph::State::Invalid => FX_RED,
+                crate::templates_graph::State::Auto => t().p.muted,
                 crate::templates_graph::State::Unknown => t().p.muted,
-                _ => t().p.text,
-            };
+                // 引用用绿、字段用蓝 —— demo 里那个「两种颜色」就是这个意思。
+                crate::templates_graph::State::Ok => {
+                    if n.is_ref {
+                        FX_GREEN
+                    } else {
+                        FX_BLUE
+                    }
+                }
+            }
+        };
 
-            // 背景 / 圆角 / 边框都挂在这一层（不是里面的内容层）：
-            // 这样 hover 只要改一个 `border_color`，不会出现「外框 accent + 内框灰」的双线。
-            let (rad, bg, border) = if is_center {
-                (t().r(10.), t().p.text, t().p.text)
-            } else if dot {
+        // 连线：中心 → 每个点。demo 里是实线、直接穿过标签文字，不避让。
+        // demo 里两层环和连线都是 `var(--line)` —— 工业皮下就是纯黑，
+        // 在浅色皮（flexoki-paper）里它自己会变浅。跟着皮肤走，别写死。
+        let ring: gpui::Hsla = rgb(t().p.line).into();
+        let segs: Vec<(f32, f32, gpui::Hsla)> = nodes
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, n)| {
+                let c = match n.state {
+                    crate::templates_graph::State::Invalid => FX_RED,
+                    _ => t().p.line,
+                };
                 (
-                    t().r(11.),
-                    match n.state {
-                        crate::templates_graph::State::Invalid => t().p.danger,
-                        crate::templates_graph::State::Auto => t().p.faint,
-                        _ => t().p.accent,
-                    },
-                    t().p.panel,
+                    pts[i].x,
+                    pts[i].y,
+                    rgb(c).opacity(if n.state.is_auto() { 0.45 } else { 1.0 }).into(),
                 )
-            } else if n.layer == 1 {
-                (
-                    t().r(7.),
-                    t().p.panel,
-                    if picked { t().p.accent } else { t().p.line },
-                )
-            } else {
-                (
-                    t().r(13.),
-                    t().p.panel_alt,
-                    if picked { t().p.accent } else { t().p.line_soft },
-                )
-            };
-
-            let body: AnyElement = if is_center {
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .size_full()
-                    .px(t().d(8.))
-                    .text_color(rgb(t().p.chat_bg))
-                    .child(
-                        div()
-                            .text_size(t().fs(14.))
-                            .whitespace_nowrap()
-                            .text_overflow(TextOverflow::Truncate("…".into()))
-                            .child(n.label.clone()),
-                    )
-                    .into_any_element()
-            } else if dot {
-                // 点里不放字：22px 放不下，名字到底部那一行看。
-                div().size_full().into_any_element()
-            } else if n.layer == 1 {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(t().d(1.))
-                    .size_full()
-                    .px(t().d(8.))
-                    .py(t().d(6.))
-                    .child(
-                        div()
-                            .text_size(t().fs(9.))
-                            .text_color(rgb(muted()))
-                            .child(n.label.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(state_color))
-                            .whitespace_nowrap()
-                            .text_overflow(TextOverflow::Truncate("…".into()))
-                            .child(if n.value.is_empty() {
-                                "未设".to_string()
-                            } else {
-                                n.value.clone()
-                            }),
-                    )
-                    .into_any_element()
-            } else {
-                div()
-                    .flex()
-                    .items_center()
-                    .size_full()
-                    .px(t().d(7.))
-                    .child(
-                        div()
-                            .text_size(t().fs(10.))
-                            .text_color(rgb(state_color))
-                            .whitespace_nowrap()
-                            .text_overflow(TextOverflow::Truncate("…".into()))
-                            .child(n.value.clone()),
-                    )
-                    .into_any_element()
-            };
-
-            layer = layer.child(
-                div()
-                    .id(ElementId::Name(format!("gn-{}", n.id).into()))
-                    .absolute()
-                    .left(px(x - nw.as_f32() / 2.))
-                    .top(px(y - nh.as_f32() / 2.))
-                    .w(nw)
-                    .h(nh)
-                    .rounded(rad)
-                    .bg(rgb(bg))
-                    .border(t().d(1.))
-                    .border_color(rgb(border))
-                    .hover(|h| h.border_color(rgb(t().p.accent)))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        // 点节点不该顺带触发「点空白清选中」。
-                        cx.stop_propagation();
-                        this.picked_node = Some(id.clone());
-                        cx.notify();
-                    }))
-                    .child(body),
-            );
-        }
+            })
+            .collect();
 
         let canvas_layer = div()
             .id(ElementId::Name("graph-bg".into()))
@@ -1553,43 +1444,158 @@ impl Desktop {
             .left_0()
             .w(px(gw))
             .h(px(gh))
-            // 点空白处 = 回到「整条」；节点自己会 `stop_propagation`。
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 if this.picked_node.take().is_some() {
                     cx.notify();
                 }
             }))
             .child(
-            canvas(
-                move |_, _, _| segs.clone(),
-                |bounds, segs, window, _| {
-                    let (ox, oy) = (
-                        f32::from(bounds.origin.x),
-                        f32::from(bounds.origin.y),
-                    );
-                    for (x1, y1, x2, y2, dashed, color) in segs {
-                        let mut b = if dashed {
-                            PathBuilder::stroke(px(1.)).dash_array(&[px(3.), px(3.)])
-                        } else {
-                            PathBuilder::stroke(px(1.))
+                canvas(
+                    move |_, _, _| (cx0, cy0, r0, segs.clone(), ring),
+                    |bounds, (cx, cy, r, segs, ring), window, _| {
+                        let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+                        let circle = |rad: f32| {
+                            let mut v = Vec::with_capacity(120);
+                            for i in 0..120 {
+                                let a = std::f32::consts::TAU * i as f32 / 120.;
+                                v.push(point(
+                                    px(ox + cx + rad * a.cos()),
+                                    px(oy + cy + rad * a.sin()),
+                                ));
+                            }
+                            v
                         };
-                        b.move_to(point(px(ox + x1), px(oy + y1)));
-                        b.line_to(point(px(ox + x2), px(oy + y2)));
-                        if let Ok(path) = b.build() {
-                            window.paint_path(path, color);
+                        // 两层点线环（demo 的 0.5 / 1.0）。
+                        for k in [0.48f32, 1.0] {
+                            let mut b =
+                                PathBuilder::stroke(px(1.)).dash_array(&[px(2.), px(5.)]);
+                            b.add_polygon(&circle(r * k), true);
+                            if let Ok(path) = b.build() {
+                                window.paint_path(path, ring);
+                            }
                         }
-                    }
-                },
-            )
-            .size_full(),
+                        for (x, y, color) in segs {
+                            let mut b = PathBuilder::stroke(px(1.));
+                            b.move_to(point(px(ox + cx), px(oy + cy)));
+                            b.line_to(point(px(ox + x), px(oy + y)));
+                            if let Ok(path) = b.build() {
+                                window.paint_path(path, color);
+                            }
+                        }
+                    },
+                )
+                .size_full(),
+            );
+
+        // 点 + 悬浮标签。中心圆单独一块（它是实心的，不是空心点）。
+        let mut layer = div().absolute().top_0().left_0().w(px(gw)).h(px(gh));
+
+        layer = layer.child(
+            div()
+                .id(ElementId::Name("graph-center".into()))
+                .absolute()
+                .left(px(cx0 - 31.))
+                .top(px(cy0 - 31.))
+                .size(px(62.))
+                .rounded_full()
+                .bg(rgb(t().p.text))
+                .flex()
+                .items_center()
+                .justify_center()
+                .px(px(6.))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.picked_node = None;
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .text_size(t().fs(9.))
+                        .text_color(rgb(t().p.on_accent))
+                        .whitespace_nowrap()
+                        .text_overflow(TextOverflow::Truncate("…".into()))
+                        // 62px 的圆放不下长名字，两边都会被裁（`read-only-review` 会变成
+                        // "ad-only-review"）。按 demo 的做法先截到 9 个字。
+                        .child(short_name(&p.name, 9)),
+                ),
         );
 
-        let picked_note = self.picked_node.clone().and_then(|id| {
-            nodes
-                .iter()
-                .find(|n| n.id == id)
-                .map(|n| (n.label.clone(), n.value.clone(), n.state))
-        });
+        for i in 1..nodes.len() {
+            let n = &nodes[i];
+            let (x, y) = (pts[i].x, pts[i].y);
+            let left_side = x < cx0;
+            let color = dot_color(n);
+            let picked = self.picked_node.as_deref() == Some(n.id.as_str());
+            let dot_id = n.id.clone();
+
+            layer = layer.child(
+                div()
+                    .id(ElementId::Name(format!("gd-{}", n.id).into()))
+                    .absolute()
+                    .left(px(x - 6.))
+                    .top(px(y - 6.))
+                    .size(px(12.))
+                    .rounded_full()
+                    .border(px(if picked { 3. } else { 2. }))
+                    .border_color(rgb(color))
+                    .bg(rgb(t().p.panel))
+                    .hover(|h| h.bg(rgb(color)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.picked_node = Some(dot_id.clone());
+                        cx.notify();
+                    })),
+            );
+
+            // 标签：左半圈右对齐到点的左侧，右半圈左对齐到点的右侧。
+            // 宽度按到边界的距离收 —— 否则最左/最右那两个会顶出画布。
+            let (lw, lx) = if left_side {
+                let w = (x - 16.).clamp(40., 132.);
+                (w, x - 10. - w)
+            } else {
+                let w = (gw - x - 16.).clamp(40., 132.);
+                (w, x + 10.)
+            };
+            let label_id = n.id.clone();
+            layer = layer.child(
+                div()
+                    .id(ElementId::Name(format!("gl-{}", n.id).into()))
+                    .absolute()
+                    .left(px(lx))
+                    .top(px(y - 17.))
+                    .w(px(lw))
+                    .h(px(34.))
+                    .flex()
+                    .flex_col()
+                    .justify_center()
+                    .gap(px(1.))
+                    .when(left_side, |el| el.items_end())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.picked_node = Some(label_id.clone());
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .text_size(t().fs(8.5))
+                            .text_color(rgb(muted()))
+                            .whitespace_nowrap()
+                            .child(n.label.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(if picked { t().p.accent } else { t().p.text }))
+                            .whitespace_nowrap()
+                            .text_overflow(TextOverflow::Truncate("…".into()))
+                            .child(if n.value.is_empty() {
+                                "未设".to_string()
+                            } else {
+                                n.value.clone()
+                            }),
+                    ),
+            );
+        }
 
         let open_name = p.name.clone();
         let can_open = sec.id == SECTIONS[0].0 && launchable(p);
@@ -1599,32 +1605,51 @@ impl Desktop {
                 .flex()
                 .flex_col()
                 .size_full()
+                // 头：名字 17px 与摘要**同一行**（demo 的 baseline 排版），
+                // 开会话的按钮挪到这一行右端，不再占一整条底栏。
                 .child(
-                    // 头：名字 + 引擎给的状态字。
                     div()
                         .flex()
-                        .flex_col()
-                        .gap(t().d(3.))
+                        .flex_row()
+                        .items_center()
+                        .gap(t().d(10.))
                         .px(t().d(14.))
-                        .pt(t().d(14.))
-                        .pb(t().d(8.))
+                        .pt(t().d(12.))
+                        .pb(t().d(4.))
                         .child(
                             div()
-                                .text_size(t().fs(15.))
-                                .whitespace_nowrap()
-                                .text_overflow(TextOverflow::Truncate("…".into()))
+                                .flex_none()
+                                .text_size(t().fs(17.))
+                                .font_weight(FontWeight::BOLD)
                                 .child(p.name.clone()),
                         )
                         .child(
                             div()
+                                .flex_1()
+                                .min_w(t().d(0.))
                                 .text_size(t().fs(11.))
                                 .text_color(rgb(muted()))
-                                .child(match (&p.spec_error, has_invalid(p)) {
-                                    (Some(_), _) => "spec 写坏了，下面这张图不代表实际行为".to_string(),
-                                    (None, true) => "有引用失效 —— 现在开不了".to_string(),
-                                    _ => p.summary.clone(),
-                                }),
-                        ),
+                                .whitespace_nowrap()
+                                .text_overflow(TextOverflow::Truncate("…".into()))
+                                .child(p.summary.clone()),
+                        )
+                        .when(can_open, |el| {
+                            el.child(
+                                div()
+                                    .flex_none()
+                                    .px(t().d(10.))
+                                    .py(t().d(5.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.text))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .text_size(t().fs(11.))
+                                    .id(ElementId::Name("detail-open".into()))
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.launch_preset(open_name.clone(), cx);
+                                    }))
+                                    .child("开一条新对话"),
+                            )
+                        }),
                 )
                 .child(
                     div()
@@ -1634,8 +1659,6 @@ impl Desktop {
                         .overflow_hidden()
                         .items_center()
                         .justify_center()
-                        // 只有中心一个节点 = 引擎没给这一段的关系数据（`Ultimate-Template`
-                        // 现在就是这种）。画个孤零零的黑块比什么都不画更让人以为坏了。
                         .when(nodes.len() <= 1, |el| {
                             el.child(
                                 div()
@@ -1647,8 +1670,6 @@ impl Desktop {
                             )
                         })
                         .when(nodes.len() > 1, |el| {
-                            // 160ms 淡入，id 带预设名 —— 同一 id 只播一次，
-                            // 换了预设才重播（不然切来切去整张图一直是静止的）。
                             let w = gw;
                             let h = gh;
                             el.child(
@@ -1664,76 +1685,6 @@ impl Desktop {
                                             .with_easing(ease_out_quint()),
                                         |el, delta| el.opacity(delta),
                                     ),
-                            )
-                        }),
-                )
-                .child(
-                    // 脚：点中的节点说明 + 开新对话。
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(t().d(8.))
-                        .px(t().d(14.))
-                        .py(t().d(10.))
-                        .border_t(t().d(1.))
-                        .border_color(rgb(t().p.line))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(t().d(1.))
-                                .flex_1()
-                                .min_w(t().d(0.))
-                                .child(
-                                    div()
-                                        .text_size(t().fs(9.))
-                                        .text_color(rgb(muted()))
-                                        .child(match &picked_note {
-                                            Some((l, _, _)) => l.clone(),
-                                            None => "整条".to_string(),
-                                        }),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(t().fs(11.))
-                                        .whitespace_nowrap()
-                                        .text_overflow(TextOverflow::Truncate("…".into()))
-                                        .child(match &picked_note {
-                                            Some((_, v, st)) => {
-                                                let tail = match st {
-                                                    crate::templates_graph::State::Invalid => "（失效）",
-                                                    crate::templates_graph::State::Auto => "（走默认）",
-                                                    _ => "",
-                                                };
-                                                format!("{}{}", if v.is_empty() { "—" } else { v }, tail)
-                                            }
-                                            None => {
-                                                let dims = nodes.iter().filter(|n| n.layer == 1).count();
-                                                if dims == 0 {
-                                                    "无关系数据".to_string()
-                                                } else {
-                                                    format!("{dims} 个维度")
-                                                }
-                                            }
-                                        }),
-                                ),
-                        )
-                        .when(can_open, |el| {
-                            el.child(
-                                div()
-                                    .flex_none()
-                                    .px(t().d(10.))
-                                    .py(t().d(5.))
-                                    .rounded(t().r(6.))
-                                    .bg(rgb(t().p.text))
-                                    .text_color(rgb(t().p.chat_bg))
-                                    .text_size(t().fs(11.))
-                                    .id(ElementId::Name("detail-open".into()))
-                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        this.launch_preset(open_name.clone(), cx);
-                                    }))
-                                    .child("开一条新对话"),
                             )
                         }),
                 )

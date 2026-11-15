@@ -38,8 +38,11 @@ pub(crate) struct Node {
     pub value: String,
     pub state: State,
     pub layer: u8,
-    /// 第二圈挂在哪一维下。
+    /// 挂在谁下面。单层之后恒为 `Some("center")`（中心自己是 `None`）——
+    /// 留着是因为以后真要画第二圈时不该再改一遍结构。
     pub parent: Option<String>,
+    /// 这一维是引用（指向盘上别的东西）。决定点的颜色：字段蓝、引用绿。
+    pub is_ref: bool,
 }
 
 /// 第一圈的七个维度，顺序就是绕一圈的顺序。`(key, 中文名)`。
@@ -82,7 +85,16 @@ fn list_refs(v: &Value) -> Vec<(String, State)> {
         .unwrap_or_default()
 }
 
-/// 把一条预设摊成节点。**顺序稳定**：中心 → 七个维度（`DIMS` 顺序）→ 各自的具体项。
+/// 这一维是不是「引用」（指向盘上另一个东西）。
+/// demo 里字段点画蓝、引用点画绿，这里就是那个分界。
+pub(crate) fn is_ref_dim(key: &str) -> bool {
+    matches!(key, "skills" | "extensions" | "template")
+}
+
+/// 把一条预设摊成节点。**单层**：中心 + 一圈维度，没有第二圈。
+///
+/// demo 的 37 就只有一层 —— 两层会把「放射状」变成「一坨」，这正是第一版不对的地方。
+/// 多值维度（技能 4 个）在值里写 `deep-dive +3`，不再往下挂子节点。
 pub(crate) fn nodes(p: &Preset) -> Vec<Node> {
     let mut out = vec![Node {
         id: "center".into(),
@@ -95,6 +107,7 @@ pub(crate) fn nodes(p: &Preset) -> Vec<Node> {
         },
         layer: 0,
         parent: None,
+        is_ref: false,
     }];
 
     let Some(res) = p.resolved.as_ref().filter(|r| r.is_object()) else {
@@ -103,51 +116,38 @@ pub(crate) fn nodes(p: &Preset) -> Vec<Node> {
 
     for (key, label) in DIMS {
         let Some(v) = res.get(key) else { continue };
-        let state = state_of(v);
-        let (value, kids) = match key {
+        let mut state = state_of(v);
+        let value = match key {
             "skills" | "extensions" => {
                 let refs = list_refs(v);
-                let value = if refs.is_empty() {
-                    String::new()
-                } else {
-                    format!("{} 个", refs.len())
-                };
-                (value, refs)
+                match refs.len() {
+                    0 => String::new(),
+                    1 => refs[0].0.clone(),
+                    n => format!("{} +{}", refs[0].0, n - 1),
+                }
             }
-            "template" => (
-                s_of(v, "ref").unwrap_or_else(|| "跟随默认".into()),
-                Vec::new(),
-            ),
-            "cwd" | "machine" => (
-                s_of(v, "value").unwrap_or_else(|| "默认".into()),
-                Vec::new(),
-            ),
-            _ => (
-                s_of(v, "value").unwrap_or_default(),
-                Vec::new(),
-            ),
+            "template" => s_of(v, "ref").unwrap_or_else(|| "跟随默认".into()),
+            "cwd" | "machine" => s_of(v, "value").unwrap_or_else(|| "默认".into()),
+            _ => s_of(v, "value").unwrap_or_default(),
         };
 
-        let id = format!("dim:{key}");
+        // 「值其实是默认」但引擎仍报 ok 的那几种（template 没钉、cwd/machine 没设）：
+        // 颜色跟着**看得见的字**走，不然会出现「跟随默认」配一个绿点。
+        if matches!(state, State::Ok)
+            && matches!(value.as_str(), "跟随默认" | "默认" | "")
+        {
+            state = State::Auto;
+        }
+
         out.push(Node {
-            id: id.clone(),
+            id: format!("dim:{key}"),
             label: label.into(),
             value,
             state,
             layer: 1,
             parent: Some("center".into()),
+            is_ref: is_ref_dim(key),
         });
-
-        for (i, (r, st)) in kids.into_iter().enumerate() {
-            out.push(Node {
-                id: format!("{id}:{i}"),
-                label: label.into(),
-                value: r,
-                state: st,
-                layer: 2,
-                parent: Some(id.clone()),
-            });
-        }
     }
 
     out
@@ -161,7 +161,6 @@ fn spec_nodes(p: &Preset, mut out: Vec<Node>) -> Vec<Node> {
     };
     // `v` / `name` / `summary` / `description` / `category` 已经在中心或别处展示过了。
     const SKIP: [&str; 5] = ["v", "name", "summary", "description", "category"];
-    let mut i = 0usize;
     for (k, v) in spec {
         if SKIP.contains(&k.as_str()) {
             continue;
@@ -183,20 +182,12 @@ fn spec_nodes(p: &Preset, mut out: Vec<Node>) -> Vec<Node> {
                 .unwrap_or_else(|| k.clone()),
             value,
             state: State::Unknown,
-            layer: if i < 7 { 1 } else { 2 },
+            layer: 1,
             parent: Some("center".into()),
+            is_ref: is_ref_dim(k),
         });
-        i += 1;
     }
     out
-}
-
-/// 同一个父下面有几个兄弟。UI 靠它决定「画带文字的小卡」还是「画个点」。
-pub(crate) fn siblings(nodes: &[Node], n: &Node) -> usize {
-    match n.parent.as_deref() {
-        Some(p) if n.layer == 2 => nodes.iter().filter(|x| x.parent.as_deref() == Some(p)).count(),
-        _ => 0,
-    }
 }
 
 /// 摆完的点：像素坐标（相对画布左上角）。顺序与 `nodes` 一致。
@@ -215,58 +206,24 @@ pub(crate) struct Placed {
 ///
 /// 不用 force layout：每次刷新位置都在跳，等于找不到东西。
 pub(crate) fn layout(nodes: &[Node], w: f32, h: f32) -> Vec<Placed> {
-    let (cx, cy) = (w / 2., h / 2.);
-    // 椭圆而不是圆：右栏高瘦（420×430），正圆会把两侧的节点推出边框。
-    // 两个半径都留出节点半宽，最外那个节点的右缘才压不到边线。
-    // 第一圈内收得多一些、第二圈贴近边线：两圈之间至少留 50px，
-    // 否则子节点会直接压在父节点上（差 20px 就够压住了）。
-    let (rx1, ry1) = ((w / 2. - 88.).max(40.), (h / 2. - 86.).max(40.));
-    let (rx2, ry2) = ((w / 2. - 40.).max(50.), (h / 2. - 28.).max(50.));
+    // demo 37 的几何：中心圆在画布中间偏上，一圈点均匀分布在一个正圆上。
+    // 用正圆不用椭圆 —— 椭圆会让「放射」看上去像被压扁的饼。
+    let (cx, cy) = (w / 2., h / 2. - 10.);
+    let r = (w * 0.40).min(h * 0.37);
     let tau = std::f32::consts::TAU;
-
-    // 维度圈的角度（按 DIMS 顺序，12 点起顺时针）。
-    let dims: Vec<&Node> = nodes.iter().filter(|n| n.layer == 1).collect();
-    let mut angle_of_dim: std::collections::HashMap<&str, f32> = Default::default();
-    for (i, n) in dims.iter().enumerate() {
-        let a = -std::f32::consts::FRAC_PI_2 + tau * i as f32 / dims.len().max(1) as f32;
-        angle_of_dim.insert(n.id.as_str(), a);
-    }
-
-    // 第二圈：同一父的兄弟按出现顺序摊开。间隔按节点宽度反算 —— 写死 0.26 rad
-    // 时三个兄弟（≈77px 宽）在 r≈180 的圈上会压在一起。
-    let mut total_of: std::collections::HashMap<&str, usize> = Default::default();
-    for n in nodes.iter().filter(|n| n.layer == 2) {
-        *total_of.entry(n.parent.as_deref().unwrap_or("")).or_insert(0) += 1;
-    }
-    let mut seen: std::collections::HashMap<&str, usize> = Default::default();
+    let ring = nodes.len().saturating_sub(1).max(1);
 
     nodes
         .iter()
-        .map(|n| match n.layer {
-            0 => Placed { x: cx, y: cy },
-            1 => {
-                let a = angle_of_dim[n.id.as_str()];
-                Placed {
-                    x: cx + rx1 * a.cos(),
-                    y: cy + ry1 * a.sin(),
-                }
+        .enumerate()
+        .map(|(i, n)| {
+            if n.layer == 0 {
+                return Placed { x: cx, y: cy };
             }
-            _ => {
-                let p = n.parent.as_deref().unwrap_or("");
-                let total = total_of.get(p).copied().unwrap_or(1);
-                let k = *seen.entry(p).or_insert(0);
-                *seen.get_mut(p).unwrap() += 1;
-                let pa = angle_of_dim.get(p).copied().unwrap_or(0.);
-                // 三个以上兄弟画成小圆点（见 `Node::compact`），所以扇区可以窄；
-                // 一两个还带文字，得留出节点宽度的弦长。
-                // 单个子节点也偏 0.55 个 spread —— 不偏就正好压在父节点上
-                // （两圈半径只差 ~50px，节点半宽加起来 77px）。
-                let spread = if total >= 3 { 0.17 } else { (86. / rx2).max(0.34) };
-                let a = pa + spread * (0.55 + k as f32 - (total.saturating_sub(1)) as f32 / 2.);
-                Placed {
-                    x: cx + rx2 * a.cos(),
-                    y: cy + ry2 * a.sin(),
-                }
+            let a = -std::f32::consts::FRAC_PI_2 + tau * (i - 1) as f32 / ring as f32;
+            Placed {
+                x: cx + r * a.cos(),
+                y: cy + r * a.sin(),
             }
         })
         .collect()
@@ -378,22 +335,42 @@ mod tests {
     }
 
     #[test]
-    fn 兄弟越多摊得越开() {
-        let one = preset(json!({ "skills": [{ "state": "ok", "ref": "a" }] }));
-        let many = preset(json!({
+    fn 多值维度写加号不挂子节点() {
+        let p = preset(json!({
             "skills": [
                 { "state": "ok", "ref": "a" }, { "state": "ok", "ref": "b" },
-                { "state": "ok", "ref": "c" }
+                { "state": "invalid", "ref": "c" }, { "state": "ok", "ref": "d" }
             ],
+            "template": { "state": "ok", "ref": "smart-ass" },
         }));
-        let a = layout(&nodes(&one), 420., 460.);
-        let b = layout(&nodes(&many), 420., 460.);
-        let i = nodes(&many)
-            .iter()
-            .position(|n| n.id == "dim:skills:1")
-            .unwrap();
-        // 三个兄弟时，中间那个仍贴着父角度附近（不是乱飞）。
-        assert!((b[i].x - b[0].x).abs() < 420.);
-        assert!(!a.is_empty());
+        let ns = nodes(&p);
+        // 单层：全部是 layer 0 或 1，没有第二圈。
+        assert!(ns.iter().all(|n| n.layer <= 1));
+        let sk = ns.iter().find(|n| n.id == "dim:skills").unwrap();
+        assert_eq!(sk.value, "a +3");
+        let tpl = ns.iter().find(|n| n.id == "dim:template").unwrap();
+        assert_eq!(tpl.value, "smart-ass");
+        assert!(tpl.is_ref);
+        assert!(!ns.iter().find(|n| n.id == "dim:model").map_or(false, |n| n.is_ref));
+    }
+
+    #[test]
+    fn 所有点在同一圈上() {
+        let p = preset(json!({
+            "model": { "state": "ok", "value": "volc-ark/x" },
+            "thinking": { "state": "ok", "value": "medium" },
+            "template": { "state": "ok", "ref": "smart-ass" },
+        }));
+        let ns = nodes(&p);
+        let (w, h) = (640., 700.);
+        let pts = layout(&ns, w, h);
+        let (cx, cy) = (w / 2., h / 2. - 10.);
+        let d0 = ((pts[1].x - cx).powi(2) + (pts[1].y - cy).powi(2)).sqrt();
+        for q in pts.iter().skip(2) {
+            let d = ((q.x - cx).powi(2) + (q.y - cy).powi(2)).sqrt();
+            assert!((d - d0).abs() < 0.5, "不在同一圈上：{d} vs {d0}");
+        }
+        // 第一个点从 12 点开始（模型在最上面）。
+        assert!(pts[1].y < cy && (pts[1].x - cx).abs() < 0.5);
     }
 }
