@@ -705,6 +705,174 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
 .ly-flip .back .r { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line2); font-size: 11px; }
 .ly-flip .back .r .k { width: 84px; flex: 0 0 84px; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); }
 
+
+/* ══ 31 · terminal 终端 ══ */
+.ly-term { height: 100%; display: flex; flex-direction: column; background: #0b0b0b; border-radius: 4px;
+  border: 1px solid var(--line); font-family: JBMono, monospace; font-size: 11px; line-height: 1.85;
+  color: #c8c8c8; overflow: hidden; }
+.ly-term .tbar { display: flex; gap: 5px; padding: 7px 10px; background: #141414; border-bottom: 1px solid #222; }
+.ly-term .tbar i { width: 8px; height: 8px; border-radius: 50%; background: #333; }
+.ly-term .tbody { padding: 12px 14px; overflow: auto; flex: 1; }
+.ly-term .p { color: #6b7280; }
+.ly-term .cmd { color: #e5e5e5; }
+.ly-term .key { color: #7dd3fc; }
+.ly-term .str { color: #a7f3d0; }
+.ly-term .warn { color: #fbbf24; }
+.ly-term .err { color: #f87171; }
+.ly-term .dim { color: #6b7280; }
+.ly-term .box { border: 1px solid #252525; padding: 8px 10px; margin: 6px 0; border-radius: 3px; }
+.ly-term .row { display: flex; }
+.ly-term .row .k { width: 92px; color: #7dd3fc; flex: 0 0 92px; }
+.ly-term .row .v { color: #e5e5e5; }
+
+/* ══ 32 · repo 代码仓库 ══ */
+.ly-repo { height: 100%; display: flex; gap: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.ly-repo .tree { width: 186px; flex: 0 0 186px; background: var(--panel); border-right: 1px solid var(--line2);
+  padding: 8px 0; font-family: JBMono, monospace; font-size: 10.5px; overflow: auto; }
+.ly-repo .tree .th { padding: 4px 12px; color: var(--ink3); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+.ly-repo .tree .n { padding: 4px 12px; color: var(--ink2); display: flex; gap: 6px; align-items: center; }
+.ly-repo .tree .n.on { background: var(--panel2); color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+.ly-repo .tree .n .m { margin-left: auto; color: var(--ok); font-size: 9px; }
+.ly-repo .tree .n.sub { padding-left: 24px; }
+.ly-repo .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ly-repo .ph { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line2);
+  font-family: JBMono, monospace; font-size: 10px; color: var(--ink3); }
+.ly-repo .ph .st { margin-left: auto; color: var(--warn); }
+.ly-repo .code { flex: 1; overflow: auto; font-family: JBMono, monospace; font-size: 10.5px; line-height: 1.75; padding: 6px 0; }
+.ly-repo .code .l { display: flex; padding: 0 12px; }
+.ly-repo .code .no { width: 26px; flex: 0 0 26px; text-align: right; padding-right: 10px; color: var(--ink4); user-select: none; }
+.ly-repo .code .t { white-space: pre-wrap; word-break: break-word; }
+.ly-repo .code .k { color: var(--fx-blue); }
+.ly-repo .code .s { color: var(--fx-green); }
+.ly-repo .code .b { color: var(--fx-orange); }
+
+/* ══ 33 · chat 对话 ══ */
+.ly-chat { height: 100%; display: flex; flex-direction: column; gap: 10px; overflow: auto; padding-right: 4px; }
+.ly-chat .msg { display: flex; gap: 9px; align-items: flex-start; max-width: 92%; }
+.ly-chat .msg.me { margin-left: auto; flex-direction: row-reverse; }
+.ly-chat .av { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 24px;
+  background: var(--panel2); border: 1px solid var(--line); display: grid; place-items: center;
+  font-size: 9px; color: var(--ink3); font-family: JBMono, monospace; }
+.ly-chat .msg.me .av { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.ly-chat .bub { background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; padding: 8px 11px; }
+.ly-chat .msg.me .bub { background: color-mix(in srgb, var(--fx-blue) 16%, var(--panel)); border-color: transparent; }
+.ly-chat .bub .q { font-size: 11px; color: var(--ink3); margin-bottom: 3px; }
+.ly-chat .bub .a { font-size: 12px; line-height: 1.5; }
+.ly-chat .bub .a.mono { font-family: JBMono, monospace; font-size: 11px; }
+.ly-chat .typing { display: flex; gap: 3px; padding: 4px 0; }
+.ly-chat .typing i { width: 4px; height: 4px; border-radius: 50%; background: var(--ink4); }
+
+/* ══ 34 · ticket 工单 ══ */
+.ly-ticket { height: 100%; display: flex; flex-direction: column; }
+.ly-ticket .th { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.ly-ticket .th .no { font-family: JBMono, monospace; font-size: 11px; color: var(--ink3); }
+.ly-ticket .th h1 { font-size: 19px; font-weight: 600; }
+.ly-ticket .badge { height: 20px; padding: 0 8px; border-radius: 999px; font-size: 9.5px; display: inline-flex;
+  align-items: center; gap: 5px; background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.ly-ticket .badge i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.ly-ticket .body { flex: 1; display: flex; gap: 22px; padding-top: 14px; min-height: 0; }
+.ly-ticket .main { flex: 1; min-width: 0; overflow: auto; }
+.ly-ticket .desc { font-size: 12.5px; line-height: 1.65; color: var(--ink2); margin-bottom: 16px; }
+.ly-ticket .comment { display: flex; gap: 9px; padding: 10px 0; border-top: 1px solid var(--line2); }
+.ly-ticket .comment .av { width: 22px; height: 22px; border-radius: 50%; background: var(--panel2);
+  border: 1px solid var(--line); flex: 0 0 22px; display: grid; place-items: center; font-size: 8px; color: var(--ink3); }
+.ly-ticket .comment .c { flex: 1; }
+.ly-ticket .comment .c .by { font-size: 10px; color: var(--ink3); margin-bottom: 3px; }
+.ly-ticket .comment .c .tx { font-size: 12px; line-height: 1.55; }
+.ly-ticket .side2 { width: 190px; flex: 0 0 190px; border-left: 1px solid var(--line2); padding-left: 16px; }
+.ly-ticket .side2 .f { padding: 8px 0; border-bottom: 1px solid var(--line2); }
+.ly-ticket .side2 .f .k { font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); margin-bottom: 3px; }
+.ly-ticket .side2 .f .v { font-size: 11.5px; }
+
+/* ══ 35 · album 专辑 ══ */
+.ly-album { height: 100%; display: flex; gap: 22px; }
+.ly-album .cover { width: 220px; flex: 0 0 220px; aspect-ratio: 1; border-radius: 4px; position: relative; overflow: hidden;
+  background: linear-gradient(135deg, var(--fx-blue), var(--fx-purple) 55%, var(--fx-magenta)); }
+.ly-album .cover .tx { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 14px; }
+.ly-album .cover .tx .n { font-size: 19px; font-weight: 600; color: #fff; letter-spacing: -.02em; }
+.ly-album .cover .tx .s { font-size: 9.5px; color: rgba(255,255,255,.75); letter-spacing: .18em; text-transform: uppercase; margin-top: 3px; }
+.ly-album .tracks { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ly-album .tracks .th { display: flex; align-items: baseline; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.ly-album .tracks .th .t { font-size: 12px; font-weight: 600; }
+.ly-album .tracks .th .c { margin-left: auto; font-family: JBMono, monospace; font-size: 9px; color: var(--ink3); }
+.ly-album .tr { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line2); }
+.ly-album .tr .i { font-family: JBMono, monospace; font-size: 9.5px; color: var(--ink4); width: 16px; }
+.ly-album .tr.on .i { color: var(--fx-blue); }
+.ly-album .tr .k { width: 76px; flex: 0 0 76px; font-size: 10px; color: var(--ink3); }
+.ly-album .tr .v { flex: 1; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ly-album .tr .d { font-family: JBMono, monospace; font-size: 9.5px; color: var(--ink4); }
+
+/* ══ 36 · weather 模块卡 ══ */
+.ly-weather { height: 100%; display: flex; flex-direction: column; gap: 7px; }
+.ly-weather .grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 7px; }
+.ly-weather .c { border-radius: 14px; padding: 13px 15px; display: flex; flex-direction: column; position: relative; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line2); }
+.ly-weather .c.hero { background: linear-gradient(160deg, color-mix(in srgb, var(--fx-blue) 55%, var(--panel)), color-mix(in srgb, var(--fx-cyan) 40%, var(--panel))); border-color: transparent; }
+.ly-weather .c.hero .k { color: rgba(255,255,255,.7); }
+.ly-weather .c .k { font-size: 8.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-weather .c .big { margin-top: auto; font-size: 40px; line-height: 1; font-weight: 500; letter-spacing: -.04em; }
+.ly-weather .c .big small { font-size: 15px; color: var(--ink3); font-weight: 400; margin-left: 3px; }
+.ly-weather .c .sub { font-size: 10.5px; color: var(--ink3); margin-top: 5px; }
+.ly-weather .c.hero .big, .ly-weather .c.hero .sub { color: #fff; }
+.ly-weather .c .spark { margin-top: 8px; display: flex; gap: 3px; align-items: flex-end; height: 26px; }
+.ly-weather .c .spark i { flex: 1; background: color-mix(in srgb, var(--fx-blue) 50%, transparent); border-radius: 2px; }
+
+/* ══ 37 · net 节点网络 ══ */
+.ly-net { height: 100%; display: flex; flex-direction: column; }
+.ly-net .nh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.ly-net .nh h1 { font-size: 17px; font-weight: 600; }
+.ly-net svg { flex: 1; width: 100%; min-height: 0; }
+.ly-net text { font-family: Inter, sans-serif; }
+
+/* ══ 38 · sheet 电子表格 ══ */
+.ly-sheet2 { height: 100%; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
+  font-family: JBMono, monospace; font-size: 10.5px; }
+.ly-sheet2 .row { display: flex; border-bottom: 1px solid var(--line2); }
+.ly-sheet2 .row.hd { background: var(--panel2); color: var(--ink3); font-size: 9px; letter-spacing: .08em; }
+.ly-sheet2 .cell { flex: 1; padding: 6px 8px; border-right: 1px solid var(--line2); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ly-sheet2 .cell:last-child { border-right: 0; }
+.ly-sheet2 .cell.rn { flex: 0 0 30px; text-align: right; color: var(--ink4); background: var(--panel); }
+.ly-sheet2 .cell.k { flex: 0 0 108px; color: var(--ink3); }
+.ly-sheet2 .cell.v { color: var(--ink); }
+.ly-sheet2 .cell.on { background: color-mix(in srgb, var(--fx-blue) 12%, transparent); outline: 1px solid var(--fx-blue); }
+
+/* ══ 39 · deck 幻灯片 ══ */
+.ly-deck { height: 100%; display: flex; flex-direction: column; }
+.ly-deck .slide { flex: 1; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+  padding: 34px 40px; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+.ly-deck .slide .pg { position: absolute; right: 18px; bottom: 14px; font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); }
+.ly-deck .slide .tag { font-size: 8.5px; letter-spacing: .24em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-deck .slide h1 { font-size: 36px; line-height: 1.05; letter-spacing: -.035em; font-weight: 500; margin: 14px 0 10px; }
+.ly-deck .slide .lead { font-size: 13.5px; line-height: 1.6; color: var(--ink2); max-width: 44ch; }
+.ly-deck .slide .pairs { margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 26px; }
+.ly-deck .slide .pairs .p .k { font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); margin-bottom: 3px; }
+.ly-deck .slide .pairs .p .v { font-size: 12px; }
+.ly-deck .nav { display: flex; align-items: center; gap: 8px; padding-top: 10px; }
+.ly-deck .nav .dots { display: flex; gap: 5px; margin: 0 auto; }
+.ly-deck .nav .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); cursor: pointer; }
+.ly-deck .nav .dots i.on { background: var(--ink); }
+
+/* ══ 40 · player 播放器 ══ */
+.ly-player { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
+.ly-player .art { width: 240px; height: 240px; border-radius: 8px; position: relative; overflow: hidden;
+  background: conic-gradient(from 210deg, var(--fx-purple), var(--fx-blue), var(--fx-cyan), var(--fx-purple)); }
+.ly-player .art .tx { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.35); }
+.ly-player .art .tx .n { font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+.ly-player .art .tx .s { font-size: 9px; letter-spacing: .22em; text-transform: uppercase; opacity: .8; margin-top: 5px; }
+.ly-player .meta { text-align: center; }
+.ly-player .meta .t { font-size: 14px; font-weight: 600; }
+.ly-player .meta .a { font-size: 10.5px; color: var(--ink3); margin-top: 3px; }
+.ly-player .bar { width: 300px; height: 3px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.ly-player .bar i { display: block; height: 100%; width: 38%; background: var(--ink); }
+.ly-player .times { display: flex; gap: 10px; font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); width: 300px; justify-content: space-between; }
+.ly-player .wave { display: flex; gap: 2px; align-items: center; height: 34px; width: 300px; justify-content: center; }
+.ly-player .wave i { width: 2px; background: color-mix(in srgb, var(--ink) 45%, transparent); border-radius: 1px; }
+.ly-player .ctl { display: flex; gap: 14px; align-items: center; color: var(--ink2); }
+.ly-player .ctl .play { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--bg);
+  display: grid; place-items: center; font-size: 12px; }
+
 </style>
 <script>
 window.addEventListener("error", (e) => {
@@ -769,6 +937,22 @@ window.addEventListener("error", (e) => {
   </section>
 
   <section>
+    <h2>场景式</h2>
+    <div class="opts" id="opt-layout4">
+      <button class="opt" data-k="term"><b>31</b><span>终端 · CLI 输出</span></button>
+      <button class="opt" data-k="repo"><b>32</b><span>代码仓 · 树+高亮</span></button>
+      <button class="opt" data-k="chat"><b>33</b><span>对话 · 气泡</span></button>
+      <button class="opt" data-k="ticket"><b>34</b><span>工单 · issue</span></button>
+      <button class="opt" data-k="album"><b>35</b><span>专辑 · 曲目列表</span></button>
+      <button class="opt" data-k="weather"><b>36</b><span>模块卡 · 大数字</span></button>
+      <button class="opt" data-k="net"><b>37</b><span>节点图 · 放射</span></button>
+      <button class="opt" data-k="sheet2"><b>38</b><span>电子表 · 单元格</span></button>
+      <button class="opt" data-k="deck"><b>39</b><span>幻灯片 · 可翻页</span></button>
+      <button class="opt" data-k="player"><b>40</b><span>播放器 · 波形</span></button>
+    </div>
+  </section>
+
+  <section>
     <h2>皮肤（只影响颜色/线型）</h2>
     <div class="opts" id="opt-skin">
       <button class="opt" data-k="graphite"><b>石墨</b><span>暗 · 细线</span></button>
@@ -812,13 +996,16 @@ const LAYOUT_NAME = {
   receipt: '21 · 小票', palette: '22 · 命令面板', dash: '23 · 仪表盘', seq: '24 · 时序',
   journey: '25 · 旅程', swim: '26 · 泳道', fish: '27 · 鱼骨', packet: '28 · 数据包',
   headline: '29 · 头版', flip: '30 · 翻面卡',
+  term: '31 · 终端', repo: '32 · 代码仓', chat: '33 · 对话', ticket: '34 · 工单',
+  album: '35 · 专辑', weather: '36 · 模块卡', net: '37 · 节点图', sheet2: '38 · 电子表',
+  deck: '39 · 幻灯片', player: '40 · 播放器',
 };
 
 const state = {
   skin: "graphite", section: "st", selected: "deep-dive",
   cat: null, view: "list", q: "",
   tab: "detail", unit: 0, layer: null, menu: null, toast: null, mode: "detail",
-  layout: "flow", openGrp: 0, flipped: false, draft: { name: "", summary: "", category: "", start: "blank" },
+  layout: "flow", openGrp: 0, flipped: false, slide: 0, draft: { name: "", summary: "", category: "", start: "blank" },
 };
 
 const sec = () => (state.section === "st" ? ST : UT);
@@ -1677,6 +1864,227 @@ function lyFlip(p) {
   </div>`;
 }
 
+
+/* 31 terminal */
+function lyTerm(p) {
+  const f = fields(p), rf = refs(p);
+  return `<div class="ly-term">
+    <div class="tbar"><i></i><i></i><i></i></div>
+    <div class="tbody">
+      <div><span class="p">~/Nous-Template $</span> <span class="cmd">preset show ${esc(p.name)}</span></div>
+      <div class="box">
+        <div class="row"><span class="k">section</span><span class="v">${crumbOf()}</span></div>
+        ${f.map((x) => `<div class="row"><span class="k">${esc(x.k)}</span><span class="v">${esc(x.v)}</span></div>`).join("")}
+      </div>
+      <div><span class="p">~/Nous-Template $</span> <span class="cmd">preset refs --check</span></div>
+      ${rf.map((r) => `<div><span class="${r.state === "ok" ? "str" : "err"}">${r.state === "ok" ? "✓" : "✗"}</span> ${esc(r.kind)} <span class="dim">→</span> <span class="key">${esc(r.name)}</span></div>`).join("") || `<div class="dim">no references</div>`}
+      <div style="margin-top:6px"><span class="p">~/Nous-Template $</span> <span class="cmd">git status --short</span></div>
+      <div class="warn">${dirty() ? " M  " + esc(pending().units[0]?.files?.[0]?.path ?? "preset.json") : "nothing to commit"}</div>
+      <div class="dim">${pending().units.length} file(s) pending · HEAD ${head()}</div>
+      <div style="margin-top:6px"><span class="p">~/Nous-Template $</span> <span class="cmd">▍</span></div>
+    </div>
+  </div>`;
+}
+
+/* 32 repo */
+function lyRepo(p) {
+  const f = fields(p);
+  const text = JSON.stringify(p.spec || {}, null, 2).split("\n");
+  return `<div class="ly-repo">
+    <div class="tree">
+      <div class="th">${crumbOf()}</div>
+      <div class="n on">▾ ${esc(p.name)}</div>
+      <div class="n sub on">preset.json<span class="m">M</span></div>
+      <div class="n sub">PRESET.md</div>
+      <div class="n">▸ categories.json</div>
+      <div class="n" style="color:var(--ink4)">${dirty() ? "1 modified" : "clean"}</div>
+    </div>
+    <div class="pane">
+      <div class="ph"><span>preset.json</span><span>${text.length} lines</span>
+        <span class="st">${dirty() ? "M" : ""}</span></div>
+      <div class="code">${text.map((l, i) => {
+        const hl = l.replace(/(&)/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"([^"]+)":/g, '<span class="k">"$1"</span>:')
+          .replace(/: "([^"]*)"/g, ': <span class="s">"$1"</span>')
+          .replace(/: (true|false|null|\d+)/g, ': <span class="b">$1</span>');
+        return `<div class="l"><span class="no">${i + 1}</span><span class="t">${hl}</span></div>`;
+      }).join("")}</div>
+    </div>
+  </div>`;
+}
+
+/* 33 chat */
+function lyChat(p) {
+  const f = fields(p), rf = refs(p);
+  const bub = (me, q, a, mono) => `<div class="msg ${me ? "me" : ""}">
+    <div class="av">${me ? "我" : "N"}</div>
+    <div class="bub">${q ? `<div class="q">${esc(q)}</div>` : ""}<div class="a ${mono ? "mono" : ""}">${esc(a)}</div></div></div>`;
+  return `<div class="ly-chat">
+    ${bub(true, "", `这条「${p.name}」到底钉了什么？`)}
+    ${bub(false, "", p.summary)}
+    ${f.slice(0, 4).map((x) => bub(true, x.k, x.v, x.mono)).join("")}
+    ${rf.length ? bub(false, "引用了什么", rf.map((r) => r.name).join("、") + (rf.every((r) => r.state === "ok") ? "（都在）" : "（有失效）")) : ""}
+    ${f.length > 4 ? bub(true, "其余", f.slice(4).map((x) => `${x.k} ${x.v}`).join("，")) : ""}
+    <div class="msg"><div class="av">N</div><div class="bub"><div class="typing"><i></i><i></i><i></i></div></div></div>
+  </div>`;
+}
+
+/* 34 ticket */
+function lyTicket(p) {
+  const f = fields(p), rf = refs(p);
+  return `<div class="ly-ticket">
+    <div class="th"><span class="no">#${String(1024 + (p.name.length * 7) % 900)}</span>
+      <h1 class="ly-name">${esc(p.name)}</h1>
+      <span class="badge"><i></i>${dirty() ? "未提交" : "已发布"}</span></div>
+    <div class="body">
+      <div class="main">
+        <p class="desc">${esc(p.summary)}${p.description ? " " + esc(p.description) : ""}</p>
+        <div class="comment"><div class="av">N</div><div class="c">
+          <div class="by">nous · 刚刚</div>
+          <div class="tx">${rf.length ? `引用 ${rf.length} 条：${rf.map((r) => r.name).join("、")}。${rf.every((r) => r.state === "ok") ? "全部可用。" : "有失效，先修再发。"}` : "没有外部引用，可以独立跑。"}</div>
+        </div></div>
+        <div class="comment"><div class="av">C</div><div class="c">
+          <div class="by">engine · 3 分钟前</div>
+          <div class="tx">${esc(f[0].k)} = ${esc(f[0].v)}${f[0].sub ? ` (${esc(f[0].sub)})` : ""}；${esc(f[1].k)} = ${esc(f[1].v)}。</div>
+        </div></div>
+        <div class="comment"><div class="av">C</div><div class="c">
+          <div class="by">engine · 3 分钟前</div>
+          <div class="tx">${pending().units.length} 个文件待同步，HEAD ${head()}。</div>
+        </div></div>
+      </div>
+      <div class="side2">
+        ${f.map((x) => `<div class="f"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+        <div class="f"><div class="k">引用</div><div class="v">${rf.length} 条</div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* 35 album */
+function lyAlbum(p) {
+  const f = fields(p), rf = refs(p);
+  const tracks = [...f.map((x) => ({ k: x.k, v: x.v })), ...rf.map((r) => ({ k: r.kind, v: r.name }))];
+  return `<div class="ly-album">
+    <div class="cover"><div class="tx"><div class="n">${esc(p.name)}</div>
+      <div class="s">${crumbOf()}</div></div></div>
+    <div class="tracks">
+      <div class="th"><span class="t">${tracks.length} 项</span><span class="c">${head()}</span></div>
+      ${tracks.map((t, i) => `<div class="tr ${i === 0 ? "on" : ""}">
+        <span class="i">${String(i + 1).padStart(2, "0")}</span>
+        <span class="k">${esc(t.k)}</span>
+        <span class="v">${esc(t.v)}</span>
+        <span class="d">${String(2 + (i % 4)).padStart(2, "0")}:${String(10 + (i * 13) % 49).padStart(2, "0")}</span></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 36 weather */
+function lyWeather(p) {
+  const f = fields(p), rf = refs(p);
+  const card = (k, big, unit, sub, cls = "", spark = false) => `<div class="c ${cls}">
+    <div class="k">${esc(k)}</div>
+    <div class="big">${esc(String(big).slice(0, 10))}${unit ? `<small>${esc(unit)}</small>` : ""}</div>
+    <div class="sub">${esc(sub)}</div>
+    ${spark ? `<div class="spark">${[8, 14, 10, 20, 16, 24, 12, 18].map((h) => `<i style="height:${h}px"></i>`).join("")}</div>` : ""}
+  </div>`;
+  return `<div class="ly-weather">
+    <div class="grid">
+      ${card(f[0].k, f[0].v, "", f[0].sub || "—", "hero")}
+      ${card(f[1].k, f[1].v, "", "当前")}
+      ${card("引用", `${rf.filter((r) => r.state === "ok").length}`, `/ ${rf.length || 0}`, rf.every((r) => r.state === "ok") ? "全部正常" : "有失效", "", true)}
+      ${card("待同步", `${pending().units.length}`, "文件", pending().units[0]?.name ?? "无")}
+    </div>
+  </div>`;
+}
+
+/* 37 net */
+function lyNet(p) {
+  const f = fields(p).slice(0, 5), rf = refs(p).slice(0, 2);
+  const W = 620, H = 460, cx = W / 2, cy = H / 2 - 10;
+  const nodes = [...f.map((x) => ({ t: x.k, s: x.v, c: "var(--fx-blue)" })), ...rf.map((r) => ({ t: r.kind, s: r.name, c: r.state === "ok" ? "var(--fx-green)" : "var(--fx-red)" }))];
+  const R = 158;
+  const pos = nodes.map((_, i) => {
+    const a = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
+    return [cx + Math.cos(a) * R, cy + Math.sin(a) * R];
+  });
+  const edges = pos.map(([x, y]) => `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)" stroke-width="1" />`).join("");
+  const rings = [0.5, 1].map((k) => `<circle cx="${cx}" cy="${cy}" r="${R * k}" fill="none" stroke="var(--line)" stroke-dasharray="2 5" />`).join("");
+  const dots = nodes.map((n, i) => {
+    const [x, y] = pos[i];
+    const left = x < cx;
+    return `<circle cx="${x}" cy="${y}" r="6" fill="var(--panel)" stroke="${n.c}" stroke-width="2" />
+      <text x="${x + (left ? -12 : 12)}" y="${y - 2}" text-anchor="${left ? "end" : "start"}" fill="var(--ink3)" font-size="8.5" letter-spacing="1.1">${esc(n.t.toUpperCase())}</text>
+      <text x="${x + (left ? -12 : 12)}" y="${y + 11}" text-anchor="${left ? "end" : "start"}" fill="var(--ink)" font-size="10">${esc(String(n.s).slice(0, 16))}</text>`;
+  }).join("");
+  return `<div class="ly-net">
+    <div class="nh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 44)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${rings}${edges}
+      <circle cx="${cx}" cy="${cy}" r="30" fill="var(--ink)" />
+      <text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="var(--bg)" font-size="10">${esc(p.name).slice(0, 9)}</text>
+      ${dots}
+    </svg>
+  </div>`;
+}
+
+/* 38 sheet2 */
+function lySheet2(p) {
+  const f = fields(p), rf = refs(p);
+  const cols = ["字段", "值", "状态", "来源"];
+  return `<div class="ly-sheet2">
+    <div class="row hd"><span class="cell rn"></span>${cols.map((c) => `<span class="cell">${c}</span>`).join("")}</div>
+    ${f.map((x, i) => `<div class="row"><span class="cell rn">${i + 1}</span>
+      <span class="cell k">${esc(x.k)}</span>
+      <span class="cell v ${i === 0 ? "on" : ""}">${esc(x.v)}</span>
+      <span class="cell">${esc(x.v === "不要" || x.v === "未发布" ? "空" : "已设")}</span>
+      <span class="cell">preset.json</span></div>`).join("")}
+    ${rf.map((r, i) => `<div class="row"><span class="cell rn">${f.length + i + 1}</span>
+      <span class="cell k">${esc(r.kind)}</span>
+      <span class="cell v">${esc(r.name)}</span>
+      <span class="cell">${r.state === "ok" ? "OK" : "失效"}</span>
+      <span class="cell">ref</span></div>`).join("")}
+  </div>`;
+}
+
+/* 39 deck */
+function lyDeck(p) {
+  const f = fields(p), rf = refs(p);
+  const total = 3;
+  const i = Math.min(state.slide, total - 1);
+  const pages = [
+    `<div class="tag">${crumbOf()}</div><h1 class="ly-name">${esc(p.name)}</h1>
+     <p class="lead">${esc(p.summary)}</p>
+     <div class="pairs">${f.slice(0, 4).map((x) => `<div class="p"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}</div>`,
+    `<div class="tag">引用 · ${rf.length}</div><h1 class="ly-name" style="font-size:30px">它靠什么跑</h1>
+     <p class="lead">${rf.length ? "下面每一条都得在盘上，缺一条就开不了。" : "没有外部引用，独立可跑。"}</p>
+     <div class="pairs">${rf.map((r) => `<div class="p"><div class="k">${esc(r.kind)} · ${r.state === "ok" ? "OK" : "失效"}</div><div class="v">${esc(r.name)}</div></div>`).join("") || `<div class="p"><div class="k">—</div><div class="v">无</div></div>`}</div>`,
+    `<div class="tag">状态</div><h1 class="ly-name" style="font-size:30px">${dirty() ? "还没提交" : "已发布"}</h1>
+     <p class="lead">${dirty() ? `${pending().units.length} 个文件改在盘上，HEAD ${head()}。发布后远端才看得见。` : `HEAD ${head()}，远端可见。`}</p>
+     <div class="pairs">${f.slice(4).map((x) => `<div class="p"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}</div>`,
+  ];
+  return `<div class="ly-deck">
+    <div class="slide">${pages[i]}<div class="pg">${i + 1} / ${total}</div></div>
+    <div class="nav">
+      <button class="btn ghost" data-act="slide" data-i="${Math.max(0, i - 1)}">←</button>
+      <div class="dots">${Array.from({ length: total }, (_, k) => `<i class="${k === i ? "on" : ""}" data-act="slide" data-i="${k}"></i>`).join("")}</div>
+      <button class="btn ghost" data-act="slide" data-i="${Math.min(total - 1, i + 1)}">→</button>
+    </div>
+  </div>`;
+}
+
+/* 40 player */
+function lyPlayer(p) {
+  const f = fields(p);
+  return `<div class="ly-player">
+    <div class="art"><div class="tx"><div class="n">${esc(p.name)}</div><div class="s">${crumbOf()}</div></div></div>
+    <div class="meta"><div class="t">${esc(p.summary).slice(0, 40)}</div><div class="a">${esc(f[0].k)} · ${esc(f[0].v)}</div></div>
+    <div class="wave">${Array.from({ length: 48 }, (_, i) => `<i style="height:${4 + ((i * 17) % 26)}px"></i>`).join("")}</div>
+    <div class="bar"><i></i></div>
+    <div class="times"><span>1:24</span><span>${esc(head())}</span></div>
+    <div class="ctl"><span>⏮</span><span class="play">▶</span><span>⏭</span></div>
+  </div>`;
+}
+
 const LAYOUTS = {
   flow: lyFlow, table: lyTable, tiles: lyTiles, mono: lyMono,
   sheet: lySheet, split: lySplit, gauge: lyGauge, columns: lyColumns,
@@ -1685,6 +2093,8 @@ const LAYOUTS = {
   mind: lyMind, radar: lyRadar, sankey: lySankey, state: lyState,
   receipt: lyReceipt, palette: lyPalette, dash: lyDash, seq: lySeq, journey: lyJourney,
   swim: lySwim, fish: lyFish, packet: lyPacket, headline: lyHeadline, flip: lyFlip,
+  term: lyTerm, repo: lyRepo, chat: lyChat, ticket: lyTicket, album: lyAlbum,
+  weather: lyWeather, net: lyNet, sheet2: lySheet2, deck: lyDeck, player: lyPlayer,
 };
 
 /* 通用 tab：盘面 / JSON / 对比 */
@@ -1906,6 +2316,7 @@ $("#app").addEventListener("click", (e) => {
   else if (act === "layout") { state.layout = t.dataset.k; paintLayout(); render(); }
   else if (act === "grp") { state.openGrp = state.openGrp === +t.dataset.i ? -1 : +t.dataset.i; render(); }
   else if (act === "flip") { state.flipped = !state.flipped; render(); }
+  else if (act === "slide") { state.slide = +t.dataset.i; render(); }
   else if (act === "unit") { state.unit = +t.dataset.i; render(); }
   else if (act === "goto-diff") { state.tab = "diff"; render(); }
   else if (act === "new") { state.mode = "new"; state.tab = "detail"; state.draft = { name: "", summary: "", category: "", start: "blank" }; render(); }
@@ -1952,10 +2363,10 @@ $("#app").addEventListener("input", (e) => {
 });
 
 function paintLayout() {
-  $$("#opt-layout .opt, #opt-layout2 .opt, #opt-layout3 .opt").forEach((b) =>
+  $$("#opt-layout .opt, #opt-layout2 .opt, #opt-layout3 .opt, #opt-layout4 .opt").forEach((b) =>
     b.setAttribute("aria-pressed", String(b.dataset.k === state.layout)));
 }
-$$("#opt-layout .opt, #opt-layout2 .opt, #opt-layout3 .opt").forEach((b) => b.addEventListener("click", () => {
+$$("#opt-layout .opt, #opt-layout2 .opt, #opt-layout3 .opt, #opt-layout4 .opt").forEach((b) => b.addEventListener("click", () => {
   state.layout = b.dataset.k; paintLayout(); render();
 }));
 paintLayout();
