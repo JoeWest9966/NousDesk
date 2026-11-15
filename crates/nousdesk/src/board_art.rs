@@ -442,6 +442,16 @@ pub(crate) struct Pop {
 /// 机器 / 目录贴在 dock **上方**、居中。
 pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool, for_dir: bool) -> Pop {
     let gap = 14.;
+    // 竖排档没有四角卡、也没有环 —— `node_rect` / `foot_rect` 在这里是流式布局，
+    // 拿它们的坐标去贴只会把弹层甩到格子外。这一档统一居中贴顶。
+    if matches!(m.layout, Layout::Stack) {
+        let w = (m.w - 24.).max(180.);
+        return Pop {
+            x: (m.w - w) / 2.,
+            w,
+            anchor: Anchor::Top(20.),
+        };
+    }
     match slot {
         Some(Slot::Model) => {
             let n = node_rect(m, Slot::Model);
