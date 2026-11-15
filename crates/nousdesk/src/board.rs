@@ -524,6 +524,35 @@ impl Desktop {
         let b = &self.newchat;
         let model_value = b.picked_label().unwrap_or_else(|| "—".into());
 
+        // 窄到放不下「四角 + 圆 + 环」时换竖排，别把同一套硬塞进去。
+        if m.layout == art::Layout::Stack {
+            return div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(t().d(0.))
+                .h_full()
+                .bg(rgb(art::bg()))
+                .text_color(rgb(art::fg()))
+                .text_size(m.f(1.75, 12., 16.))
+                .track_focus(&b.focus)
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                    if ev.keystroke.key == "escape" {
+                        if this.newchat.sheet.is_some() {
+                            this.newchat.sheet = None;
+                        } else {
+                            this.board_close(cx);
+                            return;
+                        }
+                        cx.notify();
+                    }
+                }))
+                .child(self.board_stack(&m, cx))
+                .children(self.board_sheet(&m, cx))
+                .into_any_element();
+        }
+
         let body = div()
             .relative()
             .flex_1()
@@ -623,7 +652,11 @@ impl Desktop {
         canvas(
             move |_bounds, _, _| Wires {
                 cards: slots.map(|s| art::card_wire(&m, s)),
-                ring: art::ring(&m),
+                ring: if art::has_ring(&m) {
+                    art::ring(&m)
+                } else {
+                    (0., 0., 0., 0.)
+                },
                 feet: feet.map(|f| art::foot_wire(&m, f)),
             },
             |bounds, w, window, _| {
@@ -643,6 +676,8 @@ impl Desktop {
                 }
 
                 // 环：点线（比卡片连线更短更密，才像一圈轨道而不是四条线之一）。
+                // 紧凑档没有环 —— 那里放不下，硬画只会和卡片打架。
+                if w.ring.2 > 0. {
                 // 用折线逼近椭圆（48 段）：点线渲染下看不出多边形，但比手写
                 // 四段贝塞尔少一个出错的地方。
                 let (cx, cy, rx, ry) = w.ring;
@@ -660,6 +695,7 @@ impl Desktop {
                 pb.close();
                 if let Ok(path) = pb.build() {
                     window.paint_path(path, rgb(art::accent()));
+                }
                 }
 
                 // 三条短线：圆边 → 环上的三颗珠子。
@@ -688,6 +724,8 @@ impl Desktop {
         // 状态行已经在说「差一个模型」，按钮不必再弹一次同样的字。
         let live = self.can_create();
         let busy = b.creating;
+        // 紧凑 / 竖排档的圆更小，那行英文会溢出去。
+        let tight = m.layout != art::Layout::Wide;
 
         div()
             .absolute()
@@ -740,7 +778,8 @@ impl Desktop {
                                     .font_weight(FontWeight::BOLD)
                                     .child(if busy { "Creating…" } else { "+ Create" }),
                             )
-                            .when(!busy, |el| {
+                            // 小圆放不下那行英文：紧凑/竖排档只留 `+ Create`。
+                            .when(!busy && !tight, |el| {
                                 el.child(
                                     div()
                                         .mt(m.v(0.3))
@@ -996,6 +1035,188 @@ impl Desktop {
             )
             .child(chip("foot-machine", art::Foot::Machine, machine, Sheet::Machine, cx))
             .child(chip("foot-dir", art::Foot::Dir, dir, Sheet::Dir, cx))
+            .into_any_element()
+    }
+
+    /// 竖排档（右格 < 620）：圆在顶、三颗 pill 一行、四张卡一列，整列可滚。
+    ///
+    /// 这一档「一屏不滚」已经不可能 —— 300px 宽硬要塞四角 + 环只会互相盖住，
+    /// 所以干脆承认它是个列表页。
+    fn board_stack(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let b = &self.newchat;
+        let live = self.can_create() || b.creating;
+        let r = art::core_r(&m);
+        let machine = b.machine.clone().unwrap_or_else(|| "本机".into());
+        let dir = b
+            .dir
+            .as_ref()
+            .map(|p| tail_path(p))
+            .unwrap_or_else(|| "—".into());
+        let model = b.picked_label().unwrap_or_else(|| "—".into());
+        let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
+        let prompt = b.template.clone().unwrap_or_else(|| "none".into());
+
+        let pill = |id: &'static str, text: String, sheet: Sheet, cx: &mut Context<Self>| {
+            div()
+                .id(ElementId::Name(id.into()))
+                .px(m.s(11.))
+                .py(m.s(6.))
+                .rounded_full()
+                .bg(if live { rgb(art::solid()) } else { rgb(art::surface()) })
+                .text_color(if live { rgb(art::bg()) } else { rgb(art::muted()) })
+                .font_family(art::mono())
+                .text_size(m.f(1.45, 10., 11.5))
+                .when(live, |el| el.hover(|s| s.opacity(0.88)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.sheet = Some(sheet);
+                    cx.notify();
+                }))
+                .child(text)
+        };
+
+        let row = |id: &'static str, k: &'static str, title: &'static str, value: String, sheet: Option<Sheet>, cx: &mut Context<Self>| {
+            let mut el = div()
+                .id(ElementId::Name(id.into()))
+                .w_full()
+                .px(m.s(13.))
+                .py(m.s(11.))
+                .mb(m.s(8.))
+                .bg(rgb(art::panel()))
+                .border_1()
+                .border_color(rgb(art::border()))
+                .rounded(t().r(9.))
+                .when(sheet.is_some(), |el| {
+                    el.hover(|s| s.border_color(rgb(art::line())))
+                })
+                .child(
+                    div()
+                        .font_family(art::mono())
+                        .text_size(m.f(0.95, 8., 9.5))
+                        .text_color(rgb(art::faint()))
+                        .child(k),
+                )
+                .child(
+                    div()
+                        .mt(m.s(4.))
+                        .text_size(m.f(1.55, 11., 13.))
+                        .font_weight(FontWeight::BOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .mt(m.s(3.))
+                        .font_family(art::mono())
+                        .text_size(m.f(1.25, 9., 11.))
+                        .text_color(rgb(art::muted()))
+                        .truncate()
+                        .child(value),
+                );
+            if let Some(sh) = sheet {
+                el = el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.sheet = Some(sh);
+                    cx.notify();
+                }));
+            }
+            el
+        };
+
+        div()
+            .id(ElementId::Name("board-stack".into()))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(m.s(6.))
+            .px(m.s(16.))
+            .py(m.s(18.))
+            .flex_1()
+            .min_h(t().d(0.))
+            .overflow_y_scroll()
+            .child(
+                div()
+                    .id(ElementId::Name("board-create-stack".into()))
+                    .flex_none()
+                    .size(px(2. * r))
+                    .rounded_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(if live || b.creating {
+                        rgb(art::solid())
+                    } else {
+                        rgb(art::surface())
+                    })
+                    .text_color(if live || b.creating {
+                        rgb(art::bg())
+                    } else {
+                        rgb(art::faint())
+                    })
+                    .when(live, |el| {
+                        el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.board_create(cx)))
+                    })
+                    .child(
+                        div()
+                            .text_size(m.f(1.7, 12., 14.))
+                            .font_weight(FontWeight::BOLD)
+                            .child(if b.creating { "Creating…" } else { "+ Create" }),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .gap(m.s(6.))
+                    .child(pill("stk-machine", machine.clone(), Sheet::Machine, cx))
+                    .child(pill("stk-dir", dir.clone(), Sheet::Dir, cx)),
+            )
+            .child(
+                // 名字：竖排档给它一条整宽的输入，别塞进小 pill 里。
+                div()
+                    .flex_none()
+                    .w_full()
+                    .mt(m.s(4.))
+                    .px(m.s(12.))
+                    .py(m.s(9.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(art::solid()))
+                    .text_color(rgb(art::bg()))
+                    .child(Textarea::new(&b.name_input).appearance(false).bordered(false)),
+            )
+            .child(div().flex_none().h(m.s(10.)))
+            .child(row(
+                "stk-model",
+                "MODEL",
+                "Model",
+                model,
+                Some(Sheet::Model),
+                cx,
+            ))
+            .child(row(
+                "stk-ctx",
+                "CONTEXT",
+                "Skills · Prompt",
+                format!("{skills} · {prompt}"),
+                Some(Sheet::Skills),
+                cx,
+            ))
+            .child(row("stk-ext", "EXTENSIONS", "Extensions", "none".into(), None, cx))
+            .child(row("stk-perm", "PERMISSIONS", "Permissions", "—".into(), None, cx))
+            // 状态行放最底下：竖排档顶部已经够挤，它在那儿会被输入框压住。
+            .child(
+                div()
+                    .flex_none()
+                    .mt(m.s(6.))
+                    .mb(m.s(8.))
+                    .text_center()
+                    .font_family(art::mono())
+                    .text_size(m.f(1.15, 9., 10.5))
+                    .text_color(rgb(if b.flash.is_some() {
+                        art::danger()
+                    } else {
+                        art::ok()
+                    }))
+                    .child(b.flash.clone().unwrap_or_else(|| b.hub_sub())),
+            )
             .into_any_element()
     }
 
