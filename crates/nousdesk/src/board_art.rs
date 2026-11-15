@@ -45,8 +45,14 @@ pub(crate) struct M {
 /// 盘面所在的那一格 = 窗口减去图标条和左栏。
 pub(crate) fn pane_width(win_w: f32, tab: crate::app::Tab) -> f32 {
     let t = crate::theme::cur();
+    // 窄窗时 Template 页的类别树收进了抽屉、列表也窄一点 —— 这里得跟渲染那边
+    // 用同一份宽度，否则右格会算窄 300 多像素，盘面直接画到窗口外面。
+    let folder = win_w < crate::app::TREE_FOLD_W;
     let left = match tab {
         crate::app::Tab::Chats => t.rail_w + t.list_w,
+        crate::app::Tab::Templates if folder => {
+            t.rail_w + crate::app::TEMPLATE_LIST_W_NARROW
+        }
         crate::app::Tab::Templates => t.rail_w + t.preset_tree_w + t.template_list_w,
     };
     (win_w - left).max(1.)
@@ -111,9 +117,14 @@ pub(crate) enum Slot {
     Perms,
 }
 
-/// 卡片宽度：右格的 23.5%，夹在 190–268。
+/// 卡片宽度：右格的 23.5%，夹在 150–268。
+///
+/// **上限还要再让两列放得下**：右格窄到 400 时 0.235 只有 94，而 190 的下限
+/// 会让左右两张卡直接叠在一起（半屏盘面就是这么糊的）。所以取「两列 + 8px 缝」。
 pub(crate) fn node_w(m: &M) -> f32 {
-    (m.w * 0.235).clamp(190., 268.)
+    let side = (m.w * 0.055).clamp(10., 80.);
+    let fits = ((m.w - 2. * side - 8.) / 2.).max(120.);
+    (m.w * 0.235).clamp(150., 268.).min(fits)
 }
 
 /// 卡片高度是**写死**的：弹层要靠 `bottom()` 贴着卡片弹，卡片高度自适应
@@ -145,17 +156,32 @@ pub(crate) fn node_rect(m: &M, slot: Slot) -> Rect {
     }
 }
 
-/// 中央那颗圆：半径是右格宽的 8.5%，夹在 56–92。
+/// 中央那颗圆：半径是右格宽的 8.5%，夹在 40–92。
 pub(crate) fn core_r(m: &M) -> f32 {
-    (m.w * 0.085).clamp(56., 92.)
+    (m.w * 0.085).clamp(40., 92.)
 }
 
+/// 圆心。纵向**要让开上下两排卡**：窗口只有 480 高时 `0.42h` 正好压在卡片边上
+/// （640×480 下盘面那圈圆被切、四张卡糊成一团就是这个）。
 pub(crate) fn core_center(m: &M) -> (f32, f32) {
-    (m.w * 0.5, m.h * 0.42)
+    let r = core_r(m);
+    // 上面那排最高 148（Context），下面那排 112。
+    let top_edge = (m.h * 0.11).clamp(10., 150.) + 148.;
+    let bot_edge = m.h - (m.h * 0.26).clamp(10., 280.) - 112.;
+    let lo = top_edge + r + 6.;
+    let hi = bot_edge - r - 6.;
+    let cy = if hi > lo {
+        (m.h * 0.42).clamp(lo, hi)
+    } else {
+        // 实在挤不开（比如 480 高 + 大圆），就退到两排中间，宁可贴着也别重叠。
+        (top_edge + bot_edge) / 2.
+    };
+    (m.w * 0.5, cy)
 }
 
 pub(crate) fn dock_w(m: &M) -> f32 {
-    (m.w * 0.84).min(720.)
+    // 240 是「名字框 + 机器 chip + 目录 chip + CREATE」压到不能再压的宽度。
+    (m.w * 0.84).min(720.).max(240.)
 }
 
 pub(crate) const DOCK_H: f32 = 52.;

@@ -489,6 +489,45 @@ impl Desktop {
         .detach();
     }
 
+    /// 窄窗下的「类别」抽屉：把常驻的那一栏原样搬到一个左滑的浮层里。
+    ///
+    /// 只在 `TREE_FOLD_W` 以下出现（宽窗类别树本来就常驻，抽屉永远关着）。
+    pub(crate) fn cat_drawer_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.cat_drawer {
+            return None;
+        }
+        let scrim = div()
+            .id("cat-drawer-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.cat_drawer = false;
+                cx.notify();
+            }));
+
+        // 抽屉里的东西**就是**那一栏本身：同一份状态、同一套点击逻辑，
+        // 不另开一套「窄屏专用类别列表」。
+        let panel = div()
+            .id("cat-drawer")
+            .absolute()
+            .top(t().d(0.))
+            .bottom(t().d(0.))
+            .left(px(t().rail_w))
+            .shadow_lg()
+            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+            .child(self.render_preset_tree(cx));
+
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(scrim)
+                .child(panel)
+                .into_any_element(),
+        )
+    }
+
     /// 弹层本体。罩子点掉 = 关闭；弹窗吃掉点击。
     pub(crate) fn new_cat_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let input = self.new_cat.input.clone()?;
@@ -1057,7 +1096,11 @@ impl Desktop {
     // ── 渲染：预设列表 ──────────────────────────────────────
 
     /// Template 页的右栏：类别标题 + 条目列表。
-    pub(crate) fn render_templates(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// 中栏：这一段的模板卡片列表。
+    ///
+    /// `narrow` = 窄窗（类别树已经收进抽屉）。这时列表自己也收窄一点，
+    /// 头顶补一个「类别」按钮把抽屉叫出来 —— 否则这一页就没有换类别的入口了。
+    pub(crate) fn render_templates(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
         let sec = &self.sections[self.section];
         let uncat = sec
             .data
@@ -1127,7 +1170,12 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(t().template_list_w))
+            // 窄窗再收 60px 给右栏：240 还放得下两行摘要，右栏能多出小半屏。
+            .w(px(if narrow {
+                crate::app::TEMPLATE_LIST_W_NARROW
+            } else {
+                t().template_list_w
+            }))
             .h_full()
             .flex_none()
             .bg(rgb(t().p.list_bg))
@@ -1137,18 +1185,66 @@ impl Desktop {
                 div()
                     .flex()
                     .flex_row()
-                    .items_baseline()
+                    .items_center()
                     .gap(t().d(6.))
                     .px(t().d(14.))
                     .pt(t().d(14.))
                     .pb(t().d(4.))
+                    .children(narrow.then(|| {
+                        div()
+                            .id("cat-drawer-btn")
+                            .flex()
+                            .items_center()
+                            .gap(t().d(3.))
+                            .h(t().d(20.))
+                            .px(t().d(6.))
+                            .rounded(t().r(5.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.line))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.text_2))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.cat_drawer = true;
+                                cx.notify();
+                            }))
+                            .child(Icon::new(IconName::Menu).size(t().d(12.)))
+                            .child("类别")
+                    }))
                     .child(div().text_size(t().fs(15.)).child(title.clone()))
                     .child(
                         div()
                             .text_size(t().fs(12.))
                             .text_color(rgb(muted()))
                             .child(format!("{count} 条")),
-                    ),
+                    )
+                    // 窄窗时类别树收进抽屉，「新建」也跟着没了 —— 在这儿补回来。
+                    .children(narrow.then(|| {
+                        div()
+                            .id("new-preset-narrow")
+                            .ml_auto()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .gap(t().d(3.))
+                            .h(t().d(22.))
+                            .px(t().d(8.))
+                            .rounded(t().r(6.))
+                            .bg(rgb(t().p.accent))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.on_accent))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_new_preset(window, cx)
+                            }))
+                            .child(
+                                Icon::new(IconName::Plus)
+                                    .size(t().d(11.))
+                                    .text_color(rgb(t().p.on_accent)),
+                            )
+                            .child("新建")
+                    })),
             )
             .child(
                 div()
@@ -1692,13 +1788,6 @@ impl Desktop {
     ///
     /// 图是「看一眼就走」的：中心 = 这条预设，一圈 = 它钉住的维度，外圈 = 具体的
     /// 技能/扩展。节点颜色直接抄引擎的 `resolved.*.state` —— 这边不算「能不能开」。
-    /// 右栏的「新建一条」表单 —— **清单式**（demo `new-preset.html` 的 9 号）。
-    ///
-    /// 四行竖着排，每行左边一个圈：必填两项（名字 / 摘要）填完才打勾，
-    /// 另两项（类别 / 起手式）有默认值，圈是空的、标题右边标「可改」。
-    ///
-    /// **进度只跟必填项走**：把「类别留空 = 未分类」也算进进度，会让人以为
-    /// 不选类别就建不了。所以分母恒为 2，不是 4。
     pub(crate) fn render_new_preset(
         &self,
         window: &mut Window,
@@ -1717,6 +1806,18 @@ impl Desktop {
         let done: u8 = u8::from(name_ok) + u8::from(sum_ok);
         let pct = f32::from(done) / 2.;
         let can = name_ok && sum_ok && !busy;
+        // 滚动容器（`overflow_y_scroll`）在 gpui 里会把内容按 min-content 收缩 ——
+        // 640 宽时清单只剩 20px（标题「新建模板」被裁成一个「新」）。给它一个
+        // 显式宽度就老实了：右栏 = 窗口 - 图标条 - 左边那一两栏。
+        let vw = f32::from(window.viewport_size().width);
+        let folder = vw < crate::app::TREE_FOLD_W;
+        let used = t().rail_w
+            + if folder {
+                crate::app::TEMPLATE_LIST_W_NARROW
+            } else {
+                t().preset_tree_w + t().template_list_w
+            };
+        let col_w = (vw - used).max(240.);
         // 类别候选：这一段的词表（前 5 个）。点一下就是把它填进输入框 ——
         // 不是另一套状态，输入框里那串字始终是唯一的真相。
         let cats: Vec<String> = self.sections[self.section]
@@ -1845,12 +1946,15 @@ impl Desktop {
                 div()
                     .id("new-preset-body")
                     .flex_1()
+                    .w(px(col_w))
+                    .min_w(t().d(0.))
                     .min_h(t().d(0.))
                     .overflow_y_scroll()
                     .px(t().d(26.))
                     .py(t().d(20.))
                     .child(
                         div()
+                            .w_full()
                             .max_w(t().d(540.))
                             .flex()
                             .flex_col()
@@ -2057,6 +2161,13 @@ impl Desktop {
             return div().into_any_element();
         }
 
+        // 窄窗别把 `detail_w`（默认 420）当最小宽：640 宽时右栏只剩 344，
+        // 顶着 420 的下限就会把顶栏右边那半截（「开一条新对话」按钮）裁掉。
+        let min_w = if window.viewport_size().width.as_f32() < crate::app::TREE_FOLD_W {
+            t().d(0.)
+        } else {
+            px(dw)
+        };
         let shell = |inner: AnyElement| {
             div()
                 .flex()
@@ -2064,7 +2175,8 @@ impl Desktop {
                 // 右栏吃掉剩余宽度（`detail_w` 是最小宽）：窗口更宽时图居中留白，
                 // 而不是在右边露出一条没人用的墙。
                 .flex_1()
-                .min_w(px(dw))
+                .w_full()
+                .min_w(min_w)
                 .h_full()
                 .bg(rgb(t().p.panel))
                 .border_l(t().d(1.))
@@ -2159,8 +2271,17 @@ impl Desktop {
         let vw = f32::from(window.viewport_size().width);
         let vh = f32::from(window.viewport_size().height);
         let rail = t().rail_w;
-        let used = rail + t().preset_tree_w + t().template_list_w;
-        let col = (vw - used).max(dw);
+        // 窄窗时左两栏跟渲染那边一样（类别树进抽屉、列表 240）—— 否则这里会
+        // 以为右栏有 420，图按 396 画，右边一截直接推到窗口外。
+        let folder = vw < crate::app::TREE_FOLD_W;
+        let used = rail
+            + if folder { 0. } else { t().preset_tree_w }
+            + if folder {
+                crate::app::TEMPLATE_LIST_W_NARROW
+            } else {
+                t().template_list_w
+            };
+        let col = (vw - used).max(if folder { 240. } else { dw });
         let (gw, gh) = (
             (col - t().d(24.).as_f32()).max(220.),
             (vh - t().d(150.).as_f32()).max(300.),
@@ -2322,14 +2443,22 @@ impl Desktop {
                     })),
             );
 
-            // 标签：左半圈右对齐到点的左侧，右半圈左对齐到点的右侧。
-            // 宽度按到边界的距离收 —— 否则最左/最右那两个会顶出画布。
-            let (lw, lx) = if left_side {
-                let w = (x - 16.).clamp(40., 132.);
-                (w, x - 10. - w)
+            // 标签：左半圈右对齐到点的左侧，右半圈左对齐到点的右侧（demo 是这样）。
+            // **但窄右栏放不下时就翻到另一边**：640 宽时右栏只有 344，最右那个点
+            // 右侧只剩 20px，标签会画出窗口（截图里「思考 medium」就是这么没的）。
+            let left_room = x - 16.;
+            let right_room = gw - x - 16.;
+            let on_left = if left_side {
+                left_room >= 40.
             } else {
-                let w = (gw - x - 16.).clamp(40., 132.);
-                (w, x + 10.)
+                right_room < 40.
+            };
+            let (lw, lx) = if on_left {
+                let w = left_room.clamp(24., 132.);
+                (w, (x - 10. - w).max(0.))
+            } else {
+                let w = right_room.clamp(24., 132.);
+                (w, (x + 10.).min(gw - w))
             };
             let label_id = n.id.clone();
             layer = layer.child(
@@ -2344,7 +2473,7 @@ impl Desktop {
                     .flex_col()
                     .justify_center()
                     .gap(px(1.))
-                    .when(left_side, |el| el.items_end())
+                    .when(on_left, |el| el.items_end())
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
                         this.picked_node = Some(label_id.clone());
@@ -2355,6 +2484,7 @@ impl Desktop {
                             .text_size(t().fs(8.5))
                             .text_color(rgb(muted()))
                             .whitespace_nowrap()
+                            .text_overflow(TextOverflow::Truncate("…".into()))
                             .child(n.label.clone()),
                     )
                     .child(
@@ -2430,8 +2560,8 @@ impl Desktop {
                     div()
                         .flex()
                         .flex_1()
+                        .w_full()
                         .min_h(t().d(0.))
-                        .overflow_hidden()
                         .items_center()
                         .justify_center()
                         .when(nodes.len() <= 1, |el| {
