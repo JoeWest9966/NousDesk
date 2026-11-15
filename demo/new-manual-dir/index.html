@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>New Manual · 目录导航（4 套）</title>
+<style>
+  :root{
+    --bg:#ededed; --panel:#fff; --surface:#f6f6f6; --line:#e6e6e6; --line-soft:#f2f2f2;
+    --text:#1a1a1a; --muted:#999; --faint:#aaa;
+    --accent:#07c160; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: Inter, "Manrope", -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#fbfbfb;color:var(--text);font-family:var(--sans);}
+  body{padding:56px 40px 120px;}
+  h1{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:0 0 10px;}
+  .lede{font-size:13.5px;color:#666;line-height:1.7;max-width:820px;margin:0;}
+  .lede b{color:#111;font-weight:600;}
+  .lede code{font-family:var(--mono);font-size:12px;background:#efefef;padding:1px 5px;border-radius:3px;color:#333;}
+  .meta{font-family:var(--mono);font-size:11px;color:#aaa;margin:14px 0 46px;}
+
+  .pane{margin:0 0 60px;}
+  .pane-head{display:flex;align-items:baseline;gap:12px;margin:0 0 5px;}
+  .num{font-family:var(--mono);font-size:11px;color:#bbb;border:1px solid #e4e4e4;border-radius:3px;padding:1px 6px;}
+  .pane-head h2{font-size:15px;font-weight:600;margin:0;}
+  .why{font-size:12.5px;color:#7a7a7a;line-height:1.65;margin:0 0 18px 40px;max-width:760px;}
+  .why b{color:#333;font-weight:600;}
+
+  /* ── 弹层：真宽 460（Wide 档 foot 弹层的实际宽度）───────── */
+  .sheet{
+    width:460px; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; box-shadow:0 10px 32px rgba(0,0,0,.07);
+    margin-left:40px;
+  }
+  .shead{display:flex;align-items:flex-start;justify-content:space-between;padding:12px 15px 10px;border-bottom:1px solid var(--line);}
+  .shead .t{font-size:13px;font-weight:600;line-height:1.3;}
+  .shead .h{font-size:11px;color:var(--muted);font-style:italic;margin-top:2px;}
+  .shead .x{color:#bbb;font-size:14px;line-height:1;cursor:pointer;}
+
+  /* 路径输入 */
+  .pbar{display:flex;align-items:center;gap:7px;margin:10px 13px 0;padding:0 9px;height:29px;
+        background:var(--surface);border:1px solid transparent;border-radius:7px;}
+  .pbar.focus{border-color:var(--accent);background:#fff;}
+  .pbar .ico{font-size:11px;color:#c0c0c0;font-family:var(--mono);}
+  .pbar input{flex:1;min-width:0;border:0;background:transparent;outline:0;
+              font-family:var(--mono);font-size:11.5px;color:var(--text);}
+  .pbar input::placeholder{color:#bcbcbc;}
+  .pbar .hintk{font-size:9.5px;color:#c4c4c4;font-family:var(--mono);border:1px solid #e8e8e8;
+               border-radius:3px;padding:0 4px;line-height:14px;}
+
+  /* 面包屑 */
+  .crumbs{display:flex;align-items:center;flex-wrap:nowrap;gap:2px;margin:7px 13px 0;
+          font-family:var(--mono);font-size:11px;color:#8a8a8a;overflow:hidden;}
+  .crumbs .seg{padding:2px 5px;border-radius:4px;cursor:pointer;white-space:nowrap;}
+  .crumbs .seg:hover{background:#f2f2f2;color:#222;}
+  .crumbs .seg.cur{color:#1a1a1a;font-weight:600;}
+  .crumbs .sep{color:#dcdcdc;flex:none;}
+  .crumbs .fold{padding:2px 5px;color:#bbb;cursor:pointer;}
+  .crumbs .fold:hover{background:#f2f2f2;color:#555;}
+  .crumbs .edit{margin-left:auto;color:#bbb;font-size:10px;flex:none;padding-left:6px;}
+
+  /* 列表 */
+  .list{margin:9px 0 0;padding:0 6px 6px;max-height:288px;overflow:hidden;}
+  .row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:6px;
+       font-family:var(--mono);font-size:11.5px;border:1px solid transparent;min-height:29px;}
+  .row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .row.up{color:#999;}
+  .row.up .nm{font-size:10.5px;color:#c0c0c0;}
+  .row.dir:hover{background:#f7f7f7;}
+  .row.dir .go{font-size:10px;color:#d0d0d0;flex:none;}
+  .row.dir:hover .go{color:var(--accent);}
+  .row.here{border-color:var(--accent);background:var(--accent-soft);}
+  .row.here .nm{color:var(--accent-fg);font-weight:600;}
+  .row.here .tag{font-family:var(--sans);font-size:10px;color:var(--accent-fg);flex:none;}
+  .row .mark{background:transparent;color:inherit;font-weight:700;}
+  .divider{height:1px;background:var(--line-soft);margin:6px 9px;}
+  .ghost{font-family:var(--sans);font-size:11px;color:#c8c8c8;padding:4px 9px 8px;}
+
+  .sfoot{display:flex;align-items:center;justify-content:space-between;padding:9px 15px;
+         border-top:1px solid var(--line);font-size:10.5px;color:var(--faint);font-family:var(--mono);}
+  .usebtn{font-family:var(--sans);font-size:11.5px;font-weight:500;color:#fff;background:var(--accent);
+          border-radius:6px;padding:4px 11px;cursor:pointer;}
+  .usebtn.ghost{background:#f2f2f2;color:#b0b0b0;}
+  .done{font-size:11px;color:var(--accent-fg);border:1px solid var(--accent);background:var(--accent-soft);
+        border-radius:6px;padding:3px 9px;font-family:var(--sans);}
+
+  .note{font-size:12px;color:#888;line-height:1.75;margin:14px 0 0 40px;max-width:760px;}
+  .note b{color:#333;}
+  .note .bad{color:#c0392b;}
+  .note code{font-family:var(--mono);font-size:11.5px;color:#555;}
+
+  .bug{background:#fff8ee;border:1px solid #f2dfc4;border-radius:8px;padding:14px 16px;
+       margin:0 0 40px;max-width:820px;font-size:13px;line-height:1.7;color:#6b5a3e;}
+  .bug b{color:#3d3221;}
+  .bug code{font-family:var(--mono);font-size:12px;background:#f6ecd9;padding:1px 5px;border-radius:3px;}
+</style>
+</head>
+<body>
+
+<h1>New Manual · 工作目录导航</h1>
+<p class="lede">
+  现在的目录弹层<b>只能一层层点 <code>..</code> 往上爬</b>，而且——这是真 bug——
+  <b>点进去什么都没有</b>：我们从来没给 <code>/v1/fs/dirs</code> 带过 <code>?path=</code>，所以它永远返回 map 根那一层。
+  四套方案都要先修这个，再决定<b>「输入框」和「面包屑」是两行还是一行</b>。
+</p>
+<div class="meta">弹层真宽 460 · 路径 /opt/Nous/content/new1/map 下真实有 23 个子目录 · 配色 =「默认」皮</div>
+
+<div class="bug">
+  <b>接口已经有全部能力了，只是我们没用：</b><br>
+  <code>GET /v1/fs/dirs</code> → <code>{"path":"", "dirs":[{name:"/opt/Nous/content/new1/map", path:"…"}]}</code>（map 根，就一条）<br>
+  <code>GET /v1/fs/dirs?path=/opt/Nous/content/new1/map</code> → <code>{"path":"…", "parent":"/opt/Nous/content/new1", "dirs":[23 条]}</code><br>
+  <code>GET /v1/fs/dirs?q=map</code> → 也能按名字找（方案 04 靠它）<br>
+  也就是说：<b><code>parent</code> 是现成的、子目录是现成的、按名字找也是现成的</b> —— 我们只吃了 <code>dirs[0]</code> 就没了。
+</div>
+
+<!-- 00 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">00</span><h2>现在</h2></div>
+  <p class="why">一行 <code>..</code> + 一行当前目录（带绿框）。没有输入框、没有面包屑、
+     点进去也不会变 —— 因为 <code>dir_at</code> 变了但没人拿它去请求。</p>
+  <div class="sheet">
+    <div class="shead"><div><div class="t">工作目录</div><div class="h">列的是引擎那台机器上的目录 · 点一层进去</div></div><div class="x">×</div></div>
+    <div class="list" style="margin-top:10px">
+      <div class="row here"><span style="width:11px"></span><span class="nm">/opt/Nous/content/new1/map</span></div>
+    </div>
+    <div class="sfoot"><span>Esc 关闭 · 点空白处也关</span><span class="done">完成 ›</span></div>
+  </div>
+  <p class="note">这就是你现在点「map」那颗 pill 看到的样子 —— 只有一行，其余什么都没有。</p>
+</section>
+
+<!-- 01 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">01</span><h2>两行：输入框 + 面包屑</h2></div>
+  <p class="why">上面能打字（<b>回车跳转</b>），下面一行面包屑（<b>点哪段回哪层</b>）。
+     两件事分开：一个是「我要去哪」，一个是「我在哪、怎么回去」。</p>
+  <div class="sheet" id="p1"></div>
+  <p class="note">
+    好处：<b>两条路都通</b>。知道路径的直接粘，不知道的一层层点。<br>
+    代价：<b>两行都在说「你在哪」</b>，信息重复；460 宽的弹层里成本不低（两行 ≈ 70px，正好一个子目录的价）。
+  </p>
+</section>
+
+<!-- 02 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">02</span><h2>一行：面包屑本身就是输入框</h2></div>
+  <p class="why">面包屑装在一个框里，<b>点某段 = 回去</b>，<b>点末尾 = 变成可打字</b>。
+     少一个控件，也少一行「我在哪」。</p>
+  <div class="sheet" id="p2"></div>
+  <p class="note">
+    好处：<b>省一行</b>，而且「路径就是面包屑」这件事本来就是一回事 —— 两个控件只是把同一句话说了两遍。<br>
+    代价：<b class="bad">可编辑这件事藏起来了</b>。用户得先知道「点末尾能打字」，否则永远不会去点。
+    要补一个 <code>✎</code> 或者 hover 时才露的提示，那就又多一个控件。
+  </p>
+</section>
+
+<!-- 03 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">03</span><h2>一行 + 折叠中段</h2></div>
+  <p class="why">跟 02 一样是单行，但<b>深路径从中间折叠</b>：<code>/opt/…/new1/map</code>，点 <code>…</code> 展开。
+     Tesla 那边「少放一个控件」的做法 —— 短路径时跟 02 一模一样，只有长了才不一样。</p>
+  <div class="sheet" id="p3"></div>
+  <p class="note">
+    好处：<b>永远单行、永远不截断</b>。460 宽放得下 <code>/opt/Nous/content/new1/map</code>，
+    但 <code>/opt/Nous/content/new1/map/6ysg01/prompts/v2</code> 就放不下了 —— 那时候 02 会从右边切掉，03 会折叠中段。<br>
+    代价：<b>点 <code>…</code> 展开又是「藏起来的东西」</b>；而且折叠规则得定（留头几段尾几段），不然长路径还是看不清。
+  </p>
+</section>
+
+<!-- 04 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">04</span><h2>输入框 = 搜索框（另一条路）</h2></div>
+  <p class="why">不打完整路径，<b>打一段名字</b>，引擎按名字找（<code>?q=</code> 现成的），
+     下面直接列匹配到的目录，点一次就到。到了一层之后退回普通浏览。</p>
+  <div class="sheet" id="p4"></div>
+  <p class="note">
+    好处：<b>深目录最省事</b>。<code>/opt/Nous/content/new1/map/6ysg01/prompts</code> 打 <code>prompts</code> 就完了，
+    不用点五层。<br>
+    代价：<b class="bad">是「另一个模式」</b>，和 04 号搜索方案犯同一个毛病 —— 输入框同一时刻既是路径又是搜索词，
+    用户得猜「我现在打的是路径还是关键词」。而且 q 的匹配规则在内核，模糊到什么程度我们控制不了。
+  </p>
+</section>
+
+<h2 style="font-size:15px;margin:56px 0 10px;">我的判断</h2>
+<p class="lede" style="max-width:820px;">
+  先不管排布：<b>子目录列表和 <code>parent</code> 是必须先补的</b>，那不是设计题，那是接口没吃完（现在整个弹层只有一行，因为只读了 <code>dirs[0]</code>）。<br><br>
+  排布上我选 <b>03</b>：单行、路径就是面包屑、长了自动折叠中段。它和 02 只差折叠一条规则，
+  但那条规则让这个弹层在 460 宽的格子边缘也不难看 —— 而 01 的两行我嫌贵（一个子目录的高度买了一句重复的话）。<br><br>
+  <b>04 先不做</b>：<code>?q=</code> 能用，但「路径框同时是搜索框」这个歧义没解决之前，它只会让人不确定自己打的字会被怎么解释。
+  等真有人抱怨「深目录点太多次」再说。
+</p>
+<div class="legend" style="font-family:var(--mono);font-size:10.5px;color:#bbb;margin-top:12px;">
+  demo/new-manual-dir · 数据取自 /v1/fs/dirs?path=…（真实 23 条子目录名）· 配色 =「默认」皮
+</div>
+
+<script>
+const SUBS = ['3699b9','68kazk','6ysg01','7awa4h','8ven4x','bjes6b','cmqt66','d6s4v1','e4kq9z','f7bw82'];
+const HERE = '/opt/Nous/content/new1/map';
+const PARENT = '/opt/Nous/content/new1';
+const SEGS = ['opt','Nous','content','new1','map'];
+const Q = 'new1';
+
+const head = (hint='列的是引擎那台机器上的目录 · 点一层进去') =>
+  `<div class="shead"><div><div class="t">工作目录</div><div class="h">${hint}</div></div><div class="x">×</div></div>`;
+
+const foot = (here=true) => `
+  <div class="sfoot">
+    <span>Esc 关闭 · 点空白处也关</span>
+    <span class="${here?'usebtn':'usebtn ghost'}">${here?'用这个目录':'用这个目录'}</span>
+  </div>`;
+
+const list = (opts={}) => `
+  <div class="list">
+    <div class="row up"><span style="width:11px">↑</span><span class="nm">上一级 · ${PARENT}</span></div>
+    <div class="divider"></div>
+    ${SUBS.map((s,i)=>`<div class="row dir"><span style="width:11px"></span><span class="nm">${s}</span><span class="go">↵</span></div>`).join('')}
+    <div class="divider"></div>
+    <div class="row here"><span style="width:11px"></span><span class="nm">${HERE}</span><span class="tag">当前</span></div>
+    <div class="ghost">… 还有 13 个</div>
+  </div>`;
+
+// ── 01 两行
+document.getElementById('p1').innerHTML = head() + `
+  <div class="pbar focus">
+    <span class="ico">›</span>
+    <input value="${HERE}">
+    <span class="hintk">↵</span>
+  </div>
+  <div class="crumbs">
+    <span class="seg">/</span>
+    ${SEGS.map((s,i)=>`<span class="seg ${i===SEGS.length-1?'cur':''}">${s}</span>${i<SEGS.length-1?'<span class="sep">›</span>':''}`).join('')}
+  </div>` + list() + foot();
+
+// ── 02 单行：面包屑即输入框
+document.getElementById('p2').innerHTML = head('点某段回去 · 点末尾可以打字') + `
+  <div class="pbar" style="margin-top:10px">
+    <span class="ico">/</span>
+    <div class="crumbs" style="margin:0;flex:1">
+      ${SEGS.map((s,i)=>`<span class="seg ${i===SEGS.length-1?'cur':''}">${s}</span>${i<SEGS.length-1?'<span class="sep">›</span>':''}`).join('')}
+    </div>
+    <span class="edit">✎</span>
+  </div>
+  <div class="crumbs" style="margin-top:5px;color:#c8c8c8"><span style="font-size:10px">整条路径可以直接粘进来，回车跳转</span></div>`
+  + list() + foot();
+
+// ── 03 单行 + 折叠中段
+document.getElementById('p3').innerHTML = head('点某段回去 · 点 … 展开中段') + `
+  <div class="pbar" style="margin-top:10px">
+    <span class="ico">/</span>
+    <div class="crumbs" style="margin:0;flex:1">
+      <span class="seg">opt</span><span class="sep">›</span><span class="fold">…</span><span class="sep">›</span><span class="seg">new1</span><span class="sep">›</span><span class="seg cur">map</span>
+    </div>
+    <span class="edit">✎</span>
+  </div>
+  <div class="crumbs" style="margin-top:5px;color:#c8c8c8"><span style="font-size:10px">鼠标停在 … 上看完整路径；点它展开</span></div>`
+  + list() + foot();
+
+// ── 04 输入框 = 搜索框
+{
+  const hits = [HERE, '/opt/Nous/content/new1', '/opt/Nous/content/new1/map/6ysg01'];
+  const hl = s => s.replace(new RegExp(Q,'g'), `<mark class="mark">${Q}</mark>`);
+  document.getElementById('p4').innerHTML = head('打一段名字找目录 · 到了一层就退回普通浏览') + `
+  <div class="pbar focus">
+    <span class="ico">⌕</span>
+    <input value="${Q}">
+    <span class="hintk">${hits.length} 匹配</span>
+  </div>
+  <div class="list" style="margin-top:9px">
+    ${hits.map((h,i)=>`<div class="row dir ${i===0?'here':''}"><span style="width:11px"></span><span class="nm">${hl(h)}</span><span class="go">↵</span></div>`).join('')}
+    <div class="ghost">输入完整路径也能直接跳；空着就是浏览</div>
+  </div>` + foot();
+}
+</script>
+</body>
+</html>
