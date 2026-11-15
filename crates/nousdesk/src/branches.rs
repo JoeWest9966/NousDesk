@@ -19,7 +19,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use nous_engine::types::Session;
 
-use crate::app::{Desktop, LIST_BG, MUTED, activity_of};
+use crate::app::{Desktop, MUTED, activity_of};
 
 /// 缩进宽度 / 层。封顶 [`MAX_DEPTH`] 层。
 const INDENT: f32 = 14.;
@@ -149,7 +149,7 @@ impl Desktop {
             .flex_col()
             .w(t().d(280.))
             .h_full()
-            .bg(rgb(LIST_BG))
+            .bg(rgb(crate::theme::cur().p.list_bg))
             .child(
                 div()
                     .p(t().d(12.))

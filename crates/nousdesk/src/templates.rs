@@ -706,7 +706,7 @@ impl Desktop {
             .w(px(t().template_list_w))
             .h_full()
             .flex_none()
-            .bg(rgb(super::app::LIST_BG))
+            .bg(rgb(t().p.list_bg))
             .border_r(t().d(1.))
             .border_color(rgb(t().p.line))
             .child(
@@ -1379,11 +1379,7 @@ impl Desktop {
         // 右栏是 `flex_1`，实际宽度跟窗口走 —— 半径必须按**真实宽度**算。
         let vw = f32::from(window.viewport_size().width);
         let vh = f32::from(window.viewport_size().height);
-        let rail = if t().layout == crate::theme::Layout::NoRail {
-            0.
-        } else {
-            t().rail_w
-        };
+        let rail = t().rail_w;
         let used = rail + t().preset_tree_w + t().template_list_w;
         let col = (vw - used).max(dw);
         let (gw, gh) = (

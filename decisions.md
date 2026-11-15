@@ -323,3 +323,17 @@ JSON 面板看得懂但看不懂。而且数据天然是图（`resolved` 每个�
 「选中行下方就地展开一行状态」，把 380px 还给列表。判断依据是验证.md 里的真机用后反馈。
 
 方案与施工步骤见 `docs/plan-node-graph.md`。
+
+## 2026-11-15 · 主题收敛到 4 套（默认 / 工业 / 单色 / 纸）
+
+删掉 Model S、Model 3、Cybertruck、MCU、Editorial、夜间驾驶、Energy、Plaid、NoRail，
+新增 **单色（mono）** 和 **纸（paper）**，两套都照 demo `app.html` 的皮肤变量抄。
+
+**为什么**：11 套里有 7 套 demo 里根本没有，也就没有任何验收口径 —— 谁也不知道
+它们「对不对」，只能靠感觉调。现在 4 套全部有 demo 可对照，改外观时有据可依。
+
+**连布局一起删**：`Layout::NoRail`（无图标条）只服务于 NoRail 那套皮，跟着一起删，
+免得留下一个永远走不到的分支。图标条此后恒在。
+
+**代价**：少了 7 种配色。真想要回来，从 git 历史恢复 `theme.rs` 的那几个分支即可
+（`git show 41f6a7a:crates/nousdesk/src/theme.rs`）。

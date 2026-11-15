@@ -2310,11 +2310,6 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .gap(t().d(6.))
-                    // NoRail 收掉图标条之后，菜单入口得在列表里接回来 —— 否则「≡ 更多」
-                    // 跟着图标条一起没了，设置就点不开了。
-                    .children(
-                        (t().layout == crate::theme::Layout::NoRail).then(|| self.more_button(cx)),
-                    )
                     .child("NousDesk")
                     .child(div().flex_1())
                     // 建会话的唯一入口。以前只能从模板起，现在多一条「从零配」的路。
@@ -3636,11 +3631,7 @@ impl Render for Desktop {
             .when(!skin.font.is_empty(), |el| el.font_family(skin.font))
             .when(skin.line_height > 0., |el| el.line_height(px(skin.lh().as_f32())))
             .bg(rgb(skin.p.chat_bg))
-            .children(match skin.layout {
-                crate::theme::Layout::Classic => Some(self.render_icon_bar(cx).into_any_element()),
-                // NoRail：图标条收掉，菜单折进会话列表标题行（demo 09）。
-                crate::theme::Layout::NoRail => None,
-            })
+            .child(self.render_icon_bar(cx))
             .child(match self.tab {
                 Tab::Chats => self.render_session_list(cx).into_any_element(),
                 // Template 页是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
