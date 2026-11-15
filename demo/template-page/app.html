@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NousDesk · Template 工作台（完整原型）</title>
+<style>
+@font-face { font-family: Inter; src: url(fonts/inter-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: Manrope; src: url(fonts/manrope-500.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: JBMono; src: url(fonts/jetbrainsmono-400.woff2) format("woff2"); font-display: swap; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: #08090a; color: #e6e8ea;
+  font: 400 12.5px/1.45 Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex; gap: 22px; padding: 20px;
+}
+
+/* ══ 外壳（挑皮用） ══ */
+.bar { width: 196px; flex: 0 0 196px; }
+.bar h1 { font: 500 13px/1.3 Manrope, Inter; margin-bottom: 2px; }
+.bar .sub { color: #666d73; font-size: 10.5px; line-height: 1.6; margin-bottom: 20px; }
+.bar h2 { font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase; color: #666d73; margin: 0 0 7px; font-weight: 600; }
+.bar section { margin-bottom: 16px; }
+.opts { display: flex; flex-direction: column; gap: 1px; }
+.opt { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; cursor: pointer; text-align: left;
+  background: transparent; border: 0; border-left: 2px solid transparent; color: #939ba1; font: inherit; }
+.opt:hover { color: #e6e8ea; }
+.opt[aria-pressed="true"] { border-left-color: #e6e8ea; color: #fff; }
+.opt b { font-weight: 600; font-size: 10.5px; min-width: 46px; }
+.opt span { font-size: 10px; color: #666d73; }
+.opt[aria-pressed="true"] span { color: #939ba1; }
+.tip { font-size: 10px; line-height: 1.6; color: #666d73; margin-top: 8px; }
+.tip b { color: #b3babf; font-weight: 500; }
+.hint { margin-top: 14px; font-size: 10px; color: #5a6065; line-height: 1.7; border-top: 1px solid #1c2023; padding-top: 10px; }
+.hint code { font-family: JBMono, monospace; font-size: 9.5px; color: #8b9297; }
+
+/* ══ 应用窗 ══ */
+.win { flex: 1; display: flex; justify-content: center; align-items: flex-start; overflow: auto; }
+.app {
+  width: 1280px; height: 800px; display: flex; overflow: hidden; position: relative;
+  box-shadow: 0 40px 90px rgba(0,0,0,.6);
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font, Inter); font-size: var(--fs, 12.5px);
+}
+
+/* ── 皮肤变量 ───────────────────────────────────────────── */
+.app[data-skin="graphite"] {
+  --bg: #101214; --panel: #141719; --panel2: #191d20; --rail: #0b0d0e;
+  --ink: #e7eaec; --ink2: #9aa2a8; --ink3: #626a70; --ink4: #454c51;
+  --line: #22272b; --line2: #1a1e21; --accent: #e7eaec; --accent-ink: #101214;
+  --ok: #56b98a; --warn: #d8a24a; --bad: #e06c62; --radius: 3px; --row: 34px;
+}
+.app[data-skin="paper"] {
+  --bg: #fbfbfa; --panel: #ffffff; --panel2: #f5f5f3; --rail: #f0f0ee;
+  --ink: #171a1c; --ink2: #62686d; --ink3: #9298a0; --ink4: #b9bec3;
+  --line: #e6e6e3; --line2: #efefec; --accent: #171a1c; --accent-ink: #ffffff;
+  --ok: #2c8a5e; --warn: #a9761d; --bad: #c4362b; --radius: 3px; --row: 34px;
+}
+.app[data-skin="mono"] {
+  --bg: #000; --panel: #000; --panel2: #0a0a0a; --rail: #000;
+  --ink: #fff; --ink2: #a8a8a8; --ink3: #6b6b6b; --ink4: #4a4a4a;
+  --line: #fff; --line2: #2a2a2a; --accent: #fff; --accent-ink: #000;
+  --ok: #fff; --warn: #fff; --bad: #ff4d4d; --radius: 0px; --row: 36px;
+}
+.app[data-skin="steel"] {
+  --bg: #14181c; --panel: #171c21; --panel2: #1c2228; --rail: #0f1215;
+  --ink: #dfe6ea; --ink2: #93a0a9; --ink3: #66727b; --ink4: #4a545c;
+  --line: #232b31; --line2: #1b2227; --accent: #7fb2d6; --accent-ink: #0b0e10;
+  --ok: #6dbf98; --warn: #d5a45c; --bad: #d9766b; --radius: 2px; --row: 34px;
+}
+.app[data-skin="amber"] {
+  --bg: #0d0c0a; --panel: #12110e; --panel2: #17150f; --rail: #090806;
+  --ink: #f0e9dc; --ink2: #a89e8c; --ink3: #6f6656; --ink4: #504a3e;
+  --line: #251f18; --line2: #1c1712; --accent: #e8a33d; --accent-ink: #14110c;
+  --ok: #7fb489; --warn: #e8a33d; --bad: #d8705f; --radius: 3px; --row: 34px;
+}
+.app[data-skin="industrial"] {
+  --bg: #f4f2ee; --panel: #ffffff; --panel2: #efece7; --rail: #e9e6e0;
+  --ink: #14150f; --ink2: #5f5d55; --ink3: #8d8a82; --ink4: #b9b6ad;
+  --line: #14150f; --line2: #d8d5cd; --accent: #14150f; --accent-ink: #fff;
+  --ok: #1d6b46; --warn: #8a6113; --bad: #a8281c; --radius: 0px; --row: 36px;
+  --font: Manrope, Inter; --fs: 12px;
+}
+
+/* ── 图标条 ─────────────────────────────────────────────── */
+.rail { width: 56px; flex: 0 0 56px; background: var(--rail); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 6px; }
+.rail .logo { width: 22px; height: 22px; border-radius: 50%; background: var(--ink); opacity: .9; margin-bottom: 12px; }
+.rail button { width: 34px; height: 34px; border: 0; background: transparent; color: var(--ink3);
+  border-radius: var(--radius); display: grid; place-items: center; cursor: pointer; }
+.rail button:hover { background: var(--panel2); color: var(--ink2); }
+.rail button.on { background: var(--panel2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.rail .spacer { flex: 1; }
+svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ── 左：类别 ───────────────────────────────────────────── */
+.side { width: 216px; flex: 0 0 216px; background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; }
+.side-head { padding: 14px 14px 10px; display: flex; align-items: center; gap: 8px; }
+.side-title { font-size: 12.5px; font-weight: 600; letter-spacing: .01em; }
+.side-head .count { margin-left: auto; font-size: 10px; color: var(--ink3); font-family: JBMono, monospace; }
+.seg { display: flex; flex-direction: column; gap: 3px; padding: 0 14px 12px; }
+.seg button { width: 100%; height: 26px; padding: 0 9px; text-align: left; border: 1px solid var(--line);
+  background: transparent; color: var(--ink3); font: inherit; font-size: 10.5px; letter-spacing: .01em;
+  cursor: pointer; border-radius: var(--radius); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg button:hover { color: var(--ink2); }
+.seg button.on { background: var(--panel2); color: var(--ink); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+.side-actions { display: flex; gap: 6px; padding: 0 14px 10px; }
+.btn-s { height: 24px; padding: 0 9px; border: 1px solid var(--line); background: transparent; color: var(--ink2);
+  font: inherit; font-size: 10.5px; cursor: pointer; border-radius: var(--radius); display: inline-flex; align-items: center; gap: 4px; }
+.btn-s:hover { color: var(--ink); border-color: var(--ink3); }
+.btn-s.solid { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.tree { flex: 1; overflow: auto; padding: 2px 8px 12px; }
+.tree .row { display: flex; align-items: center; gap: 6px; height: var(--row); padding: 0 6px; border-radius: var(--radius);
+  color: var(--ink2); cursor: pointer; font-size: 11.5px; }
+.tree .row:hover { background: var(--panel2); color: var(--ink); }
+.tree .row.on { background: var(--panel2); color: var(--ink); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
+.tree .row .n { margin-left: auto; font-size: 10px; color: var(--ink3); font-family: JBMono, monospace; }
+.tree .sub { padding-left: 18px; }
+.tree .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ink4); }
+.side-foot { padding: 10px 14px; border-top: 1px solid var(--line); font-size: 9.5px; color: var(--ink3);
+  font-family: JBMono, monospace; display: flex; align-items: center; gap: 6px; }
+.side-foot .badge { color: var(--warn); }
+
+/* ── 中：列表 ───────────────────────────────────────────── */
+.list { width: 330px; flex: 0 0 330px; background: var(--bg); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; }
+.list-head { padding: 12px 12px 8px; display: flex; gap: 6px; align-items: center; }
+.search { flex: 1; height: 28px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 0 9px; font: inherit; font-size: 11.5px; border-radius: var(--radius); }
+.search::placeholder { color: var(--ink4); }
+.viewsw { display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.viewsw button { width: 26px; height: 28px; border: 0; background: transparent; color: var(--ink3);
+  cursor: pointer; display: grid; place-items: center; }
+.viewsw button.on { background: var(--panel2); color: var(--ink); }
+.cards { flex: 1; overflow: auto; padding: 4px 10px 14px; }
+.card { padding: 11px 11px; border-bottom: 1px solid var(--line2); cursor: pointer; position: relative; }
+.card:hover { background: var(--panel); }
+.card.on { background: var(--panel); box-shadow: inset 2px 0 0 var(--accent); }
+.card.on::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--line); border-left: 0; pointer-events: none; }
+.card .top { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
+.card .name { font-size: 12.5px; font-weight: 600; letter-spacing: -.005em; }
+.card .st { margin-left: auto; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); }
+.card .st.warn { color: var(--warn); }
+.card .st.bad { color: var(--bad); }
+.card .sum { font-size: 11px; color: var(--ink2); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .tags { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+.tag { font-size: 9px; letter-spacing: .06em; padding: 1px 5px; border: 1px solid var(--line); color: var(--ink2); border-radius: var(--radius); }
+.tag.k { color: var(--ink2); }
+.list-foot { border-top: 1px solid var(--line); padding: 8px 12px; font-size: 9.5px; color: var(--ink3);
+  font-family: JBMono, monospace; display: flex; align-items: center; gap: 8px; }
+.list-foot .dirty { color: var(--warn); }
+.list-foot .sync { margin-left: auto; color: var(--accent); cursor: pointer; }
+
+/* ── 右：详情 / 编辑器 ──────────────────────────────────── */
+.detail { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.dt-head { padding: 20px 26px 14px; border-bottom: 1px solid var(--line2); }
+.crumb { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--ink3); font-weight: 600; margin-bottom: 9px; }
+.dt-title { display: flex; align-items: baseline; gap: 10px; }
+.dt-title h1 { font-size: 24px; font-weight: 600; letter-spacing: -.015em; line-height: 1.1; }
+.dt-title .dir { font-family: JBMono, monospace; font-size: 9.5px; color: var(--ink4); }
+.dt-sum { margin-top: 7px; color: var(--ink2); font-size: 12px; line-height: 1.55; max-width: 62ch; }
+.chips { display: flex; gap: 5px; margin-top: 12px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px; font-size: 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink2); background: var(--panel); }
+.chip i { width: 4px; height: 4px; border-radius: 50%; background: var(--ok); }
+.chip.warn i { background: var(--warn); }
+.chip.bad i { background: var(--bad); }
+.chip.solid { background: var(--panel2); color: var(--ink); }
+.dt-tabs { display: flex; gap: 0; padding: 0 26px; border-bottom: 1px solid var(--line2); }
+.dt-tabs button { height: 34px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--ink3); font: inherit; font-size: 11px; cursor: pointer; letter-spacing: .02em; }
+.dt-tabs button:hover { color: var(--ink2); }
+.dt-tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.dt-tabs .sp { flex: 1; }
+.dt-body { flex: 1; overflow: auto; padding: 16px 26px 26px; }
+.dt-foot { border-top: 1px solid var(--line2); padding: 12px 26px; display: flex; align-items: center; gap: 8px; background: var(--panel); }
+.btn { height: 30px; padding: 0 13px; border: 1px solid var(--line); background: transparent; color: var(--ink);
+  font: inherit; font-size: 11.5px; cursor: pointer; border-radius: var(--radius); display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { border-color: var(--ink3); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.ghost { border-color: transparent; color: var(--ink2); }
+.btn.ghost:hover { background: var(--panel2); }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+.dt-foot .note { margin-left: auto; font-size: 10px; color: var(--ink3); font-family: JBMono, monospace; }
+
+/* 规格表 */
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 26px; }
+.fld .k { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); font-weight: 600; margin-bottom: 5px; }
+.fld .v { font-size: 12.5px; line-height: 1.4; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fld .v .mono { font-family: JBMono, monospace; font-size: 11.5px; color: var(--ink); }
+.fld .v .sub { color: var(--ink3); font-size: 11px; }
+.sec-t { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600;
+  margin: 20px 0 10px; display: flex; align-items: center; gap: 10px; }
+.sec-t::after { content: ""; flex: 1; height: 1px; background: var(--line2); }
+.refs { display: flex; flex-direction: column; }
+.ref { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line2); font-size: 12px; }
+.ref:last-child { border-bottom: 0; }
+.ref .kind { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin-left: auto; }
+.ref .ok { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ok); }
+.ref .ok.bad { color: var(--bad); }
+.notes { font-size: 11.5px; line-height: 1.7; color: var(--ink2); max-width: 66ch; }
+
+/* 编辑器：盘面 */
+.board { display: flex; flex-direction: column; gap: 0; }
+.brow { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line2); }
+.brow:first-child { border-top: 1px solid var(--line2); }
+.brow .k { width: 96px; flex: 0 0 96px; font-size: 9.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.brow .v { flex: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; min-width: 0; }
+.brow .act { font-size: 10px; color: var(--ink3); cursor: pointer; }
+.brow .act:hover { color: var(--ink); }
+.pill { height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius);
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink); background: var(--panel); }
+.pill.add { color: var(--ink3); border-style: dashed; cursor: pointer; }
+.segment { display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.segment button { height: 24px; padding: 0 10px; border: 0; background: transparent; color: var(--ink3); font: inherit; font-size: 11px; cursor: pointer; }
+.segment button.on { background: var(--panel2); color: var(--ink); font-weight: 600; }
+
+/* 编辑器：JSON */
+.code { font-family: JBMono, monospace; font-size: 11.5px; line-height: 1.75; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--panel); padding: 6px 0; overflow: auto; }
+.code .l { display: flex; padding: 0 12px; }
+.code .n { width: 28px; flex: 0 0 28px; color: var(--ink4); user-select: none; text-align: right; padding-right: 10px; }
+.code .t { white-space: pre-wrap; word-break: break-word; }
+.code .k { color: var(--ink2); }
+.code .s { color: var(--ink); }
+
+/* diff */
+.diff { font-family: JBMono, monospace; font-size: 11.5px; line-height: 1.75; border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: auto; background: var(--panel); }
+.diff .l { display: flex; padding: 0 12px; }
+.diff .n { width: 28px; flex: 0 0 28px; color: var(--ink4); text-align: right; padding-right: 10px; user-select: none; }
+.diff .t { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.diff .l.add { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.diff .l.del { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.diff .l.add .t::before { content: "+ "; color: var(--ok); }
+.diff .l.del .t::before { content: "− "; color: var(--bad); }
+.units { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.unit { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 9px; font-size: 10.5px; color: var(--ink2);
+  background: transparent; font-family: inherit; cursor: pointer; display: flex; gap: 7px; align-items: center; }
+.unit.on { border-color: var(--ink3); color: var(--ink); }
+.unit .plus { color: var(--ok); }
+.unit .minus { color: var(--bad); }
+
+/* 新建表单 */
+.form .field { margin-bottom: 16px; }
+.form label { display: block; font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3);
+  font-weight: 600; margin-bottom: 6px; }
+.form .help { font-size: 10.5px; color: var(--ink3); margin-top: 5px; line-height: 1.5; }
+.form input[type="text"], .form textarea, .form select {
+  width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 8px 10px; font: inherit; font-size: 12px; border-radius: var(--radius); }
+.form textarea { resize: vertical; min-height: 58px; line-height: 1.55; }
+.form .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.err { color: var(--bad); font-size: 10.5px; margin-top: 5px; }
+.okmsg { color: var(--ok); font-size: 10.5px; margin-top: 5px; }
+
+/* 弹层 */
+.layer { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 9; }
+.layer.dim0 { background: transparent; }
+.modal { width: 440px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(0,0,0,.5); overflow: hidden; }
+.modal .mh { padding: 16px 20px 10px; }
+.modal .mh h3 { font-size: 13.5px; font-weight: 600; }
+.modal .mh p { margin-top: 6px; font-size: 11.5px; color: var(--ink2); line-height: 1.55; }
+.modal .mb { padding: 0 20px 16px; font-size: 11.5px; color: var(--ink2); }
+.modal .mf { padding: 12px 20px; border-top: 1px solid var(--line2); display: flex; gap: 8px; justify-content: flex-end; background: var(--panel2); }
+.filelist { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.filerow { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-family: JBMono, monospace; font-size: 10.5px; border-bottom: 1px solid var(--line2); }
+.filerow:last-child { border-bottom: 0; }
+.filerow .plus { color: var(--ok); }
+.filerow .minus { color: var(--bad); }
+.filerow .st { margin-left: auto; color: var(--ink3); }
+.menu { position: absolute; width: 176px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 12px 30px rgba(0,0,0,.35); padding: 4px; z-index: 12; }
+.menu button { width: 100%; text-align: left; padding: 7px 9px; border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 11.5px; cursor: pointer; border-radius: var(--radius); display: flex; align-items: center; gap: 8px; }
+.menu button:hover { background: var(--panel2); }
+.menu button.danger { color: var(--bad); }
+.menu .sep { height: 1px; background: var(--line2); margin: 4px 0; }
+.menu .cap { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); padding: 6px 9px 3px; }
+
+/* 空态 / 加载 */
+.empty { padding: 60px 0; text-align: center; color: var(--ink3); }
+.empty .big { font-size: 13px; color: var(--ink2); margin-bottom: 6px; }
+.empty .small { font-size: 11px; line-height: 1.6; }
+.toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+  padding: 8px 14px; border-radius: var(--radius); font-size: 11.5px; z-index: 20; box-shadow: 0 8px 20px rgba(0,0,0,.3); }
+
+/* 结构性皮肤差异 */
+.app[data-skin="mono"] .side, .app[data-skin="mono"] .list, .app[data-skin="mono"] .detail { border-color: #fff; }
+.app[data-skin="mono"] .card.on { border-color: #fff; }
+.app[data-skin="mono"] .btn, .app[data-skin="mono"] .btn-s, .app[data-skin="mono"] .seg button { border-color: #fff; }
+.app[data-skin="industrial"] .side { border-right: 2px solid var(--line); }
+.app[data-skin="industrial"] .list { border-right: 1px solid var(--line2); }
+.app[data-skin="industrial"] .dt-head { border-bottom: 2px solid var(--line); }
+.app[data-skin="industrial"] .crumb { font-family: JBMono, monospace; }
+.app[data-skin="industrial"] .fld .k { font-family: JBMono, monospace; }
+.app[data-skin="paper"] .card.on { box-shadow: inset 2px 0 0 var(--accent), 0 1px 3px rgba(0,0,0,.04); }
+</style>
+</head>
+<body>
+
+<aside class="bar">
+  <h1>Template 工作台</h1>
+  <p class="sub">第一版「功能齐全」的原型：三栏、两段、详情/盘面/JSON/对比、新建、发布、归档、彻底删、开对话。真数据。</p>
+
+  <section>
+    <h2>皮肤</h2>
+    <div class="opts" id="opt-skin">
+      <button class="opt" data-k="graphite"><b>石墨</b><span>暗 · 细线</span></button>
+      <button class="opt" data-k="paper"><b>纸</b><span>亮 · 极简</span></button>
+      <button class="opt" data-k="mono"><b>单色</b><span>黑白 · 全框</span></button>
+      <button class="opt" data-k="steel"><b>冷钢</b><span>暗 · 蓝灰</span></button>
+      <button class="opt" data-k="amber"><b>琥珀</b><span>暗 · 暖强调</span></button>
+      <button class="opt" data-k="industrial"><b>工业</b><span>亮 · 粗线</span></button>
+    </div>
+  </section>
+
+  <p class="hint">
+    这版是「功能验收稿」，皮肤只是变量差异。<br>
+    点左边类别筛选、点卡片换详情、右栏四个 tab（详情/盘面/JSON/对比）、<br>
+    ⋯ 菜单里有归档与彻底删、底部有发布。<br>
+    <code>Esc</code> 关弹层。
+  </p>
+</aside>
+
+<main class="win"><div class="app" id="app" data-skin="graphite"></div></main>
+
+<script src="data.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const ST = window.DATA.sections["Session-Template"];
+const UT = window.DATA.sections["Ultimate-Template"];
+const PENDING = { "st": window.DATA.pending, "ut": window.DATA.pendingUT };
+const DIFFS = window.DATA.diffs;
+
+const state = {
+  skin: "graphite", section: "st", selected: "deep-dive",
+  cat: null, view: "list", q: "",
+  tab: "detail", unit: 0, layer: null, menu: null, toast: null, mode: "detail", draft: { name: "", summary: "", category: "", start: "blank" },
+};
+
+const sec = () => (state.section === "st" ? ST : UT);
+const presets = () => sec().presets;
+const pending = () => PENDING[state.section];
+const current = () => presets().find((p) => p.name === state.selected) || presets()[0];
+
+const fmtEpoch = (v) => {
+  if (typeof v !== "number") return String(v ?? "—");
+  const d = new Date(v * 1000), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+/* ── 数据整形 ────────────────────────────────────────────── */
+function fields(p) {
+  if (state.section === "ut") {
+    const t = p.resolved?.trigger || {};
+    return [
+      { k: "触发器", v: p.spec?.trigger || "—", sub: t.value },
+      { k: "参数", v: (t.params || []).map((x) => `${x.label} ${fmtEpoch(x.value)}`).join(" · ") || "没有参数" },
+      { k: "会话模板", v: p.spec?.session || "没钉" },
+      { k: "类别", v: (p.spec?.category || []).join(" / ") || "未分类" },
+      { k: "开关", v: p.spec?.enabled ? "开着" : "关掉" },
+      { k: "发布", v: p.tracked ? "HEAD 里有" : "未发布" },
+    ];
+  }
+  const m = p.resolved?.model;
+  const ref = m?.ref || (p.spec?.model ? `${p.spec.model.provider}/${p.spec.model.modelId}` : "");
+  const [prov, ...rest] = String(ref).split("/");
+  return [
+    { k: "模型", v: prov || "跟随默认", sub: rest.join("/"), mono: true },
+    { k: "思考档", v: p.spec?.thinkingLevel || "默认" },
+    { k: "技能", v: (p.spec?.skills || []).join(" · ") || "不要" },
+    { k: "模板", v: p.spec?.template || "跟随默认" },
+    { k: "扩展", v: (p.spec?.extensions || []).join(" · ") || "不要" },
+    { k: "工作目录", v: p.spec?.cwd || "默认" },
+    { k: "机器", v: p.spec?.machine || "本机" },
+    { k: "只读", v: p.spec?.readOnly ? "是" : "否" },
+  ];
+}
+
+function refs(p) {
+  if (state.section === "ut") {
+    const out = [];
+    if (p.resolved?.trigger) out.push({ kind: "触发器", name: p.resolved.trigger.ref, state: p.resolved.trigger.state });
+    if (p.resolved?.session) out.push({ kind: "会话模板", name: p.resolved.session.ref, state: p.resolved.session.state });
+    return out;
+  }
+  const out = [];
+  (p.resolved?.skills || []).forEach((s) => out.push({ kind: "技能", name: s.ref, state: s.state }));
+  if (p.resolved?.template) out.push({ kind: "模板", name: p.resolved.template.ref, state: p.resolved.template.state });
+  (p.resolved?.extensions || []).forEach((s) => out.push({ kind: "扩展", name: s.ref, state: s.state }));
+  return out;
+}
+
+const dirty = () => !!sec().repo?.dirty;
+const head = () => (sec().repo?.head || "").slice(0, 7);
+
+function cats() {
+  const all = sec().categories || [];
+  const counts = new Map();
+  presets().forEach((p) => {
+    const c = (p.spec?.category || []);
+    if (!c.length) counts.set("__uncat", (counts.get("__uncat") || 0) + 1);
+    c.forEach((x) => counts.set(x, (counts.get(x) || 0) + 1));
+  });
+  return { all, counts, uncat: counts.get("__uncat") || 0 };
+}
+
+function filtered() {
+  let out = presets();
+  if (state.cat === "__uncat") out = out.filter((p) => !(p.spec?.category || []).length);
+  else if (state.cat) out = out.filter((p) => (p.spec?.category || []).some((c) => c === state.cat || c.startsWith(state.cat + "/")));
+  if (state.q) {
+    const q = state.q.toLowerCase();
+    out = out.filter((p) => (p.name + " " + p.summary + " " + (p.spec?.category || []).join(" ")).toLowerCase().includes(q));
+  }
+  return out;
+}
+
+/* ── 图标 ───────────────────────────────────────────────── */
+const ICON = {
+  chat: '<path d="M3 4.5h10v6H6.5L3 13.5z"/>',
+  book: '<path d="M2.5 3h5v10h-5zM8.5 3h5v10h-5z"/>',
+  box: '<path d="M2.5 5.5 8 2.5l5.5 3v5L8 13.5l-5.5-3z"/>',
+  gear: '<circle cx="8" cy="8" r="2"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4"/>',
+  plus: '<path d="M8 3v10M3 8h10"/>',
+  dots: '<circle cx="3.5" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12.5" cy="8" r="1"/>',
+  list: '<path d="M2.5 4h11M2.5 8h11M2.5 12h11"/>',
+  grid: '<path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/>',
+  caret: '<path d="M6 4l4 4-4 4"/>',
+};
+const icon = (n) => `<svg class="i" viewBox="0 0 16 16">${ICON[n] || ""}</svg>`;
+
+/* ── 左：图标条 + 类别 ──────────────────────────────────── */
+function rail() {
+  return `<div class="rail">
+    <div class="logo"></div>
+    <button title="会话">${icon("chat")}</button>
+    <button class="on" title="模板">${icon("book")}</button>
+    <button title="归档">${icon("box")}</button>
+    <div class="spacer"></div>
+    <button title="设置">${icon("gear")}</button>
+  </div>`;
+}
+
+function side() {
+  const { all, counts, uncat } = cats();
+  const total = presets().length;
+  const rows = [
+    `<div class="row ${state.cat === null ? "on" : ""}" data-act="cat" data-cat="">
+       <span class="dot"></span>全部<span class="n">${total}</span></div>`,
+  ];
+  const roots = all.filter((c) => !c.includes("/"));
+  roots.forEach((root) => {
+    const kids = all.filter((c) => c.startsWith(root + "/"));
+    const n = counts.get(root) || 0;
+    rows.push(`<div class="row ${state.cat === root ? "on" : ""}" data-act="cat" data-cat="${esc(root)}">
+      ${kids.length ? `<span style="opacity:.5">▾</span>` : `<span class="dot"></span>`}
+      ${esc(root)}<span class="n">${n}</span></div>`);
+    kids.forEach((k) => {
+      rows.push(`<div class="row sub ${state.cat === k ? "on" : ""}" data-act="cat" data-cat="${esc(k)}">
+        <span class="dot"></span>${esc(k.split("/").slice(1).join("/"))}<span class="n">${counts.get(k) || 0}</span></div>`);
+    });
+  });
+  rows.push(`<div class="row ${state.cat === "__uncat" ? "on" : ""}" data-act="cat" data-cat="__uncat">
+    <span class="dot"></span>未分类<span class="n">${uncat}</span></div>`);
+
+  return `<div class="side">
+    <div class="side-head">
+      <span class="side-title">Template</span>
+      <span class="count">${total} 条</span>
+    </div>
+    <div class="seg">
+      <button class="${state.section === "st" ? "on" : ""}" data-act="sec" data-sec="st">Session-Template</button>
+      <button class="${state.section === "ut" ? "on" : ""}" data-act="sec" data-sec="ut">Ultimate-Template</button>
+    </div>
+    <div class="side-actions">
+      <button class="btn-s solid" data-act="new">${icon("plus")} 新建</button>
+      <button class="btn-s" data-act="newcat">＋ 类别</button>
+    </div>
+    <div class="tree">${rows.join("")}</div>
+    <div class="side-foot">
+      <span class="${dirty() ? "badge" : ""}">${dirty() ? "●" : "○"}</span>
+      <span>${head()}</span>
+      <span style="margin-left:auto">${dirty() ? "未提交" : "干净"}</span>
+    </div>
+  </div>`;
+}
+
+/* ── 中：列表 ───────────────────────────────────────────── */
+function list() {
+  const items = filtered();
+  const cards = items.map((p) => {
+    const st = p.specError ? { t: "坏了", c: "bad" } : !p.tracked ? { t: "未发布", c: "warn" } : null;
+    const tags = (p.spec?.category || []).map((c) => `<span class="tag">${esc(c)}</span>`);
+    if (p.spec?.thinkingLevel) tags.push(`<span class="tag k">${esc(p.spec.thinkingLevel)}</span>`);
+    if (p.spec?.trigger) tags.push(`<span class="tag k">${esc(p.spec.trigger)}</span>`);
+    return `<div class="card ${p.name === state.selected ? "on" : ""}" data-act="pick" data-name="${esc(p.name)}">
+      <div class="top">
+        <span class="name">${esc(p.name)}</span>
+        ${st ? `<span class="st ${st.c}">${st.t}</span>` : ""}
+      </div>
+      <div class="sum">${esc(p.summary)}</div>
+      <div class="tags">${tags.join("")}</div>
+    </div>`;
+  }).join("");
+
+  return `<div class="list">
+    <div class="list-head">
+      <input class="search" placeholder="搜索名字 / 摘要 / 类别" value="${esc(state.q)}" data-act="search">
+      <div class="viewsw">
+        <button class="${state.view === "list" ? "on" : ""}" data-act="view" data-view="list">${icon("list")}</button>
+        <button class="${state.view === "grid" ? "on" : ""}" data-act="view" data-view="grid">${icon("grid")}</button>
+      </div>
+    </div>
+    <div class="cards">${cards || `<div class="empty"><div class="big">这一栏是空的</div><div class="small">换个类别，或者新建一条</div></div>`}</div>
+    <div class="list-foot">
+      <span>${items.length} / ${presets().length}</span>
+      <span class="${dirty() ? "dirty" : ""}">${dirty() ? "● 未提交" : "○ 已同步"}</span>
+      <span class="sync" data-act="goto-diff">待同步 ${pending().units.length} 个文件 →</span>
+    </div>
+  </div>`;
+}
+
+/* ── 右：详情 ───────────────────────────────────────────── */
+function detailHead(p) {
+  const rf = refs(p);
+  const bad = rf.some((r) => r.state !== "ok");
+  return `<div class="dt-head">
+    <div class="crumb">${state.section === "st" ? "Session-Template" : "Ultimate-Template"}</div>
+    <div class="dt-title">
+      <h1>${esc(p.name)}</h1>
+      <span class="dir">${esc(p.dir || "")}</span>
+    </div>
+    <p class="dt-sum">${esc(p.summary)}</p>
+    <div class="chips">
+      ${dirty() ? `<span class="chip warn"><i></i>已保存 · 未提交</span>` : `<span class="chip"><i></i>已发布</span>`}
+      <span class="chip ${bad ? "bad" : ""}"><i></i>${bad ? "引用失效" : "引用正常"}</span>
+      ${state.section === "ut"
+        ? `<span class="chip"><i></i>${p.spec?.enabled ? "开着" : "关掉"}</span>`
+        : `<span class="chip"><i></i>可启动</span>`}
+      ${p.specError ? `<span class="chip bad"><i></i>清单写坏了</span>` : ""}
+    </div>
+  </div>`;
+}
+
+function tabs() {
+  const t = [
+    ["detail", "详情"], ["board", "盘面"], ["json", "JSON"], ["diff", `对比${pending().units.length ? " ·" + pending().units.length : ""}`],
+  ];
+  return `<div class="dt-tabs">
+    ${t.map(([k, label]) => `<button class="${state.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${label}</button>`).join("")}
+    <span class="sp"></span>
+  </div>`;
+}
+
+function tabDetail(p) {
+  const f = fields(p), rf = refs(p);
+  return `
+    <div class="grid2">
+      ${f.map((x) => `<div class="fld"><div class="k">${esc(x.k)}</div>
+        <div class="v">${x.mono ? `<span class="mono">${esc(x.v)}</span>` : esc(x.v)}${x.sub ? `<span class="sub">${esc(x.sub)}</span>` : ""}</div></div>`).join("")}
+    </div>
+    <div class="sec-t">引用 ${rf.length}</div>
+    <div class="refs">
+      ${rf.map((r) => `<div class="ref"><span>${esc(r.name)}</span>
+        <span class="kind">${esc(r.kind)}</span>
+        <span class="ok ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("") || `<div class="ref">没有外部引用</div>`}
+    </div>
+    ${p.description ? `<div class="sec-t">说明</div><p class="notes">${esc(p.description)}</p>` : ""}
+  `;
+}
+
+function tabBoard(p) {
+  const f = fields(p);
+  return `<div class="board">
+    ${f.map((x) => `<div class="brow">
+      <span class="k">${esc(x.k)}</span>
+      <span class="v">${x.mono ? `<span class="mono">${esc(x.v)}</span>` : esc(x.v)}${x.sub ? `<span class="sub" style="color:var(--ink3);font-size:11px">${esc(x.sub)}</span>` : ""}</span>
+      <span class="act" data-act="change" data-k="${esc(x.k)}">改</span>
+    </div>`).join("")}
+    <div class="brow">
+      <span class="k">起手</span>
+      <span class="v">
+        <span class="segment">
+          <button class="${!p.spec?.model ? "on" : ""}">空白</button>
+          <button class="${p.spec?.model ? "on" : ""}">钉住默认模型</button>
+        </span>
+      </span>
+      <span class="act">—</span>
+    </div>
+    <div class="brow">
+      <span class="k">扩展</span>
+      <span class="v"><span class="pill">${esc((p.spec?.extensions || []).join(" · ") || "不要")}</span>
+        <span class="pill add">＋ 挑几个</span></span>
+      <span class="act">—</span>
+    </div>
+  </div>`;
+}
+
+function specJson(p) {
+  const spec = p.spec || {};
+  let text = JSON.stringify(spec, null, 2);
+  const rows = text.split("\n");
+  return `<div class="code">${rows.map((l, i) =>
+    `<div class="l"><span class="n">${i + 1}</span><span class="t">${esc(l)}</span></div>`).join("")}</div>`;
+}
+
+function lcs(before, after) {
+  const a = (before ?? "").split("\n"), b = (after ?? "").split("\n");
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: "ctx", text: a[i], n: i + 1 }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", text: a[i], n: i + 1 }); i++; }
+    else { out.push({ t: "add", text: b[j], n: j + 1 }); j++; }
+  }
+  while (i < n) out.push({ t: "del", text: a[i++], n: i });
+  while (j < m) out.push({ t: "add", text: b[j++], n: j });
+  return out;
+}
+
+function tabDiff() {
+  const units = pending().units;
+  if (!units.length) return `<div class="empty"><div class="big">这一段没有待同步的改动</div><div class="small">盘上和 HEAD 一致</div></div>`;
+  const u = units[Math.min(state.unit, units.length - 1)];
+  const path = u.files?.[0]?.path;
+  const d = DIFFS[path];
+  const rows = d ? lcs(d.before, d.after) : null;
+  return `
+    <div class="units">
+      ${units.map((x, i) => `<button class="unit ${i === state.unit ? "on" : ""}" data-act="unit" data-i="${i}">
+        ${esc(x.name ?? "categories.json")}
+        ${x.added ? `<span class="plus">+${x.added}</span>` : ""}
+        ${x.removed ? `<span class="minus">−${x.removed}</span>` : ""}
+      </button>`).join("")}
+    </div>
+    ${rows
+      ? `<div class="diff">${rows.map((r) => `<div class="l ${r.t}"><span class="n">${r.n}</span><span class="t">${esc(r.text)}</span></div>`).join("")}</div>`
+      : `<div class="empty"><div class="big">未发布 · HEAD 里没有这个文件</div><div class="small">发布之后才有 diff</div></div>`}
+  `;
+}
+
+function right() {
+  if (state.mode === "new") return newForm();
+  const p = current();
+  const body = state.tab === "detail" ? tabDetail(p) : state.tab === "board" ? tabBoard(p) : state.tab === "json" ? specJson(p) : tabDiff();
+  const isUT = state.section === "ut";
+  return `<div class="detail">
+    ${detailHead(p)}
+    ${tabs()}
+    <div class="dt-body">${body}</div>
+    <div class="dt-foot">
+      <button class="btn primary" data-act="launch">${isUT ? "发布" : "开一条新对话"}</button>
+      <button class="btn" data-act="edit">编辑</button>
+      <button class="btn ghost" data-act="menu-dots">${icon("dots")}</button>
+      <span class="note">HEAD ${head()} · ${pending().units.length} 个文件待同步</span>
+    </div>
+  </div>`;
+}
+
+
+function newForm() {
+  const isUT = state.section === "ut";
+  const cats = (sec().categories || []).join(" · ") || "还没有类别";
+  return `<div class="detail">
+    <div class="dt-head">
+      <div class="crumb">${isUT ? "Ultimate-Template" : "Session-Template"} · 新建</div>
+      <div class="dt-title"><h1>${isUT ? "新建终极模板" : "新建预设"}</h1></div>
+      <p class="dt-sum">建完名字就改不了了 —— 目录名就是它。想换就归档旧的、建新的。</p>
+    </div>
+    <div class="dt-tabs"><button class="on">表单</button><span class="sp"></span></div>
+    <div class="dt-body"><div class="form" style="max-width:560px">
+      <div class="field">
+        <label>名字</label>
+        <input type="text" data-field="name" value="${esc(state.draft.name)}" placeholder="deep-dive">
+        <div class="help">小写字母 / 数字开头，只留 . _ -</div>
+        ${state.draft.name && !/^[a-z0-9][a-z0-9._-]*$/.test(state.draft.name) ? `<div class="err">名字只能是小写字母、数字、点、下划线、连字符，且以字母或数字开头</div>` : ""}
+        ${state.draft.name && /^[a-z0-9][a-z0-9._-]*$/.test(state.draft.name) ? `<div class="okmsg">名字可用</div>` : ""}
+      </div>
+      <div class="field">
+        <label>一句话摘要</label>
+        <textarea data-field="summary" placeholder="卡片上那一行，人靠它决定开不开">${esc(state.draft.summary)}</textarea>
+      </div>
+      ${isUT ? `<div class="field"><label>触发器</label>
+          <select data-field="trigger"><option>single-shot</option><option>cron</option><option>webhook</option></select>
+          <div class="help">照触发器自己声明的画参数表单（这里只列了一个）</div></div>
+        <div class="field"><label>参数 · 什么时候</label><input type="text" value="2027-01-15 16:01"></div>
+        <div class="field"><label>会话模板</label><input type="text" placeholder="scratch"></div>`
+      : `<div class="field"><label>起手</label>
+          <div class="segment">
+            <button class="${state.draft.start === "blank" ? "on" : ""}" data-act="start" data-v="blank">空白（跟随默认）</button>
+            <button class="${state.draft.start === "pinned" ? "on" : ""}" data-act="start" data-v="pinned">钉住当前设备默认</button>
+          </div></div>`}
+      <div class="two">
+        <div class="field"><label>类别</label>
+          <input type="text" data-field="category" value="${esc(state.draft.category)}" placeholder="写作/周报">
+          <div class="help">可空 = 未分类；写个不存在的名字就顺手建了</div></div>
+        <div class="field"><label>现有类别</label>
+          <div class="help" style="margin-top:8px">${esc(cats)}</div></div>
+      </div>
+    </div></div>
+    <div class="dt-foot">
+      <button class="btn primary" data-act="do-create">建</button>
+      <button class="btn ghost" data-act="cancel-new">取消</button>
+      <span class="note">建完是「未发布」：只在你这台、远端看不到</span>
+    </div>
+  </div>`;
+}
+
+/* ── 弹层 ───────────────────────────────────────────────── */
+function layer() {
+  if (!state.layer) return "";
+  const p = current();
+  const units = pending().units;
+  const files = units.flatMap((u) => (u.files || []).map((f) => ({ ...f, unit: u.name ?? "categories.json" })));
+
+  if (state.layer === "publish") {
+    return `<div class="layer" data-act="close-layer"><div class="modal" onclick="event.stopPropagation()">
+      <div class="mh"><h3>发布这一段</h3><p>形状闸 → 重扫 index → commit → push。闸不过一个字节都不动。</p></div>
+      <div class="mb">
+        <div class="filelist">
+          ${files.map((f) => `<div class="filerow">
+            <span>${esc(f.path)}</span>
+            ${f.added ? `<span class="plus">+${f.added}</span>` : ""}
+            ${f.removed ? `<span class="minus">−${f.removed}</span>` : ""}
+            <span class="st">${esc(f.status)}</span>
+          </div>`).join("") || `<div class="filerow"><span>没有待提交的文件</span></div>`}
+        </div>
+        <div style="margin-top:12px;font-size:10.5px;color:var(--ink3)">提交信息：<span style="font-family:JBMono">session: 更新预设仓库</span></div>
+      </div>
+      <div class="mf"><button class="btn ghost" data-act="close-layer">取消</button>
+        <button class="btn primary" data-act="do-publish">发布</button></div>
+    </div></div>`;
+  }
+  if (state.layer === "archive" || state.layer === "purge") {
+    const purge = state.layer === "purge";
+    return `<div class="layer" data-act="close-layer"><div class="modal" onclick="event.stopPropagation()">
+      <div class="mh">
+        <h3>${purge ? "彻底删除" : "归档"} ${esc(p.name)}</h3>
+        <p>${purge
+          ? "活库那行和归档库那份一起没，不进回收站，也不能撤销。"
+          : "移到归档库，主列表不再出现；随时可以还原。"}</p>
+      </div>
+      <div class="mb">
+        <div class="filelist">
+          <div class="filerow"><span>${esc(p.dir || p.name)}/</span><span class="st">整个目录</span></div>
+        </div>
+        ${purge ? `<div class="err" style="margin-top:12px">这一步不可逆，输一下名字确认：</div>
+          <input class="search" style="margin-top:6px;height:30px" placeholder="${esc(p.name)}" data-act="purge-input">` : ""}
+      </div>
+      <div class="mf"><button class="btn ghost" data-act="close-layer">取消</button>
+        <button class="btn ${purge ? "danger" : "primary"}" data-act="do-${purge ? "purge" : "archive"}">${purge ? "彻底删除" : "归档"}</button></div>
+    </div></div>`;
+  }
+  if (state.layer === "newcat") {
+    return `<div class="layer" data-act="close-layer"><div class="modal" style="width:380px" onclick="event.stopPropagation()">
+      <div class="mh"><h3>新建类别</h3><p>类别是这一段的词表，写路径可以分层（写作/周报）。</p></div>
+      <div class="mb"><div class="form"><div class="field"><label>类别名</label>
+        <input type="text" placeholder="写作/周报" data-act="newcat-input"></div></div></div>
+      <div class="mf"><button class="btn ghost" data-act="close-layer">取消</button>
+        <button class="btn primary" data-act="do-newcat">建</button></div>
+    </div></div>`;
+  }
+  if (state.layer === "launch") {
+    return `<div class="layer" data-act="close-layer"><div class="modal" onclick="event.stopPropagation()">
+      <div class="mh"><h3>开一条新对话</h3><p>用 ${esc(p.name)} 起手。建完把盘上那只眼睛切过去。</p></div>
+      <div class="mb">
+        <div class="form">
+          <div class="field"><label>会话名</label>
+            <input type="text" placeholder="${esc(p.name + "-" + new Date().toISOString().slice(5, 10).replace("-", ""))}" data-act="session-name"></div>
+          <div class="field"><label>生效值（服务端回来的，不是我们发的）</label>
+            <div class="chip solid" style="margin-right:5px">模型 ${esc(p.spec?.model?.modelId || "跟随默认")}</div>
+            <div class="chip solid" style="margin-right:5px">思考 ${esc(p.spec?.thinkingLevel || "默认")}</div>
+            <div class="chip solid">技能 ${esc((p.spec?.skills || []).join("、") || "无")}</div>
+          </div>
+        </div>
+      </div>
+      <div class="mf"><button class="btn ghost" data-act="close-layer">取消</button>
+        <button class="btn primary" data-act="do-launch">开对话</button></div>
+    </div></div>`;
+  }
+  return "";
+}
+
+function menu() {
+  if (!state.menu) return "";
+  const p = current();
+  const { left, top } = state.menu;
+  return `<div class="menu" style="left:${left}px;top:${top}px" data-act="menu">
+    <div class="cap">${esc(p.name)}</div>
+    <button data-act="edit">编辑</button>
+    <button data-act="menu-cat">改类别…</button>
+    <button data-act="menu-copy">复制目录路径</button>
+    <button data-act="launch">开一条新对话</button>
+    <div class="sep"></div>
+    <button data-act="menu-archive">归档</button>
+    <button class="danger" data-act="menu-purge">彻底删除…</button>
+  </div>`;
+}
+
+/* ── 装配 ───────────────────────────────────────────────── */
+function render() {
+  const app = $("#app");
+  app.dataset.skin = state.skin;
+  app.innerHTML = rail() + side() + list() + right() + layer() + menu()
+    + (state.toast ? `<div class="toast">${esc(state.toast)}</div>` : "");
+}
+
+function toast(msg) {
+  state.toast = msg;
+  render();
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { state.toast = null; render(); }, 1800);
+}
+
+function setSkin(k) {
+  state.skin = k;
+  $$("#opt-skin .opt").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === k)));
+  render();
+}
+
+$("#app").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-act]");
+  if (!t) return;
+  const act = t.dataset.act;
+
+  if (act === "cat") { state.cat = t.dataset.cat || null; render(); }
+  else if (act === "sec") {
+    state.section = t.dataset.sec;
+    state.selected = presets()[0]?.name;
+    state.cat = null; state.tab = "detail"; state.unit = 0;
+    render();
+  }
+  else if (act === "pick") { state.selected = t.dataset.name; state.tab = state.tab === "diff" ? "detail" : state.tab; render(); }
+  else if (act === "view") { state.view = t.dataset.view; render(); }
+  else if (act === "tab") { state.tab = t.dataset.tab; render(); }
+  else if (act === "unit") { state.unit = +t.dataset.i; render(); }
+  else if (act === "goto-diff") { state.tab = "diff"; render(); }
+  else if (act === "new") { state.mode = "new"; state.tab = "detail"; state.draft = { name: "", summary: "", category: "", start: "blank" }; render(); }
+  else if (act === "newcat") { state.layer = "newcat"; render(); }
+  else if (act === "edit") { state.tab = "board"; state.menu = null; render(); }
+  else if (act === "launch") { state.layer = "launch"; state.menu = null; render(); }
+  else if (act === "menu-dots") {
+    const r = t.getBoundingClientRect();
+    state.menu = { left: Math.max(8, r.left - 176), top: r.top - 220 };
+    render();
+  }
+  else if (act === "menu-copy") { state.menu = null; navigator.clipboard?.writeText(current().dir || ""); toast("目录路径已复制"); }
+  else if (act === "menu-archive") { state.layer = "archive"; state.menu = null; render(); }
+  else if (act === "menu-purge") { state.layer = "purge"; state.menu = null; render(); }
+  else if (act === "menu-cat") { state.menu = null; toast("改类别抽屉（单独做）"); }
+  else if (act === "close-layer") { state.layer = null; state.menu = null; render(); }
+  else if (act === "do-publish") { state.layer = null; toast("发布成功 · 已 commit + push"); }
+  else if (act === "do-archive") { state.layer = null; toast("已归档 · 可在归档库还原"); }
+  else if (act === "do-purge") { state.layer = null; toast("已彻底删除（demo 里没真删）"); }
+  else if (act === "do-launch") { state.layer = null; toast("会话已创建，眼睛切过去了"); }
+  else if (act === "do-newcat") { state.layer = null; toast("类别已加进词表"); }
+  else if (act === "change") { toast(`改「${t.dataset.k}」`); }
+  else if (act === "start") { state.draft.start = t.dataset.v; render(); }
+  else if (act === "do-create") { state.mode = "detail"; toast("已建（demo 里没真写盘）"); }
+  else if (act === "cancel-new") { state.mode = "detail"; render(); }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { state.layer = null; state.menu = null; render(); }
+});
+
+$("#app").addEventListener("input", (e) => {
+  const f = e.target.closest("[data-field]");
+  if (f) {
+    state.draft[f.dataset.field] = f.value;
+    return;
+  }
+  const t = e.target.closest("[data-act='search']");
+  if (!t) return;
+  state.q = t.value;
+  render();
+  const box = $("#app .search");
+  if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+});
+
+$$("#opt-skin .opt").forEach((b) => b.addEventListener("click", () => setSkin(b.dataset.k)));
+
+const H = (location.hash.replace("#", "") || "").split(",");
+const SKINS = ["graphite","paper","mono","steel","amber","industrial"];
+if (H[2] === "new") state.mode = "new";
+if (H[2] === "publish" || H[2] === "archive" || H[2] === "purge" || H[2] === "launch" || H[2] === "newcat") state.layer = H[2];
+if (H[1]) state.tab = H[1];
+if (H[3] === "ut") { state.section = "ut"; state.selected = UT.presets[0]?.name; }
+setSkin(SKINS.includes(H[0]) ? H[0] : "graphite");
+</script>
+</body>
+</html>

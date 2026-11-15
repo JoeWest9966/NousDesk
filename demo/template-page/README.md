@@ -44,6 +44,26 @@ http://localhost:8765/#a2,b3,dark
 源码 `skins.html`（改样式改这份），`skins-preview.html` 是生成出来的自包含单文件（发给用户的就是它）。
 旧的那套（A1/A2/A3 + B1/B2/B3）在 `preview.html`，留着当对照，不再改。
 
+
+## 完整原型（app.html）—— 功能验收稿
+
+```
+/opt/NousDesk-tpl/demo/template-page/app-preview.html
+```
+
+三栏完整界面 + 6 套皮肤（石墨 / 纸 / 单色 / 冷钢 / 琥珀 / 工业），功能都在：
+
+- 左：图标条、段切换、类别树（含层级与零计数）、新建 / 新建类别
+- 中：搜索、视图切换、卡片（未发布 / 坏了的标记）、待同步入口
+- 右：**详情 / 盘面 / JSON / 对比** 四个 tab；底部分布发布、编辑、⋯ 菜单
+- 弹层：发布（文件清单）、归档、彻底删除（不可逆）、开对话（会话名 + 生效值）、新建类别
+- 新建：右栏整页表单（名字校验实时反馈、类别提示、起手二选一）
+
+hash 直达：`#皮肤,tab,弹层,段`
+`#graphite,board` `#paper,json` `#industrial,detail,publish` `#steel,detail,new` `#amber,detail,launch` `#graphite,diff,,ut`
+
+`app.html` 是源码（改样式改这份），`app-preview.html` 是生成的自包含单文件。
+
 ## 数据是真的
 
 | 文件 | 来源 |
