@@ -72,6 +72,26 @@ http://localhost:8765/#a2,b3,dark
 详情/盘面/JSON/对比 四个 tab、发布（文件清单）、归档、彻底删除（不可逆二次确认）、
 开对话（会话名 + 生效值）、新建（整页表单 + 名字实时校验）、新建类别、⋯ 菜单、Esc 关弹层。
 
+
+### 13–20 · 图表式排版（pele.run / Mermaid 灵感）
+
+pele.run/examples 把每种 Mermaid 图都做成一页，配色是 **Flexoki**（暖黑 #100f0f / 纸白 #fffcf0 /
+一套柔和色），字体 Inter Variable，正文大、行高松。照这两点加了两套皮肤 + 8 套「用图的形状排信息」的排版：
+
+| | 排版 | 借的图表 |
+| --- | --- | --- |
+| 13 | 看板 | Kanban：身份 / 运行 / 环境 / 引用 四列 |
+| 14 | 矩形树 | Treemap：按块分配面积，模型占最大 |
+| 15 | 甘特 | Gantt：每字段一条横条，长度=状态，轴是 HEAD→发布 |
+| 16 | 四象限 | Quadrant：重要×已定 的四格 |
+| 17 | 导图 | Mindmap：中心节点 + 贝塞尔分支 |
+| 18 | 雷达 | Radar：六维（有值 1 / 缺失 0.32） |
+| 19 | 流图 | Sankey：预设 → 各引用，线宽表权重 |
+| 20 | 状态机 | State：草稿 → 已提交 → 已发布 → 归档，当前步高亮 |
+
+皮肤新增 `flexoki`（暗）/ `flexoki-paper`（亮），色值就是 pele 那套 Flexoki。
+hash 直达：`#flexoki,detail,,st,sankey` / `#flexoki-paper,detail,,ut,radar`
+
 hash 直达：`#皮肤,tab,弹层,段,排版`
 `#graphite,detail,,st,sheet` `#paper,detail,,ut,dense` `#industrial,detail,publish,st,split`
 

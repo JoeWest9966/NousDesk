@@ -19,7 +19,7 @@ body {
 }
 
 /* ══ 外壳（挑皮用） ══ */
-.bar { width: 196px; flex: 0 0 196px; }
+.bar { width: 196px; flex: 0 0 196px; overflow: auto; scrollbar-width: none; }
 .bar h1 { font: 500 13px/1.3 Manrope, Inter; margin-bottom: 2px; }
 .bar .sub { color: #666d73; font-size: 10.5px; line-height: 1.6; margin-bottom: 20px; }
 .bar h2 { font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase; color: #666d73; margin: 0 0 7px; font-weight: 600; }
@@ -451,6 +451,120 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
 .ly-dense .kt td.v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ly-dense .kt td.v2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+
+/* ══ Flexoki 皮肤（pele.run 用的那套色板） ══ */
+.app[data-skin="flexoki"] {
+  --bg: #100f0f; --panel: #1c1b1a; --panel2: #282726; --rail: #100f0f;
+  --ink: #cecdc3; --ink2: #b7b5ac; --ink3: #878580; --ink4: #575653;
+  --line: #282726; --line2: #1c1b1a; --accent: #cecdc3; --accent-ink: #100f0f;
+  --ok: #879a39; --warn: #d0a215; --bad: #d14d41; --radius: 6px; --row: 34px;
+  --fx-red: #d14d41; --fx-orange: #da702c; --fx-yellow: #d0a215; --fx-green: #879a39;
+  --fx-cyan: #3aa99f; --fx-blue: #4385be; --fx-purple: #8b7ec8; --fx-magenta: #ce5d97;
+}
+.app[data-skin="flexoki-paper"] {
+  --bg: #fffcf0; --panel: #f2f0e5; --panel2: #e6e4d9; --rail: #f2f0e5;
+  --ink: #100f0f; --ink2: #403e3c; --ink3: #6f6e69; --ink4: #b7b5ac;
+  --line: #dad8ce; --line2: #e6e4d9; --accent: #100f0f; --accent-ink: #fffcf0;
+  --ok: #66800b; --warn: #ad8301; --bad: #af3029; --radius: 6px; --row: 34px;
+  --fx-red: #af3029; --fx-orange: #bc5215; --fx-yellow: #ad8301; --fx-green: #66800b;
+  --fx-cyan: #24837b; --fx-blue: #205ea6; --fx-purple: #5e409d; --fx-magenta: #a02f6f;
+}
+
+/* ══ 13 · kanban 看板 ══ */
+.ly-kanban { display: flex; gap: 8px; height: 100%; }
+.ly-kanban .col { flex: 1; min-width: 0; background: var(--panel); border-radius: var(--radius);
+  border: 1px solid var(--line2); display: flex; flex-direction: column; }
+.ly-kanban .ch { display: flex; align-items: center; gap: 6px; padding: 9px 10px; border-bottom: 1px solid var(--line2); }
+.ly-kanban .ch .t { font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-kanban .ch .c { margin-left: auto; font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); }
+.ly-kanban .ch i { width: 5px; height: 5px; border-radius: 50%; background: var(--ink4); }
+.ly-kanban .ch i.ok { background: var(--ok); } .ly-kanban .ch i.warn { background: var(--warn); } .ly-kanban .ch i.bad { background: var(--bad); }
+.ly-kanban .cb { padding: 7px; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.ly-kanban .kc { background: var(--bg); border: 1px solid var(--line2); border-radius: 4px; padding: 8px 9px; }
+.ly-kanban .kc .k { font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); margin-bottom: 4px; }
+.ly-kanban .kc .v { font-size: 11.5px; line-height: 1.35; word-break: break-word; }
+
+/* ══ 14 · treemap 矩形树 ══ */
+.ly-tree { display: flex; flex-direction: column; gap: 4px; height: 100%; }
+.ly-tree .row { display: flex; gap: 4px; }
+.ly-tree .cell { background: var(--panel); border: 1px solid var(--line2); border-radius: 4px; padding: 9px 10px;
+  display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; min-height: 0; }
+.ly-tree .cell .k { font-size: 8px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-tree .cell .v { font-size: 12px; line-height: 1.3; word-break: break-word; }
+.ly-tree .cell .v small { display: block; color: var(--ink3); font-size: 10px; margin-top: 2px; }
+.ly-tree .cell.big .v { font-size: 15px; }
+.ly-tree .cell.acc { border-color: color-mix(in srgb, var(--fx-blue) 45%, transparent); background: color-mix(in srgb, var(--fx-blue) 8%, var(--panel)); }
+
+/* ══ 15 · gantt 甘特 ══ */
+.ly-gantt { display: flex; flex-direction: column; height: 100%; }
+.ly-gantt .gh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.ly-gantt .gh h1 { font-size: 18px; font-weight: 600; }
+.ly-gantt .gh .sum { font-size: 10.5px; color: var(--ink3); }
+.ly-gantt .axis { margin-left: 108px; display: flex; height: 16px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.ly-gantt .axis span { flex: 1; font-family: JBMono, monospace; font-size: 8px; color: var(--ink4); }
+.ly-gantt .gr { display: flex; align-items: center; height: 30px; }
+.ly-gantt .gr .k { width: 108px; flex: 0 0 108px; font-size: 10.5px; color: var(--ink2); }
+.ly-gantt .gr .track { flex: 1; height: 12px; position: relative; }
+.ly-gantt .gr .bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.ly-gantt .gr .bar.ok { background: color-mix(in srgb, var(--fx-green) 55%, transparent); }
+.ly-gantt .gr .bar.warn { background: color-mix(in srgb, var(--fx-yellow) 50%, transparent); }
+.ly-gantt .gr .bar.bad { background: color-mix(in srgb, var(--fx-red) 55%, transparent); }
+.ly-gantt .gr .val { width: 62px; flex: 0 0 62px; text-align: right; font-family: JBMono, monospace; font-size: 9px; color: var(--ink3); }
+
+/* ══ 16 · quadrant 四象限 ══ */
+.ly-quad { display: flex; flex-direction: column; height: 100%; }
+.ly-quad .qh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.ly-quad .qh h1 { font-size: 18px; font-weight: 600; }
+.ly-quad .wrap { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; position: relative; }
+.ly-quad .q { border: 1px solid var(--line2); border-radius: 4px; padding: 9px 10px; background: var(--panel); overflow: auto; }
+.ly-quad .q .t { font-size: 8px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; margin-bottom: 6px; }
+.ly-quad .q .item { font-size: 11px; padding: 3px 0; display: flex; gap: 6px; align-items: baseline; }
+.ly-quad .q .item .n { color: var(--ink3); font-size: 9.5px; font-family: JBMono, monospace; }
+.ly-quad .q.hi { border-color: color-mix(in srgb, var(--fx-blue) 40%, transparent); }
+.ly-quad .q.bad { border-color: color-mix(in srgb, var(--fx-red) 45%, transparent); }
+.ly-quad .ax { position: absolute; font-size: 8px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink4); }
+
+/* ══ 17 · mindmap 思维导图 ══ */
+.ly-mind { display: flex; flex-direction: column; height: 100%; }
+.ly-mind .mh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.ly-mind .mh h1 { font-size: 17px; font-weight: 600; }
+.ly-mind svg { flex: 1; width: 100%; min-height: 0; overflow: visible; }
+.ly-mind text { font-family: Inter, sans-serif; }
+
+/* ══ 18 · radar 雷达 ══ */
+.ly-radar { display: flex; flex-direction: column; height: 100%; align-items: center; }
+.ly-radar .rh { width: 100%; display: flex; align-items: baseline; gap: 10px; }
+.ly-radar .rh h1 { font-size: 17px; font-weight: 600; }
+.ly-radar svg { width: 100%; flex: 1; min-height: 0; }
+.ly-radar .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 9.5px; color: var(--ink3); }
+.ly-radar .legend i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+/* ══ 19 · sankey 流图 ══ */
+.ly-sankey { display: flex; flex-direction: column; height: 100%; }
+.ly-sankey .sh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.ly-sankey .sh h1 { font-size: 17px; font-weight: 600; }
+.ly-sankey svg { flex: 1; width: 100%; min-height: 0; }
+.ly-sankey text { font-family: Inter, sans-serif; font-size: 10px; }
+
+/* ══ 20 · state 状态机 ══ */
+.ly-state { display: flex; flex-direction: column; height: 100%; }
+.ly-state .sth { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
+.ly-state .sth h1 { font-size: 18px; font-weight: 600; }
+.ly-state .chain { display: flex; align-items: center; gap: 0; margin-bottom: 22px; }
+.ly-state .st { flex: 1; text-align: center; padding: 14px 6px 12px; border: 1px solid var(--line2); border-radius: 4px;
+  background: var(--panel); position: relative; }
+.ly-state .st .dot { width: 8px; height: 8px; border-radius: 50%; margin: 0 auto 7px; background: var(--ink4); }
+.ly-state .st .lb { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-state .st .tx { font-size: 10.5px; margin-top: 5px; color: var(--ink2); }
+.ly-state .st.on { border-color: color-mix(in srgb, var(--fx-blue) 55%, transparent);
+  background: color-mix(in srgb, var(--fx-blue) 9%, var(--panel)); }
+.ly-state .st.on .dot { background: var(--fx-blue); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fx-blue) 18%, transparent); }
+.ly-state .st.on .tx { color: var(--ink); }
+.ly-state .arrow { width: 22px; flex: 0 0 22px; height: 1px; background: var(--line); }
+.ly-state .kv { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px 22px; }
+.ly-state .kv .f .k { margin-bottom: 3px; }
+.ly-state .kv .f .v { font-size: 11.5px; }
+
 </style>
 </head>
 <body>
@@ -478,6 +592,20 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
   </section>
 
   <section>
+    <h2>图表式（Flexoki / pele 灵感）</h2>
+    <div class="opts" id="opt-layout2">
+      <button class="opt" data-k="kanban"><b>13</b><span>看板 · 四列流</span></button>
+      <button class="opt" data-k="tree"><b>14</b><span>矩形树 · 面积分块</span></button>
+      <button class="opt" data-k="gantt"><b>15</b><span>甘特 · 状态条</span></button>
+      <button class="opt" data-k="quad"><b>16</b><span>四象限 · 重要×状态</span></button>
+      <button class="opt" data-k="mind"><b>17</b><span>导图 · 中心发散</span></button>
+      <button class="opt" data-k="radar"><b>18</b><span>雷达 · 六维</span></button>
+      <button class="opt" data-k="sankey"><b>19</b><span>流图 · 引用流向</span></button>
+      <button class="opt" data-k="state"><b>20</b><span>状态机 · 草稿→发布</span></button>
+    </div>
+  </section>
+
+  <section>
     <h2>皮肤（只影响颜色/线型）</h2>
     <div class="opts" id="opt-skin">
       <button class="opt" data-k="graphite"><b>石墨</b><span>暗 · 细线</span></button>
@@ -486,6 +614,8 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
       <button class="opt" data-k="steel"><b>冷钢</b><span>暗 · 蓝灰</span></button>
       <button class="opt" data-k="amber"><b>琥珀</b><span>暗 · 暖强调</span></button>
       <button class="opt" data-k="industrial"><b>工业</b><span>亮 · 粗线</span></button>
+      <button class="opt" data-k="flexoki"><b>Flexoki</b><span> pele 同款暗色</span></button>
+      <button class="opt" data-k="flexoki-paper"><b>Flexoki 纸</b><span>pele 同款亮色</span></button>
     </div>
   </section>
 
@@ -514,6 +644,8 @@ const LAYOUT_NAME = {
   flow: '1 · 纵向流', table: '2 · 表格式', tiles: '3 · 卡片网格', mono: '4 · 巨碑',
   sheet: '5 · 铭牌', split: '6 · 对开', gauge: '7 · 圆环', columns: '8 · 三栏',
   timeline: '9 · 轴线', acc: '10 · 折叠', insp: '11 · 检视栏', dense: '12 · 极密',
+  kanban: '13 · 看板', tree: '14 · 矩形树', gantt: '15 · 甘特', quad: '16 · 四象限',
+  mind: '17 · 导图', radar: '18 · 雷达', sankey: '19 · 流图', state: '20 · 状态机',
 };
 
 const state = {
@@ -954,10 +1086,209 @@ function lyDense(p) {
   </div>`;
 }
 
+
+/* 13 kanban */
+function lyKanban(p) {
+  const f = fields(p), rf = refs(p);
+  const isUT = state.section === "ut";
+  const cols = isUT
+    ? [
+        { t: "身份", items: f.slice(0, 1), s: "" },
+        { t: "运行", items: f.slice(1, 4), s: "" },
+        { t: "状态", items: f.slice(4), s: p.spec?.enabled ? "ok" : "warn" },
+        { t: "引用", items: rf.map((r) => ({ k: r.kind, v: r.name })), s: rf.every((r) => r.state === "ok") ? "ok" : "bad" },
+      ]
+    : [
+        { t: "身份", items: f.slice(0, 2), s: "" },
+        { t: "运行", items: f.slice(2, 6), s: "" },
+        { t: "环境", items: f.slice(6), s: "" },
+        { t: "引用", items: rf.map((r) => ({ k: r.kind, v: r.name })), s: rf.every((r) => r.state === "ok") ? "ok" : "bad" },
+      ];
+  return `<div class="ly-kanban">
+    ${cols.map((c) => `<div class="col">
+      <div class="ch"><i class="${c.s}"></i><span class="t">${esc(c.t)}</span><span class="c">${c.items.length}</span></div>
+      <div class="cb">${c.items.map((x) => `<div class="kc"><div class="k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}</div>
+    </div>`).join("")}
+  </div>`;
+}
+
+/* 14 treemap */
+function lyTree(p) {
+  const f = fields(p), rf = refs(p);
+  const [a, b, c, d, e, g2, h2, i2] = [f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]];
+  const cell = (x, cls = "", flex = 1) => x
+    ? `<div class="cell ${cls}" style="flex:${flex}"><span class="k">${esc(x.k)}</span>
+        <span class="v">${esc(x.v)}${x.sub ? `<small>${esc(x.sub)}</small>` : ""}</span></div>` : "";
+  return `<div class="ly-tree">
+    <div class="row" style="flex:1.4">
+      ${cell(a, "big", 2.2)}${cell(b, "", 1)}${cell(c, "", 1)}
+    </div>
+    <div class="row" style="flex:1">
+      ${cell(d, "", 1)}${cell(e, "", 1)}${cell(g2, "", 1)}
+    </div>
+    <div class="row" style="flex:0.9">
+      ${cell(h2, "", 1)}${cell(i2, "", 1)}
+      <div class="cell acc" style="flex:1.4"><span class="k">引用 ${rf.length}</span>
+        <span class="v">${rf.map((r) => esc(r.name)).join(" · ") || "—"}</span></div>
+    </div>
+  </div>`;
+}
+
+/* 15 gantt */
+function lyGantt(p) {
+  const f = fields(p), rf = refs(p);
+  const bad = rf.some((r) => r.state !== "ok");
+  const width = (x, i) => (x.v === "不要" || x.v === "没钉" ? 32 : x.v === "未发布" ? 48 : 62 + ((i * 7) % 36));
+  const cls = (x) => (x.v === "不要" || x.v === "没钉" ? "warn" : x.v === "未发布" ? "warn" : "ok");
+  return `<div class="ly-gantt">
+    <div class="gh"><h1 class="ly-name">${esc(p.name)}</h1><span class="sum">${esc(p.summary)}</span></div>
+    <div class="axis"><span>HEAD</span><span>盘上</span><span>待同步</span><span>已发布</span></div>
+    ${f.map((x, i) => `<div class="gr"><span class="k">${esc(x.k)}</span>
+      <span class="track"><span class="bar ${cls(x)}" style="left:0;width:${width(x, i)}%"></span></span>
+      <span class="val">${esc(x.v === "不要" || x.v === "没钉" ? "—" : x.v === "未发布" ? "unpub" : "ok")}</span></div>`).join("")}
+    ${rf.map((r) => `<div class="gr"><span class="k">引用 · ${esc(r.kind)}</span>
+      <span class="track"><span class="bar ${r.state === "ok" ? "ok" : "bad"}" style="left:0;width:${r.state === "ok" ? 78 : 34}%"></span></span>
+      <span class="val">${r.state === "ok" ? "ok" : "invalid"}</span></div>`).join("")}
+    <div style="margin-top:auto;font-size:9.5px;color:var(--ink3);font-family:JBMono,monospace">
+      ${bad ? "有引用失效 —— 修好再发布" : "全部引用正常"}
+    </div>
+  </div>`;
+}
+
+/* 16 quadrant */
+function lyQuad(p) {
+  const f = fields(p), rf = refs(p);
+  const key = new Set(["模型", "技能", "模板", "触发器", "会话模板", "思考档"]);
+  const hi = f.filter((x) => key.has(x.k));
+  const lo = f.filter((x) => !key.has(x.k));
+  const q = (t, items, cls = "") => `<div class="q ${cls}"><div class="t">${t}</div>
+    ${items.map((x) => `<div class="item"><span class="n">${esc(x.k)}</span><span>${esc(x.v)}</span></div>`).join("")}
+    ${items.length ? "" : `<div class="item" style="color:var(--ink4)">—</div>`}</div>`;
+  const refItems = rf.map((r) => ({ k: r.kind, v: r.name }));
+  return `<div class="ly-quad">
+    <div class="qh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary)}</span></div>
+    <div class="wrap">
+      ${q("重要 · 已定", hi)}
+      ${q("重要 · 跟随默认", [{ k: "扩展", v: (p.spec?.extensions || []).length ? "有" : "不要" }], "hi")}
+      ${q("引用", refItems, rf.every((r) => r.state === "ok") ? "" : "bad")}
+      ${q("次要", lo)}
+      <span class="ax" style="left:50%;top:-2px;transform:translateX(-50%)">↑ 重要</span>
+      <span class="ax" style="left:0;bottom:-2px">← 主要</span>
+    </div>
+  </div>`;
+}
+
+/* 17 mindmap */
+function lyMind(p) {
+  const f = fields(p).slice(0, 4), rf = refs(p).slice(0, 2);
+  const W = 620, H = 470, cx = 96, cy = H / 2;
+  const branches = [...f.slice(0, 3).map((x) => ({ k: x.k, v: x.v })), ...rf.map((r) => ({ k: r.kind, v: r.name }))];
+  const step = H / (branches.length + 1);
+  const nodes = branches.map((b, i) => {
+    const y = step * (i + 1);
+    const midX = (cx + 250) / 2;
+    return `<path d="M${cx + 46} ${cy} C ${midX} ${cy}, ${midX} ${y}, 250 ${y}" stroke="var(--line)" fill="none" />
+      <circle cx="250" cy="${y}" r="3.5" fill="var(--fx-blue)" />
+      <text x="262" y="${y - 3}" fill="var(--ink3)" font-size="8.5" letter-spacing="1.4">${esc(b.k.toUpperCase())}</text>
+      <text x="262" y="${y + 12}" fill="var(--ink)" font-size="11.5">${esc(b.v).slice(0, 30)}</text>`;
+  }).join("");
+  return `<div class="ly-mind">
+    <div class="mh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 40)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMid meet">
+      <rect x="0" y="${cy - 26}" width="96" height="52" rx="6" fill="var(--panel)" stroke="var(--line)" />
+      <text x="48" y="${cy + 4}" text-anchor="middle" fill="var(--ink)" font-size="12">${esc(p.name).slice(0, 11)}</text>
+      ${nodes}
+    </svg>
+  </div>`;
+}
+
+/* 18 radar */
+function lyRadar(p) {
+  const f = fields(p);
+  const LOW = ["不要", "没钉", "否", "未分类", "未发布", "关掉", "默认", "没有参数"];
+  const axes = f.slice(0, 6).map((x) => ({ k: x.k, v: LOW.some((w) => String(x.v).includes(w)) ? 0.32 : 1 }));
+  const W = 460, H = 400, cx = W / 2, cy = H / 2 - 4, R = 132;
+  const pt = (i, r) => {
+    const a = (i / axes.length) * 2 * Math.PI - Math.PI / 2;
+    return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  };
+  const rings = [0.33, 0.66, 1].map((k) =>
+    `<polygon points="${axes.map((_, i) => pt(i, R * k).join(",")).join(" ")}" fill="none" stroke="var(--line)" />`).join("");
+  const spokes = axes.map((_, i) => { const [x, y] = pt(i, R); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)" />`; }).join("");
+  const poly = axes.map((a, i) => pt(i, R * a.v).join(",")).join(" ");
+  const labels = axes.map((a, i) => {
+    const [x, y] = pt(i, R + 20);
+    return `<text x="${x}" y="${y}" text-anchor="middle" fill="var(--ink3)" font-size="8.5" letter-spacing="1.2">${esc(a.k.toUpperCase())}</text>`;
+  }).join("");
+  return `<div class="ly-radar">
+    <div class="rh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 44)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${rings}${spokes}${labels}
+      <polygon points="${poly}" fill="color-mix(in srgb, var(--fx-blue) 22%, transparent)" stroke="var(--fx-blue)" stroke-width="1.5" />
+      ${axes.map((a, i) => { const [x, y] = pt(i, R * a.v); return `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--fx-blue)" />`; }).join("")}
+    </svg>
+    <div class="legend">${axes.map((a) => `<span><i style="background:var(--fx-blue)"></i>${esc(a.k)} ${Math.round(a.v * 100)}%</span>`).join("")}</div>
+  </div>`;
+}
+
+/* 19 sankey */
+function lySankey(p) {
+  const f = fields(p).slice(0, 3), rf = refs(p);
+  const W = 620, H = 520;
+  const left = { x: 24, y: H / 2 - 22, w: 12, h: 44 };
+  const midX = 300, nodeH = 26, gap = 20;
+  const items = [...f.map((x) => ({ k: x.k, v: x.v, c: "var(--fx-blue)" })), ...rf.map((r) => ({ k: r.kind, v: r.name, c: r.state === "ok" ? "var(--fx-green)" : "var(--fx-red)" }))];
+  const total = items.length;
+  const startY = (H - (total * nodeH + (total - 1) * gap)) / 2;
+  const nodes = items.map((it, i) => {
+    const y = startY + i * (nodeH + gap);
+    return `<path d="M${left.x + left.w} ${left.y + left.h / 2} C ${midX - 120} ${left.y + left.h / 2}, ${midX - 90} ${y + nodeH / 2}, ${midX} ${y + nodeH / 2}"
+        stroke="${it.c}" stroke-opacity=".35" stroke-width="${6 + (i % 3) * 3}" fill="none" />
+      <rect x="${midX}" y="${y}" width="10" height="${nodeH}" rx="2" fill="${it.c}" />
+      <text x="${midX + 20}" y="${y + 11}" fill="var(--ink3)" font-size="8" letter-spacing="1.2">${esc(it.k.toUpperCase())}</text>
+      <text x="${midX + 20}" y="${y + 23}" fill="var(--ink)" font-size="10.5">${esc(it.v).slice(0, 26)}</text>`;
+  }).join("");
+  return `<div class="ly-sankey">
+    <div class="sh"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 46)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMid meet">
+      <rect x="${left.x}" y="${left.y}" width="${left.w}" height="${left.h}" rx="2" fill="var(--ink)" />
+      <text x="${left.x + left.w + 12}" y="${left.y + 18}" fill="var(--ink)" font-size="11">${esc(p.name)}</text>
+      <text x="${left.x + left.w + 12}" y="${left.y + 33}" fill="var(--ink3)" font-size="9">${crumbOf()}</text>
+      ${nodes}
+    </svg>
+  </div>`;
+}
+
+/* 20 state */
+function lyState(p) {
+  const f = fields(p);
+  const tracked = p.tracked !== false;
+  const idx = dirty() ? 0 : tracked ? 2 : 1;
+  const steps = [
+    { t: "草稿", x: dirty() ? "未提交" : "干净" },
+    { t: "已提交", x: tracked ? "HEAD 里有" : "没进过 HEAD" },
+    { t: "已发布", x: tracked ? "远端可见" : "只在本地" },
+    { t: "归档", x: "不动它就别去" },
+  ];
+  return `<div class="ly-state">
+    <div class="sth"><h1 class="ly-name">${esc(p.name)}</h1><span class="ly-sub">${esc(p.summary).slice(0, 40)}</span></div>
+    <div class="chain">
+      ${steps.map((s, i) => `<div class="st ${i === idx ? "on" : ""}"><div class="dot"></div>
+        <div class="lb">${esc(s.t)}</div><div class="tx">${esc(s.x)}</div></div>
+        ${i < steps.length - 1 ? `<div class="arrow"></div>` : ""}`).join("")}
+    </div>
+    <div class="kv">
+      ${f.map((x) => `<div class="f"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
 const LAYOUTS = {
   flow: lyFlow, table: lyTable, tiles: lyTiles, mono: lyMono,
   sheet: lySheet, split: lySplit, gauge: lyGauge, columns: lyColumns,
   timeline: lyTimeline, acc: lyAcc, insp: lyInsp, dense: lyDense,
+  kanban: lyKanban, tree: lyTree, gantt: lyGantt, quad: lyQuad,
+  mind: lyMind, radar: lyRadar, sankey: lySankey, state: lyState,
 };
 
 /* 通用 tab：盘面 / JSON / 对比 */
@@ -1224,14 +1555,17 @@ $("#app").addEventListener("input", (e) => {
 });
 
 function paintLayout() {
-  $$("#opt-layout .opt").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === state.layout)));
+  $$("[data-k][data-layout-opt], #opt-layout .opt, #opt-layout2 .opt").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.k === state.layout)));
 }
-$$("#opt-layout .opt").forEach((b) => b.addEventListener("click", () => { state.layout = b.dataset.k; paintLayout(); render(); }));
+$$("#opt-layout .opt, #opt-layout2 .opt").forEach((b) => b.addEventListener("click", () => {
+  state.layout = b.dataset.k; paintLayout(); render();
+}));
 paintLayout();
 $$("#opt-skin .opt").forEach((b) => b.addEventListener("click", () => setSkin(b.dataset.k)));
 
 const H = (location.hash.replace("#", "") || "").split(",");
-const SKINS = ["graphite","paper","mono","steel","amber","industrial"];
+const SKINS = ["graphite","paper","mono","steel","amber","industrial","flexoki","flexoki-paper"];
 if (H[2] === "new") state.mode = "new";
 if (H[2] === "publish" || H[2] === "archive" || H[2] === "purge" || H[2] === "launch" || H[2] === "newcat") state.layer = H[2];
 if (H[1]) state.tab = H[1];
