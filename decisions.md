@@ -337,3 +337,8 @@ JSON 面板看得懂但看不懂。而且数据天然是图（`resolved` 每个�
 
 **代价**：少了 7 种配色。真想要回来，从 git 历史恢复 `theme.rs` 的那几个分支即可
 （`git show 41f6a7a:crates/nousdesk/src/theme.rs`）。
+
+## 2026-11-15 · 加第 5 套皮：琥珀（amber）
+
+照 demo 的 `amber` 变量抄：暖黑底 `#0d0c0a`、字 `#f0e9dc`、琥珀强调 `#e8a33d`、3px 微圆角。
+不留自己的发挥空间 —— 有 demo 就抄 demo，这是上一轮收敛到 4 套时立的规矩。

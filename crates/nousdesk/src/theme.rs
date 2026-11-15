@@ -377,6 +377,60 @@ impl Palette {
         transparent: 0x00000000,
         code_bg: 0xf5f5f3,
     };
+
+    /// 「琥珀」：demo 的 amber 皮。暖黑底 `#0d0c0a` + 琥珀强调 `#e8a33d`，
+    /// 像老式示波器 / 真空荧光 —— 暗，但不是冷暗。
+    pub const AMBER: Palette = Palette {
+        sidebar: 0x090806,
+        sidebar_hover: 0x17150f,
+        sidebar_open: 0x211d15,
+        sidebar_idle: 0x6f6656,
+        list_bg: 0x0d0c0a,
+        chat_bg: 0x0d0c0a,
+        panel: 0x12110e,
+        panel_alt: 0x17150f,
+        surface: 0x17150f,
+        overlay: 0x12110e,
+        bubble_me: 0x241f14,
+        bubble_other: 0x17150f,
+
+        text: 0xf0e9dc,
+        text_2: 0xa89e8c,
+        muted: 0x6f6656,
+        faint: 0x504a3e,
+        on_accent: 0x14110c,
+        on_sidebar: 0x6f6656,
+
+        line: 0x251f18,
+        line_strong: 0x322a1f,
+        line_soft: 0x1c1712,
+
+        accent: 0xe8a33d,
+        accent_hover: 0xf2b455,
+        accent_soft: 0x2a2113,
+        accent_fg: 0xe8a33d,
+        accent_tint: 0xe8a33d22,
+        accent_soft_hover: 0x342915,
+
+        danger: 0xd8705f,
+        danger_soft: 0x2a1712,
+        danger_fg: 0xd8705f,
+        warn: 0xe8a33d,
+        warn_soft: 0x2a2113,
+        ok: 0x7fb489,
+        ok_fg: 0x7fb489,
+        link: 0xe8a33d,
+        badge: 0xd8705f,
+
+        hover: 0x17150f,
+        selected: 0x211d15,
+        disabled: 0x504a3e,
+        avatar: 0xe8a33d,
+        scrim: 0x00000066,
+        shadow: 0x00000040,
+        transparent: 0x00000000,
+        code_bg: 0x17150f,
+    };
 }
 
 // ── 排版 / 尺寸 ─────────────────────────────────────────────────────────
@@ -497,6 +551,26 @@ impl Skin {
         radius_scale: 0.75,
         density: 1.0,
         dark: false,
+        rail_w: 56.,
+        list_w: 280.,
+        preset_tree_w: 248.,
+        template_list_w: 300.,
+        detail_w: 420.,
+        head_h: 54.,
+    };
+
+
+    /// 「琥珀」：暖黑底 + 琥珀强调，3px 微圆角，Inter 12.5px。
+    pub const AMBER: Skin = Skin {
+        p: Palette::AMBER,
+        font: "Inter",
+        mono: "JetBrainsMono",
+        body: 12.5,
+        line_height: 0.0,
+        type_scale: 1.0,
+        radius_scale: 0.375,
+        density: 1.02,
+        dark: true,
         rail_w: 56.,
         list_w: 280.,
         preset_tree_w: 248.,
@@ -736,6 +810,8 @@ pub enum ThemeName {
     Paper,
     /// 工业 · 暖纸底 + 黑线 + 直角
     Industrial,
+    /// 琥珀 · 暖黑底 + 琥珀强调
+    Amber,
 }
 
 impl ThemeName {
@@ -745,6 +821,7 @@ impl ThemeName {
         ThemeName::Industrial,
         ThemeName::Mono,
         ThemeName::Paper,
+        ThemeName::Amber,
     ];
 
     /// 落盘用的 id（小写、稳定）。
@@ -754,6 +831,7 @@ impl ThemeName {
             ThemeName::Industrial => "industrial",
             ThemeName::Mono => "mono",
             ThemeName::Paper => "paper",
+            ThemeName::Amber => "amber",
         }
     }
 
@@ -764,6 +842,7 @@ impl ThemeName {
             ThemeName::Industrial => "工业 · 纸与黑线",
             ThemeName::Mono => "单色 · 纯黑白",
             ThemeName::Paper => "纸 · 暖白",
+            ThemeName::Amber => "琥珀 · 暖黑",
         }
     }
 
@@ -774,6 +853,7 @@ impl ThemeName {
             ThemeName::Industrial => Skin::INDUSTRIAL,
             ThemeName::Mono => Skin::MONO,
             ThemeName::Paper => Skin::PAPER,
+            ThemeName::Amber => Skin::AMBER,
         }
     }
 
