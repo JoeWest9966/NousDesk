@@ -292,6 +292,33 @@ pub struct Presets {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// 一条预设的生命周期动作。三个都是 `POST /v1/presets/<段>/<op>`，体是 `{name}`。
+///
+/// 语义差别（`wire.md` / 面板文案）：归档**可还原**（移到 `archives/`），彻底删**不可逆**
+/// （活库 + 归档副本一起没），而且要过 git 回滚。客户端不自己模拟这两者。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresetOp {
+    Archive,
+    Restore,
+    Purge,
+}
+
+impl PresetOp {
+    /// 路径最后一段。别在这里加逻辑分支 —— 引擎认的就是这三个字。
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Archive => "archive",
+            Self::Restore => "restore",
+            Self::Purge => "purge",
+        }
+    }
+
+    /// 是不是不可逆的那一个。UI 拿它决定要不要上「输入名字解锁」那档重锤。
+    pub fn irreversible(self) -> bool {
+        matches!(self, Self::Purge)
+    }
+}
+
 /// `POST /v1/presets/<段>/create` 的请求体。
 ///
 /// 只带「建的时候就知道的」四样：名字、摘要、类别、起手式。`spec` 整份原样落的路

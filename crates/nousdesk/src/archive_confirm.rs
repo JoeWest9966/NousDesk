@@ -119,8 +119,9 @@ pub fn render_purge_confirm(
         .flex()
         .items_center()
         .justify_center()
-        // 弹窗本体自己吃掉点击，别让点一下正文就把框关了。
-        .on_click(|_, _, _| {})
+        // 弹窗本体吃掉点击**并且 stop**：只「吃掉」不够 —— 同一个点击还会继续传给
+        // 兄弟那层罩子，表现成「点正文，弹窗自己关了」（坑.md 61）。
+        .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
         .child(
             div()
                 .flex()

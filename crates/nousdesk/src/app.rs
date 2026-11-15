@@ -280,6 +280,15 @@ pub struct Desktop {
     pub(crate) archive: crate::archive_page::ArchivePageState,
     /// 「撕原件」危险确认的状态机（票 #3）。本票只负责把它接到引擎上。
     pub(crate) purge_confirm: crate::archive_confirm::PurgeConfirm,
+    /// Template 页：归档 / 彻底删的二确认（分步两屏）。
+    pub(crate) preset_confirm: crate::preset_confirm::PresetConfirm,
+    /// Template 页：改类别弹层。`Some` = 开着。
+    pub(crate) cat_edit: Option<crate::templates::CatEditDraft>,
+    /// Template 页：正在跑的生命周期动作（归档 / 还原 / 彻底删）的一句话。
+    ///
+    /// 引擎那边要 commit + push，实测**几分钟**量级；这期间列表上必须常驻一行
+    /// 「正在归档 asd…」，否则用户以为点空了（AGENTS：点了没反馈算 bug）。
+    pub(crate) preset_busy: Option<String>,
     /// 全局轻提示（最上层）。自动收起靠定时器 + 代号，见 [`NoticeState`]。
     pub(crate) notice: NoticeState,
     /// 启动时读到的配置（保存后跟着换）。
@@ -433,6 +442,11 @@ impl Desktop {
                     // 都走 `stop_propagation`，不让 Esc 再落到下面去关别的面板。
                     let closed = weak
                         .update(app, |this, cx| {
+                            if this.preset_confirm.is_open() {
+                                this.preset_confirm.on_esc();
+                                cx.notify();
+                                return true;
+                            }
                             if this.purge_confirm.is_open() {
                                 this.purge_confirm.on_esc();
                                 cx.notify();
@@ -469,6 +483,11 @@ impl Desktop {
                         .update(app, |this, cx| {
                             if this.tab != Tab::Templates {
                                 return false;
+                            }
+                            if this.cat_edit.is_some() {
+                                this.cat_edit = None;
+                                cx.notify();
+                                return true;
                             }
                             if this.cat_drawer {
                                 this.cat_drawer = false;
@@ -567,6 +586,9 @@ impl Desktop {
             archive_open: false,
             archive: crate::archive_page::ArchivePageState::new(),
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
+            preset_confirm: crate::preset_confirm::PresetConfirm::new(),
+            cat_edit: None,
+            preset_busy: None,
             notice: NoticeState::default(),
             conn,
             host_input,
@@ -1767,7 +1789,7 @@ impl Desktop {
     /// 弹一条轻提示：做成的事绿、失败红，4 秒后自己收。
     ///
     /// 只在这里点火，**不在 `render` 里点火** —— 否则就是「重画 → 再点火」的死循环。
-    fn notify(&mut self, text: impl Into<String>, kind: NoticeKind, cx: &mut Context<Self>) {
+    pub(crate) fn notify(&mut self, text: impl Into<String>, kind: NoticeKind, cx: &mut Context<Self>) {
         let token = self.notice.show(text, kind);
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -3854,6 +3876,9 @@ impl Render for Desktop {
             .children(self.cat_drawer_overlay(cx))
             // 「新建类别」弹层
             .children(self.new_cat_overlay(cx))
+            // Template 页：改类别 / 归档·彻底删的确认（最上面两层）
+            .children(self.cat_edit_overlay(cx))
+            .children(self.preset_confirm_overlay(cx))
             // 轻提示：最后一层，永远看得见。
             .children(self.render_notice());
 
