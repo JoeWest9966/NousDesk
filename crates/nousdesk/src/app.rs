@@ -41,6 +41,16 @@ pub(crate) mod scrollbar;
 /// 再窄就只剩一格，不如把目录列收起来（抽屉里照样能跳）。
 pub(crate) const NAV_COLUMN_MIN_W: f32 = 960.;
 
+/// 窗口窄到这个宽度以下，Template 页的**类别树**就从常驻一栏收进「类别」抽屉。
+///
+/// 图标条 56 + 类别树 248 + 模板列表 300 = 604，1280 时右栏还剩 676 够画图；
+/// 960 只剩 356，640 只剩 36 —— 图和新表单就全废了。收掉类别树把这 248 让给右栏。
+pub(crate) const TREE_FOLD_W: f32 = 1000.;
+
+/// 窄窗时模板列表的宽度（宽窗用皮肤里的 `template_list_w`，默认 300）。
+/// 盘面算右格宽度时也得用这一份，否则 `pane_width` 会把右格算窄 60px。
+pub(crate) const TEMPLATE_LIST_W_NARROW: f32 = 240.;
+
 // 编译期钉住两条：最小窗口宽度下目录列必须已经让位（否则「半屏」时聊天区只剩一格）；
 // 最小宽度也不能小于「会话列表 + 聊天区」装得下的下限。
 const _: () = assert!(NAV_COLUMN_MIN_W > crate::MIN_WINDOW_W);
@@ -105,6 +115,7 @@ use crate::md::{chat_md, code_copy_button, code_highlighter, md_style, strip_har
 // 并有测试钉住两边一致。只在这里改色 = 主题卡片的色块和界面不符。
 #[allow(dead_code)]
 pub(crate) const SIDEBAR_DARK: u32 = 0x2e2e2e;
+#[allow(dead_code)]
 pub(crate) const LIST_BG: u32 = 0xf7f7f7;
 #[allow(dead_code)]
 pub(crate) const CHAT_BG: u32 = 0xededed;
@@ -324,6 +335,8 @@ pub struct Desktop {
     pub(crate) new_preset: Option<crate::templates::NewPresetDraft>,
     /// 「新建类别」弹层。
     pub(crate) new_cat: crate::templates::NewCatDraft,
+    /// 窄窗下 Template 页的类别抽屉开着没有（宽窗常驻，不用这个）。
+    pub(crate) cat_drawer: bool,
     _subs: Vec<Subscription>,
     /// 「New Manual」盘面。只占右侧聊天区那一格（外形照 qrd3wh 的 hb7k3j 页）。
     pub(crate) newchat: crate::board::NewChat,
@@ -456,6 +469,11 @@ impl Desktop {
                         .update(app, |this, cx| {
                             if this.tab != Tab::Templates {
                                 return false;
+                            }
+                            if this.cat_drawer {
+                                this.cat_drawer = false;
+                                cx.notify();
+                                return true;
                             }
                             if this.new_cat.input.is_some() {
                                 this.close_new_category(cx);
@@ -600,6 +618,7 @@ impl Desktop {
             picked_node: None,
             new_preset: None,
             new_cat: crate::templates::NewCatDraft::default(),
+            cat_drawer: false,
             newchat: crate::board::NewChat::new(window, cx),
             nav: SessionNav::new(),
             _subs: subs,
@@ -2442,7 +2461,10 @@ impl Desktop {
     }
 
     /// 聊天区：9 号方案的短主视图 + 右侧历史抽屉。目录列由 `render()` 插在它左边。
-    fn render_chat(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_chat(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 窄窗（< 960）时顶栏要收着点：副标题和「历史与目录」四个字一起塞，
+        // 640 宽会把右边那个按钮裁掉一半（截图里只剩「历史与目」）。
+        let narrow = window.viewport_size().width.as_f32() < NAV_COLUMN_MIN_W;
         let Some(id) = self.selected else {
             return div()
                 .flex()
@@ -2541,7 +2563,7 @@ impl Desktop {
                     .px(t().d(12.))
                     .bg(rgb(t().p.list_bg))
                     .child(div().flex_none().truncate().child(title))
-                    .child(
+                    .children((!narrow).then(|| {
                         div()
                             .flex_none()
                             .text_size(t().fs(11.))
@@ -2552,13 +2574,13 @@ impl Desktop {
                                 format!("主视图最近 {} 条", self.entries.len() - from)
                             } else {
                                 format!("已展开 {} 条", self.entries.len() - from)
-                            }),
-                    )
+                            })
+                    }))
                     .child(div().flex_1())
                     // 分支：分叉树唯一的入口。激活时变绿。
                     .child(self.branch_button(id, cx))
                     .children((!short).then(|| crate::nav_ui::collapse_button(cx)))
-                    .child(crate::nav_ui::history_button(cx)),
+                    .child(crate::nav_ui::history_button(narrow, cx)),
             )
             .child(
                 div()
@@ -3709,6 +3731,36 @@ impl Render for Desktop {
         // 不会「看到的」和「选中的」对不上。
         self.refresh_slash(cx);
 
+        // 窄窗：类别树收进抽屉，那一栏不再常驻（见 `TREE_FOLD_W`）。
+        let narrow_tree = window.viewport_size().width.as_f32() < TREE_FOLD_W;
+        // 设置 / 归档库是**整页**：连 Template 的类别树和列表一起让位。
+        // 只顶替最右一格的话，1280 下它们只剩 676，640 下只剩 36 —— 输入框里
+        // 连一句完整的话都看不见（坑.md 57 是同一类问题，那条只修了滚动条）。
+        let page_open = self.settings_open || self.archive_open;
+
+        let main_col: AnyElement = if page_open {
+            div().into_any_element()
+        } else {
+            match self.tab {
+                Tab::Chats => self.render_session_list(cx).into_any_element(),
+                // Template 页是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
+                Tab::Templates => div()
+                    .flex()
+                    .flex_row()
+                    .flex_1()
+                    .h_full()
+                    .min_w(t().d(0.))
+                    .children((!narrow_tree).then(|| self.render_preset_tree(cx)))
+                    .child(self.render_templates(narrow_tree, cx))
+                    .child(if self.new_preset.is_some() {
+                        self.render_new_preset(window, cx)
+                    } else {
+                        self.render_detail(window, cx)
+                    })
+                    .into_any_element(),
+            }
+        };
+
         // New Manual **顶替**右侧聊天区，不再盖住整窗：左导航和会话列表永远在。
         // 尺寸基准也因此从整窗 vmin 换成右格 cqmin（见 `board_art::M`）。
         // 设置页也顶替右栏，但它优先级更高：正在改连接时别把盘面盖在上面。
@@ -3723,7 +3775,7 @@ impl Render for Desktop {
         } else if self.newchat.open {
             self.render_board(window, cx)
         } else {
-            self.render_chat(cx).into_any_element()
+            self.render_chat(window, cx).into_any_element()
         };
 
         let skin = crate::theme::cur();
@@ -3738,24 +3790,7 @@ impl Render for Desktop {
             .when(skin.line_height > 0., |el| el.line_height(px(skin.lh().as_f32())))
             .bg(rgb(skin.p.chat_bg))
             .child(self.render_icon_bar(cx))
-            .child(match self.tab {
-                Tab::Chats => self.render_session_list(cx).into_any_element(),
-                // Template 页是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
-                Tab::Templates => div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .h_full()
-                    .min_w(t().d(0.))
-                    .child(self.render_preset_tree(cx))
-                    .child(self.render_templates(cx))
-                    .child(if self.new_preset.is_some() {
-                        self.render_new_preset(window, cx)
-                    } else {
-                        self.render_detail(window, cx)
-                    })
-                    .into_any_element(),
-            })
+            .child(main_col)
             // 会话内跳转目录（J）：只在聊天页、选中了会话、且**盘面没开**时出现。
             // New Manual 顶替右栏时那一列会把它挤窄，所以一并让开。
             .children(
@@ -3790,12 +3825,17 @@ impl Render for Desktop {
             // `min-content` 就会把这一栏撑出去 —— 于是滚动视口的右边缘跑到窗口外面，
             // 滚动条跟着一起消失（见 坑.md 57）。`min_w(0)` 让它肯收缩，
             // `overflow_hidden` 把溢出裁在窗口边上，滚动条就还在窗口里。
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(t().d(0.))
-                    .overflow_hidden()
-                    .child(right),
+            // Template 页的「右栏」在 `main_col` 里面（第三栏），这一格是空的。
+            // **空的也别占位**：它带着 `flex_1`，会把主栏挤到一半宽 —— 640 宽时
+            // 模板列表 240 之后只剩 52px，右栏的图/空状态全被压成一条（见 坑.md 64）。
+            .children(
+                (self.tab != Tab::Templates || page_open).then(|| {
+                    div()
+                        .flex_1()
+                        .min_w(t().d(0.))
+                        .overflow_hidden()
+                        .child(right)
+                }),
             );
 
         // 配置面板挂在**整窗**这一层，不塞进输入区：塞进去它是 absolute 浮层，
@@ -3810,6 +3850,8 @@ impl Render for Desktop {
             .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
             // 「撕原件」确认（盖在菜单之上）
             .children(self.purge_overlay(cx))
+            // 窄窗的类别抽屉（比弹层低一层：弹层永远压在它上面）
+            .children(self.cat_drawer_overlay(cx))
             // 「新建类别」弹层
             .children(self.new_cat_overlay(cx))
             // 轻提示：最后一层，永远看得见。

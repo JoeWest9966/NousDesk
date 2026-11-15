@@ -672,7 +672,7 @@ pub fn collapse_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
 }
 
 /// 顶栏：历史与目录。
-pub fn history_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
+pub fn history_button(narrow: bool, cx: &mut Context<crate::app::Desktop>) -> AnyElement {
     div()
         .id("nav-history")
         .flex_none()
@@ -685,7 +685,8 @@ pub fn history_button(cx: &mut Context<crate::app::Desktop>) -> AnyElement {
         .cursor_pointer()
         .hover(|el| el.bg(rgb(t().p.accent_hover)))
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.nav_toggle_drawer(cx)))
-        .child("历史与目录")
+        // 窄窗只写两个字：四个字加内边距要 78px，644 宽的聊天区顶栏放不下。
+        .child(if narrow { "目录" } else { "历史与目录" })
         .into_any_element()
 }
 /// 目录行的浮窗要的那句回答首行。用一个静态钩子从 `Desktop` 拿，
