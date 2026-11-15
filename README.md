@@ -93,15 +93,20 @@ crates/nousdesk/      GPUI 应用：三栏布局、会话、输入、置顶。
 点左栏右上角的「+ New Manual」——**只顶替右侧聊天区那一格**，左导航和会话列表
 永远在。Esc 或点左栏任意一条会话就回到聊天。右格里**没有顶栏**。
 
-外形是「轨道」（`demo/new-manual/#7`）：四张参数卡（Model / Context / Extensions /
-Permissions）围着中央一颗 `Create`，虚线把「谁喂给谁」连出来。四张卡各自可点，
-点开的是**就地弹出**的选择页（`demo/new-manual-7/#3`）—— 贴在卡片旁边，不是居中模态，
-选参数的时候盘面还看得见。
+外形是「轨道」+「环」（`demo/new-manual/#7`、`demo/new-manual-ring`）：四张参数卡
+（Model / Context / Extensions / Permissions）围着中央一颗 `Create`，虚线把「谁喂给谁」
+连出来；再外面一圈虚线环，**名字 / 机器 / 目录三颗 pill 挂在环上**，圆边各引一条短线过去。
+点开的是**就地弹出**的选择页（`demo/new-manual-7/#3`）—— 贴在卡片或 pill 旁边，
+不是居中模态，选参数的时候盘面还看得见。
 
 - `crates/nousdesk/src/board.rs` —— 状态 + 渲染 + 五个弹层
-- `crates/nousdesk/src/board_art.rs` —— 调色板、cqmin 尺寸、四张卡的矩形、连线几何
-- 卡片和弹层的位置**只在 `board_art` 算一次**（`node_rect` / `pop_rect`）：
-  弹层要贴着卡片弹，各算各的就会错位
+- `crates/nousdesk/src/board_art.rs` —— 颜色（从 `Skin` 取）、cqmin 尺寸、卡片 / 环 /
+  三颗 pill 的矩形、连线几何
+- **盘面跟皮走**：颜色全部从 `theme::cur()` 取（底色 `chat_bg`、卡 `panel`、虚线 `line`、
+  圆 `text`、环 `accent`），这里不另存一套调色板。浅皮里圆自动是黑圆白字、
+  深皮里是白圆黑字 —— 五套皮都成立
+- 卡片 / 环 / pill 和弹层的位置**只在 `board_art` 算一次**（`node_rect` / `foot_rect` /
+  `pop_rect`）：弹层要贴着被点的那颗弹，各算各的就会错位
 - 连线用 `canvas` + `PathBuilder` 画虚线；`paint_path` 吃**窗口坐标**，
   每个点都要加 `bounds.origin`（坑 34）
 - 尺寸全走**右格 cqmin**（`art::M`）：右格短边 = `min(右格宽, 窗高)`，
@@ -113,10 +118,12 @@ Permissions）围着中央一颗 `Create`，虚线把「谁喂给谁」连出来
 - Extensions 点了只给一行 `flash`（数据在 vbe4pt 块，这一版没接）；Permissions
   内核页还没做，卡片是灰的不可点 —— 不假装能选
 - **中央那颗圆就是落子按钮**（`demo/new-manual-core/#1`）。三件事按同一份判定：
-  没选模型 / 没连引擎 → 圆变灰、不挂点击；提交中 → `Creating…` 且变淡防连点；
-  就绪 → 白圆，圆底下那行写 `ready · 本机 · map`（机器 + 目录尾巴，**点下去之前
-  人该看得见自己落在哪**）
-- 名字 / 机器 / 目录在底部薄栏，每次开盘面都是**一只新的输入框**（不留上次没发出去的名字）；
+  没选模型 / 没连引擎 → 圆变灰、不挂点击、三颗 pill 一起变浅；提交中 → `Creating…`
+  且变淡防连点；就绪 → 实心圆，环底下那行写 `ready · 本机 · map`（机器 + 目录尾巴，
+  **点下去之前人该看得见自己落在哪**）
+- 名字 / 机器 / 目录是环上那三颗 pill，**底色和中央那颗圆完全一样**（`fg` 当底、`bg` 当字）：
+  它们不是三个独立控件，是从圆心甩出去的参数。换皮时一起换，别让 pill 自己另长一套色
+- 每次开盘面都是**一只新的名字输入框**（不留上次没发出去的名字）；
   目录的默认值 = 引擎 `/v1/fs/dirs` 根底下第一个条目（`path == ""` 是 map 根，不是目录本身）
 - 创建成功**直接进那条会话**，不在盘面上留一行结果：桌面端最强的反馈就是会话已经开着。
   只有两件例外走全局轻提示 —— 服务端回 `missing` / `missingTemplates` /

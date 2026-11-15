@@ -23,6 +23,12 @@ fn t() -> crate::theme::Skin { crate::theme::cur() }
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 
+/// 自绘标题栏的高度（gpui-kit `TitleBar` 固定 34px）。
+///
+/// 盘面那套 cqmin 几何要扣掉它：视口高度是**含标题栏**的，而盘面画在它下面，
+/// 不扣就会整体下移 34px（环顶到卡片上、状态行被挤出屏幕）。
+pub const TITLE_BAR_H: f32 = 34.;
+
 /// 显示名。窗口标题、标题栏、关于页都该用同一个 —— 搜「NousDesk」找不到窗口是最常见的投诉。
 pub const BRAND: &str = "NousDesk";
 

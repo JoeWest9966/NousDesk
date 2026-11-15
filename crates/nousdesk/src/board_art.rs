@@ -12,26 +12,74 @@
 
 use gpui_kit::*;
 
-// ── 黑灰打底 + 一个白强调色（Tesla 那一路）────────────────────────────
-pub(crate) const BG: u32 = 0x0a0a0b;
-/// 节点卡片底。
-pub(crate) const PANEL: u32 = 0x121214;
-pub(crate) const SURFACE: u32 = 0x18181c;
-pub(crate) const BORDER: u32 = 0x232326;
-/// 选中态边线。
-pub(crate) const LINE: u32 = 0x3a3a42;
-pub(crate) const FG: u32 = 0xe9e7e4;
-pub(crate) const MUTED: u32 = 0x77736e;
-pub(crate) const FAINT: u32 = 0x56534f;
-/// 中央那颗圆、选中态、落库主按钮。
-pub(crate) const ACCENT: u32 = 0xf4f2ef;
-/// 连线。
-pub(crate) const WIRE: u32 = 0x2b2b30;
-/// `ready` 那行字。
-pub(crate) const OK: u32 = 0x6f9c6a;
+// ── 颜色：**全部从当前这套皮取**，不在这里另起一套 ────────────────────
+//
+// 盘面是聊天区的一格，皮换了它就得跟着换：底色用 `chat_bg`，卡用 `panel`，
+// 虚线用 `line`，圆用 `text`（浅皮就是黑圆白字、深皮是白圆黑字 —— 五套皮都成立）。
+// 强调色只用在「选中」，别拿去当圆 —— 默认皮是绿的，一颗绿圆很怪。
 
-/// 等宽字。Windows 上 `Consolas` 一定有；`Cascadia Code` 不一定装了。
-pub(crate) const MONO: &str = "Consolas";
+use crate::theme::cur;
+
+/// 盘面底。
+pub(crate) fn bg() -> u32 {
+    cur().p.chat_bg
+}
+/// 四张卡 / 弹层的底。
+pub(crate) fn panel() -> u32 {
+    cur().p.panel
+}
+/// 卡里的子块（技能 / 提示词那两个小方块）。
+pub(crate) fn surface() -> u32 {
+    cur().p.surface
+}
+/// 边框（皮的 `line`）。
+pub(crate) fn border() -> u32 {
+    cur().p.line
+}
+/// 更重一档的边线（hover / 选中）。
+pub(crate) fn line() -> u32 {
+    cur().p.line_strong
+}
+/// 正文。
+pub(crate) fn fg() -> u32 {
+    cur().p.text
+}
+pub(crate) fn muted() -> u32 {
+    cur().p.text_2
+}
+pub(crate) fn faint() -> u32 {
+    cur().p.faint
+}
+/// 中央那颗圆、环上三个 pill 的底（= 正文色）。字用 [`bg`]。
+pub(crate) fn solid() -> u32 {
+    cur().p.text
+}
+/// 皮的强调色：选中、勾选、主按钮。
+pub(crate) fn accent() -> u32 {
+    cur().p.accent
+}
+/// 连线（虚线）。
+pub(crate) fn wire() -> u32 {
+    cur().p.line
+}
+/// `ready` 那行字。
+pub(crate) fn ok() -> u32 {
+    cur().p.ok
+}
+/// 危险 / 失败。
+pub(crate) fn danger() -> u32 {
+    cur().p.danger
+}
+
+/// 等宽字：皮的 `mono` 没给就退回 `Consolas`（Linux 上靠字体回退顶上）。
+pub(crate) fn mono() -> &'static str {
+    let m = cur().mono;
+    if m.is_empty() {
+        "Consolas"
+    } else {
+        m
+    }
+}
 
 /// 尺寸换算。**基准是盘面（右格）自己的短边**，等价于 CSS 的 `1cqmin`。
 #[derive(Clone, Copy)]
@@ -42,6 +90,19 @@ pub(crate) struct M {
     pub h: f32,
 }
 
+/// 自绘标题栏占多高。Linux 上是我们自己画的 34px；别的平台窗口有系统装饰，
+/// 客户区里不占地方。
+fn title_bar_h() -> f32 {
+    #[cfg(target_os = "linux")]
+    {
+        crate::chrome::TITLE_BAR_H
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        0.
+    }
+}
+
 /// 盘面所在的那一格 = 窗口减去图标条和左栏。
 pub(crate) fn pane_width(win_w: f32, tab: crate::app::Tab) -> f32 {
     let t = crate::theme::cur();
@@ -50,9 +111,7 @@ pub(crate) fn pane_width(win_w: f32, tab: crate::app::Tab) -> f32 {
     let folder = win_w < crate::app::TREE_FOLD_W;
     let left = match tab {
         crate::app::Tab::Chats => t.rail_w + t.list_w,
-        crate::app::Tab::Templates if folder => {
-            t.rail_w + crate::app::TEMPLATE_LIST_W_NARROW
-        }
+        crate::app::Tab::Templates if folder => t.rail_w + crate::app::TEMPLATE_LIST_W_NARROW,
         crate::app::Tab::Templates => t.rail_w + t.preset_tree_w + t.template_list_w,
     };
     (win_w - left).max(1.)
@@ -63,7 +122,9 @@ impl M {
     /// （连那条 48px 的会话标题栏一起换掉），所以右格高度就是整窗高度。
     pub fn new(size: Size<Pixels>, tab: crate::app::Tab) -> Self {
         let w = pane_width(f32::from(size.width), tab);
-        let h = f32::from(size.height).max(1.);
+        // 盘面画在自绘标题栏**下面**：视口高度含标题栏，得先扣掉它，
+        // 不然整页几何一起下移（环顶到卡片上、状态行出屏）。
+        let h = (f32::from(size.height) - title_bar_h()).max(1.);
         Self {
             cqmin: w.min(h).max(1.),
             w,
@@ -117,14 +178,9 @@ pub(crate) enum Slot {
     Perms,
 }
 
-/// 卡片宽度：右格的 23.5%，夹在 150–268。
-///
-/// **上限还要再让两列放得下**：右格窄到 400 时 0.235 只有 94，而 190 的下限
-/// 会让左右两张卡直接叠在一起（半屏盘面就是这么糊的）。所以取「两列 + 8px 缝」。
+/// 卡片宽度：右格的 23.5%，夹在 190–268。
 pub(crate) fn node_w(m: &M) -> f32 {
-    let side = (m.w * 0.055).clamp(10., 80.);
-    let fits = ((m.w - 2. * side - 8.) / 2.).max(120.);
-    (m.w * 0.235).clamp(150., 268.).min(fits)
+    (m.w * 0.235).clamp(190., 268.)
 }
 
 /// 卡片高度是**写死**的：弹层要靠 `bottom()` 贴着卡片弹，卡片高度自适应
@@ -156,50 +212,98 @@ pub(crate) fn node_rect(m: &M, slot: Slot) -> Rect {
     }
 }
 
-/// 中央那颗圆：半径是右格宽的 8.5%，夹在 40–92。
+/// 中央那颗圆：半径是右格宽的 8.5%，夹在 56–92。
 pub(crate) fn core_r(m: &M) -> f32 {
-    (m.w * 0.085).clamp(40., 92.)
+    (m.w * 0.085).clamp(56., 92.)
 }
 
-/// 圆心。纵向**要让开上下两排卡**：窗口只有 480 高时 `0.42h` 正好压在卡片边上
-/// （640×480 下盘面那圈圆被切、四张卡糊成一团就是这个）。
 pub(crate) fn core_center(m: &M) -> (f32, f32) {
-    let r = core_r(m);
-    // 上面那排最高 148（Context），下面那排 112。
-    let top_edge = (m.h * 0.11).clamp(10., 150.) + 148.;
-    let bot_edge = m.h - (m.h * 0.26).clamp(10., 280.) - 112.;
-    let lo = top_edge + r + 6.;
-    let hi = bot_edge - r - 6.;
-    let cy = if hi > lo {
-        (m.h * 0.42).clamp(lo, hi)
-    } else {
-        // 实在挤不开（比如 480 高 + 大圆），就退到两排中间，宁可贴着也别重叠。
-        (top_edge + bot_edge) / 2.
+    (m.w * 0.5, m.h * 0.42)
+}
+
+// ── 05 环：圆外一圈虚线，三个值挂在环上 ────────────────────────────────
+//
+// 为什么不留在底部那条 dock：一条 720px 横贯盘面的窄条，读起来是「工具栏」，
+// 和上面四张卡不是一个语法。环把名字 / 机器 / 目录收回圆边上 —— 它们是**从圆心
+// 长出来的参数**，所以用同一种画法（节点 + 虚线），也所以三个 pill 的底色
+// 和那颗圆一模一样（见 `solid()`）。
+
+/// 环的中心与半径（中心就是那颗圆的中心）。横向吃右格宽的 16.5%，
+/// 纵向吃右格高的 19.5% —— 右格通常比高宽，两个数合起来才是正的圆。
+pub(crate) fn ring(m: &M) -> (f32, f32, f32, f32) {
+    let (cx, cy) = core_center(m);
+    let (rx, ry) = ring_r(m);
+    (cx, cy, rx, ry)
+}
+
+/// 圆边 → 环上某个值的一条短线（终点藏在 pill 底下）。
+pub(crate) fn ring_r(m: &M) -> (f32, f32) {
+    (m.w * 0.165, m.h * 0.195)
+}
+
+/// 环上的三个值。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Foot {
+    /// 环底正中：这条对话叫什么。
+    Name,
+    /// 左下：跑在哪台机器。
+    Machine,
+    /// 右下：工作目录。
+    Dir,
+}
+
+pub(crate) const FOOT_H: f32 = 34.;
+
+fn foot_w(m: &M, f: Foot) -> f32 {
+    let want: f32 = match f {
+        Foot::Name => 236.,
+        Foot::Machine => 116.,
+        Foot::Dir => 168.,
     };
-    (m.w * 0.5, cy)
+    // 窄右格里别把两个 pill 撞到一起。
+    want.min(m.w * 0.3)
 }
 
-pub(crate) fn dock_w(m: &M) -> f32 {
-    // 240 是「名字框 + 机器 chip + 目录 chip + CREATE」压到不能再压的宽度。
-    (m.w * 0.84).min(720.).max(240.)
-}
-
-pub(crate) const DOCK_H: f32 = 52.;
-pub(crate) const DOCK_BOTTOM: f32 = 20.;
-
-/// dock 的矩形（弹层要贴在它上面）。
-pub(crate) fn dock_rect(m: &M) -> Rect {
-    let w = dock_w(m);
+/// 三个值的矩形。**只在这里算一次** —— 弹层要贴着 pill 弹，两边同一个公式。
+pub(crate) fn foot_rect(m: &M, f: Foot) -> Rect {
+    let (cx, cy) = core_center(m);
+    let (rx, ry) = ring_r(m);
+    // 140° / 40° / 90°：挂在环的下半圈，左右两颗更靠外，
+    // 和环底那颗名字拉开距离（三颗挤在一起就分不清谁是谁）。
+    let (kx, ky) = (0.766_044_4, 0.642_787_6);
+    let (x, y) = match f {
+        Foot::Machine => (cx - rx * kx, cy + ry * ky),
+        Foot::Dir => (cx + rx * kx, cy + ry * ky),
+        Foot::Name => (cx, cy + ry),
+    };
+    let w = foot_w(m, f);
     Rect {
-        x: (m.w - w) / 2.,
-        y: m.h - DOCK_BOTTOM - DOCK_H,
+        x: x - w / 2.,
+        y: y - FOOT_H / 2.,
         w,
-        h: DOCK_H,
+        h: FOOT_H,
     }
 }
 
+pub(crate) fn foot_wire(m: &M, f: Foot) -> ((f32, f32), (f32, f32)) {
+    let (cx, cy) = core_center(m);
+    let r = core_r(m) + 4.;
+    let t = foot_rect(m, f);
+    let (tx, ty) = (t.cx(), t.cy());
+    let (dx, dy) = (tx - cx, ty - cy);
+    let len = (dx * dx + dy * dy).sqrt().max(1.);
+    ((cx + dx / len * r, cy + dy / len * r), (tx, ty))
+}
+
+/// 环底下那行状态的位置（`top`）。
+pub(crate) fn status_y(m: &M) -> f32 {
+    let (_, cy) = core_center(m);
+    let (_, ry) = ring_r(m);
+    cy + ry + FOOT_H / 2. + 14.
+}
+
 /// 一条连线：从圆心边上出发，指向卡片中心（终点会被卡片盖住，正好停在边上）。
-pub(crate) fn wire(m: &M, slot: Slot) -> ((f32, f32), (f32, f32)) {
+pub(crate) fn card_wire(m: &M, slot: Slot) -> ((f32, f32), (f32, f32)) {
     let (cx, cy) = core_center(m);
     let r = core_r(m) + 10.;
     let n = node_rect(m, slot);
@@ -226,7 +330,7 @@ pub(crate) struct Pop {
 
 /// 模型弹层贴在卡片**下方**；技能 / 提示词贴在卡片**左侧**（右上角右边没地方）；
 /// 机器 / 目录贴在 dock **上方**、居中。
-pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool) -> Pop {
+pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool, for_dir: bool) -> Pop {
     let gap = 14.;
     match slot {
         Some(Slot::Model) => {
@@ -235,7 +339,7 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool) -> Pop {
             let x = n.x.clamp(14., (m.w - w - 14.).max(14.));
             let top = n.bottom() + gap;
             // 底下放不下就翻到卡片上面去。
-            if top + 280. > m.h - DOCK_H - DOCK_BOTTOM {
+            if top + 280. > m.h - 40. {
                 Pop {
                     x,
                     w,
@@ -265,13 +369,15 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool) -> Pop {
             }
         }
         None => {
-            // 机器 / 目录：dock 上方居中。
-            let d = dock_rect(m);
+            // 机器 / 目录：贴着被点的那颗 pill 弹（就地弹出的同一条规矩）。
+            let f = if for_dir { Foot::Dir } else { Foot::Machine };
+            let t = foot_rect(m, f);
             let w = (m.w - 28.).min(460.);
+            let x = (t.cx() - w / 2.).clamp(14., (m.w - w - 14.).max(14.));
             Pop {
-                x: ((m.w - w) / 2.).max(14.),
+                x,
                 w,
-                anchor: Anchor::Bottom(m.h - d.y + 12.),
+                anchor: Anchor::Bottom(m.h - t.y + 10.),
             }
         }
     }
