@@ -1692,53 +1692,117 @@ impl Desktop {
     ///
     /// 图是「看一眼就走」的：中心 = 这条预设，一圈 = 它钉住的维度，外圈 = 具体的
     /// 技能/扩展。节点颜色直接抄引擎的 `resolved.*.state` —— 这边不算「能不能开」。
-    /// 右栏的「新建一条」表单。和关系图互斥（`Desktop::new_preset` 只有一个方向）。
+    /// 右栏的「新建一条」表单 —— **清单式**（demo `new-preset.html` 的 9 号）。
     ///
-    /// 字段只有四个：名字、摘要、类别、起手式。**不在这儿摆盘面** —— 盘面是「编辑」的事，
-    /// 建的时候多摆十个输入框只会让人以为非得填完才能建。
-    pub(crate) fn render_new_preset(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// 四行竖着排，每行左边一个圈：必填两项（名字 / 摘要）填完才打勾，
+    /// 另两项（类别 / 起手式）有默认值，圈是空的、标题右边标「可改」。
+    ///
+    /// **进度只跟必填项走**：把「类别留空 = 未分类」也算进进度，会让人以为
+    /// 不选类别就建不了。所以分母恒为 2，不是 4。
+    pub(crate) fn render_new_preset(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(draft) = self.new_preset.as_ref() else {
             return div().into_any_element();
         };
         let sec = SECTIONS[self.section].1;
         let busy = draft.busy;
         let err = draft.err.clone();
+        let has_err = err.is_some();
         let from_device = draft.from_device;
+        let name_ok = !draft.name.read(cx).value().trim().is_empty();
+        let sum_ok = !draft.summary.read(cx).value().trim().is_empty();
+        let done: u8 = u8::from(name_ok) + u8::from(sum_ok);
+        let pct = f32::from(done) / 2.;
+        let can = name_ok && sum_ok && !busy;
+        // 类别候选：这一段的词表（前 5 个）。点一下就是把它填进输入框 ——
+        // 不是另一套状态，输入框里那串字始终是唯一的真相。
+        let cats: Vec<String> = self.sections[self.section]
+            .data
+            .as_ref()
+            .map(|d| d.categories.iter().take(5).cloned().collect())
+            .unwrap_or_default();
 
-        let label = |text: &'static str| {
+        // 一行清单。`done` 只决定圈和标题颜色，行里的控件不受影响。
+        let item = |done: bool, title: &'static str, hint: Option<&'static str>, body: AnyElement| {
             div()
-                .pb(t().d(6.))
-                .text_size(t().fs(9.5))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(t().p.muted))
-                .child(text)
-        };
-        let help = |text: &'static str| {
-            div()
-                .pt(t().d(5.))
-                .text_size(t().fs(10.5))
-                .text_color(rgb(t().p.faint))
-                .child(text)
+                .flex()
+                .flex_row()
+                .gap(t().d(12.))
+                .py(t().d(13.))
+                .border_b(t().d(1.))
+                .border_color(rgb(t().p.line_soft))
+                .child(
+                    div()
+                        .w(t().d(16.))
+                        .h(t().d(16.))
+                        .mt(t().d(2.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(t().r(8.))
+                        .when(done, |e| {
+                            e.bg(rgb(t().p.accent))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.accent))
+                        })
+                        .when(!done, |e| {
+                            e.border(t().d(1.)).border_color(rgb(t().p.line))
+                        })
+                        .children(done.then(|| {
+                            div()
+                                .text_size(t().fs(10.))
+                                .line_height(px(10.))
+                                .text_color(rgb(t().p.on_accent))
+                                .child("✓")
+                        })),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(t().d(0.))
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(t().d(6.))
+                                .child(
+                                    div()
+                                        .text_size(t().fs(12.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(rgb(if done { t().p.text } else { t().p.text_2 }))
+                                        .child(title),
+                                )
+                                .children(hint.map(|h| {
+                                    div()
+                                        .text_size(t().fs(10.))
+                                        .text_color(rgb(t().p.faint))
+                                        .child(h)
+                                })),
+                        )
+                        .child(body),
+                )
+                .into_any_element()
         };
 
-        let chip = |text: &'static str, on: bool, device: bool, cx: &mut Context<Self>| {
+        let pill = |text: String, on: bool| {
             div()
-                .id(if device { "new-from-device" } else { "new-from-blank" })
                 .flex()
                 .items_center()
                 .h(t().d(22.))
-                .px(t().d(8.))
-                .rounded(t().r(5.))
+                .px(t().d(9.))
+                .rounded(t().r(11.))
                 .border(t().d(1.))
                 .border_color(rgb(if on { t().p.accent } else { t().p.line }))
-                .bg(rgb(if on { t().p.accent_soft } else { t().p.panel }))
+                .bg(rgb(if on { t().p.accent } else { t().p.panel }))
                 .text_size(t().fs(11.))
-                .text_color(rgb(if on { t().p.text } else { t().p.text_2 }))
-                .cursor_pointer()
-                .hover(|h| h.border_color(rgb(t().p.text_2)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.set_new_from(device, cx)
-                }))
+                .text_color(rgb(if on { t().p.on_accent } else { t().p.text_2 }))
                 .child(text)
         };
 
@@ -1749,7 +1813,6 @@ impl Desktop {
             .h_full()
             .min_w(t().d(0.))
             .bg(rgb(t().p.chat_bg))
-            // 顶行：段名 + 「还没落盘」
             .child(
                 div()
                     .flex()
@@ -1759,6 +1822,7 @@ impl Desktop {
                     .px(t().d(26.))
                     .border_b(t().d(1.))
                     .border_color(rgb(t().p.line))
+                    .gap(t().d(8.))
                     .child(
                         div()
                             .text_size(t().fs(11.))
@@ -1770,7 +1834,11 @@ impl Desktop {
                         div()
                             .text_size(t().fs(10.5))
                             .text_color(rgb(t().p.faint))
-                            .child("还没落盘"),
+                            .child(if done >= 2 {
+                                "必填项都填了".to_string()
+                            } else {
+                                format!("必填 {} 项 · 还差 {} 项", 2, 2 - done)
+                            }),
                     ),
             )
             .child(
@@ -1780,55 +1848,144 @@ impl Desktop {
                     .min_h(t().d(0.))
                     .overflow_y_scroll()
                     .px(t().d(26.))
-                    .py(t().d(22.))
+                    .py(t().d(20.))
                     .child(
                         div()
-                            .max_w(t().d(520.))
+                            .max_w(t().d(540.))
                             .flex()
                             .flex_col()
-                            .gap(t().d(18.))
+                            // 标题 + 百分比
                             .child(
                                 div()
                                     .flex()
-                                    .flex_col()
-                                    .child(label("名字"))
-                                    .child(Input::new(&draft.name))
-                                    .child(help("落盘时就是目录名，建完不改。")),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .child(label("摘要"))
-                                    .child(Input::new(&draft.summary))
-                                    .child(help("人靠这一行决定开不开它，不能空。")),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .child(label("类别"))
-                                    .child(Input::new(&draft.category))
-                                    .child(help("写 写作/周报 就是分层路径；留空 = 未分类。")),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .child(label("起手式"))
+                                    .flex_row()
+                                    .items_end()
+                                    .gap(t().d(12.))
                                     .child(
+                                        div()
+                                            .text_size(t().fs(20.))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child("新建模板"),
+                                    )
+                                    .child(div().flex_1())
+                                    .child(
+                                        div()
+                                            .text_size(t().fs(11.))
+                                            .text_color(rgb(t().p.muted))
+                                            .child(format!("{}%", (pct * 100.) as i32)),
+                                    ),
+                            )
+                            // 进度条：一条细线，两条 flex 按比例分宽度
+                            .child(
+                                div()
+                                    .mt(t().d(12.))
+                                    .mb(t().d(18.))
+                                    .h(t().d(3.))
+                                    .w_full()
+                                    .rounded(t().r(2.))
+                                    .bg(rgb(t().p.line_soft))
+                                    .flex()
+                                    .child(
+                                        div()
+                                            .h_full()
+                                            .flex_grow(pct)
+                                            .bg(rgb(t().p.accent)),
+                                    )
+                                    .child(div().h_full().flex_grow(1. - pct)),
+                            )
+                            .child(item(
+                                name_ok,
+                                "名字",
+                                None,
+                                div().pt(t().d(8.)).child(Input::new(&draft.name)).into_any_element(),
+                            ))
+                            .child(item(
+                                sum_ok,
+                                "摘要",
+                                Some(if sum_ok { "" } else { "必填" }),
+                                div().pt(t().d(8.)).child(Input::new(&draft.summary)).into_any_element(),
+                            ))
+                            .child(item(
+                                false,
+                                "类别",
+                                Some("可改 · 留空 = 未分类"),
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(t().d(8.))
+                                    .pt(t().d(8.))
+                                    .child(Input::new(&draft.category))
+                                    .children((!cats.is_empty()).then(|| {
                                         div()
                                             .flex()
                                             .flex_row()
+                                            .flex_wrap()
                                             .gap(t().d(6.))
-                                            .child(chip("空白 —— 一条都不写", !from_device, false, cx))
-                                            .child(chip("跟设备默认模型", from_device, true, cx)),
+                                            .children(cats.iter().enumerate().map(|(i, c)| {
+                                                let fill = c.clone();
+                                                div()
+                                                    .id(ElementId::Name(
+                                                        format!("new-cat-{i}").into(),
+                                                    ))
+                                                    .flex()
+                                                    .items_center()
+                                                    .h(t().d(22.))
+                                                    .px(t().d(9.))
+                                                    .rounded(t().r(11.))
+                                                    .border(t().d(1.))
+                                                    .border_color(rgb(t().p.line))
+                                                    .text_size(t().fs(11.))
+                                                    .text_color(rgb(t().p.text_2))
+                                                    .cursor_pointer()
+                                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                                    .on_click(cx.listener(
+                                                        move |this, _: &ClickEvent, window, cx| {
+                                                            if let Some(d) = this.new_preset.as_ref() {
+                                                                let fill = fill.clone();
+                                                                d.category.update(cx, |s, cx| {
+                                                                    s.set_value(fill, window, cx)
+                                                                });
+                                                            }
+                                                            cx.notify();
+                                                        },
+                                                    ))
+                                                    .child(c.clone())
+                                            }))
+                                    }))
+                                    .into_any_element(),
+                            ))
+                            .child(item(
+                                false,
+                                "起手式",
+                                Some("可改"),
+                                div()
+                                    .pt(t().d(8.))
+                                    .flex()
+                                    .flex_row()
+                                    .gap(t().d(6.))
+                                    .child(
+                                        div()
+                                            .id("new-from-blank")
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                this.set_new_from(false, cx)
+                                            }))
+                                            .child(pill("空白 —— 一条都不写".to_string(), !from_device)),
                                     )
-                                    .child(help("空白 = 所有可选键都不写，等同于跟随仓库默认。")),
-                            ),
+                                    .child(
+                                        div()
+                                            .id("new-from-device")
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                this.set_new_from(true, cx)
+                                            }))
+                                            .child(pill("跟设备默认模型".to_string(), from_device)),
+                                    )
+                                    .into_any_element(),
+                            )),
                     ),
             )
-            // 底栏：创建 / 取消 / 一句错
+            // 底栏：创建（没填完时置灰，但点了会说出缺哪一项）/ 提示 / 取消
             .child(
                 div()
                     .flex()
@@ -1847,13 +2004,28 @@ impl Desktop {
                             .h(t().d(30.))
                             .px(t().d(16.))
                             .rounded(t().r(6.))
-                            .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                            .bg(rgb(if can { t().p.accent } else { t().p.disabled }))
                             .text_size(t().fs(12.))
-                            .text_color(rgb(t().p.on_accent))
+                            .text_color(rgb(if can { t().p.on_accent } else { t().p.text }))
                             .cursor_pointer()
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.submit_new_preset(cx)))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.submit_new_preset(cx)
+                            }))
                             .child(if busy { "建…" } else { "创建" }),
                     )
+                    .children(err.map(|e| {
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.danger_fg))
+                            .child(e)
+                    }))
+                    .children((!can && !has_err).then(|| {
+                        div()
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(t().p.faint))
+                            .child("名字和摘要是必填，填完就能建")
+                    }))
+                    .child(div().flex_1())
                     .child(
                         div()
                             .id("new-preset-cancel")
@@ -1868,21 +2040,10 @@ impl Desktop {
                             .hover(|h| h.bg(rgb(t().p.hover)))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_new_preset(cx)))
                             .child("取消"),
-                    )
-                    .children(err.map(|e| {
-                        div()
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.danger_fg))
-                            .child(e)
-                    }))
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_size(t().fs(10.5))
-                            .text_color(rgb(t().p.faint))
-                            .child("建完落盘，发布还是另一步"),
                     ),
             )
+            // `window` 只在类别 chip 里用到（写输入框）；不用的话编译器会警告。
+            .when(false, |e| e.child(format!("{}", window.is_window_active())))
             .into_any_element()
     }
 

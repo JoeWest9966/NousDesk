@@ -3658,7 +3658,7 @@ impl Render for Desktop {
                     .child(self.render_preset_tree(cx))
                     .child(self.render_templates(cx))
                     .child(if self.new_preset.is_some() {
-                        self.render_new_preset(cx)
+                        self.render_new_preset(window, cx)
                     } else {
                         self.render_detail(window, cx)
                     })
