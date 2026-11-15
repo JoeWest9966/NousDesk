@@ -215,6 +215,61 @@ impl Palette {
         transparent: 0x00000000,
         code_bg: 0xf4f4f4,
     };
+
+    /// 「工业」：demo 的 industrial 皮。暖纸底 + 纯黑线 + 直角。
+    /// 取值就是 demo `app.html` 里 `.app[data-skin="industrial"]` 那一组变量。
+    pub const INDUSTRIAL: Palette = Palette {
+        sidebar: 0xe9e6e0,
+        sidebar_hover: 0xdedad3,
+        sidebar_open: 0xd6d2c9,
+        sidebar_idle: 0x8d8a82,
+        list_bg: 0xf4f2ee,
+        chat_bg: 0xf4f2ee,
+        panel: 0xffffff,
+        panel_alt: 0xefece7,
+        surface: 0xffffff,
+        overlay: 0xffffff,
+        bubble_me: 0xefece7,
+        bubble_other: 0xffffff,
+
+        text: 0x14150f,
+        text_2: 0x5f5d55,
+        muted: 0x8d8a82,
+        faint: 0xb9b6ad,
+        on_accent: 0xffffff,
+        on_sidebar: 0x5f5d55,
+
+        // 工业皮的分隔线就是**黑**：这是它和别的皮最大的差别。
+        line: 0x14150f,
+        line_strong: 0x14150f,
+        line_soft: 0xd8d5cd,
+
+        accent: 0x14150f,
+        accent_hover: 0x2a2b22,
+        accent_soft: 0xefece7,
+        accent_fg: 0x14150f,
+        accent_tint: 0x14150f1f,
+        accent_soft_hover: 0xe6e2da,
+
+        danger: 0xa8281c,
+        danger_soft: 0xf6e6e3,
+        danger_fg: 0xa8281c,
+        warn: 0x8a6113,
+        warn_soft: 0xf4ecdc,
+        ok: 0x1d6b46,
+        ok_fg: 0x1d6b46,
+        link: 0x1d4f7a,
+        badge: 0xa8281c,
+
+        hover: 0xefece7,
+        selected: 0xe6e2da,
+        disabled: 0xb9b6ad,
+        avatar: 0x14150f,
+        scrim: 0x0000002e,
+        shadow: 0x00000018,
+        transparent: 0x00000000,
+        code_bg: 0xefece7,
+    };
 }
 
 // ── 排版 / 尺寸 ─────────────────────────────────────────────────────────
@@ -294,6 +349,28 @@ impl Skin {
         template_list_w: 300.,
         detail_w: 420.,
         head_h: 56.,
+    };
+
+    /// 「工业」：demo 的 industrial 皮。直角（`radius_scale: 0`）+ Manrope 12px。
+    ///
+    /// 直角是**整套皮**的属性，不是这一页的 —— 按钮、输入框、气泡跟着一起变方。
+    pub const INDUSTRIAL: Skin = Skin {
+        p: Palette::INDUSTRIAL,
+        layout: Layout::Classic,
+        font: "Manrope",
+        mono: "JetBrainsMono",
+        body: 12.,
+        line_height: 0.0,
+        type_scale: 1.0,
+        radius_scale: 0.0,
+        density: 1.05,
+        dark: false,
+        rail_w: 56.,
+        list_w: 280.,
+        preset_tree_w: 248.,
+        template_list_w: 300.,
+        detail_w: 420.,
+        head_h: 52.,
     };
 
     /// 这套皮在「字体 / 字号 / 行高 / 圆角 / 密度 / 明暗」上是否还是出厂值。
@@ -539,6 +616,8 @@ pub enum ThemeName {
     Plaid,
     /// Model S · 无图标条
     NoRail,
+    /// 工业 · 暖纸底 + 黑线 + 直角
+    Industrial,
 }
 
 impl ThemeName {
@@ -554,6 +633,7 @@ impl ThemeName {
         ThemeName::Energy,
         ThemeName::Plaid,
         ThemeName::NoRail,
+        ThemeName::Industrial,
     ];
 
     /// 落盘用的 id（小写、稳定）。
@@ -569,6 +649,7 @@ impl ThemeName {
             ThemeName::Energy => "energy",
             ThemeName::Plaid => "plaid",
             ThemeName::NoRail => "no-rail",
+            ThemeName::Industrial => "industrial",
         }
     }
 
@@ -585,12 +666,14 @@ impl ThemeName {
             ThemeName::Energy => "Energy · 储能",
             ThemeName::Plaid => "Plaid · 红黑",
             ThemeName::NoRail => "Model S · 无图标条",
+            ThemeName::Industrial => "工业 · 纸与黑线",
         }
     }
 
     /// 这套皮的全部 token。
     pub fn skin(self) -> Skin {
         match self {
+            ThemeName::Industrial => Skin::INDUSTRIAL,
             ThemeName::Default => Skin::DEFAULT,
     // Model S · 深色
     ThemeName::ModelS => Skin {
