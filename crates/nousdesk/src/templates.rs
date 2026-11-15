@@ -18,6 +18,7 @@
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
 use gpui_kit::assets::IconName;
@@ -76,6 +77,34 @@ fn selected_fg() -> u32 { t().p.accent_fg }
 /// 能开的行：微信通讯录那种「头像方块」的底色。
 /// 原 `AVATAR_BG = 0x7ba7d7`；由 avatar 这个语义槽接管。
 fn avatar_bg() -> u32 { t().p.avatar }
+/// 状态 pill（描边，不是实心）：边框和字同色，底透明。
+///
+/// 实心 pill 在列表里出现两个以上就会花；纯文字又扫不到。描边是 demo 里挑的那一档
+/// （`demo/template-page/lifecycle.html` 组 ③ 方案 2）。
+fn status_pill(text: &str, color: u32) -> AnyElement {
+    // 外面套一层 `.flex().items_center()`：pill 的父级是列，列默认 `align_items: stretch`
+    // 会把它拉成整行宽（踩过一次，看着像一块黄色横幅）。
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .child(
+            div()
+        .flex_none()
+        .h(t().d(18.))
+        .px(t().d(7.))
+        .flex()
+        .items_center()
+        .rounded(t().r(9.))
+        .border(t().d(1.))
+        .border_color(rgb(color))
+        .text_size(t().fs(10.))
+        .text_color(rgb(color))
+        .child(text.to_string()),
+        )
+        .into_any_element()
+}
+
 /// 左栏（树）比列表深一档，才看得出是两块。
 /// 原 `TREE_BG = 0xf2f2f2`；由 hover 这个语义槽接管。
 fn tree_bg() -> u32 { t().p.hover }
@@ -133,6 +162,14 @@ pub(crate) struct NewPresetDraft {
 #[derive(Default)]
 pub(crate) struct NewCatDraft {
     pub input: Option<Entity<InputState>>,
+    pub busy: bool,
+    pub err: Option<String>,
+}
+
+/// 「改类别」弹层的草稿。`picked` 是**整份**类别（勾掉就删），保存时整份发过去。
+pub(crate) struct CatEditDraft {
+    pub name: String,
+    pub picked: Vec<String>,
     pub busy: bool,
     pub err: Option<String>,
 }
@@ -637,6 +674,434 @@ impl Desktop {
             );
 
         Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
+    }
+
+    // ── 生命周期：右键菜单 / 改类别 / 归档·彻底删 ───────────────
+    //
+    // 菜单条目和动作映射在 `preset_menu.rs`，两屏确认在 `preset_confirm.rs`；
+    // 这里只做三件事：把动作接到引擎上、把弹层摆出来、把结果说给用户。
+
+    /// 右键菜单的出口。每一项都必须有可见结果（AGENTS：点了没反应算 bug）。
+    pub(crate) fn on_preset_menu(
+        &mut self,
+        action: crate::preset_menu::PresetMenuAction,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::preset_menu::PresetMenuAction as A;
+        match action {
+            A::Open { name } => self.launch_preset(name, cx),
+            A::ChangeCategory { name } => {
+                let picked = self
+                    .sections
+                    .get(self.section)
+                    .and_then(|s| s.data.as_ref())
+                    .and_then(|d| d.presets.iter().find(|p| p.name == name))
+                    .map(|p| p.category.clone())
+                    .unwrap_or_default();
+                self.cat_edit = Some(CatEditDraft {
+                    name,
+                    picked,
+                    busy: false,
+                    err: None,
+                });
+                cx.notify();
+            }
+            A::CopyDir { dir } => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(dir.clone()));
+                self.notify(format!("目录路径已复制：{dir}"), crate::app::NoticeKind::Info, cx);
+            }
+            A::Reload => self.reload_section(cx),
+            A::Archive { name } => {
+                let sec = SECTIONS[self.section].0.to_string();
+                self.preset_confirm
+                    .request(nous_engine::types::PresetOp::Archive, sec, name);
+                cx.notify();
+            }
+            A::Purge { name } => {
+                let sec = SECTIONS[self.section].0.to_string();
+                self.preset_confirm
+                    .request(nous_engine::types::PresetOp::Purge, sec, name);
+                cx.notify();
+            }
+        }
+    }
+
+    /// 重扫这一段（盘上被外部改过时用）。回包不信，直接重拉。
+    fn reload_section(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
+            return;
+        };
+        let sec_idx = self.section;
+        let section_id = SECTIONS[sec_idx].0;
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let result = match &handle {
+                Some(h) => h
+                    .spawn(async move { engine.reload_presets(section_id).await })
+                    .await
+                    .ok(),
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(_)) => {
+                        this.load_section(sec_idx, true, cx);
+                        this.notify("已重扫这一段", crate::app::NoticeKind::Info, cx);
+                    }
+                    Some(Err(e)) => this.notify(format!("重扫失败：{e}"), crate::app::NoticeKind::Error, cx),
+                    None => this.notify("重扫没跑完", crate::app::NoticeKind::Error, cx),
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 第二屏那个真按钮：把 `(op, section, name)` 交给引擎，成功就重拉这一段。
+    pub(crate) fn run_preset_op(
+        &mut self,
+        op: nous_engine::types::PresetOp,
+        name: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(what) = self.preset_busy.clone() {
+            self.notify(format!("{what} 还没做完"), crate::app::NoticeKind::Error, cx);
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
+            return;
+        };
+        let sec_idx = self.section;
+        let section_id = SECTIONS[sec_idx].0.to_string();
+        let name2 = name.clone();
+        let verb = match op {
+            nous_engine::types::PresetOp::Archive => "归档",
+            nous_engine::types::PresetOp::Restore => "还原",
+            nous_engine::types::PresetOp::Purge => "彻底删掉",
+        };
+        self.preset_busy = Some(format!("正在{verb} {name}"));
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let result = match &handle {
+                Some(h) => h
+                    .spawn(async move { engine.preset_op(&section_id, op, &name2).await })
+                    .await
+                    .ok(),
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.preset_busy = None;
+                match result {
+                    Some(Ok(_)) => {
+                        // 归档 / 彻底删之后那一条必须从列表里消失：选中和节点说明一起收。
+                        if this.picked_preset.as_deref() == Some(name.as_str()) {
+                            this.picked_preset = None;
+                            this.picked_node = None;
+                        }
+                        this.load_section(sec_idx, true, cx);
+                        let what = match op {
+                            nous_engine::types::PresetOp::Archive => "归档",
+                            nous_engine::types::PresetOp::Restore => "还原",
+                            nous_engine::types::PresetOp::Purge => "彻底删掉",
+                        };
+                        this.notify(format!("已{what} {name}"), crate::app::NoticeKind::Info, cx);
+                    }
+                    Some(Err(e)) => this.notify(format!("没做成：{e}"), crate::app::NoticeKind::Error, cx),
+                    None => this.notify("任务没跑完", crate::app::NoticeKind::Error, cx),
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 改类别弹层的勾选切换。
+    pub(crate) fn toggle_cat_edit(&mut self, cat: String, cx: &mut Context<Self>) {
+        if let Some(d) = self.cat_edit.as_mut() {
+            if let Some(ix) = d.picked.iter().position(|c| *c == cat) {
+                d.picked.remove(ix);
+            } else {
+                d.picked.push(cat);
+            }
+            d.err = None;
+            cx.notify();
+        }
+    }
+
+    /// 改类别：整份发过去（不是增量）。
+    pub(crate) fn submit_cat_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(draft) = self.cat_edit.as_ref() else {
+            return;
+        };
+        if draft.busy {
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            if let Some(d) = self.cat_edit.as_mut() {
+                d.err = Some("还没连上引擎".into());
+            }
+            cx.notify();
+            return;
+        };
+        let name = draft.name.clone();
+        let picked = draft.picked.clone();
+        let sec_idx = self.section;
+        let section_id = SECTIONS[sec_idx].0.to_string();
+        if let Some(d) = self.cat_edit.as_mut() {
+            d.busy = true;
+            d.err = None;
+        }
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let result = match &handle {
+                Some(h) => h
+                    .spawn(async move {
+                        engine.set_preset_category(&section_id, &name, &picked).await
+                    })
+                    .await
+                    .ok(),
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(_)) => {
+                        this.cat_edit = None;
+                        this.load_section(sec_idx, true, cx);
+                    }
+                    Some(Err(e)) => {
+                        if let Some(d) = this.cat_edit.as_mut() {
+                            d.busy = false;
+                            d.err = Some(e.to_string());
+                        }
+                    }
+                    None => {
+                        if let Some(d) = this.cat_edit.as_mut() {
+                            d.busy = false;
+                            d.err = Some("任务没跑完".into());
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 改类别弹层：这一段的词表逐行勾选。
+    pub(crate) fn cat_edit_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let draft = self.cat_edit.as_ref()?;
+        let cats: Vec<String> = self
+            .sections
+            .get(self.section)
+            .and_then(|s| s.data.as_ref())
+            .map(|d| d.categories.clone())
+            .unwrap_or_default();
+        let name = draft.name.clone();
+        let picked = draft.picked.clone();
+        let busy = draft.busy;
+        let err = draft.err.clone();
+
+        let scrim = div()
+            .id("catedit-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.cat_edit = None;
+                cx.notify();
+            }));
+
+        let mut rows = div().flex().flex_col().gap(t().d(2.));
+        for cat in &cats {
+            let on = picked.iter().any(|c| c == cat);
+            let c2 = cat.clone();
+            rows = rows.child(
+                div()
+                    .id(ElementId::Name(format!("catedit-{cat}").into()))
+                    .flex()
+                    .items_center()
+                    .gap(t().d(8.))
+                    .px(t().d(8.))
+                    .py(t().d(5.))
+                    .rounded(t().r(4.))
+                    .cursor_pointer()
+                    .hover(|h| h.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.toggle_cat_edit(c2.clone(), cx);
+                    }))
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(t().d(14.))
+                            .rounded(t().r(3.))
+                            .border(t().d(1.))
+                            .border_color(rgb(if on { t().p.accent } else { t().p.line }))
+                            .bg(rgb(if on { t().p.accent } else { t().p.panel }))
+                            .text_size(t().fs(9.))
+                            .text_color(rgb(t().p.on_accent))
+                            .children(on.then(|| "✓".to_string())),
+                    )
+                    .child(div().text_size(t().fs(12.)).child(cat.clone())),
+            );
+        }
+        if cats.is_empty() {
+            rows = rows.child(
+                div()
+                    .px(t().d(8.))
+                    .py(t().d(6.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.faint))
+                    .child("这一段还没有类别 —— 先在左栏建一个"),
+            );
+        }
+
+        let dialog = div()
+            .id("catedit-dialog")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(t().d(360.))
+                    .rounded(t().r(10.))
+                    .bg(rgb(t().p.panel))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .shadow_lg()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(18.))
+                            .text_size(t().fs(14.))
+                            .child(format!("改类别：{name}")),
+                    )
+                    .child(
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(4.))
+                            .pb(t().d(12.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .child("勾几个都行，一个不勾就是未分类。"),
+                    )
+                    .child(div().px(t().d(14.)).child(rows))
+                    .children(err.map(|e| {
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(8.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.danger_fg))
+                            .child(e)
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .px(t().d(20.))
+                            .py(t().d(14.))
+                            .child(
+                                div()
+                                    .id("catedit-cancel")
+                                    .px(t().d(14.))
+                                    .py(t().d(6.))
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(12.))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.cat_edit = None;
+                                        cx.notify();
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("catedit-save")
+                                    .px(t().d(16.))
+                                    .py(t().d(6.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                                    .text_color(rgb(if busy {
+                                        t().p.faint
+                                    } else {
+                                        t().p.on_accent
+                                    }))
+                                    .text_size(t().fs(12.))
+                                    .when(!busy, |el| {
+                                        el.cursor_pointer()
+                                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                this.submit_cat_edit(cx);
+                                            }))
+                                    })
+                                    .child(if busy { "保存中…" } else { "保存" }),
+                            ),
+                    ),
+            );
+
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(scrim)
+                .child(dialog)
+                .into_any_element(),
+        )
+    }
+
+    /// 归档 / 彻底删的两屏确认。
+    pub(crate) fn preset_confirm_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.preset_confirm.is_open() {
+            return None;
+        }
+        // 三个回调要求 `Clone`（同一个闭包要给罩子 / 按钮各一份），
+        // `cx.listener` 出来的不实现 —— 和 `purge_overlay` 一样套一层 `Rc`。
+        let close = std::rc::Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.preset_confirm.on_esc();
+            cx.notify();
+        }));
+        let ack = std::rc::Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.preset_confirm.toggle_ack();
+            cx.notify();
+        }));
+        let fwd = std::rc::Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.preset_confirm.advance();
+            cx.notify();
+        }));
+        let back = std::rc::Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.preset_confirm.back();
+            cx.notify();
+        }));
+        let close2 = close.clone();
+        let ack2 = ack.clone();
+        let fwd2 = fwd.clone();
+        let back2 = back.clone();
+        Some(crate::preset_confirm::render_preset_confirm(
+            &self.preset_confirm,
+            move |ev, window, cx| close2(ev, window, cx),
+            move |ev, window, cx| ack2(ev, window, cx),
+            move |ev, window, cx| fwd2(ev, window, cx),
+            move |ev, window, cx| back2(ev, window, cx),
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                if let Some((op, _section, name)) = this.preset_confirm.take() {
+                    this.run_preset_op(op, name, cx);
+                }
+                cx.notify();
+            }),
+        ))
     }
 
     fn pick_preset(&mut self, preset_name: String, cx: &mut Context<Self>) {
@@ -1246,6 +1711,29 @@ impl Desktop {
                             .child("新建")
                     })),
             )
+            // 生命周期动作跑着的时候常驻一行：引擎那边要 commit + push，
+            // 实测几分钟 —— 不给这一行，用户会以为点了没反应又点第二次。
+            .children(self.preset_busy.clone().map(|what| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t().d(7.))
+                    .mx(t().d(14.))
+                    .mb(t().d(9.))
+                    .px(t().d(9.))
+                    .py(t().d(6.))
+                    .rounded(t().r(4.))
+                    .bg(rgb(t().p.warn_soft))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.warn))
+                    .child(what)
+                    .child(
+                        div()
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.muted))
+                            .child("引擎在提交，可能要几分钟"),
+                    )
+            }))
             .child(
                 div()
                     .flex()
@@ -1307,7 +1795,7 @@ impl Desktop {
             .into_any_element()
     }
 
-    fn preset_row(&self, p: &Preset, cx: &mut Context<Self>) -> impl IntoElement {
+    fn preset_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
         // `Ultimate-Template` 这一段只读：启用触发器的动作还没定，点它什么也不该发生。
         let can_open = self.sections[self.section].id == SECTIONS[0].0;
         let ok = can_open && launchable(p);
@@ -1317,18 +1805,18 @@ impl Desktop {
         let picked = self.picked_preset.as_deref() == Some(p.name.as_str());
         let cat = self.preset_cat.clone().unwrap_or_default();
 
-        // 状态字：判据全是引擎算好的，客户端只挑颜色。
+        // 状态：判据全是引擎算好的，客户端只挑颜色和形状（描边 pill，见 demo 组 ③ 方案 2）。
         let status: Option<(&str, u32)> = if p.spec_error.is_some() {
             Some(("spec 写坏了", bad()))
         } else if has_invalid(p) {
             Some(("引用失效，现在开不了", bad()))
         } else if !p.tracked {
-            Some(("盘上有、仓里没", muted()))
+            Some(("盘上有、仓里没", warn()))
         } else {
             None
         };
 
-        div()
+        let row = div()
             .relative()
             .flex()
             .gap(t().d(10.))
@@ -1403,18 +1891,7 @@ impl Desktop {
                         )
                     })
                     .child(self.chips(p, &cat))
-                    .children(
-                        status
-                            .map(|(text, color)| {
-                                div()
-                                    .text_size(t().fs(11.))
-                                    .text_color(rgb(color))
-                                    .child(text)
-                                    .into_any_element()
-                            })
-                            .into_iter()
-                            .collect::<Vec<_>>(),
-                    ),
+                    .children(status.map(|(text, color)| status_pill(text, color))),
             )
             // 行尾：能开的行给一个「开一条新对话」的圆按钮。
             // 行体只负责选中 —— 两个动作分开，多一次辨认，少一堆误触。
@@ -1439,7 +1916,24 @@ impl Desktop {
                             this.launch_preset(name.clone(), cx);
                         })),
                 )
+            });
+
+        // 右键菜单：条目顺序 / 文案 / 动作映射在 `preset_menu.rs`。
+        // 只能在链尾挂：`context_menu()` 返回 `ContextMenu<Stateful<Div>>`，换个类型就串不下去。
+        let this = cx.entity().downgrade();
+        let target = crate::preset_menu::PresetTarget::new(
+            SECTIONS[self.section].0,
+            p.name.clone(),
+            p.dir.clone(),
+            p.tracked,
+        );
+        row.context_menu(move |menu, window, cx| {
+            let this = this.clone();
+            crate::preset_menu::build_menu(menu, window, cx, &target, ok, move |action, cx| {
+                let _ = this.update(cx, |this, cx| this.on_preset_menu(action, cx));
             })
+        })
+        .into_any_element()
     }
 
     /// 一行小 chip：当前类别 / 也属于 / 只读 / `Ultimate-Template` 的触发器与引用。

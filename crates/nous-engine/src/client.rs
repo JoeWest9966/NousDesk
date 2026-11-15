@@ -11,7 +11,7 @@ use url::Url;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
-    Dirs, Entries, Forked, Machines, Models, NewPreset, Presets, Prompts, ReadReceipt,
+    Dirs, Entries, Forked, Machines, Models, NewPreset, PresetOp, Presets, Prompts, ReadReceipt,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
@@ -307,6 +307,61 @@ impl EngineClient {
             .http
             .post(self.url(&format!("v1/presets/{section}/create"))?)
             .json(body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 生命周期：归档 / 还原 / 彻底删。
+    ///
+    /// 三个走同一个形状（`POST /<段>/<op>`，体 `{name}`），所以只开一个口子 ——
+    /// 分开三个方法会让调用点以为它们语义相同。失败时引擎会自己回滚，
+    /// 客户端拿到的就是原样的错误体（409 / 400 都在 `EngineError` 里）。
+    pub async fn preset_op(
+        &self,
+        section: &str,
+        op: PresetOp,
+        name: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            name: &'a str,
+        }
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/{}", op.path()))?)
+            .json(&Body { name })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 重扫这一段的名册（盘上被外部改过时用）。回包结构不保证，调用方一律重拉。
+    pub async fn reload_presets(&self, section: &str) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/reload"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 改**一条**预设挂的类别。`category` 是整份（不是增量）—— 传空数组 = 变成未分类。
+    pub async fn set_preset_category(
+        &self,
+        section: &str,
+        name: &str,
+        category: &[String],
+    ) -> Result<serde_json::Value, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            name: &'a str,
+            category: &'a [String],
+        }
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/category"))?)
+            .json(&Body { name, category })
             .send()
             .await?;
         self.json(resp).await

@@ -22,6 +22,8 @@ mod fonts;
 mod live;
 mod md;
 mod nav_ui;
+mod preset_confirm;
+mod preset_menu;
 mod search;
 mod session_nav;
 mod settings;
