@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Manual · 盘面比例整改 · 四档宽度对照</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ui:"Inter","Segoe UI",system-ui,"Noto Sans","Noto Sans CJK SC","DejaVu Sans",sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code",Consolas,"DejaVu Sans Mono",monospace;
+  /* 默认皮（浅色）—— 和 theme.rs 的 Palette::DEFAULT 一致 */
+  --bg:#ededed;--panel:#ffffff;--surface:#f6f6f6;--line:#e6e6e6;--line2:#e2e2e2;
+  --fg:#1a1a1a;--fg2:#333333;--muted:#999999;--faint:#aaaaaa;
+  --accent:#07c160;
+}
+html,body{background:#0b0b0c;color:#fff;font-family:var(--ui);-webkit-font-smoothing:antialiased}
+body{padding:0 0 40px}
+.bar{position:sticky;top:0;z-index:60;background:#0b0b0c;border-bottom:1px solid #1c1c1e;padding:12px 24px 10px}
+.bar h1{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6f6d69;font-weight:400}
+.bar p{margin-top:7px;font-size:12.5px;color:#8b8884;line-height:1.6}
+.bar p b{color:#f4f3f1;font-weight:600}
+.bar code{font:11px var(--mono);color:#6f9c6a}
+
+.grid{max-width:1500px;margin:20px auto 0;padding:0 24px;display:grid;grid-template-columns:1fr;gap:22px}
+.cell{background:#141416;border:1px solid #1e1e21;border-radius:10px;padding:14px}
+.cell h2{font:600 12px var(--mono);color:#8b8884;letter-spacing:.08em;display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.cell h2 em{font-style:normal;color:#5c5a56;font-weight:400}
+.cell .why{margin-top:10px;font-size:11.5px;line-height:1.6;color:#77736e}
+.cell .why b{color:#c9c4bd;font-weight:600}
+
+/* 一个 pane：给定宽高，里面是盘面 */
+.pane{position:relative;overflow:hidden;background:var(--bg);border-radius:6px;color:var(--fg)}
+
+/* ══ 盘面（Wide 档）：一切尺寸 = 设计值 × --s ══ */
+.board{position:absolute;inset:0}
+.stage{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+
+.card{position:absolute;background:var(--panel);border:1px solid var(--line);
+  border-radius:calc(10px * var(--s));padding:calc(12px * var(--s)) calc(14px * var(--s));text-align:left}
+.card .k{font:calc(9px * var(--s)) var(--mono);letter-spacing:.2em;color:var(--faint);margin-bottom:calc(7px * var(--s))}
+.card h4{font-size:calc(13px * var(--s));font-weight:600}
+.card .v{margin-top:calc(5px * var(--s));font:calc(10.5px * var(--s)) var(--mono);color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .lk{margin-top:calc(8px * var(--s));font-size:calc(10.5px * var(--s));color:var(--muted);display:inline-block}
+.card .ctx{display:flex;gap:calc(6px * var(--s));margin-top:calc(7px * var(--s))}
+.card .ctx span{flex:1;padding:calc(6px * var(--s)) calc(8px * var(--s));border:1px solid var(--line);
+  border-radius:calc(7px * var(--s));background:var(--surface);font:calc(10px * var(--s)) var(--mono)}
+.card .ctx i{display:block;font-style:normal;font-size:calc(8.5px * var(--s));letter-spacing:.16em;color:var(--faint);margin-bottom:calc(3px * var(--s))}
+
+.core{position:absolute;border-radius:50%;background:var(--fg);color:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:4}
+.core .p{font-size:calc(18px * var(--s));font-weight:600;letter-spacing:-.02em}
+.core .q{margin-top:calc(3px * var(--s));font:calc(8.5px * var(--s)) var(--mono);letter-spacing:.12em;opacity:.5}
+
+.pill{position:absolute;transform:translate(-50%,-50%);z-index:3;background:var(--fg);color:var(--bg);
+  border-radius:999px;display:flex;align-items:center;justify-content:center;
+  font:calc(10.5px * var(--s)) var(--mono);white-space:nowrap;overflow:hidden}
+.status{position:absolute;transform:translateX(-50%);font:calc(10px * var(--s)) var(--mono);color:#079c50;white-space:nowrap}
+
+svg.wires{position:absolute;inset:0;width:100%;height:100%}
+svg.wires *{vector-effect:non-scaling-stroke}
+
+/* ── Compact 档（620–780）：没有环，三颗 pill 横排贴在圆下 ── */
+.board[data-layout="compact"] .stage{display:none}
+.board[data-layout="compact"] .cmp{display:block}
+.cmp{display:none;position:absolute;inset:0}
+.cmp .card{position:absolute}
+.cmp .ring{display:none}
+.cmp .core .q{display:none}  /* 紧凑档圆小，放不下那行英文 */
+.cmp .pill{position:absolute}
+.cmp .status{position:absolute;left:50%;transform:translateX(-50%)}
+
+/* ── Stack 档（< 620）：竖排一列，允许滚动 ── */
+.board[data-layout="stack"] .stage{display:none}
+.board[data-layout="stack"] .stk{display:block}
+.stk{display:none;position:absolute;inset:0;overflow-y:auto;padding:18px 16px 24px}
+.stk .top{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:16px}
+.stk .core2{width:104px;height:104px;border-radius:50%;background:var(--fg);color:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center}
+.stk .core2 .p{font-size:15px;font-weight:600}
+.stk .core2 .q{margin-top:2px;font:8px var(--mono);letter-spacing:.12em;opacity:.5}
+.stk .pills{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.stk .pill2{background:var(--fg);color:var(--bg);border-radius:999px;padding:6px 11px;font:10.5px var(--mono);white-space:nowrap}
+.stk .card2{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:8px}
+.stk .card2 .k{font:8.5px var(--mono);letter-spacing:.2em;color:var(--faint);margin-bottom:5px}
+.stk .card2 h4{font-size:12.5px;font-weight:600}
+.stk .card2 .v{margin-top:4px;font:10.5px var(--mono);color:var(--fg2)}
+.stk .st{margin-top:12px;text-align:center;font:10px var(--mono);color:#079c50}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>New Manual · 盘面比例整改 · 四档宽度对照</h1>
+  <p>一条规矩：<b>所有尺寸 = 设计值 × s</b>，<code>s = min(pane_w / 940, pane_h / 764)</code>。
+  单一比例 ⇒ 永远不会变形。窄到放不下就换布局（Compact / Stack），不再硬塞。</p>
+</div>
+
+<div class="grid">
+  <div class="cell">
+    <h2>① 大屏 <em>pane 1100 × 1066 · s = 1.17</em></h2>
+    <div class="pane" id="p1" style="width:1100px;height:1066px;margin:0 auto"></div>
+    <div class="why"><b>等比放大</b>：卡片、圆、环、三颗 pill 一起 ×1.17，上下留白居中。<br>
+      以前这里是「卡 268px 封顶 + 环 rx/ry 两个基准」，所以又扁又散。</div>
+  </div>
+
+  <div class="cell">
+    <h2>② 当前 <em>pane 940 × 764 · s = 1.00</em></h2>
+    <div class="pane" id="p2" style="width:940px;height:764px;margin:0 auto"></div>
+    <div class="why"><b>基准尺寸</b>：这就是现在 1280 窗口下好看的那版，其它档都从它推出来。<br>
+      环是<b>正圆</b>（rx = ry），不再随宽高比变扁。</div>
+  </div>
+
+  <div class="cell">
+    <h2>③ 紧凑 <em>pane 700 × 640 · Compact</em></h2>
+    <div class="pane" id="p3" style="width:700px;height:640px;margin:0 auto"></div>
+    <div class="why"><b>去掉环</b>：700 宽放不下「环 + 四角卡」。三颗 pill 横排贴在圆下，
+      卡缩到 pane 的 32%、角距从 5.5% 收到 3%。<br>
+      宁可少一个装饰，不让卡片互相压。</div>
+  </div>
+
+  <div class="cell">
+    <h2>④ 半屏 <em>pane 300 × 446 · Stack</em></h2>
+    <div class="pane" id="p4" style="width:320px;height:446px;margin:0 auto"></div>
+    <div class="why"><b>竖排一列 + 允许滚动</b>：300 宽还想要「四角 + 圆 + 环」只能是叠罗汉。<br>
+      这时「一屏不滚」已经不可能，硬塞就是现在这样互相盖。</div>
+  </div>
+</div>
+
+<template id="wideTpl">
+  <div class="board" data-layout="wide">
+    <div class="stage">
+      <svg class="wires" viewBox="0 0 940 764" preserveAspectRatio="none">
+        <g stroke="var(--line2)" stroke-width="1" stroke-dasharray="3 6" fill="none">
+          <path d="M162 170C260 230 380 280 470 320"/>
+          <path d="M778 170C680 230 560 280 470 320"/>
+          <path d="M162 614C260 560 380 420 470 320"/>
+          <path d="M778 614C680 560 560 420 470 320"/>
+        </g>
+        <circle cx="470" cy="320" r="150" fill="none" stroke="var(--accent)"
+                stroke-width="1.2" stroke-dasharray="2 6" stroke-linecap="round"/>
+        <g stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 5" fill="none">
+          <path d="M414 378L365 416"/>
+          <path d="M470 394L470 470"/>
+          <path d="M526 378L575 416"/>
+        </g>
+      </svg>
+      <div class="card" style="left:52px;top:78px;width:220px;height:92px">
+        <div class="k">MODEL</div><h4>Model</h4>
+        <div class="v">volc-ark/deepseek-v4-flash-260425</div>
+      </div>
+      <div class="card" style="left:668px;top:78px;width:220px;height:116px">
+        <div class="k">CONTEXT</div>
+        <div class="ctx"><span><i>SKILLS</i>0 / 5</span><span><i>PROMPT</i>smart-ass</span></div>
+      </div>
+      <div class="card" style="left:52px;top:522px;width:220px;height:92px">
+        <div class="k">EXTENSIONS</div><h4>Extensions</h4><div class="v">none</div>
+      </div>
+      <div class="card" style="left:668px;top:522px;width:220px;height:92px;opacity:.55">
+        <div class="k">PERMISSIONS</div><h4>Permissions</h4><div class="v">—</div>
+      </div>
+      <div class="core" style="left:470px;top:320px;width:148px;height:148px;margin:-74px 0 0 -74px">
+        <span class="p">＋ Create</span><span class="q">NEW MANUAL</span>
+      </div>
+      <div class="pill" style="left:365px;top:416px;width:96px;height:30px">本机</div>
+      <div class="pill" style="left:470px;top:470px;width:200px;height:30px">Name</div>
+      <div class="pill" style="left:575px;top:416px;width:140px;height:30px">…/new1/map</div>
+      <div class="status" style="left:470px;top:500px">ready · 本机 · map</div>
+    </div>
+  </div>
+</template>
+
+<template id="compactTpl">
+  <div class="board" data-layout="compact">
+    <div class="cmp">
+      <svg class="wires" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <g stroke="var(--line2)" stroke-width="1" stroke-dasharray="3 6" fill="none">
+          <path d="M22 24C32 32 42 36 50 44"/>
+          <path d="M78 24C68 32 58 36 50 44"/>
+          <path d="M22 76C32 68 42 56 50 44"/>
+          <path d="M78 76C68 68 58 56 50 44"/>
+        </g>
+      </svg>
+      <div class="card" data-c="model"><div class="k">MODEL</div><h4>Model</h4><div class="v">volc-ark/deepseek-v4-flash</div></div>
+      <div class="card" data-c="ctx"><div class="k">CONTEXT</div>
+        <div class="ctx"><span><i>SKILLS</i>0 / 5</span><span><i>PROMPT</i>smart-ass</span></div></div>
+      <div class="card" data-c="ext"><div class="k">EXTENSIONS</div><h4>Extensions</h4><div class="v">none</div></div>
+      <div class="card" data-c="perm" style="opacity:.55"><div class="k">PERMISSIONS</div><h4>Permissions</h4></div>
+      <div class="core" data-c="core"><span class="p">＋ Create</span><span class="q">NEW MANUAL</span></div>
+      <div class="pill" data-c="m">本机</div>
+      <div class="pill" data-c="n">Name</div>
+      <div class="pill" data-c="d">…/map</div>
+      <div class="status" data-c="s">ready · 本机 · map</div>
+    </div>
+  </div>
+</template>
+
+<template id="stackTpl">
+  <div class="board" data-layout="stack">
+    <div class="stk">
+      <div class="top">
+        <div class="core2"><span class="p">＋ Create</span><span class="q">NEW MANUAL</span></div>
+        <div class="pills"><span class="pill2">本机</span><span class="pill2">…/map</span></div>
+      </div>
+      <div class="card2"><div class="k">MODEL</div><h4>Model</h4><div class="v">volc-ark/deepseek-v4-flash</div></div>
+      <div class="card2"><div class="k">CONTEXT</div><h4>Skills · Prompt</h4><div class="v">0 / 5 · smart-ass</div></div>
+      <div class="card2"><div class="k">EXTENSIONS</div><h4>Extensions</h4><div class="v">none</div></div>
+      <div class="card2" style="opacity:.55"><div class="k">PERMISSIONS</div><h4>Permissions</h4><div class="v">—</div></div>
+      <div class="st">ready · 本机 · map</div>
+    </div>
+  </div>
+</template>
+
+<script>
+const WIDE = { w: 940, h: 764 };
+
+/** 宽档：stage 等比缩放，所有像素 = 设计值 × s */
+function renderWide(host, pw, ph) {
+  host.innerHTML = document.getElementById('wideTpl').innerHTML;
+  const s = Math.min(pw / WIDE.w, ph / WIDE.h);
+  const board = host.firstElementChild;
+  const stage = board.querySelector('.stage');
+  stage.style.setProperty('--s', s);
+  stage.style.width = WIDE.w + 'px';
+  stage.style.height = WIDE.h + 'px';
+  stage.style.transform = `translate(-50%,-50%) scale(${s})`;
+  // 环用正圆：宽度也按 s 缩放时，SVG 的 viewBox 需要跟着缩
+  const svg = stage.querySelector('svg');
+  svg.setAttribute('viewBox', `0 0 ${WIDE.w} ${WIDE.h}`);
+}
+
+/** 紧凑档：不放环，proportion 直接按 pane 宽算（也都是单一比例） */
+function renderCompact(host, pw, ph) {
+  host.innerHTML = document.getElementById('compactTpl').innerHTML;
+  const board = host.firstElementChild;
+  const side = Math.max(14, pw * 0.03);
+  const cw = (pw - side * 2 - 14) / 2;
+  const ch = Math.max(64, cw * 0.4);
+  const top = Math.max(40, ph * 0.06);
+  const bottom = Math.max(90, ph * 0.16);
+  const pos = {
+    model: [side, top],
+    ctx: [side + cw + 14, top],
+    ext: [side, ph - bottom - ch],
+    perm: [side + cw + 14, ph - bottom - ch],
+  };
+  for (const [k, [x, y]] of Object.entries(pos)) {
+    const el = board.querySelector(`[data-c="${k}"]`);
+    // Context 卡里是两行（技能 + 模板），单独高一点。
+    const h = k === 'ctx' ? ch + 22 : ch;
+    el.style.cssText += `left:${x}px;top:${y}px;width:${cw}px;height:${h}px`;
+  }
+  // 中间留给「圆 + 三颗 pill + 状态行」的那一段，从上往下排，别往下掉。
+  const botTop = ph - bottom - ch;
+  const r = Math.max(40, Math.min(60, pw * 0.085));
+  const cx = pw / 2;
+  const cy = Math.min(top + ch + 14 + r, botTop - 14 - r);
+  const core = board.querySelector('[data-c="core"]');
+  core.style.cssText += `left:${cx - r}px;top:${cy - r}px;width:${r * 2}px;height:${r * 2}px`;
+  core.querySelector('.p').style.fontSize = Math.max(12, r * 0.26) + 'px';
+
+  const pillH = 28;
+  const py = cy + r + 18;
+  const m = board.querySelector('[data-c="m"]');
+  const n = board.querySelector('[data-c="n"]');
+  const d = board.querySelector('[data-c="d"]');
+  const wm = Math.max(66, pw * 0.095), wn = Math.max(104, pw * 0.155), wd = Math.max(86, pw * 0.125);
+  const totalW = wm + wn + wd + 12;
+  let x = cx - totalW / 2;
+  for (const [el, w] of [[m, wm], [n, wn], [d, wd]]) {
+    el.style.cssText += `left:${x + w / 2}px;top:${py}px;width:${w}px;height:${pillH}px;font-size:10.5px`;
+    x += w + 6;
+  }
+  const st = board.querySelector('[data-c="s"]');
+  st.style.cssText += `left:${cx}px;top:${py + pillH + 12}px;font-size:10px`;
+}
+
+/** 竖排档：整列可以滚 */
+function renderStack(host) {
+  host.innerHTML = document.getElementById('stackTpl').innerHTML;
+}
+
+// ① 大屏：pane 1100×1066，但面板高只有 520 → 按 pane 的真实比例裁一段
+renderWide(document.getElementById('p1'), 1100, 1066);
+renderWide(document.getElementById('p2'), 940, 764);
+renderCompact(document.getElementById('p3'), 700, 640);
+renderStack(document.getElementById('p4'));
+</script>
+</body>
+</html>

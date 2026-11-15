@@ -1769,7 +1769,12 @@ impl Desktop {
     /// 弹一条轻提示：做成的事绿、失败红，4 秒后自己收。
     ///
     /// 只在这里点火，**不在 `render` 里点火** —— 否则就是「重画 → 再点火」的死循环。
-    fn notify(&mut self, text: impl Into<String>, kind: NoticeKind, cx: &mut Context<Self>) {
+    pub(crate) fn notify(
+        &mut self,
+        text: impl Into<String>,
+        kind: NoticeKind,
+        cx: &mut Context<Self>,
+    ) {
         let token = self.notice.show(text, kind);
         cx.notify();
         cx.spawn(async move |this, cx| {

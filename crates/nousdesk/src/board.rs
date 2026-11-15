@@ -24,6 +24,8 @@ fn t() -> crate::theme::Skin {
 
 use std::collections::BTreeSet;
 
+use crate::app::NoticeKind;
+
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
@@ -188,6 +190,9 @@ impl NewChat {
     }
 
     /// 圆底下那行状态。**只说现在差什么**，不说欢迎语，也不重复卡片上的值。
+    ///
+    /// 就绪时把「落在哪儿」一并带出来（机器 + 目录尾巴）—— 这颗圆就是落子按钮，
+    /// 点下去之前人该看得见自己落在哪台机器、哪个目录。
     fn hub_sub(&self) -> String {
         if let Some(err) = &self.load_err {
             return err.clone();
@@ -206,9 +211,21 @@ impl NewChat {
             };
         }
         match self.picked {
-            Some(_) => "ready".into(),
+            Some(_) => {
+                let mut parts = vec!["ready".to_string()];
+                parts.push(self.machine.clone().unwrap_or_else(|| "本机".into()));
+                if let Some(d) = &self.dir {
+                    parts.push(tail_path(d));
+                }
+                parts.join(" · ")
+            }
             None => "pick a model".into(),
         }
+    }
+
+    /// 选完了吗（只看选没选模型 / 是不是正在提交）。
+    fn picked_ready(&self) -> bool {
+        !self.creating && self.picked.is_some()
     }
 }
 
@@ -236,6 +253,13 @@ fn level_label(level: &str) -> &'static str {
 
 impl Desktop {
     pub(crate) fn board_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 每次开盘面都是一次新的落子：**换一只新的输入框**，不留上次没发出去的名字
+        // （`TextareaState` 没有「清空」的口子，重建比绕路干净）。
+        self.newchat.name_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 1)
+                .placeholder("Name · 空着就用引擎给的名字")
+        });
         self.newchat.open = true;
         self.newchat.sheet = None;
         self.newchat.flash = None;
@@ -244,6 +268,11 @@ impl Desktop {
         if self.newchat.models.is_none() && !self.newchat.loading {
             self.board_load(cx);
         }
+    }
+
+    /// 按得动 Create 吗。**按钮的长相和点击都吃这一份判定**，别两处各判一次。
+    fn can_create(&self) -> bool {
+        self.newchat.picked_ready() && self.engine.is_some()
     }
 
     pub(crate) fn board_close(&mut self, cx: &mut Context<Self>) {
@@ -335,7 +364,15 @@ impl Desktop {
                     b.machines = Some(mm);
                 }
                 if let Ok(d) = dirs {
+                    // 起始目录**同时也是选中值**：不选也是落在那里，与其显示 `—`
+                    // 让人以为还没定，不如把真实落点写出来。
+                    // `path` 为空串 = board map 根（不是可选目录本身），这时落点取它
+                    // 底下第一个条目 —— 也就是引擎在 `/v1/device.startDirs` 里给的那个。
                     b.dir_at = d.path.clone();
+                    b.dir = match d.path.as_deref() {
+                        Some(p) if !p.is_empty() => Some(p.to_string()),
+                        _ => d.dirs.first().map(|x| x.path.clone()),
+                    };
                     b.dirs = Some(d);
                 }
                 cx.notify();
@@ -431,12 +468,42 @@ impl Desktop {
                 match outcome {
                     Some(Ok((created, sessions))) => {
                         let mut sessions = sessions;
-                        sessions.sort_by(|a, b| b.id.cmp(&a.id));
+                        sessions.sort_by_key(|s| std::cmp::Reverse(s.id));
                         this.sessions = sessions;
+                        // 服务端夹过的档位才是生效值：认它，不认我们发上去的那份。
+                        if let Some(lv) = created.thinking_level.as_ref().and_then(|v| v.as_str())
+                        {
+                            this.newchat.level = lv.to_string();
+                        }
+                        // 勾了但没装成的，别静默跳过 —— 跳进会话之后盘面就关了，
+                        // 这条只能走轻提示（红），把没落下的东西点名。
+                        let mut skipped: Vec<String> = Vec::new();
+                        if !created.missing.is_empty() {
+                            skipped.push(format!("技能：{}", created.missing.join("、")));
+                        }
+                        if !created.missing_templates.is_empty() {
+                            skipped.push(format!(
+                                "模板：{}",
+                                created.missing_templates.join("、")
+                            ));
+                        }
+                        if !created.missing_extensions.is_empty() {
+                            skipped.push(format!(
+                                "扩展：{}",
+                                created.missing_extensions.join("、")
+                            ));
+                        }
+                        this.newchat.flash = None;
+                        if !skipped.is_empty() {
+                            this.notify(
+                                format!("这些没装，已跳过 —— {}", skipped.join("；")),
+                                NoticeKind::Error,
+                                cx,
+                            );
+                        }
                         this.newchat.open = false;
                         this.newchat.sheet = None;
                         this.tab = crate::app::Tab::Chats;
-                        this.newchat.flash = None;
                         this.select_session(created.id, true, cx);
                     }
                     Some(Err(e)) => this.newchat.flash = Some(format!("创建失败：{e}")),
@@ -456,6 +523,35 @@ impl Desktop {
         let m = art::M::new(window.viewport_size(), self.tab);
         let b = &self.newchat;
         let model_value = b.picked_label().unwrap_or_else(|| "—".into());
+
+        // 窄到放不下「四角 + 圆 + 环」时换竖排，别把同一套硬塞进去。
+        if m.layout == art::Layout::Stack {
+            return div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(t().d(0.))
+                .h_full()
+                .bg(rgb(art::bg()))
+                .text_color(rgb(art::fg()))
+                .text_size(m.f(1.75, 12., 16.))
+                .track_focus(&b.focus)
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                    if ev.keystroke.key == "escape" {
+                        if this.newchat.sheet.is_some() {
+                            this.newchat.sheet = None;
+                        } else {
+                            this.board_close(cx);
+                            return;
+                        }
+                        cx.notify();
+                    }
+                }))
+                .child(self.board_stack(&m, cx))
+                .children(self.board_sheet(&m, cx))
+                .into_any_element();
+        }
 
         let body = div()
             .relative()
@@ -504,7 +600,8 @@ impl Desktop {
                 cx,
                 |_, _| {},
             ))
-            .child(self.board_dock(&m, cx));
+            .child(self.board_feet(&m, cx))
+            .children(self.board_status(&m));
 
         div()
             .relative()
@@ -514,8 +611,8 @@ impl Desktop {
             // flex 项不写 min_w(0) 会被内容撑到比右格还宽（坑 16）。
             .min_w(t().d(0.))
             .h_full()
-            .bg(rgb(art::BG))
-            .text_color(rgb(art::FG))
+            .bg(rgb(art::bg()))
+            .text_color(rgb(art::fg()))
             .text_size(m.f(1.75, 12., 16.))
             .line_height(relative(1.5))
             .track_focus(&b.focus)
@@ -535,27 +632,79 @@ impl Desktop {
             .into_any_element()
     }
 
-    /// 四条虚线：圆心 → 四张卡（终点会被卡片盖住，正好停在边上）。
+    /// 所有连线：四条「圆心 → 卡片」、一圈环、三条「圆边 → 环上的值」。
+    ///
+    /// 一次 `canvas` 画完：它们同属一层，分开画只会多几次 paint。
     fn board_wires(&self, m: &art::M) -> AnyElement {
         let m = *m;
+        struct Wires {
+            cards: [((f32, f32), (f32, f32)); 4],
+            ring: (f32, f32, f32, f32),
+            feet: [((f32, f32), (f32, f32)); 3],
+        }
         let slots = [
             art::Slot::Model,
             art::Slot::Context,
             art::Slot::Ext,
             art::Slot::Perms,
         ];
+        let feet = [art::Foot::Machine, art::Foot::Name, art::Foot::Dir];
         canvas(
-            move |_bounds, _, _| slots.map(|s| art::wire(&m, s)),
-            |bounds, wires, window, _| {
+            move |_bounds, _, _| Wires {
+                cards: slots.map(|s| art::card_wire(&m, s)),
+                ring: if art::has_ring(&m) {
+                    art::ring(&m)
+                } else {
+                    (0., 0., 0., 0.)
+                },
+                feet: feet.map(|f| art::foot_wire(&m, f)),
+            },
+            |bounds, w, window, _| {
                 // `paint_path` 吃的是**绝对坐标**：canvas 的原点不一定在 (0,0)，
-                // 忘了加就是整条线平移一个输出区偏移（现状 hub 那颗椭圆也踩过）。
+                // 忘了加就是整条线平移一个输出区偏移（坑 34）。
                 let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
-                for (a, b) in wires {
+                let at = |p: (f32, f32)| point(px(ox + p.0), px(oy + p.1));
+
+                // 四条卡片连线：短划。
+                for (a, b) in w.cards {
                     let mut pb = PathBuilder::stroke(px(1.)).dash_array(&[px(3.), px(6.)]);
-                    pb.move_to(point(px(ox + a.0), px(oy + a.1)));
-                    pb.line_to(point(px(ox + b.0), px(oy + b.1)));
+                    pb.move_to(at(a));
+                    pb.line_to(at(b));
                     if let Ok(path) = pb.build() {
-                        window.paint_path(path, rgb(art::WIRE));
+                        window.paint_path(path, rgb(art::wire()));
+                    }
+                }
+
+                // 环：点线（比卡片连线更短更密，才像一圈轨道而不是四条线之一）。
+                // 紧凑档没有环 —— 那里放不下，硬画只会和卡片打架。
+                if w.ring.2 > 0. {
+                // 用折线逼近椭圆（48 段）：点线渲染下看不出多边形，但比手写
+                // 四段贝塞尔少一个出错的地方。
+                let (cx, cy, rx, ry) = w.ring;
+                let steps = 48;
+                let mut pb = PathBuilder::stroke(px(1.2)).dash_array(&[px(2.), px(6.)]);
+                for i in 0..=steps {
+                    let t = i as f32 / steps as f32 * std::f32::consts::TAU;
+                    let p = at((cx + rx * t.cos(), cy + ry * t.sin()));
+                    if i == 0 {
+                        pb.move_to(p);
+                    } else {
+                        pb.line_to(p);
+                    }
+                }
+                pb.close();
+                if let Ok(path) = pb.build() {
+                    window.paint_path(path, rgb(art::accent()));
+                }
+                }
+
+                // 三条短线：圆边 → 环上的三颗珠子。
+                for (a, b) in w.feet {
+                    let mut pb = PathBuilder::stroke(px(1.2)).dash_array(&[px(3.), px(5.)]);
+                    pb.move_to(at(a));
+                    pb.line_to(at(b));
+                    if let Ok(path) = pb.build() {
+                        window.paint_path(path, rgb(art::accent()));
                     }
                 }
             },
@@ -571,11 +720,12 @@ impl Desktop {
         let r = art::core_r(&m);
         let halo = 18.;
         let b = &self.newchat;
-        // 状态行：`flash` 是失败（绿字和 ready 撞色，所以用红调），否则说还差什么。
-        let status = b.flash.clone().map(|f| (f, rgb(0xd14d41))).or_else(|| {
-            let s = b.hub_sub();
-            (!s.is_empty()).then(|| (s, rgb(art::OK)))
-        });
+        // 按不动和按得动**长两副样子**：灰着的时候不挂点击，点下去也不会有反应 ——
+        // 状态行已经在说「差一个模型」，按钮不必再弹一次同样的字。
+        let live = self.can_create();
+        let busy = b.creating;
+        // 紧凑 / 竖排档的圆更小，那行英文会溢出去。
+        let tight = m.layout != art::Layout::Wide;
 
         div()
             .absolute()
@@ -590,7 +740,7 @@ impl Desktop {
                     .w(px(2. * (r + halo)))
                     .h(px(2. * (r + halo)))
                     .rounded_full()
-                    .bg(rgb(art::ACCENT).opacity(0.035))
+                    .bg(rgb(art::solid()).opacity(0.05))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -599,42 +749,48 @@ impl Desktop {
                             .id(ElementId::Name("board-create".into()))
                             .size(px(2. * r))
                             .rounded_full()
-                            .bg(rgb(art::ACCENT))
+                            // 圆用正文色当底、盘面底色当字：浅皮就是黑圆白字，
+                            // 深皮是白圆黑字 —— 五套皮都成立，不会长出一颗怪色按钮。
+                            .bg(if live || busy {
+                                rgb(art::solid())
+                            } else {
+                                rgb(art::surface())
+                            })
                             .flex()
                             .flex_col()
                             .items_center()
                             .justify_center()
-                            .text_color(rgb(art::BG))
-                            .hover(|s| s.opacity(0.94))
-                            .on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.board_create(cx)),
-                            )
+                            .text_color(if live || busy {
+                                rgb(art::bg())
+                            } else {
+                                rgb(art::faint())
+                            })
+                            .when(busy, |el| el.opacity(0.72))
+                            .when(live, |el| {
+                                el.hover(|s| s.opacity(0.94))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.board_create(cx)
+                                    }))
+                            })
                             .child(
                                 div()
                                     .text_size(m.f(1.6, 12., 17.))
                                     .font_weight(FontWeight::BOLD)
-                                    .child("+ Create"),
+                                    .child(if busy { "Creating…" } else { "+ Create" }),
                             )
-                            .child(
-                                div()
-                                    .mt(m.v(0.3))
-                                    .font_family(art::MONO)
-                                    .text_size(m.f(0.7, 6.5, 8.5))
-                                    .text_color(rgb(0x6a6660))
-                                    .child("NEW MANUAL · DISORDER"),
-                            ),
+                            // 小圆放不下那行英文：紧凑/竖排档只留 `+ Create`。
+                            .when(!busy && !tight, |el| {
+                                el.child(
+                                    div()
+                                        .mt(m.v(0.3))
+                                        .font_family(art::mono())
+                                        .text_size(m.f(0.7, 6.5, 8.5))
+                                        .text_color(rgb(art::bg()).opacity(0.55))
+                                        .child("NEW MANUAL · DISORDER"),
+                                )
+                            }),
                     ),
             )
-            .children(status.map(|(s, color)| {
-                div()
-                    .mt(px(10.))
-                    .w(px(2. * (r + halo)))
-                    .text_center()
-                    .font_family(art::MONO)
-                    .text_size(m.f(1.15, 8.5, 10.5))
-                    .text_color(color)
-                    .child(s)
-            }))
             .into_any_element()
     }
 
@@ -667,20 +823,20 @@ impl Desktop {
             .gap(m.v(0.25))
             .px(m.v(1.1))
             .py(m.v(0.85))
-            .bg(rgb(art::PANEL))
+            .bg(rgb(art::panel()))
             .border_1()
-            .border_color(rgb(art::BORDER))
+            .border_color(rgb(art::border()))
             .rounded(t().r(10.))
             .when(enabled, |el| {
-                el.hover(|s| s.border_color(rgb(art::LINE)))
+                el.hover(|s| s.border_color(rgb(art::line())))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
             })
             .when(!enabled, |el| el.opacity(0.55))
             .child(
                 div()
-                    .font_family(art::MONO)
+                    .font_family(art::mono())
                     .text_size(m.f(1.05, 8., 10.))
-                    .text_color(rgb(art::FAINT))
+                    .text_color(rgb(art::faint()))
                     .child(k),
             )
             .child(
@@ -693,9 +849,9 @@ impl Desktop {
                 div()
                     .mt(m.v(0.45))
                     .min_w(t().d(0.))
-                    .font_family(art::MONO)
+                    .font_family(art::mono())
                     .text_size(m.f(1.3, 10., 12.))
-                    .text_color(rgb(art::MUTED))
+                    .text_color(rgb(art::muted()))
                     .truncate()
                     .child(value),
             )
@@ -703,7 +859,7 @@ impl Desktop {
             .child(
                 div()
                     .text_size(m.f(1.15, 8.5, 10.5))
-                    .text_color(rgb(art::FAINT))
+                    .text_color(rgb(art::faint()))
                     .child(tag),
             )
             .into_any_element()
@@ -729,26 +885,26 @@ impl Desktop {
                     .px(m.v(0.7))
                     .py(m.v(0.45))
                     .border_1()
-                    .border_color(rgb(art::BORDER))
+                    .border_color(rgb(art::border()))
                     .rounded(t().r(7.))
-                    .bg(rgb(art::BG))
-                    .hover(|s| s.border_color(rgb(art::LINE)))
+                    .bg(rgb(art::bg()))
+                    .hover(|s| s.border_color(rgb(art::line())))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.newchat.sheet = Some(open);
                         cx.notify();
                     }))
                     .child(
                         div()
-                            .font_family(art::MONO)
+                            .font_family(art::mono())
                             .text_size(m.f(1.05, 8., 10.))
-                            .text_color(rgb(art::FAINT))
+                            .text_color(rgb(art::faint()))
                             .child(k),
                     )
                     .child(
                         div()
-                            .font_family(art::MONO)
+                            .font_family(art::mono())
                             .text_size(m.f(1.2, 9., 11.))
-                            .text_color(rgb(art::FG))
+                            .text_color(rgb(art::fg()))
                             .truncate()
                             .child(v),
                     )
@@ -766,15 +922,15 @@ impl Desktop {
             .gap(m.v(0.45))
             .px(m.v(1.1))
             .py(m.v(0.85))
-            .bg(rgb(art::PANEL))
+            .bg(rgb(art::panel()))
             .border_1()
-            .border_color(rgb(art::BORDER))
+            .border_color(rgb(art::border()))
             .rounded(t().r(10.))
             .child(
                 div()
-                    .font_family(art::MONO)
+                    .font_family(art::mono())
                     .text_size(m.f(1.05, 8., 10.))
-                    .text_color(rgb(art::FAINT))
+                    .text_color(rgb(art::faint()))
                     .child("CONTEXT"),
             )
             .child(
@@ -788,77 +944,304 @@ impl Desktop {
             .child(
                 div()
                     .text_size(m.f(1.05, 8., 10.))
-                    .text_color(rgb(art::FAINT))
+                    .text_color(rgb(art::faint()))
                     .child("随会话注入的知识与语气"),
             )
             .into_any_element()
     }
 
-    /// 底部一条：名字 + 机器 + 目录。Create 不在这儿 —— 它是中间那颗圆，
-    /// 一个动作一个入口。
-    fn board_dock(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+    /// 环上三个值（05 环）：名字挂在环底，机器 / 目录挂在环的左下和右下。
+    ///
+    /// 三颗 pill 的底色**和中央那颗圆一样**（`solid()` 当底、`bg()` 当字）——
+    /// 它们不是三个独立控件，是从圆心甩出去的三颗珠子。换皮时一起换。
+    fn board_feet(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
         let m = *m;
         let b = &self.newchat;
-        let d = art::dock_rect(&m);
+        // 没选模型时三颗珠子一起变浅 —— 一个状态，一个长相。
+        let live = self.can_create() || b.creating;
         let machine = b.machine.clone().unwrap_or_else(|| "本机".into());
         let dir = b
             .dir
             .as_ref()
             .map(|p| tail_path(p))
             .unwrap_or_else(|| "—".into());
-        let chip = |id: &'static str, text: String, cx: &mut Context<Self>, sheet: Sheet| {
+
+        let chip = |id: &'static str, f: art::Foot, text: String, sheet: Sheet, cx: &mut Context<Self>| {
+            let r = art::foot_rect(&m, f);
             div()
                 .id(ElementId::Name(id.into()))
-                .flex_none()
-                .px(m.v(0.9))
-                .py(m.v(0.4))
-                .border_1()
-                .border_color(rgb(art::BORDER))
-                .rounded(t().r(7.))
-                .font_family(art::MONO)
+                .absolute()
+                .left(px(r.x))
+                .top(px(r.y))
+                .w(px(r.w))
+                .h(px(r.h))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(if live {
+                    rgb(art::solid())
+                } else {
+                    rgb(art::surface())
+                })
+                .text_color(if live {
+                    rgb(art::bg())
+                } else {
+                    rgb(art::muted())
+                })
+                .font_family(art::mono())
                 .text_size(m.f(1.2, 9., 11.))
-                .text_color(rgb(art::MUTED))
-                .hover(|s| s.border_color(rgb(art::LINE)).text_color(rgb(art::FG)))
+                .when(live, |el| el.hover(|s| s.opacity(0.88)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.newchat.sheet = Some(sheet);
                     cx.notify();
                 }))
-                .child(format!("{text} ›"))
+                .child(text)
+        };
+
+        let n = art::foot_rect(&m, art::Foot::Name);
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .child(
+                div()
+                    .absolute()
+                    .left(px(n.x))
+                    .top(px(n.y))
+                    .w(px(n.w))
+                    .h(px(n.h))
+                    .flex()
+                    .items_center()
+                    .rounded_full()
+                    .bg(if live {
+                        rgb(art::solid())
+                    } else {
+                        rgb(art::surface())
+                    })
+                    .px(m.v(1.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .text_color(if live {
+                                rgb(art::bg())
+                            } else {
+                                rgb(art::muted())
+                            })
+                            .child(Textarea::new(&b.name_input).appearance(false).bordered(false)),
+                    ),
+            )
+            .child(chip("foot-machine", art::Foot::Machine, machine, Sheet::Machine, cx))
+            .child(chip("foot-dir", art::Foot::Dir, dir, Sheet::Dir, cx))
+            .into_any_element()
+    }
+
+    /// 竖排档（右格 < 620）：圆在顶、三颗 pill 一行、四张卡一列，整列可滚。
+    ///
+    /// 这一档「一屏不滚」已经不可能 —— 300px 宽硬要塞四角 + 环只会互相盖住，
+    /// 所以干脆承认它是个列表页。
+    fn board_stack(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let b = &self.newchat;
+        let live = self.can_create() || b.creating;
+        let r = art::core_r(&m);
+        let machine = b.machine.clone().unwrap_or_else(|| "本机".into());
+        let dir = b
+            .dir
+            .as_ref()
+            .map(|p| tail_path(p))
+            .unwrap_or_else(|| "—".into());
+        let model = b.picked_label().unwrap_or_else(|| "—".into());
+        let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
+        let prompt = b.template.clone().unwrap_or_else(|| "none".into());
+
+        let pill = |id: &'static str, text: String, sheet: Sheet, cx: &mut Context<Self>| {
+            div()
+                .id(ElementId::Name(id.into()))
+                .px(m.s(11.))
+                .py(m.s(6.))
+                .rounded_full()
+                .bg(if live { rgb(art::solid()) } else { rgb(art::surface()) })
+                .text_color(if live { rgb(art::bg()) } else { rgb(art::muted()) })
+                .font_family(art::mono())
+                .text_size(m.f(1.45, 10., 11.5))
+                .when(live, |el| el.hover(|s| s.opacity(0.88)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.sheet = Some(sheet);
+                    cx.notify();
+                }))
+                .child(text)
+        };
+
+        let row = |id: &'static str, k: &'static str, title: &'static str, value: String, sheet: Option<Sheet>, cx: &mut Context<Self>| {
+            let mut el = div()
+                .id(ElementId::Name(id.into()))
+                .w_full()
+                .px(m.s(13.))
+                .py(m.s(11.))
+                .mb(m.s(8.))
+                .bg(rgb(art::panel()))
+                .border_1()
+                .border_color(rgb(art::border()))
+                .rounded(t().r(9.))
+                .when(sheet.is_some(), |el| {
+                    el.hover(|s| s.border_color(rgb(art::line())))
+                })
+                .child(
+                    div()
+                        .font_family(art::mono())
+                        .text_size(m.f(0.95, 8., 9.5))
+                        .text_color(rgb(art::faint()))
+                        .child(k),
+                )
+                .child(
+                    div()
+                        .mt(m.s(4.))
+                        .text_size(m.f(1.55, 11., 13.))
+                        .font_weight(FontWeight::BOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .mt(m.s(3.))
+                        .font_family(art::mono())
+                        .text_size(m.f(1.25, 9., 11.))
+                        .text_color(rgb(art::muted()))
+                        .truncate()
+                        .child(value),
+                );
+            if let Some(sh) = sheet {
+                el = el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.sheet = Some(sh);
+                    cx.notify();
+                }));
+            }
+            el
         };
 
         div()
-            .absolute()
-            .left(px(d.x))
-            .top(px(d.y))
-            .w(px(d.w))
-            .h(px(d.h))
+            .id(ElementId::Name("board-stack".into()))
             .flex()
+            .flex_col()
             .items_center()
-            .gap(m.v(0.7))
-            .px(m.v(0.8))
-            .bg(rgb(0x111114).opacity(0.94))
-            .border_1()
-            .border_color(rgb(art::BORDER))
-            .rounded(t().r(12.))
+            .gap(m.s(6.))
+            .px(m.s(16.))
+            .py(m.s(18.))
+            .flex_1()
+            .min_h(t().d(0.))
+            .overflow_y_scroll()
             .child(
-                div().flex_1().min_w(t().d(0.)).px(m.v(0.6)).child(
-                    Textarea::new(&b.name_input)
-                        .appearance(false)
-                        .bordered(false),
-                ),
+                div()
+                    .id(ElementId::Name("board-create-stack".into()))
+                    .flex_none()
+                    .size(px(2. * r))
+                    .rounded_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(if live || b.creating {
+                        rgb(art::solid())
+                    } else {
+                        rgb(art::surface())
+                    })
+                    .text_color(if live || b.creating {
+                        rgb(art::bg())
+                    } else {
+                        rgb(art::faint())
+                    })
+                    .when(live, |el| {
+                        el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.board_create(cx)))
+                    })
+                    .child(
+                        div()
+                            .text_size(m.f(1.7, 12., 14.))
+                            .font_weight(FontWeight::BOLD)
+                            .child(if b.creating { "Creating…" } else { "+ Create" }),
+                    ),
             )
-            .child(chip("dock-machine", machine, cx, Sheet::Machine))
-            .child(chip("dock-dir", dir, cx, Sheet::Dir))
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .gap(m.s(6.))
+                    .child(pill("stk-machine", machine.clone(), Sheet::Machine, cx))
+                    .child(pill("stk-dir", dir.clone(), Sheet::Dir, cx)),
+            )
+            .child(
+                // 名字：竖排档给它一条整宽的输入，别塞进小 pill 里。
+                div()
+                    .flex_none()
+                    .w_full()
+                    .mt(m.s(4.))
+                    .px(m.s(12.))
+                    .py(m.s(9.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(art::solid()))
+                    .text_color(rgb(art::bg()))
+                    .child(Textarea::new(&b.name_input).appearance(false).bordered(false)),
+            )
+            .child(div().flex_none().h(m.s(10.)))
+            .child(row(
+                "stk-model",
+                "MODEL",
+                "Model",
+                model,
+                Some(Sheet::Model),
+                cx,
+            ))
+            .child(row(
+                "stk-ctx",
+                "CONTEXT",
+                "Skills · Prompt",
+                format!("{skills} · {prompt}"),
+                Some(Sheet::Skills),
+                cx,
+            ))
+            .child(row("stk-ext", "EXTENSIONS", "Extensions", "none".into(), None, cx))
+            .child(row("stk-perm", "PERMISSIONS", "Permissions", "—".into(), None, cx))
+            // 状态行放最底下：竖排档顶部已经够挤，它在那儿会被输入框压住。
             .child(
                 div()
                     .flex_none()
-                    .px(m.v(0.6))
-                    .font_family(art::MONO)
-                    .text_size(m.f(1.05, 8., 10.))
-                    .text_color(rgb(art::FAINT))
-                    .child("↵ CREATE"),
+                    .mt(m.s(6.))
+                    .mb(m.s(8.))
+                    .text_center()
+                    .font_family(art::mono())
+                    .text_size(m.f(1.15, 9., 10.5))
+                    .text_color(rgb(if b.flash.is_some() {
+                        art::danger()
+                    } else {
+                        art::ok()
+                    }))
+                    .child(b.flash.clone().unwrap_or_else(|| b.hub_sub())),
             )
             .into_any_element()
+    }
+
+    /// 环底下那行状态：`flash` 是失败（红调），否则说现在差什么。
+    fn board_status(&self, m: &art::M) -> Option<AnyElement> {
+        let b = &self.newchat;
+        let (text, color) = match (&b.flash, b.hub_sub()) {
+            (Some(f), _) => (f.clone(), rgb(art::danger())),
+            (None, s) if !s.is_empty() => (s, rgb(art::ok())),
+            _ => return None,
+        };
+        let y = art::status_y(m);
+        Some(
+            div()
+                .absolute()
+                .left(px(m.w * 0.5 - m.w * 0.25))
+                .top(px(y))
+                .w(px(m.w * 0.5))
+                .text_center()
+                .font_family(art::mono())
+                .text_size(m.f(1.15, 8.5, 10.5))
+                .text_color(color)
+                .child(text)
+                .into_any_element(),
+        )
     }
 
     /// 弹层：「就地弹出」。**贴着被点的那张卡**，不是居中一个模态框 ——
@@ -886,7 +1269,7 @@ impl Desktop {
             Sheet::Machine => ("机器", "会话跑在哪台机器上 · 默认本机", None),
         };
 
-        let pop = art::pop_rect(&m, slot, sheet == Sheet::Model);
+        let pop = art::pop_rect(&m, slot, sheet == Sheet::Model, sheet == Sheet::Dir);
         let body = match sheet {
             Sheet::Model => self.sheet_model(&m, pop.w, cx),
             Sheet::Skills => self.sheet_skills(&m, cx),
@@ -905,7 +1288,7 @@ impl Desktop {
             .pt(m.v(1.3))
             .pb(m.v(0.95))
             .border_b(t().d(1.))
-            .border_color(rgb(art::BORDER))
+            .border_color(rgb(art::border()))
             .child(
                 div()
                     .flex()
@@ -921,7 +1304,7 @@ impl Desktop {
                         div()
                             .italic()
                             .text_size(m.f(1.05, 8., 10.))
-                            .text_color(rgb(art::MUTED))
+                            .text_color(rgb(art::muted()))
                             .child(hint),
                     ),
             )
@@ -933,8 +1316,8 @@ impl Desktop {
                     .py(m.v(0.05))
                     .rounded(t().r(5.))
                     .text_size(m.f(1.1, 8.5, 10.5))
-                    .text_color(rgb(art::MUTED))
-                    .hover(|s| s.bg(rgb(art::SURFACE)).text_color(rgb(art::FG)))
+                    .text_color(rgb(art::muted()))
+                    .hover(|s| s.bg(rgb(art::surface())).text_color(rgb(art::fg())))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.newchat.sheet = None;
                         cx.notify();
@@ -950,12 +1333,12 @@ impl Desktop {
             .px(m.v(1.4))
             .py(m.v(0.75))
             .border_t(t().d(1.))
-            .border_color(rgb(art::BORDER))
+            .border_color(rgb(art::border()))
             .child(
                 div()
-                    .font_family(art::MONO)
+                    .font_family(art::mono())
                     .text_size(m.f(0.8, 6.5, 8.5))
-                    .text_color(rgb(art::FAINT))
+                    .text_color(rgb(art::faint()))
                     .child("Esc 关闭 · 点空白处也关"),
             )
             .child(
@@ -965,10 +1348,10 @@ impl Desktop {
                     .py(m.v(0.3))
                     .rounded(t().r(6.))
                     .border_1()
-                    .border_color(rgb(art::ACCENT))
-                    .bg(rgb(art::ACCENT).opacity(0.14))
+                    .border_color(rgb(art::accent()))
+                    .bg(rgb(art::accent()).opacity(0.14))
                     .text_size(m.f(1.05, 8.5, 11.))
-                    .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.24)))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.24)))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.newchat.sheet = None;
                         cx.notify();
@@ -977,7 +1360,8 @@ impl Desktop {
             );
 
         let cap = match pop.anchor {
-            art::Anchor::Top(y) => art::dock_rect(&m).y - 14. - y,
+            // 弹层往下能长到哪：上面顶到 Pill 那一排，别压住环上的三个值。
+            art::Anchor::Top(y) => art::foot_rect(&m, art::Foot::Name).y - 14. - y,
             art::Anchor::Bottom(_) => m.h * 0.62,
         };
         let max_h = cap.clamp(220., m.h * 0.62);
@@ -990,9 +1374,9 @@ impl Desktop {
             .flex_col()
             // 显式给上限：内容多就滚，别把面板顶出右格、也别压到 dock。
             .max_h(px(max_h))
-            .bg(rgb(art::PANEL))
+            .bg(rgb(art::panel()))
             .border_1()
-            .border_color(rgb(art::BORDER))
+            .border_color(rgb(art::border()))
             .rounded(t().r(12.))
             .overflow_hidden();
         let panel = match pop.anchor {
@@ -1069,8 +1453,8 @@ impl Desktop {
         // 三列的横向位置：列宽按比例切，和页面一样（列窄了不换版面，只是更挤）。
         let (cols, xs) = sheet_lanes(sheet_w, f32::from(m.v(1.)));
 
-        let trunk = rgb(art::BORDER);
-        let hot = rgb(art::ACCENT);
+        let trunk = rgb(art::border());
+        let hot = rgb(art::accent());
         let mut layers: Vec<AnyElement> = Vec::new();
 
         // 每条链：一根竖轨 + 每行一个点 + 一根横支；选中的那条换成 accent。
@@ -1141,16 +1525,16 @@ impl Desktop {
                         .px(t().d(8.))
                         .rounded(t().r(4.))
                         .border_1()
-                        .border_color(if selected { hot } else { rgb(art::BORDER) })
+                        .border_color(if selected { hot } else { rgb(art::border()) })
                         .bg(if selected {
-                            rgb(art::ACCENT).opacity(0.16)
+                            rgb(art::accent()).opacity(0.16)
                         } else {
-                            rgb(art::SURFACE)
+                            rgb(art::surface())
                         })
                         .text_size(m.f(1.45, 10., 13.))
-                        .font_family(art::MONO)
+                        .font_family(art::mono())
                         .truncate()
-                        .hover(|s| s.bg(rgb(art::SURFACE)))
+                        .hover(|s| s.bg(rgb(art::surface())))
                         .on_click(cx.listener({
                             let label = label.clone();
                             move |this, _: &ClickEvent, _, cx| {
@@ -1255,12 +1639,12 @@ impl Desktop {
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
-                        rgb(art::ACCENT)
+                        rgb(art::accent())
                     } else {
                         rgba(t().p.transparent)
                     })
-                    .when(picked, |el| el.bg(rgb(art::ACCENT).opacity(0.14)))
-                    .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
+                    .when(picked, |el| el.bg(rgb(art::accent()).opacity(0.14)))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
                     .on_click({
                         let name = name.clone();
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1277,15 +1661,15 @@ impl Desktop {
                             .rounded(t().r(3.))
                             .border_1()
                             .border_color(if picked {
-                                rgb(art::ACCENT)
+                                rgb(art::accent())
                             } else {
-                                rgb(art::BORDER)
+                                rgb(art::border())
                             })
                             .flex()
                             .items_center()
                             .justify_center()
                             .text_size(m.f(0.85, 8., 11.))
-                            .text_color(rgb(art::ACCENT))
+                            .text_color(rgb(art::accent()))
                             .child(if picked { "✓" } else { "" }),
                     )
                     .child(
@@ -1294,7 +1678,7 @@ impl Desktop {
                             .min_w(t().d(0.))
                             .child(
                                 div()
-                                    .font_family(art::MONO)
+                                    .font_family(art::mono())
                                     .text_size(m.f(1.5, 11., 13.5))
                                     .truncate()
                                     .child(name),
@@ -1302,16 +1686,16 @@ impl Desktop {
                             .child(
                                 div()
                                     .text_size(m.f(1.35, 10., 12.5))
-                                    .text_color(rgb(art::MUTED))
+                                    .text_color(rgb(art::muted()))
                                     .truncate()
                                     .child(desc),
                             )
                             .when(!meta.is_empty(), |el| {
                                 el.child(
                                     div()
-                                        .font_family(art::MONO)
+                                        .font_family(art::mono())
                                         .text_size(m.f(1.2, 9., 11.))
-                                        .text_color(rgb(art::FAINT))
+                                        .text_color(rgb(art::faint()))
                                         .child(meta),
                                 )
                             }),
@@ -1358,12 +1742,12 @@ impl Desktop {
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
-                        rgb(art::ACCENT)
+                        rgb(art::accent())
                     } else {
                         rgba(t().p.transparent)
                     })
-                    .when(picked, |el| el.bg(rgb(art::ACCENT).opacity(0.14)))
-                    .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
+                    .when(picked, |el| el.bg(rgb(art::accent()).opacity(0.14)))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
                     .on_click({
                         let name = name.clone();
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1384,15 +1768,15 @@ impl Desktop {
                             .rounded_full()
                             .border_1()
                             .border_color(if picked {
-                                rgb(art::ACCENT)
+                                rgb(art::accent())
                             } else {
-                                rgb(art::BORDER)
+                                rgb(art::border())
                             })
                             .flex()
                             .items_center()
                             .justify_center()
                             .child(div().size(m.f(0.5, 5., 7.)).rounded_full().bg(if picked {
-                                rgb(art::ACCENT)
+                                rgb(art::accent())
                             } else {
                                 rgba(t().p.transparent)
                             })),
@@ -1403,7 +1787,7 @@ impl Desktop {
                             .min_w(t().d(0.))
                             .child(
                                 div()
-                                    .font_family(art::MONO)
+                                    .font_family(art::mono())
                                     .text_size(m.f(1.5, 11., 13.5))
                                     .truncate()
                                     .child(name),
@@ -1411,7 +1795,7 @@ impl Desktop {
                             .child(
                                 div()
                                     .text_size(m.f(1.35, 10., 12.5))
-                                    .text_color(rgb(art::MUTED))
+                                    .text_color(rgb(art::muted()))
                                     .truncate()
                                     .child(desc),
                             ),
@@ -1452,7 +1836,7 @@ impl Desktop {
                     .px(m.v(0.8))
                     .py(m.v(0.5))
                     .rounded(t().r(6.))
-                    .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
                     .on_click(cx.listener({
                         let up = up.clone();
                         move |this, _: &ClickEvent, _, cx| {
@@ -1461,9 +1845,9 @@ impl Desktop {
                     }))
                     .child(
                         div()
-                            .font_family(art::MONO)
+                            .font_family(art::mono())
                             .text_size(m.f(1.4, 10., 13.))
-                            .text_color(rgb(art::MUTED))
+                            .text_color(rgb(art::muted()))
                             .child(".."),
                     )
                     .child(
@@ -1471,9 +1855,9 @@ impl Desktop {
                             .flex_1()
                             .min_w(t().d(0.))
                             .truncate()
-                            .font_family(art::MONO)
+                            .font_family(art::mono())
                             .text_size(m.f(1.4, 10., 13.))
-                            .text_color(rgb(art::MUTED))
+                            .text_color(rgb(art::muted()))
                             .child(up),
                     )
                     .into_any_element(),
@@ -1496,20 +1880,20 @@ impl Desktop {
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if selected {
-                        rgb(art::ACCENT)
+                        rgb(art::accent())
                     } else {
                         rgba(t().p.transparent)
                     })
-                    .when(selected, |el| el.bg(rgb(art::ACCENT).opacity(0.14)))
-                    .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
+                    .when(selected, |el| el.bg(rgb(art::accent()).opacity(0.14)))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.board_dir_enter(picked_path.clone(), cx);
                     }))
                     .child(
                         div()
-                            .font_family(art::MONO)
+                            .font_family(art::mono())
                             .text_size(m.f(1.4, 10., 13.))
-                            .text_color(rgb(art::MUTED))
+                            .text_color(rgb(art::muted()))
                             .child("›"),
                     )
                     .child(
@@ -1517,7 +1901,7 @@ impl Desktop {
                             .flex_1()
                             .min_w(t().d(0.))
                             .truncate()
-                            .font_family(art::MONO)
+                            .font_family(art::mono())
                             .text_size(m.f(1.4, 10., 13.))
                             .child(path.clone()),
                     )
@@ -1570,12 +1954,12 @@ impl Desktop {
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
-                        rgb(art::ACCENT)
+                        rgb(art::accent())
                     } else {
                         rgba(t().p.transparent)
                     })
-                    .when(picked, |el| el.bg(rgb(art::ACCENT).opacity(0.14)))
-                    .hover(|s| s.bg(rgb(art::ACCENT).opacity(0.07)))
+                    .when(picked, |el| el.bg(rgb(art::accent()).opacity(0.14)))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.newchat.machine = value.clone();
                         cx.notify();
@@ -1587,15 +1971,15 @@ impl Desktop {
                             .rounded_full()
                             .border_1()
                             .border_color(if picked {
-                                rgb(art::ACCENT)
+                                rgb(art::accent())
                             } else {
-                                rgb(art::BORDER)
+                                rgb(art::border())
                             })
                             .flex()
                             .items_center()
                             .justify_center()
                             .child(div().size(m.f(0.5, 5., 7.)).rounded_full().bg(if picked {
-                                rgb(art::ACCENT)
+                                rgb(art::accent())
                             } else {
                                 rgba(t().p.transparent)
                             })),
@@ -1606,7 +1990,7 @@ impl Desktop {
                             .min_w(t().d(0.))
                             .child(
                                 div()
-                                    .font_family(art::MONO)
+                                    .font_family(art::mono())
                                     .text_size(m.f(1.45, 10., 13.))
                                     .truncate()
                                     .child(label),
@@ -1614,7 +1998,7 @@ impl Desktop {
                             .child(
                                 div()
                                     .text_size(m.f(1.3, 9.5, 12.))
-                                    .text_color(rgb(art::MUTED))
+                                    .text_color(rgb(art::muted()))
                                     .truncate()
                                     .child(note),
                             ),
@@ -1644,7 +2028,7 @@ impl Desktop {
                 .px(m.v(1.2))
                 .py(m.v(2.4))
                 .text_size(m.f(1.4, 10., 12.5))
-                .text_color(rgb(art::MUTED))
+                .text_color(rgb(art::muted()))
                 .child(empty.to_string())
                 .into_any_element();
         }
