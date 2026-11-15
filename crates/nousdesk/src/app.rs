@@ -384,7 +384,7 @@ impl Desktop {
         });
 
         // 调试用：启动就直接打开某个浮层，省得每次手点。
-        // `NOUS_DESKTOP_OPEN=menu` 或 `=settings`，别的值（包括不设）就是正常启动。
+        // `NOUS_DESKTOP_OPEN=menu` / `=settings` / `=templates`，别的值（包括不设）就是正常启动。
         let open_at_start = std::env::var("NOUS_DESKTOP_OPEN").unwrap_or_default();
         // `/` 面板的 ↑↓ / ↵ / Esc 要在**输入框组件之前**拿到。
         // 用 interceptor（`observe_keystrokes` 太晚，`on_key_down` 挂在祖先节点上也会被
@@ -616,7 +616,12 @@ impl Desktop {
             skills_loading: false,
             skills_error: None,
             cfg: crate::config_panel::Panel::default(),
-            tab: Tab::Chats,
+            // `=templates` 直接落在 Template 页：验右键菜单 / 生命周期时省一次点击。
+            tab: if open_at_start == "templates" {
+                Tab::Templates
+            } else {
+                Tab::Chats
+            },
             focused: true,
             stream_for: None,
             open_tools: std::collections::HashSet::new(),
