@@ -300,6 +300,157 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
 .app[data-skin="industrial"] .crumb { font-family: JBMono, monospace; }
 .app[data-skin="industrial"] .fld .k { font-family: JBMono, monospace; }
 .app[data-skin="paper"] .card.on { box-shadow: inset 2px 0 0 var(--accent), 0 1px 3px rgba(0,0,0,.04); }
+
+/* ══════════════════════════════════════════════════════════
+   12 套右栏排版（只改排版，不改颜色）
+   ══════════════════════════════════════════════════════════ */
+.ly-name { font-family: var(--font, Inter); letter-spacing: -.02em; }
+.ly-k { font-size: 9px; letter-spacing: .15em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-mono { font-family: JBMono, monospace; }
+.ly-sub { color: var(--ink3); font-size: 11px; }
+
+/* 1 · flow —— 单列，标签左、值右，留白分隔 */
+.ly-flow .fhead { padding-bottom: 18px; }
+.ly-flow h1 { font-size: 24px; font-weight: 600; }
+.ly-flow .sum { margin-top: 6px; color: var(--ink2); font-size: 12px; line-height: 1.6; max-width: 60ch; }
+.ly-flow .rows { margin-top: 14px; }
+.ly-flow .row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 13px 0; border-bottom: 1px solid var(--line2); }
+.ly-flow .row .v { font-size: 12.5px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+
+/* 2 · table —— 表格，紧凑，右对齐 */
+.ly-table h1 { font-size: 21px; font-weight: 600; margin-bottom: 2px; }
+.ly-table .sum { color: var(--ink2); font-size: 11.5px; margin-bottom: 14px; }
+.ly-table table { width: 100%; border-collapse: collapse; }
+.ly-table th { width: 104px; text-align: left; font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink3); font-weight: 600; padding: 8px 0; border-bottom: 1px solid var(--line2); vertical-align: baseline; }
+.ly-table td { text-align: left; font-size: 12px; padding: 8px 0 8px 20px; border-bottom: 1px solid var(--line2); }
+.ly-table tr.grp th, .ly-table tr.grp td { border-bottom: 0; padding-top: 18px; font-size: 9px; color: var(--ink3); }
+
+/* 3 · tiles —— 2×N 小卡片 */
+.ly-tiles h1 { font-size: 22px; font-weight: 600; }
+.ly-tiles .sum { color: var(--ink2); font-size: 11.5px; margin: 5px 0 14px; }
+.ly-tiles .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+.ly-tiles .t { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 11px; min-height: 64px;
+  display: flex; flex-direction: column; gap: 5px; }
+.ly-tiles .t .k { font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-tiles .t .v { font-size: 13px; line-height: 1.3; word-break: break-word; }
+.ly-tiles .t .v small { display: block; font-size: 10.5px; color: var(--ink3); margin-top: 2px; }
+
+/* 4 · monolith —— 巨型名字 + 大片留白 */
+.ly-mono { display: flex; flex-direction: column; height: 100%; }
+.ly-mono .top { display: flex; justify-content: space-between; margin-bottom: 64px; }
+.ly-mono h1 { font-size: 52px; line-height: 1.02; font-family: var(--font, Manrope); font-weight: 500; letter-spacing: -.045em; }
+.ly-mono .rule { width: 52px; height: 1px; background: var(--ink); margin: 24px 0 20px; }
+.ly-mono .sum { font-size: 14px; line-height: 1.6; color: var(--ink2); max-width: 34ch; }
+.ly-mono .bottom { margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding-top: 26px; }
+.ly-mono .bottom .k { margin-bottom: 7px; }
+.ly-mono .bottom .v { font-size: 12.5px; }
+.ly-mono .bottom .v small { display: block; color: var(--ink3); font-size: 10.5px; margin-top: 2px; }
+
+/* 5 · sheet —— 竖排书脊 + 编号规格表 */
+.ly-sheet { display: flex; gap: 0; height: 100%; }
+.ly-sheet .spine { width: 34px; flex: 0 0 34px; border-right: 1px solid var(--line); display: flex;
+  align-items: center; justify-content: center; }
+.ly-sheet .spine span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 8px; letter-spacing: .32em;
+  text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+.ly-sheet .main { flex: 1; padding-left: 18px; display: flex; flex-direction: column; min-width: 0; }
+.ly-sheet h1 { font-size: 28px; font-family: var(--font, Manrope); font-weight: 500; letter-spacing: -.025em; }
+.ly-sheet .band { height: 2px; background: var(--ink); margin: 12px 0 6px; }
+.ly-sheet .r { display: flex; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line2); }
+.ly-sheet .r .no { width: 34px; flex: 0 0 34px; font-family: JBMono, monospace; font-size: 9px; color: var(--ink4); }
+.ly-sheet .r .k { width: 88px; flex: 0 0 88px; }
+.ly-sheet .r .v { flex: 1; text-align: right; font-size: 12px; }
+
+/* 6 · split —— 上下对开 */
+.ly-split { display: flex; flex-direction: column; height: 100%; margin: -16px -26px -26px; }
+.ly-split .up { background: var(--ink); color: var(--bg); padding: 22px 26px 20px; }
+.ly-split .up .crumb { color: color-mix(in srgb, var(--bg) 45%, transparent); }
+.ly-split .up h1 { font-size: 40px; font-family: var(--font, Manrope); font-weight: 500; letter-spacing: -.04em; margin: 10px 0 10px; }
+.ly-split .up .sum { font-size: 12.5px; line-height: 1.6; color: color-mix(in srgb, var(--bg) 62%, transparent); max-width: 44ch; }
+.ly-split .up .states { display: flex; gap: 18px; margin-top: 18px; border-top: 1px solid color-mix(in srgb, var(--bg) 18%, transparent); padding-top: 12px; }
+.ly-split .up .states div { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--bg) 50%, transparent); }
+.ly-split .up .states div b { display: block; margin-top: 5px; font-size: 11.5px; letter-spacing: 0; text-transform: none; color: var(--bg); font-weight: 500; }
+.ly-split .down { flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px 26px; padding: 20px 26px; align-content: start; }
+.ly-split .down .k { margin-bottom: 4px; }
+.ly-split .down .v { font-size: 12px; }
+
+/* 7 · gauge —— 环形仪表 */
+.ly-gauge { display: flex; flex-direction: column; align-items: center; height: 100%; }
+.ly-gauge .ring { position: relative; width: 260px; height: 260px; margin-top: 4px; }
+.ly-gauge .ring svg { width: 100%; height: 100%; display: block; }
+.ly-gauge .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.ly-gauge .center .n { font-size: 30px; font-family: var(--font, Manrope); font-weight: 500; letter-spacing: -.03em; }
+.ly-gauge .center .s { margin-top: 7px; font-size: 8.5px; letter-spacing: .22em; text-transform: uppercase; color: var(--ink3); }
+.ly-gauge .cap { margin-top: 18px; font-size: 11px; color: var(--ink3); text-align: center; max-width: 44ch; line-height: 1.6; }
+.ly-gauge .cells { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); margin-top: auto; padding-top: 20px; }
+.ly-gauge .cells .c { border-left: 1px solid var(--line2); padding-left: 12px; }
+.ly-gauge .cells .c:first-child { border-left: 0; padding-left: 0; }
+.ly-gauge .cells .k { margin-bottom: 6px; }
+.ly-gauge .cells .v { font-size: 11.5px; line-height: 1.3; }
+
+/* 8 · columns —— 三列报刊栏 */
+.ly-columns .hd { display: flex; align-items: baseline; gap: 10px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
+.ly-columns h1 { font-size: 20px; font-weight: 600; }
+.ly-columns .hd .sum { margin-left: auto; font-size: 10.5px; color: var(--ink3); max-width: 34ch; text-align: right; }
+.ly-columns .cols { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 0; margin-top: 4px; }
+.ly-columns .col { padding: 0 14px; border-left: 1px solid var(--line2); }
+.ly-columns .col:first-child { border-left: 0; padding-left: 0; }
+.ly-columns .f { padding: 11px 0; border-bottom: 1px solid var(--line2); }
+.ly-columns .f .k { margin-bottom: 4px; }
+.ly-columns .f .v { font-size: 12px; line-height: 1.4; }
+
+/* 9 · timeline —— 左侧轴线 */
+.ly-timeline .hd { margin-bottom: 18px; }
+.ly-timeline h1 { font-size: 20px; font-weight: 600; }
+.ly-timeline .sum { margin-top: 5px; font-size: 11.5px; color: var(--ink2); }
+.ly-timeline .tl { position: relative; padding-left: 26px; }
+.ly-timeline .tl::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 1px; background: var(--line); }
+.ly-timeline .n { position: relative; padding: 10px 0; }
+.ly-timeline .n::before { content: ""; position: absolute; left: -25px; top: 16px; width: 7px; height: 7px;
+  background: var(--bg); border: 1px solid var(--ink3); border-radius: 50%; }
+.ly-timeline .n .k { margin-bottom: 3px; }
+.ly-timeline .n .v { font-size: 12.5px; }
+
+/* 10 · accordion —— 分组折叠 */
+.ly-acc .hd { margin-bottom: 6px; }
+.ly-acc h1 { font-size: 21px; font-weight: 600; }
+.ly-acc .grp { border-bottom: 1px solid var(--line); }
+.ly-acc .gh { display: flex; align-items: center; gap: 8px; padding: 13px 0; cursor: pointer; }
+.ly-acc .gh .t { font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink2); font-weight: 600; }
+.ly-acc .gh .c { margin-left: auto; font-size: 10px; color: var(--ink3); font-family: JBMono, monospace; }
+.ly-acc .gh .caret { transition: transform .15s ease-out; color: var(--ink3); }
+.ly-acc .grp.open .gh .caret { transform: rotate(90deg); }
+.ly-acc .gb { display: none; padding-bottom: 12px; }
+.ly-acc .grp.open .gb { display: block; }
+.ly-acc .gb .r { display: flex; gap: 12px; padding: 6px 0; }
+.ly-acc .gb .r .k { flex: 0 0 92px; }
+.ly-acc .gb .r .v { flex: 1; font-size: 12px; }
+
+/* 11 · inspector —— 左内容 / 右窄规格栏 */
+.ly-insp { display: flex; gap: 0; height: 100%; }
+.ly-insp .main { flex: 1; min-width: 0; padding-right: 20px; display: flex; flex-direction: column; }
+.ly-insp h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; }
+.ly-insp .sum { margin-top: 8px; font-size: 13px; line-height: 1.65; color: var(--ink2); max-width: 40ch; }
+.ly-insp .desc { margin-top: 14px; font-size: 11.5px; line-height: 1.7; color: var(--ink3); max-width: 42ch; }
+.ly-insp .refs { margin-top: auto; }
+.ly-insp .refs .ref { display: flex; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line2); font-size: 11.5px; }
+.ly-insp .side2 { width: 216px; flex: 0 0 216px; border-left: 1px solid var(--line); padding-left: 16px; overflow: auto; }
+.ly-insp .side2 .f { padding: 9px 0; border-bottom: 1px solid var(--line2); }
+.ly-insp .side2 .f .k { margin-bottom: 3px; }
+.ly-insp .side2 .f .v { font-size: 11.5px; line-height: 1.35; }
+
+/* 12 · dense —— 极密双列表格 */
+.ly-dense .hd { position: relative; margin-bottom: 10px; padding-right: 110px; }
+.ly-dense h1 { font-size: 16px; font-weight: 600; white-space: nowrap; }
+.ly-dense .hd .ly-sub { display: block; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ly-dense .hd .meta { position: absolute; right: 0; top: 2px; font-family: JBMono, monospace; font-size: 9.5px; color: var(--ink3); text-align: right; }
+.ly-dense .kt { width: 100%; border-collapse: collapse; }
+.ly-dense .kt td { padding: 5px 0; font-size: 11.5px; border-bottom: 1px solid var(--line2); }
+.ly-dense .kt td.k { width: 74px; font-size: 10px; color: var(--ink3); }
+.ly-dense .kt td.k2 { width: 74px; font-size: 10px; color: var(--ink3); padding-left: 18px; }
+.ly-dense .kt td.v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ly-dense .kt td.v2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 </style>
 </head>
 <body>
@@ -309,7 +460,25 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
   <p class="sub">第一版「功能齐全」的原型：三栏、两段、详情/盘面/JSON/对比、新建、发布、归档、彻底删、开对话。真数据。</p>
 
   <section>
-    <h2>皮肤</h2>
+    <h2>右栏排版</h2>
+    <div class="opts" id="opt-layout">
+      <button class="opt" data-k="flow"><b>1</b><span>纵向流 · 标签左值右</span></button>
+      <button class="opt" data-k="table"><b>2</b><span>表格式 · 紧凑右对齐</span></button>
+      <button class="opt" data-k="tiles"><b>3</b><span>卡片网格 · 2 列</span></button>
+      <button class="opt" data-k="mono"><b>4</b><span>巨碑 · 大字留白</span></button>
+      <button class="opt" data-k="sheet"><b>5</b><span>铭牌 · 书脊+编号</span></button>
+      <button class="opt" data-k="split"><b>6</b><span>对开 · 上下</span></button>
+      <button class="opt" data-k="gauge"><b>7</b><span>圆环 · 仪表</span></button>
+      <button class="opt" data-k="columns"><b>8</b><span>三栏 · 报刊</span></button>
+      <button class="opt" data-k="timeline"><b>9</b><span>轴线 · 时间线</span></button>
+      <button class="opt" data-k="acc"><b>10</b><span>折叠 · 分组</span></button>
+      <button class="opt" data-k="insp"><b>11</b><span>检视栏 · 左宽右窄</span></button>
+      <button class="opt" data-k="dense"><b>12</b><span>极密 · 双列表</span></button>
+    </div>
+  </section>
+
+  <section>
+    <h2>皮肤（只影响颜色/线型）</h2>
     <div class="opts" id="opt-skin">
       <button class="opt" data-k="graphite"><b>石墨</b><span>暗 · 细线</span></button>
       <button class="opt" data-k="paper"><b>纸</b><span>亮 · 极简</span></button>
@@ -341,10 +510,17 @@ const UT = window.DATA.sections["Ultimate-Template"];
 const PENDING = { "st": window.DATA.pending, "ut": window.DATA.pendingUT };
 const DIFFS = window.DATA.diffs;
 
+const LAYOUT_NAME = {
+  flow: '1 · 纵向流', table: '2 · 表格式', tiles: '3 · 卡片网格', mono: '4 · 巨碑',
+  sheet: '5 · 铭牌', split: '6 · 对开', gauge: '7 · 圆环', columns: '8 · 三栏',
+  timeline: '9 · 轴线', acc: '10 · 折叠', insp: '11 · 检视栏', dense: '12 · 极密',
+};
+
 const state = {
   skin: "graphite", section: "st", selected: "deep-dive",
   cat: null, view: "list", q: "",
-  tab: "detail", unit: 0, layer: null, menu: null, toast: null, mode: "detail", draft: { name: "", summary: "", category: "", start: "blank" },
+  tab: "detail", unit: 0, layer: null, menu: null, toast: null, mode: "detail",
+  layout: "flow", openGrp: 0, draft: { name: "", summary: "", category: "", start: "blank" },
 };
 
 const sec = () => (state.section === "st" ? ST : UT);
@@ -530,16 +706,15 @@ function list() {
   </div>`;
 }
 
-/* ── 右：详情 ───────────────────────────────────────────── */
-function detailHead(p) {
+/* ── 右：12 套排版 ──────────────────────────────────────── */
+const crumbOf = () => (state.section === "st" ? "Session-Template" : "Ultimate-Template");
+
+function stdHead(p) {
   const rf = refs(p);
   const bad = rf.some((r) => r.state !== "ok");
   return `<div class="dt-head">
-    <div class="crumb">${state.section === "st" ? "Session-Template" : "Ultimate-Template"}</div>
-    <div class="dt-title">
-      <h1>${esc(p.name)}</h1>
-      <span class="dir">${esc(p.dir || "")}</span>
-    </div>
+    <div class="crumb">${crumbOf()}</div>
+    <div class="dt-title"><h1>${esc(p.name)}</h1><span class="dir">${esc(p.dir || "")}</span></div>
     <p class="dt-sum">${esc(p.summary)}</p>
     <div class="chips">
       ${dirty() ? `<span class="chip warn"><i></i>已保存 · 未提交</span>` : `<span class="chip"><i></i>已发布</span>`}
@@ -547,70 +722,268 @@ function detailHead(p) {
       ${state.section === "ut"
         ? `<span class="chip"><i></i>${p.spec?.enabled ? "开着" : "关掉"}</span>`
         : `<span class="chip"><i></i>可启动</span>`}
-      ${p.specError ? `<span class="chip bad"><i></i>清单写坏了</span>` : ""}
     </div>
   </div>`;
 }
 
-function tabs() {
-  const t = [
-    ["detail", "详情"], ["board", "盘面"], ["json", "JSON"], ["diff", `对比${pending().units.length ? " ·" + pending().units.length : ""}`],
+function chipsRow(p) {
+  const bad = refs(p).some((r) => r.state !== "ok");
+  return `<div class="chips">
+    ${dirty() ? `<span class="chip warn"><i></i>未提交</span>` : `<span class="chip"><i></i>已发布</span>`}
+    <span class="chip ${bad ? "bad" : ""}"><i></i>${bad ? "引用失效" : "引用正常"}</span>
+    ${state.section === "ut" ? `<span class="chip"><i></i>${p.spec?.enabled ? "开着" : "关掉"}</span>` : `<span class="chip"><i></i>可启动</span>`}
+  </div>`;
+}
+
+const valHtml = (f) => `${f.mono ? `<span class="ly-mono" style="font-size:11.5px">${esc(f.v)}</span>` : esc(f.v)}${f.sub ? `<span class="ly-sub">${esc(f.sub)}</span>` : ""}`;
+
+/* 1 flow */
+function lyFlow(p) {
+  return `<div class="ly-flow">
+    <div class="fhead"><h1 class="ly-name">${esc(p.name)}</h1>
+      <p class="sum">${esc(p.summary)}</p>${chipsRow(p)}</div>
+    <div class="rows">
+      ${fields(p).map((f) => `<div class="row"><span class="k ly-k">${esc(f.k)}</span><span class="v">${valHtml(f)}</span></div>`).join("")}
+    </div>
+    <div class="sec-t" style="margin-top:22px">引用 ${refs(p).length}</div>
+    <div class="refs">${refs(p).map((r) => `<div class="ref"><span>${esc(r.name)}</span><span class="kind">${esc(r.kind)}</span><span class="ok ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("") || `<div class="ref">没有外部引用</div>`}</div>
+    ${p.description ? `<p class="notes" style="margin-top:16px">${esc(p.description)}</p>` : ""}
+  </div>`;
+}
+
+/* 2 table */
+function lyTable(p) {
+  const f = fields(p);
+  const half = Math.ceil(f.length / 2);
+  return `<div class="ly-table">
+    <h1 class="ly-name">${esc(p.name)}</h1>
+    <p class="sum">${esc(p.summary)}</p>
+    <table>
+      ${f.map((x) => `<tr><th>${esc(x.k)}</th><td>${valHtml(x)}</td></tr>`).join("")}
+      <tr class="grp"><th>引用</th><td></td></tr>
+      ${refs(p).map((r) => `<tr><th>${esc(r.kind)}</th><td>${esc(r.name)}<span class="ly-sub" style="margin-left:8px">${r.state === "ok" ? "OK" : "失效"}</span></td></tr>`).join("")}
+    </table>
+  </div>`;
+}
+
+/* 3 tiles */
+function lyTiles(p) {
+  return `<div class="ly-tiles">
+    <h1 class="ly-name">${esc(p.name)}</h1>
+    <p class="sum">${esc(p.summary)}</p>
+    <div class="grid">
+      ${fields(p).map((f) => `<div class="t"><span class="k">${esc(f.k)}</span>
+        <span class="v">${f.mono ? `<span class="ly-mono">${esc(f.v)}</span>` : esc(f.v)}${f.sub ? `<small>${esc(f.sub)}</small>` : ""}</span></div>`).join("")}
+      <div class="t" style="grid-column: span 2"><span class="k">引用 ${refs(p).length}</span>
+        <span class="v" style="font-size:12px">${refs(p).map((r) => esc(r.name)).join(" · ") || "没有外部引用"}</span></div>
+    </div>
+  </div>`;
+}
+
+/* 4 monolith */
+function lyMono(p) {
+  const f = fields(p).slice(0, 3);
+  return `<div class="ly-mono">
+    <div class="top"><span class="ly-k">${crumbOf()}</span><span class="ly-k ly-mono">${head()}</span></div>
+    <h1 class="ly-name">${esc(p.name)}</h1>
+    <div class="rule"></div>
+    <p class="sum">${esc(p.summary)}</p>
+    <div class="bottom">
+      ${f.map((x) => `<div><div class="k ly-k">${esc(x.k)}</div>
+        <div class="v">${esc(x.v)}${x.sub ? `<small>${esc(x.sub)}</small>` : ""}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 5 sheet */
+function lySheet(p) {
+  const f = fields(p);
+  return `<div class="ly-sheet">
+    <div class="spine"><span>${crumbOf()}</span></div>
+    <div class="main">
+      <h1 class="ly-name">${esc(p.name)}</h1>
+      <div class="band"></div>
+      ${f.map((x, i) => `<div class="r"><span class="no">${String(i + 1).padStart(3, "0")}</span>
+        <span class="k ly-k">${esc(x.k)}</span><span class="v">${valHtml(x)}</span></div>`).join("")}
+      ${refs(p).length ? `<div class="r"><span class="no">${String(f.length + 1).padStart(3, "0")}</span>
+        <span class="k ly-k">引用</span><span class="v">${refs(p).map((r) => esc(r.name)).join(" / ")}</span></div>` : ""}
+    </div>
+  </div>`;
+}
+
+/* 6 split */
+function lySplit(p) {
+  const f = fields(p);
+  const rf = refs(p);
+  return `<div class="ly-split">
+    <div class="up">
+      <div class="crumb">${crumbOf()}</div>
+      <h1 class="ly-name">${esc(p.name)}</h1>
+      <p class="sum">${esc(p.summary)}</p>
+      <div class="states">
+        <div>提交<b>${dirty() ? "未提交" : "已发布"}</b></div>
+        <div>引用<b>${rf.every((r) => r.state === "ok") ? "正常" : "失效"}</b></div>
+        <div>${state.section === "ut" ? "开关" : "状态"}<b>${state.section === "ut" ? (p.spec?.enabled ? "开着" : "关掉") : "可启动"}</b></div>
+      </div>
+    </div>
+    <div class="down">
+      ${f.map((x) => `<div><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}${x.sub ? `<span class="ly-sub" style="display:block;font-size:10.5px;margin-top:2px">${esc(x.sub)}</span>` : ""}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 7 gauge */
+function lyGauge(p) {
+  const f = fields(p);
+  const rf = refs(p);
+  const total = Math.max(rf.length, 1), ok = rf.filter((r) => r.state === "ok").length, pct = ok / total;
+  const R = 100, C = 2 * Math.PI * R, L = C * 0.75;
+  const ticks = Array.from({ length: 55 }, (_, i) => {
+    const a = Math.PI * 0.75 + (i / 54) * Math.PI * 1.5;
+    const long = i % 5 === 0, r1 = R + 10, r2 = R + (long ? 17 : 14);
+    return `<line x1="${130 + Math.cos(a) * r1}" y1="${130 + Math.sin(a) * r1}" x2="${130 + Math.cos(a) * r2}" y2="${130 + Math.sin(a) * r2}"
+      stroke="${i / 54 <= pct ? "var(--ink)" : "var(--line)"}" stroke-width="${long ? 1.3 : 1}" />`;
+  }).join("");
+  return `<div class="ly-gauge">
+    <div class="ring">
+      <svg viewBox="0 0 260 260">
+        <circle cx="130" cy="130" r="${R}" fill="none" stroke="var(--line)" stroke-width="1"
+          stroke-dasharray="${L} ${C}" transform="rotate(135 130 130)" />
+        <circle cx="130" cy="130" r="${R}" fill="none" stroke="var(--ink)" stroke-width="2.5"
+          stroke-dasharray="${L * pct} ${C}" transform="rotate(135 130 130)" />
+        ${ticks}
+      </svg>
+      <div class="center"><span class="n">${esc(p.name)}</span>
+        <span class="s">${ok}/${rf.length || 0} refs</span></div>
+    </div>
+    <p class="cap">${esc(p.summary)}</p>
+    <div class="cells">
+      ${f.slice(2, 6).map((x) => `<div class="c"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 8 columns */
+function lyColumns(p) {
+  const f = fields(p);
+  const per = Math.ceil(f.length / 3);
+  const cols = [f.slice(0, per), f.slice(per, per * 2), f.slice(per * 2)];
+  return `<div class="ly-columns">
+    <div class="hd"><h1 class="ly-name">${esc(p.name)}</h1><div class="sum">${esc(p.summary)}</div></div>
+    <div class="cols">
+      ${cols.map((col) => `<div class="col">
+        ${col.map((x) => `<div class="f"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
+      </div>`).join("")}
+    </div>
+    <div class="sec-t" style="margin-top:16px">引用</div>
+    <div class="refs">${refs(p).map((r) => `<div class="ref"><span>${esc(r.name)}</span><span class="kind">${esc(r.kind)}</span><span class="ok ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("")}</div>
+  </div>`;
+}
+
+/* 9 timeline */
+function lyTimeline(p) {
+  return `<div class="ly-timeline">
+    <div class="hd"><h1 class="ly-name">${esc(p.name)}</h1><p class="sum">${esc(p.summary)}</p></div>
+    <div class="tl">
+      ${fields(p).map((x) => `<div class="n"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}${x.sub ? `<span class="ly-sub" style="margin-left:8px">${esc(x.sub)}</span>` : ""}</div></div>`).join("")}
+      ${refs(p).map((r) => `<div class="n"><div class="k ly-k">引用 · ${esc(r.kind)}</div><div class="v">${esc(r.name)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/* 10 accordion */
+function lyAcc(p) {
+  const f = fields(p);
+  const groups = [
+    { t: "配置", items: f.slice(0, 4) },
+    { t: "运行", items: f.slice(4) },
+    { t: "引用", items: refs(p).map((r) => ({ k: r.kind, v: r.name })) },
   ];
-  return `<div class="dt-tabs">
-    ${t.map(([k, label]) => `<button class="${state.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${label}</button>`).join("")}
-    <span class="sp"></span>
+  return `<div class="ly-acc">
+    <div class="hd"><h1 class="ly-name">${esc(p.name)}</h1>${chipsRow(p)}</div>
+    ${groups.map((g, gi) => {
+      const open = state.openGrp === gi;
+      return `<div class="grp ${open ? "open" : ""}">
+        <div class="gh" data-act="grp" data-i="${gi}">
+          <span class="caret">${icon("caret")}</span>
+          <span class="t">${esc(g.t)}</span>
+          <span class="c">${g.items.length}</span>
+        </div>
+        <div class="gb">
+          ${g.items.map((x) => `<div class="r"><span class="k ly-k">${esc(x.k)}</span><span class="v">${esc(x.v)}</span></div>`).join("")}
+        </div>
+      </div>`;
+    }).join("")}
   </div>`;
 }
 
-function tabDetail(p) {
-  const f = fields(p), rf = refs(p);
-  return `
-    <div class="grid2">
-      ${f.map((x) => `<div class="fld"><div class="k">${esc(x.k)}</div>
-        <div class="v">${x.mono ? `<span class="mono">${esc(x.v)}</span>` : esc(x.v)}${x.sub ? `<span class="sub">${esc(x.sub)}</span>` : ""}</div></div>`).join("")}
+/* 11 inspector */
+function lyInsp(p) {
+  return `<div class="ly-insp">
+    <div class="main">
+      <div class="crumb">${crumbOf()}</div>
+      <h1 class="ly-name" style="margin-top:8px">${esc(p.name)}</h1>
+      <p class="sum">${esc(p.summary)}</p>
+      ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ""}
+      <div class="refs">
+        ${refs(p).map((r) => `<div class="ref"><span>${esc(r.name)}</span><span class="kind">${esc(r.kind)}</span><span class="ok ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("")}
+      </div>
     </div>
-    <div class="sec-t">引用 ${rf.length}</div>
-    <div class="refs">
-      ${rf.map((r) => `<div class="ref"><span>${esc(r.name)}</span>
-        <span class="kind">${esc(r.kind)}</span>
-        <span class="ok ${r.state === "ok" ? "" : "bad"}">${r.state === "ok" ? "OK" : "失效"}</span></div>`).join("") || `<div class="ref">没有外部引用</div>`}
+    <div class="side2">
+      ${fields(p).map((x) => `<div class="f"><div class="k ly-k">${esc(x.k)}</div><div class="v">${esc(x.v)}</div></div>`).join("")}
     </div>
-    ${p.description ? `<div class="sec-t">说明</div><p class="notes">${esc(p.description)}</p>` : ""}
-  `;
+  </div>`;
 }
 
+/* 12 dense */
+function lyDense(p) {
+  const f = fields(p);
+  const rows = [];
+  for (let i = 0; i < f.length; i += 2) rows.push([f[i], f[i + 1]]);
+  return `<div class="ly-dense">
+    <div class="hd"><h1 class="ly-name">${esc(p.name)}</h1>
+      <span class="ly-sub">${esc(p.summary)}</span>
+      <span class="meta">${head()} · ${pending().units.length} 待同步</span></div>
+    <table class="kt">
+      ${rows.map(([a, b]) => `<tr>
+        <td class="k">${esc(a.k)}</td><td class="v">${esc(a.v)}</td>
+        <td class="k2">${b ? esc(b.k) : ""}</td><td class="v2">${b ? esc(b.v) : ""}</td>
+      </tr>`).join("")}
+      ${refs(p).map((r) => `<tr><td class="k">${esc(r.kind)}</td><td class="v">${esc(r.name)}</td><td class="k2"></td><td class="v2"></td></tr>`).join("")}
+    </table>
+  </div>`;
+}
+
+const LAYOUTS = {
+  flow: lyFlow, table: lyTable, tiles: lyTiles, mono: lyMono,
+  sheet: lySheet, split: lySplit, gauge: lyGauge, columns: lyColumns,
+  timeline: lyTimeline, acc: lyAcc, insp: lyInsp, dense: lyDense,
+};
+
+/* 通用 tab：盘面 / JSON / 对比 */
 function tabBoard(p) {
   const f = fields(p);
   return `<div class="board">
     ${f.map((x) => `<div class="brow">
       <span class="k">${esc(x.k)}</span>
-      <span class="v">${x.mono ? `<span class="mono">${esc(x.v)}</span>` : esc(x.v)}${x.sub ? `<span class="sub" style="color:var(--ink3);font-size:11px">${esc(x.sub)}</span>` : ""}</span>
+      <span class="v">${x.mono ? `<span class="ly-mono" style="font-size:11.5px">${esc(x.v)}</span>` : esc(x.v)}${x.sub ? `<span class="ly-sub">${esc(x.sub)}</span>` : ""}</span>
       <span class="act" data-act="change" data-k="${esc(x.k)}">改</span>
     </div>`).join("")}
-    <div class="brow">
-      <span class="k">起手</span>
-      <span class="v">
-        <span class="segment">
-          <button class="${!p.spec?.model ? "on" : ""}">空白</button>
-          <button class="${p.spec?.model ? "on" : ""}">钉住默认模型</button>
-        </span>
-      </span>
-      <span class="act">—</span>
-    </div>
-    <div class="brow">
-      <span class="k">扩展</span>
+    <div class="brow"><span class="k">起手</span>
+      <span class="v"><span class="segment">
+        <button class="${!p.spec?.model ? "on" : ""}">空白</button>
+        <button class="${p.spec?.model ? "on" : ""}">钉住默认模型</button></span></span>
+      <span class="act">—</span></div>
+    <div class="brow"><span class="k">扩展</span>
       <span class="v"><span class="pill">${esc((p.spec?.extensions || []).join(" · ") || "不要")}</span>
         <span class="pill add">＋ 挑几个</span></span>
-      <span class="act">—</span>
-    </div>
+      <span class="act">—</span></div>
   </div>`;
 }
 
-function specJson(p) {
-  const spec = p.spec || {};
-  let text = JSON.stringify(spec, null, 2);
-  const rows = text.split("\n");
-  return `<div class="code">${rows.map((l, i) =>
+function tabJson(p) {
+  const text = JSON.stringify(p.spec || {}, null, 2).split("\n");
+  return `<div class="code">${text.map((l, i) =>
     `<div class="l"><span class="n">${i + 1}</span><span class="t">${esc(l)}</span></div>`).join("")}</div>`;
 }
 
@@ -638,83 +1011,40 @@ function tabDiff() {
   const path = u.files?.[0]?.path;
   const d = DIFFS[path];
   const rows = d ? lcs(d.before, d.after) : null;
-  return `
-    <div class="units">
-      ${units.map((x, i) => `<button class="unit ${i === state.unit ? "on" : ""}" data-act="unit" data-i="${i}">
-        ${esc(x.name ?? "categories.json")}
-        ${x.added ? `<span class="plus">+${x.added}</span>` : ""}
-        ${x.removed ? `<span class="minus">−${x.removed}</span>` : ""}
-      </button>`).join("")}
-    </div>
+  return `<div class="units">${units.map((x, i) => `<button class="unit ${i === state.unit ? "on" : ""}" data-act="unit" data-i="${i}">
+      ${esc(x.name ?? "categories.json")}
+      ${x.added ? `<span class="plus">+${x.added}</span>` : ""}${x.removed ? `<span class="minus">−${x.removed}</span>` : ""}
+    </button>`).join("")}</div>
     ${rows
       ? `<div class="diff">${rows.map((r) => `<div class="l ${r.t}"><span class="n">${r.n}</span><span class="t">${esc(r.text)}</span></div>`).join("")}</div>`
-      : `<div class="empty"><div class="big">未发布 · HEAD 里没有这个文件</div><div class="small">发布之后才有 diff</div></div>`}
-  `;
+      : `<div class="empty"><div class="big">未发布 · HEAD 里没有这个文件</div><div class="small">发布之后才有 diff</div></div>`}`;
+}
+
+function tabsBar() {
+  const t = [["detail", "详情"], ["board", "盘面"], ["json", "JSON"], ["diff", `对比${pending().units.length ? "·" + pending().units.length : ""}`]];
+  return `<div class="dt-tabs" style="padding:0 26px">
+    ${t.map(([k, label]) => `<button class="${state.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${label}</button>`).join("")}
+    <span class="sp"></span>
+    <span class="ly-k" style="align-self:center">${LAYOUT_NAME[state.layout]}</span>
+  </div>`;
 }
 
 function right() {
   if (state.mode === "new") return newForm();
   const p = current();
-  const body = state.tab === "detail" ? tabDetail(p) : state.tab === "board" ? tabBoard(p) : state.tab === "json" ? specJson(p) : tabDiff();
   const isUT = state.section === "ut";
-  return `<div class="detail">
-    ${detailHead(p)}
-    ${tabs()}
-    <div class="dt-body">${body}</div>
+  const inner = state.tab === "detail" ? LAYOUTS[state.layout](p)
+    : `<div class="dt-head" style="padding-bottom:10px"><div class="crumb">${crumbOf()}</div>
+        <div class="dt-title"><h1>${esc(p.name)}</h1></div></div>
+      <div class="dt-body">${state.tab === "board" ? tabBoard(p) : state.tab === "json" ? tabJson(p) : tabDiff()}</div>`;
+  return `<div class="detail" data-layout="${state.layout}">
+    ${tabsBar()}
+    ${state.tab === "detail" ? `<div class="dt-body lywrap">${inner}</div>` : inner}
     <div class="dt-foot">
       <button class="btn primary" data-act="launch">${isUT ? "发布" : "开一条新对话"}</button>
       <button class="btn" data-act="edit">编辑</button>
       <button class="btn ghost" data-act="menu-dots">${icon("dots")}</button>
       <span class="note">HEAD ${head()} · ${pending().units.length} 个文件待同步</span>
-    </div>
-  </div>`;
-}
-
-
-function newForm() {
-  const isUT = state.section === "ut";
-  const cats = (sec().categories || []).join(" · ") || "还没有类别";
-  return `<div class="detail">
-    <div class="dt-head">
-      <div class="crumb">${isUT ? "Ultimate-Template" : "Session-Template"} · 新建</div>
-      <div class="dt-title"><h1>${isUT ? "新建终极模板" : "新建预设"}</h1></div>
-      <p class="dt-sum">建完名字就改不了了 —— 目录名就是它。想换就归档旧的、建新的。</p>
-    </div>
-    <div class="dt-tabs"><button class="on">表单</button><span class="sp"></span></div>
-    <div class="dt-body"><div class="form" style="max-width:560px">
-      <div class="field">
-        <label>名字</label>
-        <input type="text" data-field="name" value="${esc(state.draft.name)}" placeholder="deep-dive">
-        <div class="help">小写字母 / 数字开头，只留 . _ -</div>
-        ${state.draft.name && !/^[a-z0-9][a-z0-9._-]*$/.test(state.draft.name) ? `<div class="err">名字只能是小写字母、数字、点、下划线、连字符，且以字母或数字开头</div>` : ""}
-        ${state.draft.name && /^[a-z0-9][a-z0-9._-]*$/.test(state.draft.name) ? `<div class="okmsg">名字可用</div>` : ""}
-      </div>
-      <div class="field">
-        <label>一句话摘要</label>
-        <textarea data-field="summary" placeholder="卡片上那一行，人靠它决定开不开">${esc(state.draft.summary)}</textarea>
-      </div>
-      ${isUT ? `<div class="field"><label>触发器</label>
-          <select data-field="trigger"><option>single-shot</option><option>cron</option><option>webhook</option></select>
-          <div class="help">照触发器自己声明的画参数表单（这里只列了一个）</div></div>
-        <div class="field"><label>参数 · 什么时候</label><input type="text" value="2027-01-15 16:01"></div>
-        <div class="field"><label>会话模板</label><input type="text" placeholder="scratch"></div>`
-      : `<div class="field"><label>起手</label>
-          <div class="segment">
-            <button class="${state.draft.start === "blank" ? "on" : ""}" data-act="start" data-v="blank">空白（跟随默认）</button>
-            <button class="${state.draft.start === "pinned" ? "on" : ""}" data-act="start" data-v="pinned">钉住当前设备默认</button>
-          </div></div>`}
-      <div class="two">
-        <div class="field"><label>类别</label>
-          <input type="text" data-field="category" value="${esc(state.draft.category)}" placeholder="写作/周报">
-          <div class="help">可空 = 未分类；写个不存在的名字就顺手建了</div></div>
-        <div class="field"><label>现有类别</label>
-          <div class="help" style="margin-top:8px">${esc(cats)}</div></div>
-      </div>
-    </div></div>
-    <div class="dt-foot">
-      <button class="btn primary" data-act="do-create">建</button>
-      <button class="btn ghost" data-act="cancel-new">取消</button>
-      <span class="note">建完是「未发布」：只在你这台、远端看不到</span>
     </div>
   </div>`;
 }
@@ -846,6 +1176,8 @@ $("#app").addEventListener("click", (e) => {
   else if (act === "pick") { state.selected = t.dataset.name; state.tab = state.tab === "diff" ? "detail" : state.tab; render(); }
   else if (act === "view") { state.view = t.dataset.view; render(); }
   else if (act === "tab") { state.tab = t.dataset.tab; render(); }
+  else if (act === "layout") { state.layout = t.dataset.k; paintLayout(); render(); }
+  else if (act === "grp") { state.openGrp = state.openGrp === +t.dataset.i ? -1 : +t.dataset.i; render(); }
   else if (act === "unit") { state.unit = +t.dataset.i; render(); }
   else if (act === "goto-diff") { state.tab = "diff"; render(); }
   else if (act === "new") { state.mode = "new"; state.tab = "detail"; state.draft = { name: "", summary: "", category: "", start: "blank" }; render(); }
@@ -891,6 +1223,11 @@ $("#app").addEventListener("input", (e) => {
   if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
 });
 
+function paintLayout() {
+  $$("#opt-layout .opt").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === state.layout)));
+}
+$$("#opt-layout .opt").forEach((b) => b.addEventListener("click", () => { state.layout = b.dataset.k; paintLayout(); render(); }));
+paintLayout();
 $$("#opt-skin .opt").forEach((b) => b.addEventListener("click", () => setSkin(b.dataset.k)));
 
 const H = (location.hash.replace("#", "") || "").split(",");
@@ -899,7 +1236,9 @@ if (H[2] === "new") state.mode = "new";
 if (H[2] === "publish" || H[2] === "archive" || H[2] === "purge" || H[2] === "launch" || H[2] === "newcat") state.layer = H[2];
 if (H[1]) state.tab = H[1];
 if (H[3] === "ut") { state.section = "ut"; state.selected = UT.presets[0]?.name; }
+if (H[4] && LAYOUT_NAME[H[4]]) state.layout = H[4];
 setSkin(SKINS.includes(H[0]) ? H[0] : "graphite");
+paintLayout();
 </script>
 </body>
 </html>
