@@ -27,6 +27,7 @@ mod session_nav;
 mod settings;
 mod slash;
 mod templates;
+mod templates_graph;
 mod theme;
 
 use std::io::Write as _;

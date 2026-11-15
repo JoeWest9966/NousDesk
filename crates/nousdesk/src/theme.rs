@@ -269,6 +269,8 @@ pub struct Skin {
     pub preset_tree_w: f32,
     /// Template 页预设列表宽。
     pub template_list_w: f32,
+    /// Template 页右栏（关系图）宽。0 = 不画右栏（老的两栏形态）。
+    pub detail_w: f32,
     /// 聊天区标题栏高。
     pub head_h: f32,
 }
@@ -289,7 +291,8 @@ impl Skin {
         rail_w: 60.,
         list_w: 280.,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 56.,
     };
 
@@ -649,7 +652,8 @@ impl ThemeName {
         rail_w: 60.0,
         list_w: 280.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 56.0,
     },
     // Model 3 · 浅色
@@ -712,7 +716,8 @@ impl ThemeName {
         rail_w: 60.0,
         list_w: 288.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 58.0,
     },
     // Cybertruck · 冷钢
@@ -775,7 +780,8 @@ impl ThemeName {
         rail_w: 60.0,
         list_w: 286.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 54.0,
     },
     // MCU · 车载大屏
@@ -838,7 +844,8 @@ impl ThemeName {
         rail_w: 72.0,
         list_w: 320.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 68.0,
     },
     // Editorial · 官网白
@@ -901,7 +908,8 @@ impl ThemeName {
         rail_w: 64.0,
         list_w: 300.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 68.0,
     },
     // 夜间驾驶 · 低亮
@@ -964,7 +972,8 @@ impl ThemeName {
         rail_w: 58.0,
         list_w: 280.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 54.0,
     },
     // Energy · 储能
@@ -1027,7 +1036,8 @@ impl ThemeName {
         rail_w: 62.0,
         list_w: 284.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 58.0,
     },
     // Plaid · 红黑
@@ -1090,7 +1100,8 @@ impl ThemeName {
         rail_w: 60.0,
         list_w: 280.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 54.0,
     },
     // Model S · 无图标条
@@ -1153,7 +1164,8 @@ impl ThemeName {
         rail_w: 60.0,
         list_w: 328.0,
         preset_tree_w: 248.,
-        template_list_w: 340.,
+        template_list_w: 300.,
+        detail_w: 420.,
         head_h: 56.0,
     },
         }

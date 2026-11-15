@@ -78,7 +78,7 @@ pub(crate) const SESSION_LIST_W: f32 = 280.;
 #[allow(dead_code)]
 pub(crate) const PRESET_TREE_W: f32 = 248.;
 #[allow(dead_code)]
-pub(crate) const TEMPLATE_LIST_W: f32 = 340.;
+pub(crate) const TEMPLATE_LIST_W: f32 = 300.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -263,6 +263,10 @@ pub struct Desktop {
     pub(crate) preset_closed: std::collections::HashSet<String>,
     /// 正在从模板开的那条（防连点 + 状态提示）。
     pub(crate) creating: Option<String>,
+    /// 右栏关系图看的是哪条预设（37 节点图）。`None` = 什么也没选，右栏给空状态。
+    pub(crate) picked_preset: Option<String>,
+    /// 图上点了哪个节点（`dim:model` 这种 id）。只影响那一行说明。
+    pub(crate) picked_node: Option<String>,
     _subs: Vec<Subscription>,
     /// 「New Manual」盘面。只占右侧聊天区那一格（外形照 qrd3wh 的 hb7k3j 页）。
     pub(crate) newchat: crate::board::NewChat,
@@ -493,6 +497,8 @@ impl Desktop {
             preset_cat: None,
             preset_closed: std::collections::HashSet::new(),
             creating: None,
+            picked_preset: None,
+            picked_node: None,
             newchat: crate::board::NewChat::new(window, cx),
             nav: SessionNav::new(),
             _subs: subs,
@@ -3588,6 +3594,10 @@ impl Render for Desktop {
             self.render_settings(cx)
         } else if self.archive_open {
             self.render_archive(cx)
+        } else if self.tab == Tab::Templates {
+            // Template 页自带第三栏（关系图），聊天区这一格不画 ——
+            // 留着它会和关系图叠在一起（`flex_1` 撑开之后真的叠过）。
+            div().into_any_element()
         } else if self.newchat.open {
             self.render_board(window, cx)
         } else {
@@ -3616,10 +3626,12 @@ impl Render for Desktop {
                 Tab::Templates => div()
                     .flex()
                     .flex_row()
+                    .flex_1()
                     .h_full()
                     .min_w(t().d(0.))
                     .child(self.render_preset_tree(cx))
                     .child(self.render_templates(cx))
+                    .child(self.render_detail(window, cx))
                     .into_any_element(),
             })
             // 会话内跳转目录（J）：只在聊天页、选中了会话、且**盘面没开**时出现。

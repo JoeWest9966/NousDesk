@@ -213,6 +213,18 @@ impl Desktop {
 
     /// 从模板开一条会话：`POST /v1/sessions { preset: "Session-Template/<name>", name }`。
     /// 成功后重拉会话列表、选中新会话、切回聊天页。
+    /// 点列表一行：右栏那张关系图换到这条上。**不开会话**（那是行尾圆按钮的事）。
+    fn pick_preset(&mut self, preset_name: String, cx: &mut Context<Self>) {
+        if self.picked_preset.as_deref() == Some(preset_name.as_str()) {
+            // 再点一次 = 收起右栏，来回切不会卡在一条上。
+            self.picked_preset = None;
+        } else {
+            self.picked_preset = Some(preset_name);
+        }
+        self.picked_node = None;
+        cx.notify();
+    }
+
     fn launch_preset(&mut self, preset_name: String, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
@@ -758,7 +770,9 @@ impl Desktop {
         let can_open = self.sections[self.section].id == SECTIONS[0].0;
         let ok = can_open && launchable(p);
         let name = p.name.clone();
+        let pick_name = p.name.clone();
         let creating = self.creating.as_deref() == Some(p.name.as_str());
+        let picked = self.picked_preset.as_deref() == Some(p.name.as_str());
         let cat = self.preset_cat.clone().unwrap_or_default();
 
         // 状态字：判据全是引擎算好的，客户端只挑颜色。
@@ -773,20 +787,34 @@ impl Desktop {
         };
 
         div()
+            .relative()
             .flex()
             .gap(t().d(10.))
             .p(t().d(10.))
             .border_b(t().d(1.))
             .border_color(rgb(t().p.line_strong))
-            // 行永远是 Stateful：id 挂住，能开才接 on_click。
+            // 行永远是 Stateful，且**点行 = 选中**（看右栏那张图），不是直接开会话。
+            // 开会话挪到行尾那个圆按钮上 —— 微信里点联系人是看资料，不是发消息。
             .id(ElementId::Name(format!("preset-{}", p.name).into()))
-            .when(ok, |el| {
-                el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.launch_preset(name.clone(), cx);
-                }))
-            })
-            .when(ok, |el| el.hover(|h| h.bg(rgb(t().p.line_soft))))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.pick_preset(pick_name.clone(), cx);
+            }))
+            .hover(|h| h.bg(rgb(t().p.line_soft)))
             .when(creating, |el| el.bg(rgb(t().p.accent_soft)))
+            .when(picked, |el| el.bg(rgb(t().p.accent_soft)))
+            // 选中的那一行左侧一条竖线：颜色之外还得有个不用辨认形状的信号。
+            .when(picked, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(t().d(7.))
+                        .bottom(t().d(7.))
+                        .w(t().d(2.))
+                        .rounded(t().r(1.))
+                        .bg(rgb(t().p.accent)),
+                )
+            })
             .child(
                 // 头像方块：能开的用蓝底白字首字，开不了的置灰。
                 div()
@@ -839,14 +867,28 @@ impl Desktop {
                             .collect::<Vec<_>>(),
                     ),
             )
-            // 能开的行右侧画个「发起聊天」的箭头，像微信通讯录的入口。
+            // 行尾：能开的行给一个「开一条新对话」的圆按钮。
+            // 行体只负责选中 —— 两个动作分开，多一次辨认，少一堆误触。
             .when(ok, |el| {
                 el.child(
-                    div().flex_none().items_center().child(
-                        Icon::new(IconName::ChevronRight)
-                            .with_size(Size::Size(t().d(16.)))
-                            .text_color(rgb(muted())),
-                    ),
+                    div()
+                        .id(ElementId::Name(format!("open-{}", p.name).into()))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(t().d(26.))
+                        .rounded(t().r(6.))
+                        .text_color(rgb(muted()))
+                        .hover(|h| h.bg(rgb(t().p.line)).text_color(rgb(t().p.link)))
+                        .child(
+                            Icon::new(IconName::MessageCirclePlus)
+                                .with_size(Size::Size(t().d(15.))),
+                        )
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.launch_preset(name.clone(), cx);
+                        })),
                 )
             })
     }
@@ -1187,5 +1229,417 @@ mod tests {
             Some(UNCATEGORIZED.into())
         );
         assert_eq!(keep_category(&None, &tree), None);
+    }
+}
+
+// ── 渲染：右栏关系图（37 节点图） ──────────────────────────
+
+impl Desktop {
+    /// Template 页第三栏：选中那条预设的**关系图**。
+    ///
+    /// 图是「看一眼就走」的：中心 = 这条预设，一圈 = 它钉住的维度，外圈 = 具体的
+    /// 技能/扩展。节点颜色直接抄引擎的 `resolved.*.state` —— 这边不算「能不能开」。
+    pub(crate) fn render_detail(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let dw = t().detail_w;
+        if dw <= 0. {
+            return div().into_any_element();
+        }
+
+        let shell = |inner: AnyElement| {
+            div()
+                .flex()
+                .flex_col()
+                // 右栏吃掉剩余宽度（`detail_w` 是最小宽）：窗口更宽时图居中留白，
+                // 而不是在右边露出一条没人用的墙。
+                .flex_1()
+                .min_w(px(dw))
+                .h_full()
+                .bg(rgb(t().p.panel))
+                .border_l(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .child(inner)
+                .into_any_element()
+        };
+
+        let Some(name) = self.picked_preset.clone() else {
+            return shell(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(t().d(6.))
+                    .size_full()
+                    .text_center()
+                    .child(
+                        div()
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(muted()))
+                            .child("选一条模板"),
+                    )
+                    .child(
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.faint))
+                            .child("右边会画出它钉了什么、哪些走默认"),
+                    )
+                    .into_any_element(),
+            );
+        };
+
+        let sec = &self.sections[self.section];
+        let Some(p) = sec
+            .data
+            .as_ref()
+            .and_then(|d| d.presets.iter().find(|x| x.name == name))
+        else {
+            return shell(
+                div()
+                    .p(t().d(16.))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(muted()))
+                    .child("这条已经不在列表里了")
+                    .into_any_element(),
+            );
+        };
+
+        let nodes = crate::templates_graph::nodes(p);
+        // 右栏是 `flex_1`，实际宽度跟窗口走 —— 图的半径必须按**真实宽度**算，
+        // 否则窗口一宽，图就缩在中间一小块（第一版就是这样，看着像没画完）。
+        let vw = f32::from(window.viewport_size().width);
+        let vh = f32::from(window.viewport_size().height);
+        let rail = if t().layout == crate::theme::Layout::NoRail { 0. } else { t().rail_w };
+        let used = rail + t().preset_tree_w + t().template_list_w;
+        let col = (vw - used).max(dw);
+        let (gw, gh) = (
+            (col - t().d(24.).as_f32()).max(220.),
+            (vh - t().d(188.).as_f32()).max(300.),
+        );
+        let pts = crate::templates_graph::layout(&nodes, gw, gh);
+
+        // 线段：中心 → 维度，维度 → 具体项。颜色 = 子节点的 state。
+        let mut segs: Vec<(f32, f32, f32, f32, bool, u32)> = Vec::new();
+        for (i, n) in nodes.iter().enumerate() {
+            let Some(parent) = n.parent.as_deref() else { continue };
+            let Some(pi) = nodes.iter().position(|x| x.id == parent) else {
+                continue;
+            };
+            // 浅色皮上 `line` 几乎看不见 —— 线用正文色的低透明度，两套明暗都清楚。
+            let color = match n.state {
+                crate::templates_graph::State::Invalid => t().p.danger,
+                crate::templates_graph::State::Auto => t().p.faint,
+                _ => t().p.text_2,
+            };
+            segs.push((
+                pts[pi].x,
+                pts[pi].y,
+                pts[i].x,
+                pts[i].y,
+                n.state.is_auto(),
+                color,
+            ));
+        }
+        let segs: Vec<(f32, f32, f32, f32, bool, gpui::Hsla)> = segs
+            .into_iter()
+            .map(|(a, b, c, d, dash, col)| (a, b, c, d, dash, rgb(col).opacity(0.55).into()))
+            .collect();
+
+        // 节点层：绝对定位，坐标和 canvas 用同一份 `pts`。
+        let mut layer = div().absolute().top_0().left_0().w(px(gw)).h(px(gh));
+        for (i, n) in nodes.iter().enumerate() {
+            let (x, y) = (pts[i].x, pts[i].y);
+            let picked = self.picked_node.as_deref() == Some(n.id.as_str());
+            let id = n.id.clone();
+            let is_center = n.layer == 0;
+            // 三个以上兄弟画成点：一个父下面四五个带文字的卡在 420px 宽的环上
+            // 必然互相压（弦长不够）。点足够点中，名字到底部那一行看。
+            let sib = crate::templates_graph::siblings(&nodes, n);
+            let dot = n.layer == 2 && sib >= 3;
+            let (nw, nh) = if is_center {
+                (t().d(132.), t().d(58.))
+            } else if n.layer == 1 {
+                (t().d(84.), t().d(40.))
+            } else if dot {
+                (t().d(22.), t().d(22.))
+            } else {
+                (t().d(70.), t().d(24.))
+            };
+            let state_color = match n.state {
+                crate::templates_graph::State::Invalid => bad(),
+                crate::templates_graph::State::Auto => t().p.faint,
+                crate::templates_graph::State::Unknown => t().p.muted,
+                _ => t().p.text,
+            };
+
+            let body = if is_center {
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(t().d(2.))
+                    .size_full()
+                    .rounded(t().r(10.))
+                    .bg(rgb(t().p.text))
+                    .text_color(rgb(t().p.chat_bg))
+                    .child(
+                        div()
+                            .text_size(t().fs(14.))
+                            .whitespace_nowrap()
+                            .text_overflow(TextOverflow::Truncate("…".into()))
+                            .child(n.label.clone()),
+                    )
+                    .into_any_element()
+            } else if n.layer == 1 {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(t().d(1.))
+                    .size_full()
+                    .px(t().d(8.))
+                    .py(t().d(6.))
+                    .rounded(t().r(7.))
+                    .bg(rgb(t().p.panel))
+                    .border(t().d(1.))
+                    .border_color(rgb(if picked { t().p.accent } else { t().p.line }))
+                    .child(
+                        div()
+                            .text_size(t().fs(9.))
+                            .text_color(rgb(muted()))
+                            .child(n.label.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(state_color))
+                            .whitespace_nowrap()
+                            .text_overflow(TextOverflow::Truncate("…".into()))
+                            .child(if n.value.is_empty() {
+                                "未设".to_string()
+                            } else {
+                                n.value.clone()
+                            }),
+                    )
+                    .into_any_element()
+            } else if dot {
+                div()
+                    .size_full()
+                    .rounded(t().r(11.))
+                    .bg(rgb(match n.state {
+                        crate::templates_graph::State::Invalid => t().p.danger,
+                        crate::templates_graph::State::Auto => t().p.faint,
+                        _ => t().p.accent,
+                    }))
+                    .into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .items_center()
+                    .size_full()
+                    .px(t().d(7.))
+                    .rounded(t().r(13.))
+                    .bg(rgb(t().p.panel_alt))
+                    .border(t().d(1.))
+                    .border_color(rgb(if picked { t().p.accent } else { t().p.line_soft }))
+                    .child(
+                        div()
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(state_color))
+                            .whitespace_nowrap()
+                            .text_overflow(TextOverflow::Truncate("…".into()))
+                            .child(n.value.clone()),
+                    )
+                    .into_any_element()
+            };
+
+            layer = layer.child(
+                div()
+                    .id(ElementId::Name(format!("gn-{}", n.id).into()))
+                    .absolute()
+                    .left(px(x - nw.as_f32() / 2.))
+                    .top(px(y - nh.as_f32() / 2.))
+                    .w(nw)
+                    .h(nh)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.picked_node = Some(id.clone());
+                        cx.notify();
+                    }))
+                    .child(body),
+            );
+        }
+
+        let canvas_layer = div().absolute().top_0().left_0().w(px(gw)).h(px(gh)).child(
+            canvas(
+                move |_, _, _| segs.clone(),
+                |bounds, segs, window, _| {
+                    let (ox, oy) = (
+                        f32::from(bounds.origin.x),
+                        f32::from(bounds.origin.y),
+                    );
+                    for (x1, y1, x2, y2, dashed, color) in segs {
+                        let mut b = if dashed {
+                            PathBuilder::stroke(px(1.)).dash_array(&[px(3.), px(3.)])
+                        } else {
+                            PathBuilder::stroke(px(1.))
+                        };
+                        b.move_to(point(px(ox + x1), px(oy + y1)));
+                        b.line_to(point(px(ox + x2), px(oy + y2)));
+                        if let Ok(path) = b.build() {
+                            window.paint_path(path, color);
+                        }
+                    }
+                },
+            )
+            .size_full(),
+        );
+
+        let picked_note = self.picked_node.clone().and_then(|id| {
+            nodes
+                .iter()
+                .find(|n| n.id == id)
+                .map(|n| (n.label.clone(), n.value.clone(), n.state))
+        });
+
+        let open_name = p.name.clone();
+        let can_open = sec.id == SECTIONS[0].0 && launchable(p);
+
+        shell(
+            div()
+                .flex()
+                .flex_col()
+                .size_full()
+                .child(
+                    // 头：名字 + 引擎给的状态字。
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(t().d(3.))
+                        .px(t().d(14.))
+                        .pt(t().d(14.))
+                        .pb(t().d(8.))
+                        .child(
+                            div()
+                                .text_size(t().fs(15.))
+                                .whitespace_nowrap()
+                                .text_overflow(TextOverflow::Truncate("…".into()))
+                                .child(p.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(muted()))
+                                .child(match (&p.spec_error, has_invalid(p)) {
+                                    (Some(_), _) => "spec 写坏了，下面这张图不代表实际行为".to_string(),
+                                    (None, true) => "有引用失效 —— 现在开不了".to_string(),
+                                    _ => p.summary.clone(),
+                                }),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_h(t().d(0.))
+                        .items_center()
+                        .justify_center()
+                        // 只有中心一个节点 = 引擎没给这一段的关系数据（`Ultimate-Template`
+                        // 现在就是这种）。画个孤零零的黑块比什么都不画更让人以为坏了。
+                        .when(nodes.len() <= 1, |el| {
+                            el.child(
+                                div()
+                                    .max_w(t().d(240.))
+                                    .text_center()
+                                    .text_size(t().fs(11.))
+                                    .text_color(rgb(muted()))
+                                    .child("这一条没有可摊开的关系数据 —— 引擎没给 resolved，spec 也没写多少"),
+                            )
+                        })
+                        .when(nodes.len() > 1, |el| {
+                            el.child(
+                                div()
+                                    .relative()
+                                    .w(px(gw))
+                                    .h(px(gh))
+                                    .child(canvas_layer)
+                                    .child(layer),
+                            )
+                        }),
+                )
+                .child(
+                    // 脚：点中的节点说明 + 开新对话。
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(t().d(8.))
+                        .px(t().d(14.))
+                        .py(t().d(10.))
+                        .border_t(t().d(1.))
+                        .border_color(rgb(t().p.line))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(t().d(1.))
+                                .flex_1()
+                                .min_w(t().d(0.))
+                                .child(
+                                    div()
+                                        .text_size(t().fs(9.))
+                                        .text_color(rgb(muted()))
+                                        .child(match &picked_note {
+                                            Some((l, _, _)) => l.clone(),
+                                            None => "整条".to_string(),
+                                        }),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(t().fs(11.))
+                                        .whitespace_nowrap()
+                                        .text_overflow(TextOverflow::Truncate("…".into()))
+                                        .child(match &picked_note {
+                                            Some((_, v, st)) => {
+                                                let tail = match st {
+                                                    crate::templates_graph::State::Invalid => "（失效）",
+                                                    crate::templates_graph::State::Auto => "（走默认）",
+                                                    _ => "",
+                                                };
+                                                format!("{}{}", if v.is_empty() { "—" } else { v }, tail)
+                                            }
+                                            None => {
+                                                let dims = nodes.iter().filter(|n| n.layer == 1).count();
+                                                if dims == 0 {
+                                                    "无关系数据".to_string()
+                                                } else {
+                                                    format!("{dims} 个维度")
+                                                }
+                                            }
+                                        }),
+                                ),
+                        )
+                        .when(can_open, |el| {
+                            el.child(
+                                div()
+                                    .flex_none()
+                                    .px(t().d(10.))
+                                    .py(t().d(5.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.text))
+                                    .text_color(rgb(t().p.chat_bg))
+                                    .text_size(t().fs(11.))
+                                    .id(ElementId::Name("detail-open".into()))
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.launch_preset(open_name.clone(), cx);
+                                    }))
+                                    .child("开一条新对话"),
+                            )
+                        }),
+                )
+                .into_any_element(),
+        )
     }
 }
