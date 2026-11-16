@@ -75,7 +75,7 @@ impl Content {
 
 /// 列表选中项。用名字（不是下标）：刷新之后行序可能变，id 才不会指错行。
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Selected {
+pub(crate) enum Selected {
     Skill(String),
     Prompt(String),
     Ext(String),
@@ -130,20 +130,32 @@ impl ExtKind {
 
 /// 这一页的全部状态。**只有这一页持有**，不塞进 `Desktop`。
 pub(crate) struct ResourceState {
-    section: Section,
-    content: Content,
-    skills: Option<Skills>,
-    prompts: Option<Prompts>,
-    exts: Option<Extensions>,
+    pub(crate) section: Section,
+    pub(crate) content: Content,
+    pub(crate) skills: Option<Skills>,
+    pub(crate) prompts: Option<Prompts>,
+    pub(crate) exts: Option<Extensions>,
     /// 三个 tab 各自的类别筛选，切来切去能回到原来那一行。
     cat: [Option<String>; 3],
     /// 三段各自的搜索框。**各存一份**，切段时词还在（跟 `cat` 同款语义）。
     /// 用 `InputState`（不是裸 String）才有中文输入法 / 剪贴板 / 一键清空 —— 这些是
     /// 第一屏体验，跟左栏会话搜索同一套组件。
     search: [Entity<InputState>; 3],
-    selected: Option<Selected>,
+    pub(crate) selected: Option<Selected>,
     loading: bool,
     error: Option<String>,
+
+    // ── 写操作（第二刀）─────────────────────────────────────────────
+    /// 当前是浏览 / 新建 / 编辑 / 发布。四个视图**互斥**，都占满列表 + 详情那一块，
+    /// 不叠在列表上面 —— 「编辑是整页工作台，不是右栏抽屉」。
+    pub(crate) view: crate::resource_write::View,
+    pub(crate) form: Option<crate::resource_write::NewForm>,
+    pub(crate) edit: Option<crate::resource_write::EditSession>,
+    pub(crate) publish: crate::resource_write::PublishState,
+    /// 归档 / 真删 / 丢掉改动 的确认层。不可逆的动作必须先过这一步。
+    pub(crate) confirm: Option<crate::resource_write::Confirm>,
+    /// 表单 / 编辑 / 发布这三个视图自己的输入订阅，跟着资源页一起活。
+    pub(crate) write_subs: Vec<Subscription>,
 }
 
 impl ResourceState {
@@ -172,6 +184,12 @@ impl ResourceState {
             selected: None,
             loading: false,
             error: None,
+            view: crate::resource_write::View::Browse,
+            form: None,
+            edit: None,
+            publish: Default::default(),
+            confirm: None,
+            write_subs: Vec::new(),
         }
     }
 
@@ -445,23 +463,39 @@ fn text_color() -> u32 { t().p.text }
 
 /// 资源页整页：树 + 列表 + 详情三栏。
 pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyElement {
-    let r = &desk.resources;
+    use crate::resource_write::View;
 
-    let mut root = div()
+    // 新建 / 编辑 / 发布都是**整页**：占满列表 + 详情那一块，不叠在列表上面。
+    // 浏览才是三栏。四个视图互斥，同一时刻只有一个在画。
+    let body = match desk.resources.view {
+        View::New => crate::resource_write::render_new(desk, cx),
+        View::Edit => crate::resource_write::render_edit(desk, cx),
+        View::Publish => crate::resource_write::render_publish(desk, cx),
+        View::Browse => {
+            let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
+            if !narrow {
+                root = root.child(render_tree(&desk.resources, cx));
+            }
+            root.child(render_list(desk, cx))
+                .child(render_detail(desk, cx))
+                .into_any_element()
+        }
+    };
+
+    // 确认层压在整页上面（归档 / 真删 / 丢掉改动）。
+    div()
+        .relative()
         .flex()
         .flex_row()
         .flex_1()
         .h_full()
         .min_w(t().d(0.))
-        .bg(rgb(t().p.list_bg));
-
-    if !narrow {
-        root = root.child(render_tree(r, cx));
-    }
-    root = root
-        .child(render_list(desk, cx))
-        .child(render_detail(desk, cx));
-    root.into_any_element()
+        .bg(rgb(t().p.list_bg))
+        .child(body)
+        .when(desk.resources.confirm.is_some(), |el| {
+            el.child(crate::resource_write::render_confirm(desk, cx))
+        })
+        .into_any_element()
 }
 
 fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
@@ -664,6 +698,47 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         .border_color(rgb(line_color()))
         .bg(rgb(t().p.panel));
 
+    // 「+ 新建」跟着当前段走：在技能段建技能、在扩展段建扩展。
+    let new_kind = match (r.section, r.content) {
+        (Section::Extensions, _) => crate::resource_write::Kind::Ext,
+        (Section::Content, Content::Skills) => crate::resource_write::Kind::Skill,
+        (Section::Content, Content::Prompts) => crate::resource_write::Kind::Prompt,
+    };
+    list = list.child(
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .px(t().d(12.))
+            .pt(t().d(10.))
+            .child(
+                div()
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(text_color()))
+                    .child(match r.section {
+                        Section::Content => r.content.label(),
+                        Section::Extensions => "扩展",
+                    }),
+            )
+            .child(
+                div()
+                    .id("res-new")
+                    .flex()
+                    .items_center()
+                    .h(t().d(24.))
+                    .px(t().d(9.))
+                    .rounded(t().r(6.))
+                    .bg(rgb(t().p.accent))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.on_accent))
+                    .hover(|el| el.bg(rgb(t().p.accent_hover)))
+                    .child("+ 新建")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.resource_new(new_kind, window, cx);
+                    })),
+            ),
+    );
+
     // 搜索框：三段各一份，切段时词还在。suffix 写命中数（空词写总数），
     // 跟左栏会话搜索同一个样式 —— 一行省下来就是列表的 20px。
     let total = match r.section {
@@ -852,33 +927,215 @@ fn row_btn(
         .into_any_element()
 }
 
-fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
+fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+    use crate::resource_write::{ConfirmAct, Kind};
+
     let r = &desk.resources;
     let mut body = div()
+        .id("res-detail-scroll")
         .flex()
         .flex_col()
         .flex_1()
         .h_full()
+        .min_w(t().d(0.))
+        .bg(rgb(t().p.panel))
+        .overflow_y_scroll()
         .px(t().d(22.))
         .py(t().d(18.))
-        .gap(t().d(10.))
-;
+        .gap(t().d(10.));
 
     let Some(sel) = &r.selected else {
         body = body.child(
             div()
                 .text_size(t().fs(12.))
                 .text_color(rgb(muted()))
-                .child("选一行看详情。第一刀只读 —— 发布 / 归档 / 编辑文件留下一刀。"),
+                .child("选一行看详情。新建 / 编辑 / 发布都在这一页，不用切到别的窗口。"),
         );
         return body.into_any_element();
     };
+
+    let kind = sel.kind_of();
+    let name = sel.name_of().to_string();
+
+    // ── 头部：名字 + 状态 + 动作。动作按条目种类分，不是一套按钮硬套。 ──
+    let mut head = div()
+        .flex()
+        .items_start()
+        .gap(t().d(12.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(t().d(3.))
+                .flex_1()
+                .min_w(t().d(0.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t().d(8.))
+                        .child(detail_title(&name))
+                        .when(
+                            crate::resource_write::is_untracked(kind, &name, desk),
+                            |el| {
+                                el.child(
+                                    div()
+                                        .px(t().d(6.))
+                                        .py(t().d(1.))
+                                        .rounded(t().r(5.))
+                                        .bg(rgb(t().p.warn_soft))
+                                        .text_size(t().fs(10.5))
+                                        .text_color(rgb(t().p.warn))
+                                        .child("未发布"),
+                                )
+                            },
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(t().fs(11.5))
+                        .text_color(rgb(muted()))
+                        .child(format!("{}:{}", kind.label(), name)),
+                ),
+        );
+
+    let mut acts = div().flex().items_center().gap(t().d(6.));
+    acts = acts.child(
+        div()
+            .id("res-act-edit")
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(t().d(28.))
+            .px(t().d(12.))
+            .rounded(t().r(7.))
+            .bg(rgb(t().p.accent))
+            .text_size(t().fs(11.5))
+            .text_color(rgb(t().p.on_accent))
+            .hover(|el| el.bg(rgb(t().p.accent_hover)))
+            .child("编辑")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.resource_open_edit(window, cx);
+            })),
+    );
+    // 扩展的五类各有各的动作：已归档给「恢复 / 真删」，在册的给「卸载 / 安装」+「归档」。
+    let ext_kind = if kind == Kind::Ext {
+        r.exts
+            .as_ref()
+            .and_then(|e| ext_rows(e, None, "").into_iter().find(|x| x.name == name))
+            .map(|x| x.kind)
+    } else {
+        None
+    };
+    if ext_kind == Some(ExtKind::Archived) {
+        acts = acts.child(
+            div()
+                .id("res-act-restore")
+                .flex()
+                .items_center()
+                .justify_center()
+                .h(t().d(28.))
+                .px(t().d(10.))
+                .rounded(t().r(7.))
+                .border(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.text_2))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child("恢复")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.resource_ask_confirm(ConfirmAct::Restore, cx);
+                })),
+        );
+        acts = acts.child(
+            div()
+                .id("res-act-purge")
+                .flex()
+                .items_center()
+                .justify_center()
+                .h(t().d(28.))
+                .px(t().d(10.))
+                .rounded(t().r(7.))
+                .bg(rgb(t().p.danger_soft))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.danger))
+                .hover(|el| el.bg(rgb(t().p.danger_soft)).opacity(0.85))
+                .child("真删")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.resource_ask_confirm(ConfirmAct::Purge, cx);
+                })),
+        );
+    } else {
+        if let Some(k) = ext_kind
+            && k != ExtKind::Builtin
+        {
+            let installed = k != ExtKind::Off;
+            acts = acts.child(
+                div()
+                    .id("res-act-toggle")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(t().d(28.))
+                    .px(t().d(10.))
+                    .rounded(t().r(7.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(t().p.text_2))
+                    .hover(|el| el.bg(rgb(t().p.hover)))
+                    .child(if installed { "卸载" } else { "安装" })
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.resource_ext_toggle(!installed, window, cx);
+                    })),
+            );
+        }
+        acts = acts.child(
+            div()
+                .id("res-act-archive")
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(t().d(28.))
+            .px(t().d(10.))
+            .rounded(t().r(7.))
+            .border(t().d(1.))
+            .border_color(rgb(t().p.line))
+            .text_size(t().fs(11.5))
+            .text_color(rgb(t().p.text_2))
+            .hover(|el| el.bg(rgb(t().p.hover)))
+            .child("归档")
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.resource_ask_confirm(ConfirmAct::Archive, cx);
+            })),
+        );
+    }
+    acts = acts.child(
+        div()
+            .id("res-act-publish")
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(t().d(28.))
+            .px(t().d(10.))
+            .rounded(t().r(7.))
+            .border(t().d(1.))
+            .border_color(rgb(t().p.line))
+            .text_size(t().fs(11.5))
+            .text_color(rgb(t().p.text_2))
+            .hover(|el| el.bg(rgb(t().p.hover)))
+            .child("发布")
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.resource_open_publish(cx);
+            })),
+    );
+    head = head.child(acts);
+    body = body.child(head);
 
     match sel {
         Selected::Skill(name) => {
             if let Some(skill) = r.skills.as_ref().and_then(|s| s.skills.iter().find(|x| &x.name == name)) {
                 body = body
-                    .child(detail_title(name))
                     .child(detail_kv("描述", skill.description.as_deref().unwrap_or("—")))
                     .child({
                         let cats = if skill.category.is_empty() { "未分类".to_string() } else { skill.category.join(" · ") };
@@ -889,12 +1146,18 @@ fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
                 if skill.hidden {
                     body = body.child(note_line("隐藏：模型看不见它，勾上也不进提示词。"));
                 }
+                if !skill.tracked {
+                    body = body.child(note_line("还没提交 —— 只在这台机器上看得见。点「发布」才会进别人的视野。"));
+                }
             }
         }
         Selected::Prompt(name) => {
             if let Some(p) = r.prompts.as_ref().and_then(|p| p.prompts.iter().find(|x| &x.name == name)) {
+                let untracked = r
+                    .prompts
+                    .as_ref()
+                    .is_some_and(|pp| pp.pending.iter().any(|x| x.is_untracked(name)));
                 body = body
-                    .child(detail_title(name))
                     .child(detail_kv("摘要", p.summary.as_deref().or(p.description.as_deref()).unwrap_or("—")))
                     .child({
                         let cats = if p.category.is_empty() { "未分类".to_string() } else { p.category.join(" · ") };
@@ -903,6 +1166,9 @@ fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
                     .child(detail_kv("状态", if p.loadable() { "可加载" } else { "加载失败" }));
                 if r.prompts.as_ref().and_then(|p| p.default.as_deref()) == Some(name.as_str()) {
                     body = body.child(note_line("这是仓库默认值（`settings.json` 的 `default`）—— 只用来预勾，不是「用户选的那条」。"));
+                }
+                if untracked {
+                    body = body.child(note_line("还没提交 —— 只在这台机器上看得见。点「发布」才会进别人的视野。"));
                 }
             }
         }
@@ -913,10 +1179,16 @@ fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
             });
             if let Some(e) = found {
                 body = body
-                    .child(detail_title(name))
                     .child(detail_kv("类别", e.kind.label()))
-                    .child(detail_kv("摘要", e.summary.as_deref().unwrap_or("—")))
-                    .child(note_line("装 / 卸 / 归档是三件不同的事；核心三条（nous / skills / prompts）卸载会被引擎 403 挡回来。"));
+                    .child(detail_kv("摘要", e.summary.as_deref().unwrap_or("—")));
+                // 装 / 卸 / 归档是三件不同的事，按钮分开摆；核心三条卸载会被引擎 403 挡回来。
+                if e.kind == ExtKind::Archived {
+                    body = body.child(note_line("在 .archive/ 里 —— 别人也看不见。「恢复」把它搬回仓库并提交，「真删」会一起提交删掉。"));
+                } else if e.kind == ExtKind::Builtin {
+                    body = body.child(note_line("内置扩展是引擎硬编码 import 的 —— 卸载会 403，也不在仓库里，发不出去。"));
+                } else {
+                    body = body.child(note_line("装 / 卸 / 归档是三件不同的事；核心三条（nous / skills / prompts）卸载会被引擎 403 挡回来。"));
+                }
             }
         }
     }

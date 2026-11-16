@@ -772,6 +772,20 @@ impl EngineClient {
             .await
     }
 
+    /// 一次「对某一条做点什么」的写操作：`archive` / `restore` / `purge` /
+    /// `install` / `uninstall` / `reload` / `sessions` 那些都是同形状
+    /// （`POST /v1/{kind}/{op}`，body `{"name": …}`）。UI 层不用知道动词。
+    pub async fn resource_op<B: serde::Serialize + ?Sized>(
+        &self,
+        kind: &str,
+        op: &str,
+        body: &B,
+    ) -> Result<serde_json::Value, EngineError> {
+        let v = Self::body_json(body)?;
+        self.resource_call(reqwest::Method::POST, kind, op, &[], Some(&v))
+            .await
+    }
+
     /// `PUT /v1/{kind}/file` 的类型化版本：body 是 `SaveFile`（带 `base` 才算并发安全）。
     pub async fn resource_save(
         &self,
