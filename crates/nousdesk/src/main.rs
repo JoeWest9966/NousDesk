@@ -120,11 +120,13 @@ fn init_log() {
 fn open_log_file() -> Option<std::fs::File> {
     const MAX_BYTES: u64 = 2 * 1024 * 1024;
 
-    let dir = dirs::data_local_dir()?.join("nousdesk");
+    let dir = dirs::data_local_dir()?.join(crate::config::APP_DIR);
     std::fs::create_dir_all(&dir).ok()?;
-    let path = dir.join("desktop.log");
+    // 默认 `desktop.log`；验证实例设了 `NOUS_INSTANCE` 就写自己的那份，
+    // 不跟别人抢同一个文件（坑 84 / 84 的邻居：日志也该按实例分）。
+    let path = dir.join(crate::config::log_file_name());
     if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > MAX_BYTES {
-        let _ = std::fs::rename(&path, dir.join("desktop.log.1"));
+        let _ = std::fs::rename(&path, dir.join(crate::config::log_rotated_name()));
     }
     std::fs::OpenOptions::new()
         .create(true)

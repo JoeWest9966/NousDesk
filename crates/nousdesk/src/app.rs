@@ -413,6 +413,12 @@ pub struct Desktop {
     pub(crate) branches: bool,
     /// 分支视图的根。进视图时锁住：点分支里的会话只换右侧，列表不跟着塌。
     pub(crate) branch_of: Option<i64>,
+    /// 「下次进分支视图该锁哪个根」的一次性提示。
+    ///
+    /// `新建分支` 成功后选中了新会话，手动点「⑂ 分支」时 `self.selected` 是**新叉**，
+    /// 拿它当根会看到「还没有分支」（新叉自己没有子）。所以 fork 成功时把**父会话**
+    /// 记在这儿，进视图时优先用，用完清掉 —— 一次性，不影响别的手动进入。
+    fork_root_hint: Option<i64>,
     /// 分支视图里展开着的会话。纯内存，重启重置（它不是事实，是「我眼下看到哪」）。
     pub(crate) expanded: std::collections::HashSet<i64>,
     /// 这一轮是**用户自己按的停止**。abort 会让流断开，那不是错误，别弹红条。
@@ -499,6 +505,8 @@ impl Desktop {
         });
         // 「重命名会话」那个对话框里的输入框。复用一份，打开时把当前名字塞进去。
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("会话名字"));
+        // 资源页三段各自的搜索框（详见 resources.rs）。
+        let resources = crate::resources::ResourceState::new(window, cx);
 
         // 配置在这里同步读掉：设置页要立刻显示 host / board，不能等 tokio。
         // 读坏了也先拿默认值把窗口支起来，错误交给 connect() 报。
@@ -564,6 +572,22 @@ impl Desktop {
                     if matches!(event, InputEvent::Change) {
                         cx.notify();
                     }
+                }
+            }),
+            // 资源页三段搜索框：纯本地过滤，敲一个字重排一次（不发请求）。
+            cx.subscribe_in(&resources.search_boxes()[0], window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) { cx.notify(); }
+                }
+            }),
+            cx.subscribe_in(&resources.search_boxes()[1], window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) { cx.notify(); }
+                }
+            }),
+            cx.subscribe_in(&resources.search_boxes()[2], window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) { cx.notify(); }
                 }
             }),
             cx.subscribe_in(&rename_input, window, {
@@ -985,7 +1009,7 @@ impl Desktop {
             archive_open: false,
             archive: crate::archive_page::ArchivePageState::new(),
             console: crate::data_console::ConsoleState::new(),
-            resources: crate::resources::ResourceState::default(),
+            resources,
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
             rename_box: crate::rename_box::RenameBox::new(),
             rename_input, // 上面 `cx.new` 建好的那个
@@ -1046,6 +1070,7 @@ impl Desktop {
             bg_seen: None,
             branches: false,
             branch_of: None,
+            fork_root_hint: None,
             expanded: std::collections::HashSet::new(),
             user_stopped: false,
             pins_client: None,
@@ -4353,7 +4378,7 @@ impl Desktop {
             }))
             .child(row);
 
-        // 右键菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字。
+        // 右键菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字 / ─── / 新建分支。
         // 「更多」里的归档 / 撕原件是**独立一层**的子菜单（见 `archive_menu.rs`），
         // 条目顺序、文案、动作映射都在那个模块里；这里只把产出的动作送回 `Desktop`。
         //
@@ -4416,7 +4441,50 @@ impl Desktop {
                 cx.notify();
             }
             A::Rename { id } => self.open_rename(id, cx),
+            A::Fork { id } => self.fork_session(id, cx),
         }
+    }
+
+    /// `新建分支`：省掉 `entryId` / `name` 直接分叉 —— 引擎按「从最后一条」处理，
+    /// 名字给默认（见 `wire.md` 的 `POST /v1/sessions/:id/fork`）。
+    ///
+    /// 成功后重拉列表（新分支要出现在分支视图里）+ 选中新会话 + 切盘上那只眼，
+    /// 跟「新建盘面建完就进去」一套。失败弹引擎 `{error}` 原文。
+    fn fork_session(&mut self, id: i64, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        log::info!("新建分支：从 #{id} 最后一条分叉");
+        self.run_engine(
+            cx,
+            &format!("新建分支没成：{id}"),
+            &format!("新建分支任务挂了：{id}"),
+            async move {
+                let forked = engine.fork(id, None, None).await?;
+                let _ = engine.set_selection(Some(forked.id)).await;
+                Ok(forked)
+            },
+            move |this, forked, cx| {
+                this.notify(
+                    format!("已新建分支 · 从 #{id} 最后一条分叉"),
+                    NoticeKind::Info,
+                    cx,
+                );
+                // 新会话在列表里是 `parent != null` 的分支：重拉列表它才出现；
+                // 然后直接进去（force=true，万一点之前正好选着它也要重新载入）。
+                this.reload_sessions(None, cx);
+                this.choose_session(forked.id, cx);
+                // 分支视图**开着**时直接把根换到父会话；关着时记一笔一次性提示，
+                // 等用户点「⑂ 分支」再用 —— 那时 `self.selected` 已经是新叉，
+                // 拿它当根只会显示「还没有分支」（新叉自己没子）。
+                this.fork_root_hint = Some(id);
+                if this.branches {
+                    this.branch_of = Some(id);
+                    cx.notify();
+                }
+            },
+            Self::notify_engine_failure,
+        );
     }
 
     /// 未读数红点。0 条就返回 `None`（别画个「0」在那儿）。
@@ -4482,7 +4550,12 @@ impl Desktop {
                 if this.branches {
                     this.exit_branches(cx);
                 } else {
-                    this.enter_branches(this.selected.unwrap_or(id), cx);
+                    // 刚 fork 过就优先锁到父会话；一次性，用完清掉。
+                    let root = this
+                        .fork_root_hint
+                        .take()
+                        .unwrap_or_else(|| this.selected.unwrap_or(id));
+                    this.enter_branches(root, cx);
                 }
             }))
             .child(

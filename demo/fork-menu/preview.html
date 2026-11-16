@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>会话右键菜单 · 新增「新建分支 / fork」— 观感确认稿</title>
+<style>
+  /* 色值逐字抄自 theme.rs 的 Palette::DEFAULT（微信基线），不另立一套。 */
+  :root{
+    --sidebar:#2e2e2e; --sidebar-hover:#3a3a3a;
+    --list-bg:#f7f7f7; --panel:#ffffff; --panel-alt:#fafafa;
+    --text:#1a1a1a; --text2:#333333; --muted:#999999; --faint:#aaaaaa;
+    --line:#e6e6e6; --line-strong:#e2e2e2; --line-soft:#eeeeee;
+    --hover:#f2f2f2; --selected:#d9d9d9; --row-hover:#f0f0f0;
+    --accent:#07c160; --accent-hover:#06ad56; --accent-soft:#e8f7ee;
+    --accent-fg:#0a7a3f; --accent-soft-hover:#dcf0e3;
+    --danger:#d32f2f; --danger-soft:#fff1f0; --danger-fg:#c0392b;
+    --badge:#fa5151; --chat-bg:#ededed; --on-accent:#ffffff;
+    --shadow:0 14px 34px rgba(0,0,0,.16);
+  }
+  [data-dark]{
+    --sidebar:#141414; --sidebar-hover:#242424;
+    --list-bg:#0a0a0a; --panel:#101010; --panel-alt:#161616;
+    --text:#ffffff; --text2:#d6d6d6; --muted:#8c8c8c; --faint:#666666;
+    --line:#262626; --line-strong:#2a2a2a; --line-soft:#202020;
+    --hover:#1c1c1c; --selected:#242424; --row-hover:#181818;
+    --accent:#2ecc71; --accent-hover:#27ae60; --accent-soft:#13291c;
+    --accent-fg:#7ee2a8; --accent-soft-hover:#1b3826;
+    --danger:#ef5350; --danger-soft:#2a1515; --danger-fg:#ff8a80;
+    --badge:#ef5350; --chat-bg:#080808; --on-accent:#06130c;
+    --shadow:0 14px 34px rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--chat-bg); color:var(--text);
+    font:13px/1.45 Inter,"Inter",-apple-system,"Segoe UI",Roboto,"Noto Sans CJK SC","PingFang SC",sans-serif;
+    -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums}
+
+  .top{position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+    padding:10px 18px; background:var(--panel); border-bottom:1px solid var(--line)}
+  .top h1{font-size:13.5px; font-weight:650; margin:0 10px 0 0; letter-spacing:.1px}
+  .top .note{color:var(--muted); font-size:11.5px; flex:1; min-width:200px}
+  .seg{display:flex; border:1px solid var(--line-strong); border-radius:7px; overflow:hidden}
+  .seg button{border:0; background:transparent; color:var(--text2); font:inherit; font-size:12px;
+    padding:5px 11px; cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line-strong)}
+  .seg button.on{background:var(--accent); color:var(--on-accent)}
+  .ghost{border:1px solid var(--line-strong); background:transparent; color:var(--text2);
+    border-radius:7px; padding:5px 10px; font:inherit; font-size:12px; cursor:pointer}
+
+  .stage{display:flex; justify-content:center; padding:26px 16px 10px}
+  .win{display:flex; width:1040px; max-width:96vw; height:600px; overflow:visible;
+    background:var(--list-bg); border:1px solid var(--line-strong); border-radius:10px;
+    box-shadow:0 18px 50px rgba(0,0,0,.12)}
+
+  /* 左图标条 60px（真值），照 render_icon_bar */
+  .rail{width:60px; flex:none; background:var(--sidebar); display:flex; flex-direction:column;
+    align-items:center; gap:6px; padding:10px 0}
+  .rail i{width:40px; height:40px; border-radius:8px; display:flex; align-items:center;
+    justify-content:center; color:#9a9a9a}
+  .rail i.on{color:var(--accent)}
+  .rail i svg{width:22px; height:22px}
+  .rail .grow{flex:1}
+  .rail .more{color:#9a9a9a}
+
+  /* 会话列表 253px（真值） */
+  .col{position:relative; width:253px; flex:none; min-width:0; display:flex; flex-direction:column;
+    background:var(--list-bg); border-right:1px solid var(--line-strong); min-height:0}
+  .head{padding:12px 10px 8px; display:flex; gap:6px; align-items:center}
+  .box{flex:1; min-width:0; display:flex; align-items:center; gap:6px; height:30px; padding:0 8px;
+    border:1px solid var(--line-strong); border-radius:7px; background:var(--panel)}
+  .box svg{width:13px; height:13px; color:var(--faint); flex:none}
+  .box .ph{flex:1; color:var(--faint); font-size:12.5px}
+  .box .n{color:var(--muted); font-size:11px}
+  .plus{flex:none; width:28px; height:28px; border-radius:7px; display:flex; align-items:center;
+    justify-content:center; color:var(--text2); font-size:18px; cursor:pointer}
+
+  .list{flex:1; min-height:0; overflow:hidden}
+  .row{display:flex; gap:9px; align-items:flex-start; padding:9px 10px; min-height:64px;
+    border-bottom:1px solid var(--line-soft); cursor:default}
+  .row.hit{background:var(--accent-soft)}      /* 被右键那行的选中底色 */
+  .row:hover:not(.hit){background:var(--row-hover)}
+  .av{flex:none; width:36px; height:36px; border-radius:5px; display:flex; align-items:center;
+    justify-content:center; font-size:13px; color:var(--on-accent); background:#7ba7d7}
+  .av.g2{background:#9b8ed6} .av.g3{background:#d69b7b} .av.g4{background:#7bbfa3}
+  .rmain{flex:1; min-width:0}
+  .rl1{display:flex; align-items:baseline; gap:8px}
+  .rname{flex:1; min-width:0; font-size:13px; font-weight:500; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis}
+  .rtime{flex:none; color:var(--muted); font-size:11px}
+  .rl2{color:var(--muted); font-size:11.5px; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; margin-top:3px}
+  .badge{flex:none; min-width:17px; height:17px; border-radius:9px; background:var(--badge);
+    color:#fff; font-size:10.5px; display:flex; align-items:center; justify-content:center;
+    padding:0 4px; align-self:center}
+
+  /* 聊天区（留白，衬托菜单位置） */
+  .chat{flex:1; min-width:0; background:var(--panel); display:flex; flex-direction:column}
+  .ctop{height:48px; flex:none; border-bottom:1px solid var(--line-soft); display:flex;
+    align-items:center; padding:0 18px; gap:10px; font-size:13px; font-weight:550}
+  .ctop .branch{font-size:11px; color:var(--accent-fg); background:var(--accent-soft);
+    border-radius:11px; padding:3px 9px; font-weight:500}
+  .cbody{flex:1; padding:22px 26px; color:var(--muted); font-size:12px}
+  .bubble{max-width:520px; margin-bottom:14px; padding:9px 12px; border-radius:6px;
+    background:var(--panel-alt); border:1px solid var(--line-soft); color:var(--text2); font-size:12.5px}
+  .bubble.me{background:var(--accent-soft); border-color:var(--accent-soft); margin-left:auto}
+
+  /* ── 右键菜单（照 archive_menu.rs 的形状：父菜单 + 独立子菜单） ── */
+  .menu{position:absolute; z-index:30; left:118px; top:196px; width:214px; padding:5px;
+    background:var(--panel); border:1px solid var(--line-strong); border-radius:9px;
+    box-shadow:var(--shadow); overflow:hidden}
+  .item{display:flex; align-items:center; gap:10px; height:31px; padding:0 9px; border-radius:6px;
+    cursor:pointer; color:var(--text); font-size:12.5px; white-space:nowrap}
+  .item:hover,.item.hover{background:var(--hover)}
+  .item.hazard:hover{background:var(--danger-soft)}
+  .item svg.iw{width:15px; height:15px; flex:none; color:var(--muted)}
+  .item.hazard svg.iw{color:var(--danger-fg)}
+  .item .tx{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis}
+  .item .sub{color:var(--faint); font-size:11px}
+  .item .chev{margin-left:auto; color:var(--faint); font-size:13px}
+  .item.new{background:var(--accent-soft)}
+  .item.new:hover,.item.new.hover{background:var(--accent-soft-hover)}
+  .item.new svg.iw,.item.new .tx{color:var(--accent-fg)}
+  .item.new .sub{color:var(--accent-fg); opacity:.75}
+  .sep{height:1px; background:var(--line-soft); margin:4px 6px}
+  .submenu{position:absolute; z-index:31; width:170px; padding:5px;
+    background:var(--panel); border:1px solid var(--line-strong); border-radius:9px;
+    box-shadow:var(--shadow); left:calc(100% + 3px); top:0; display:none}
+  .submenu.show{display:block}
+  .submenu.flip{left:auto; right:calc(100% + 3px)}
+
+  /* 点击反馈：toast / 命名框 */
+  .toast{position:absolute; z-index:60; left:50%; bottom:22px; transform:translateX(-50%);
+    display:none; align-items:center; gap:8px; padding:9px 14px; border-radius:7px;
+    background:var(--panel); border:1px solid var(--line-strong); box-shadow:var(--shadow);
+    font-size:12.5px; color:var(--text)}
+  .toast.show{display:flex}
+  .toast .dot{width:7px; height:7px; border-radius:50%; background:var(--accent)}
+  .modal-scrim{position:absolute; inset:0; z-index:55; background:rgba(0,0,0,.28);
+    display:none; align-items:center; justify-content:center}
+  .modal-scrim.show{display:flex}
+  .modal{width:330px; padding:18px; background:var(--panel); border:1px solid var(--line-strong);
+    border-radius:10px; box-shadow:var(--shadow)}
+  .modal h2{margin:0 0 6px; font-size:14px; font-weight:600}
+  .modal p{margin:0 0 12px; color:var(--muted); font-size:11.5px}
+  .modal input{width:100%; height:32px; padding:0 9px; border:1px solid var(--line-strong);
+    border-radius:6px; background:var(--panel); color:var(--text); font:inherit; font-size:12.5px;
+    outline:none}
+  .modal input:focus{border-color:var(--accent)}
+  .modal .btns{display:flex; justify-content:flex-end; gap:8px; margin-top:14px}
+  .modal button{border-radius:6px; padding:6px 13px; font:inherit; font-size:12px; cursor:pointer}
+  .modal .cancel{border:1px solid var(--line-strong); background:transparent; color:var(--text2)}
+  .modal .ok{border:1px solid var(--accent); background:var(--accent); color:var(--on-accent)}
+
+  .why{max-width:1040px; margin:2px auto 0; padding:0 18px; color:var(--text2); font-size:12px}
+  .why b{color:var(--text); font-weight:600}
+  .why .tag{display:inline-block; min-width:18px; height:18px; line-height:18px; text-align:center;
+    border-radius:4px; background:var(--accent-soft); color:var(--accent-fg); font-size:11px;
+    margin-right:7px; font-weight:600}
+
+  .cards{display:flex; flex-wrap:wrap; justify-content:center; gap:10px; padding:20px 16px 44px;
+    max-width:1080px; margin:0 auto}
+  .card{flex:1 1 232px; min-width:210px; max-width:258px; padding:12px 13px; text-align:left;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px; cursor:pointer}
+  .card:hover{border-color:var(--accent)}
+  .card.on{border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent)}
+  .card .t{font-size:12.5px; font-weight:600; margin-bottom:5px}
+  .card .d{color:var(--muted); font-size:11.5px; line-height:1.5}
+  .card .seq{color:var(--faint); font-size:10.5px; margin-top:8px; font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>会话右键菜单 · 新增「新建分支 / fork」</h1>
+  <span class="note">端点 <b>POST /v1/sessions/:id/fork</b> 引擎早就有（wire.md:146），桌面端一次没调用过 —— 这页只定入口位置与点击反馈。</span>
+  <div class="seg" id="seg">
+    <button data-p="A" class="on">A 父菜单</button>
+    <button data-p="B">B 子菜单</button>
+    <button data-p="C">C 沉底+副标题</button>
+    <button data-p="D">D 父菜单+命名</button>
+  </div>
+  <button class="ghost" id="dark">深色皮</button>
+</div>
+
+<div class="stage">
+  <div class="win">
+    <!-- 左图标条：真 60px -->
+    <div class="rail">
+      <i class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></i>
+      <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></i>
+      <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg></i>
+      <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></svg></i>
+      <div class="grow"></div>
+      <i class="more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></i>
+    </div>
+
+    <!-- 会话列表：真 253px -->
+    <div class="col">
+      <div class="head">
+        <div class="box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <span class="ph">搜索</span><span class="n">52</span>
+        </div>
+        <div class="plus">＋</div>
+      </div>
+      <div class="list" id="list"></div>
+
+      <!-- 菜单（JS 注入内容） -->
+      <div class="menu" id="menu">
+        <div id="menu-items"></div>
+        <div class="submenu" id="submenu"></div>
+      </div>
+
+      <!-- 点击反馈 -->
+      <div class="toast" id="toast"><span class="dot"></span><span id="toast-txt"></span></div>
+      <div class="modal-scrim" id="scrim">
+        <div class="modal">
+          <h2>给分支起个名字</h2>
+          <p>从「对话 302」的最后一条分叉。留空则用引擎默认名。</p>
+          <input id="fname" value="对话 302 的分支">
+          <div class="btns">
+            <button class="cancel" id="mcancel">取消</button>
+            <button class="ok" id="mok">新建分支</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 聊天区 -->
+    <div class="chat">
+      <div class="ctop">对话 302 <span class="branch">⑂ 分支 · 0</span></div>
+      <div class="cbody">
+        <div class="bubble">帮我把这块渲染逻辑拆成两层，状态归状态、画归画。</div>
+        <div class="bubble me">好，先抽一层缓存出来，再动元素树。</div>
+        <div class="bubble">拆完了。增量渲染那条我加了测试，60fps 稳住了。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="why"><span class="tag" id="why-tag">A</span><span id="why-txt"></span></div>
+
+<div class="cards" id="cards">
+  <div class="card on" data-p="A">
+    <div class="t">A · 放父菜单，紧挨「打开」</div>
+    <div class="d">分支是「造一条新会话」，跟「打开」同级，一眼看得见。父菜单从 6 项变 7 项。</div>
+    <div class="seq">打开 / 置顶 / ─ / <b>新建分支</b> / 更多 › / 重命名 / 复制名字</div>
+  </div>
+  <div class="card" data-p="B">
+    <div class="t">B · 收进「更多 ›」子菜单</div>
+    <div class="d">一级不涨。跟归档/撕原件放在一起，都是「对这条会话做点什么」的低频动作。</div>
+    <div class="seq">更多 › → 归档 / 撕原件 / ─ / <b>新建分支</b> / 复制 id</div>
+  </div>
+  <div class="card" data-p="C">
+    <div class="t">C · 父菜单沉底 + 副标题</div>
+    <div class="d">单独沉到最后一行，副标题写清「从最后一条分叉」—— 不点也知道分叉点在哪。</div>
+    <div class="seq">… / 复制名字 / ─ / <b>新建分支 · 从最后一条分叉</b></div>
+  </div>
+  <div class="card" data-p="D">
+    <div class="t">D · 同 A，但点了先命名</div>
+    <div class="d">引擎 fork 可带 <code>name</code>。弹一个居中对话框（照重命名那套），默认名填好，改不改都行。</div>
+    <div class="seq">位置同 A → 点下弹命名框 → 确定后 toast</div>
+  </div>
+</div>
+
+<script>
+const S = {
+  A: { tag:'A', why:'<b>这套想干什么：</b>把「新建分支」当成跟「打开」同级的主动作 —— 用户在一条会话上最常做的下一步就是「接着往下试一个方向」。代价是父菜单从 6 项涨到 7 项。',
+       top:['open','pin','sep','fork','more','rename','copyname'], sub:['archive','purge','sep','copyid'], pick:'toast' },
+  B: { tag:'B', why:'<b>这套想干什么：</b>守住「一级菜单只放高频」这条线。fork 跟归档/撕原件同属「低频、对这条做点什么」，收进「更多 ›」二级。代价是多悬停一步。',
+       top:['open','pin','sep','more','rename','copyname'], sub:['archive','purge','sep','fork','copyid'], pick:'toast' },
+  C: { tag:'C', why:'<b>这套想干什么：</b>不打断现有 6 项的肌肉记忆，新项单独沉底、加一条分隔线，副标题直接写「从最后一条分叉」—— 引擎的 entryId 省略就是这个语义，不点也讲得清。',
+       top:['open','pin','sep','more','rename','copyname','sep','fork'], sub:['archive','purge','sep','copyid'], pick:'toast', sublabel:'从最后一条分叉' },
+  D: { tag:'D', why:'<b>这套想干什么：</b>入口同 A，但点下去先弹居中命名框（照「重命名」那套，不新造浮层）。fork 的 <code>name</code> 是引擎契约，给了名字分支树里一眼能认；不想填就用预填的默认名。',
+       top:['open','pin','sep','fork','more','rename','copyname'], sub:['archive','purge','sep','copyid'], pick:'modal' },
+};
+
+const ICONS = {
+  open:'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  pin:'<path d="M12 17v5"/><path d="M9 3h6l-1 5 3 3v2H7v-2l3-3z"/>',
+  fork:'<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/><path d="M18 3v6"/><path d="M15 6h6"/>',
+  more:'',
+  rename:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  copyname:'<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  archive:'<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  purge:'<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>',
+  copyid:'<path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="M16 3 14 21"/>',
+};
+const LABELS = {
+  open:'打开', pin:'置顶该聊天', fork:'新建分支', more:'更多',
+  rename:'重命名', copyname:'复制名字', archive:'归档该聊天…',
+  purge:'撕原件…', copyid:'复制会话 id'
+};
+const svg = k => `<svg class="iw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`;
+const item = (k, opt) => {
+  if(k==='sep') return '<div class="sep"></div>';
+  if(k==='more') return `<div class="item" id="more-row"><span class="tx">更多</span><span class="chev">›</span></div>`;
+  const hazard = k==='purge';
+  const isFork = k==='fork';
+  const sub = isFork && opt.sublabel ? `<span class="sub">${opt.sublabel}</span>` : (k==='purge'?'<span class="sub">先归档</span>':'');
+  return `<div class="item${hazard?' hazard':''}${isFork?' new':''}" data-k="${k}">${svg(k)}<span class="tx">${LABELS[k]}</span>${sub}</div>`;
+};
+const rows = [
+  {name:'对话 305 · 补测试', when:'10:32', av:'', g:'g2'},
+  {name:'分支 · 从 302 分出', when:'09:58', av:'⑂', g:'g3', branch:true},
+  {name:'对话 302 · 渲染拆层', when:'昨天', av:'', g:'', hit:true, badge:3},
+  {name:'zz-探针（可删）', when:'周一', av:'', g:'g4'},
+  {name:'对话 296 · 归档整理', when:'11/12', av:'', g:'g2'},
+];
+function renderList(){
+  document.getElementById('list').innerHTML = rows.map(r=>`
+    <div class="row${r.hit?' hit':''}">
+      <div class="av ${r.g}">${r.av||'聊'}</div>
+      <div class="rmain">
+        <div class="rl1"><span class="rname">${r.name}</span><span class="rtime">${r.when}</span></div>
+        <div class="rl2">${r.branch?'⑂ 分支 · '+r.name:'拆完了，增量渲染那条加了测试 · 60fps 稳住了'}</div>
+      </div>
+      ${r.badge?`<span class="badge">${r.badge}</span>`:''}
+    </div>`).join('');
+}
+let cur='A';
+function apply(p){
+  cur=p;
+  const o=S[p];
+  document.getElementById('menu-items').innerHTML = o.top.map(k=>item(k,o)).join('');
+  document.getElementById('submenu').innerHTML = o.sub.map(k=>item(k,o)).join('');
+  document.getElementById('submenu').classList.remove('show');
+  document.getElementById('why-tag').textContent=o.tag;
+  document.getElementById('why-txt').innerHTML=o.why;
+  document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));
+  document.querySelectorAll('.card').forEach(c=>c.classList.toggle('on',c.dataset.p===p));
+  hideFeedback();
+}
+function hideFeedback(){
+  document.getElementById('toast').classList.remove('show');
+  document.getElementById('scrim').classList.remove('show');
+}
+function toast(){
+  document.getElementById('toast-txt').textContent='已分叉 · 新会话「对话 303」从 #302 最后一条建立，已选中';
+  document.getElementById('toast').classList.add('show');
+  setTimeout(()=>document.getElementById('toast').classList.remove('show'),3200);
+}
+document.getElementById('menu-items').addEventListener('mouseover', e=>{
+  const more=e.target.closest('#more-row'); if(!more) return;
+  document.getElementById('submenu').classList.add('show');
+  more.classList.add('hover');
+});
+document.getElementById('menu-items').addEventListener('mouseout', e=>{
+  const more=e.target.closest('#more-row'); if(!more) return;
+  if(e.relatedTarget && (document.getElementById('submenu').contains(e.relatedTarget)||more.contains(e.relatedTarget))) return;
+  document.getElementById('submenu').classList.remove('show');
+  more.classList.remove('hover');
+});
+document.getElementById('menu').addEventListener('click', e=>{
+  const el=e.target.closest('.item[data-k]'); if(!el) return;
+  if(el.dataset.k==='fork'){
+    if(S[cur].pick==='modal'){
+      document.getElementById('scrim').classList.add('show');
+      document.getElementById('fname').focus(); document.getElementById('fname').select();
+    } else toast();
+  }
+});
+document.getElementById('mcancel').onclick=()=>document.getElementById('scrim').classList.remove('show');
+document.getElementById('mok').onclick=()=>{document.getElementById('scrim').classList.remove('show');toast();};
+document.getElementById('seg').onclick=e=>{const b=e.target.closest('button');if(b)apply(b.dataset.p);};
+document.getElementById('cards').onclick=e=>{const c=e.target.closest('.card');if(c)apply(c.dataset.p);};
+document.getElementById('dark').onclick=function(){
+  const on=document.body.hasAttribute('data-dark');
+  if(on)document.body.removeAttribute('data-dark'); else document.body.setAttribute('data-dark','');
+  this.textContent=on?'深色皮':'浅色皮';
+};
+renderList();
+apply('A');
+</script>
+</body>
+</html>

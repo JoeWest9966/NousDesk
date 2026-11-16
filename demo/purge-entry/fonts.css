@@ -1,0 +1,5 @@
+/* 开发用：直接引用仓库里的 ttf。preview.html 生成时会换成内嵌 woff2 base64。 */
+@font-face { font-family: 'Inter'; font-weight: 400; font-display: block; src: url('../../assets/fonts/inter-400.ttf') format('truetype'); }
+@font-face { font-family: 'Inter'; font-weight: 500; font-display: block; src: url('../../assets/fonts/inter-500.ttf') format('truetype'); }
+@font-face { font-family: 'Inter'; font-weight: 600; font-display: block; src: url('../../assets/fonts/inter-600.ttf') format('truetype'); }
+@font-face { font-family: 'JetBrainsMono'; font-weight: 400; font-display: block; src: url('../../assets/fonts/jetbrainsmono-400.ttf') format('truetype'); }

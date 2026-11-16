@@ -999,6 +999,60 @@ AGENTS 里写的是「Tesla 那 9 套」全要。**只落一套是有意的**：
 反悔点：如果哪天终极模板的开关不再以引擎为准（比如改成纯本地草稿），
 那才把状态挪回 spec；在那之前别碰这条。
 
+## 2026-11-16 · `extensions` 只能**加**不能**减** —— 勾掉核心三条是假动作
+
+排查起因：`验证.md` 里「`extensions` 真发出去建会话」一直挂着未验。
+真发了五种请求（都建临时会话，验完 archive+purge 清掉）：
+
+| 发的 `extensions` | 回包 `extensions` |
+| --- | --- |
+| `[]`（一个都不要） | `coding-tools, nous, skills, prompts` |
+| `["nous"]` | 同上 |
+| `["不存在の扩展xyz"]` | 同上 + `missingExtensions: [xyz]` |
+| `["123"]`（非核心） | 上面四个 **+ 123** |
+| `["nous","skills","prompts"]`（不勾 123） | 只有上面四个，123 没加上 |
+
+**结论：`extensions` 这个键是 additive 的。** 内核 `server.js:1839` 在
+`harness.createConversation` 的 `settings.extensions` 里**无条件**放了
+`CodingTools + nous + skills + prompts`；`:2190` 读到的 `askedExt` 只用来
+**额外 add**（`:2233`），从不 remove。所以：
+
+- **勾上非核心扩展：真的生效**（`123` 出现在 201 里）。
+- **勾掉任何东西：一律不生效** —— 核心三条勾掉照样在，`[]` 想「一个都不要」照样全开。
+- `missingExtensions` 那条**是真的**：假 id 被如实点名，客户端那条红提示分支没写错。
+
+**所以 UI 上「核心三条能勾掉」这个承诺是假的。** 现在盘面让核心三条能取消勾选、
+设置页也跟着画空心圆，但建出来的会话永远带着它们。这是「界面说能做、引擎做不到」——
+按项目纪律，静默的假动作算 bug，不是「先这样」。
+
+**这一刀选 A：把核心钉死，UI 不再骗人**（用户 2026-11-16 采纳建议）。
+
+理由：核心那几条是 `agent 在 Nous 里的自我介绍 + 当前目录 + 技能系统 + 模板系统`，
+减掉它们会话就不完整了——它们本来就是「上下文的地基」，不是可选项。
+引擎把它们写死在 `settings.extensions` 里正是这个意思。客户端跟着钉死，
+比假装能减要诚实。
+
+落地（`board.rs`）：
+- `ExtKind::Core`（catalog 里 `is_default` 的那三条）现在和 `Builtin` / `Broken` /
+  `Archived` 一样是**锁住的**：虚线框 + ✓ + 不可点，没有 hover。
+- `core_exts()` 取的是 `builtin[0]`（coding-tools）+ `defaults`（nous/skills/prompts）——
+  **不从 `installed` 推**（coding-tools 不在 installed 里），
+  **也不把 catalog 里其他 `default: true` 的扩展算进来**（那是「新会话默认勾」，
+  跟「引擎无条件带上」不是一回事）。
+- `picked_exts` 初始化时无条件插入这四条。
+- `ext_pickable()` / Extensions 卡上的 `N/M` **只数能勾的**——现在这台机器是 `1/1`
+  （只有 `123`），不再是骗人的 `4/4`。
+- 弹层副标题改成「勾的是这次会话额外带哪些 · 核心四条引擎总带上，勾不掉」。
+
+**反悔点**：
+1. 用户改主意要「引擎支持减」→ 去 qrd3wh 改 `createConversation` 的
+   `settings.extensions`：`askedExt === undefined` 才用默认四条，否则按请求清单
+   （空数组就是空）。改完回来把 `wire.md` 那条 ⚠ 和这里的决定一起改掉，
+   `ExtKind::Core` 恢复可勾、`core_exts()` 不再无条件插入。
+2. 想继续装作能勾掉：不行，静默 = bug。
+
+---
+
 ## 2026-11-16 · 资源三页选 03：一个「资源」图标，两段（内容 / 扩展）
 
 外观稿 `demo/resource-pages/preview.html` 五套里挑了 **03**：左栏一个「资源」入口，
@@ -1047,5 +1101,70 @@ IA 已定 03（上一条）。写完只读第一刀后，四条对外观和接�
 占满主内容区（文件树 + 正文 + 状态三栏），不盖在列表上。
 理由：写正文要空间，抽屉那点宽度写不了几行；Tesla 那条「一条主内容轴对齐到底」。
 
-外观稿 `demo/resource-writes/preview.html`，九个镜头，#new-* / #created / #edit / #publish。
-写接口放 `nous-engine`（UI 层一行 HTTP 都不许碰），端点照 `wire.md`。
+外观稿 `demo/resource-writes/preview.html` —— **32 个镜头的可点原型**（不是静态卡片），
+含 #new-* / #created / #edit / #edit-dirty / #edit-guard / #publish / #pub-ok / #pub-ext /
+归档与真删确认 / 加载中 / 一个仓挂了 / 窄窗。第一版做成九张静态卡片被否，理由记在 `验证.md`。
+写接口已落 `nous-engine`（UI 层一行 HTTP 都不许碰）：`skill_create` / `prompt_create` /
+`extension_create` / `resource_file_put` / `resource_publish` / `resource_files` /
+`resource_file_get` + 哑转发 `resource_req`，端点照 `wire.md` 与引擎源码。
+## 2026-11-16 · 待验 #1–3（真流式 / 工具卡片 / 停止）：不做 demo，两条路都暂时堵死
+
+用户问「要不要做 demo」。**不做**——这三项验的是**动态行为**（文字随时间一段段冒出来、
+工具卡片中途出现、中途点停止），静态 HTML demo 只能播预设动画，证明不了客户端收到真
+SSE 事件时卡不卡、抖不抖、abort 发没发。按 AGENTS「碰外观才先出 demo」，这三层是传输 +
+状态机，不是外观（观感那半早在 `examples/mdstream` 样品间验过）。**直接动手，不上 demo。**
+
+**动手的结果**：两条路都没走通，如实记下，不冒充验过。
+
+1. **真引擎**：不只火山。实测了三家六个模型——
+   `volc-ark/*` 报 `InvalidSubscription` 或 429；`Qoder/{Auto,Fast,DeepSeek-Flash}`、
+   `workbuddy/{cn:auto,cn:balanced-model,...}` 都是 `text_delta=0`（连上 SSE 但没有正文增量）。
+   所有临时会话都 archive + purge 清掉了。结论：**订阅没恢复前，真流造不出来**。
+2. **假引擎**（本来想学 `feat/sound-attend` 的「假引擎端到端」）：写了 stub，
+   能返回 resolve / sessions / events，按真格式吐 `data: {...}\n\n`。客户端确实连上了
+   （日志「SSE 连上」、无解析错误），**但气泡始终显示「还没消息」**。根因是假引擎复现不了
+   真引擎的时序：客户端只在发消息时置 `streaming=true` + 插本地气泡；SSE 一重连就吐完整
+   剧本（`message_start` 清 blocks、snapshot generation=null、message_end 触发重拉），
+   把 `live` 清空。**假得了数据格式，假不了行为时序**（见 `坑.md` 93）。
+
+**已经验到的（不是空白）**：`live.rs` 的 **13 条单测全绿** —— 文字按 delta 累加、多
+contentIndex 拼接、`message_change` 整条覆盖、新一轮 `message_start` 清空、思考块不进正文、
+收尾 done 但正文还在、工具输出 append 累加、空快照判 idle、新旧 live 不串、没答上来带原因、
+task_failed 带消息。状态机这一层是验过的；没验的是**它接到真事件流后画出来的观感**。
+
+**反悔点（怎么才算真验过）**：等订阅恢复（`volc-ark` 那家最省事），
+`POST /v1/sessions/:id/messages` 后连 `GET /events`，打一局长回答：
+- #1 看气泡里的字是不是一批批长、不整段跳（对应 16ms 合帧那条纪律）
+- #2 让模型真调一次工具，看卡片标题 `bash · …` 和输出累加
+- #3 生成中途点「停止」，核对 `POST /abort` 发出去了、切回按钮、不弹红条
+验完把 #1–3 从「待验」挪到「已验」，删掉这条反悔点。
+**再试假引擎之前先读 `坑.md` 93** —— 别重复这次的牛角尖。
+
+---
+\n
+
+---
+
+## 2026-11-16 · 会话右键菜单加「新建分支」（fork），放父菜单沉底 + 副标题
+
+引擎的 `POST /v1/sessions/:id/fork` 从 `wire.md:146` 那天起就在，`nous-engine::client::fork()`
+也在，但桌面端一次都没调用过 —— 跟之前「重命名」那条一样：**协议早有，UI 漏了**。
+这次补上唯一的缺口：会话行右键菜单里的入口。
+
+外观稿 `demo/fork-menu/preview.html` 四套（A 父菜单紧挨打开 / B 收进「更多 ›」/ C 沉底带副标题 /
+D 同 A 但先弹命名框）里挑了 **C**：
+
+- 现有 6 项（打开 / 置顶 / ─ / 更多 › / 重命名 / 复制名字）一条不动、顺序不挪 ——
+  微信骨架里肌肉记忆那部分不碰。
+- 新项单独沉到最底下、上面加一条分隔线，**跟已有项隔开**：它是这一串里唯一「造出新会话」
+  的动作，其余都是「对这一条做点什么」。
+- 副标题写「从最后一条分叉」：引擎 `fork` 的 body `{ entryId?, name? }` 里 `entryId` 省略
+  就是这个语义（见 `wire.md`），不点也讲得清分叉点在哪。
+- 不选 D 的命名框：fork 的 `name` 可省，引擎会给默认名（「对话 N」）；为一个可选项多一层
+  居中对话框，违反「能用默认值解决的不做成设置项」。分叉完想改名，右键「重命名」本来就有。
+
+**点了什么**：省掉 `entryId` 和 `name` 直接分叉 → 拿回 `{ id, at }` → 选中新会话 +
+`POST /v1/selection` 切盘上那只眼 → toast 说清从哪条分出来的。失败弹引擎 `{error}` 原文。
+**反悔点**：要是分叉点选择变成高频（用户要「从中间某条 entry 分叉」），那时副标题就不够用了，
+改成从目录列选一轮 → 右键「从这里分叉」，`entryId` 从那一轮带过去；别在菜单里塞子菜单。
+

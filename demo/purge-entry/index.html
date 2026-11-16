@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NousDesk · 撕原件入口（3 套走法）</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+:root{
+  /* 取自 crates/nousdesk/src/theme.rs 的 Palette::DEFAULT（「默认」皮 = 微信基线） */
+  --sidebar:#2e2e2e;--sidebar-hover:#3a3a3a;--sidebar-idle:#9a9a9a;
+  --row-hover:#f0f0f0;--list-bg:#f7f7f7;--chat-bg:#ededed;
+  --panel:#fff;--panel-alt:#fafafa;--surface:#f6f6f6;
+  --text:#1a1a1a;--text-2:#333;--muted:#999;--faint:#aaa;
+  --line:#e6e6e6;--line-strong:#e2e2e2;--line-soft:#eee;
+  --accent:#07c160;--accent-hover:#06ad56;--accent-soft:#e8f7ee;--accent-fg:#0a7a3f;
+  --danger:#d32f2f;--danger-fg:#c0392b;--danger-soft:#fff1f0;
+  --badge:#fa5151;--warn:#c77700;--warn-soft:#fff8ee;
+  --body:13px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:#f2f2f2;color:var(--text);
+  font-family:'Inter','Noto Sans CJK SC','Noto Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;
+  font-size:var(--body);-webkit-font-smoothing:antialiased;padding:30px 28px 72px}
+
+.head{max-width:1400px;margin:0 auto 20px;display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.head h1{margin:0 0 6px;font-size:22px;font-weight:600;letter-spacing:-.01em}
+.head .sub{margin:0;font-size:12.5px;color:var(--muted);line-height:1.7;max-width:760px}
+.head .sub b{color:var(--text);font-weight:600}
+.sw{display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.sw button{appearance:none;border:0;background:transparent;padding:8px 13px;font:inherit;font-size:12px;
+  color:var(--text-2);cursor:pointer;border-right:1px solid var(--line-soft)}
+.sw button:last-child{border-right:0}
+.sw button:hover{background:var(--surface)}
+.sw button.on{background:#fff1f0;color:var(--danger-fg);font-weight:600}
+
+/* 一排三个方案，每个是一对真尺寸的窗口 */
+.cards{max-width:1400px;margin:0 auto;display:grid;gap:22px;grid-template-columns:repeat(3,1fr)}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  box-shadow:0 12px 30px rgba(0,0,0,.07)}
+.card .cap{padding:13px 16px 11px;border-bottom:1px solid var(--line-soft);display:flex;align-items:baseline;gap:9px}
+.card .cap .n{font-size:11px;color:#fff;background:var(--danger);width:19px;height:19px;border-radius:5px;
+  display:inline-grid;place-items:center;font-weight:600;flex:none;align-self:center}
+.card .cap h2{margin:0;font-size:13px;font-weight:600}
+.card .cap .tag{margin-left:auto;font-size:10px;color:var(--muted)}
+.card .body{padding:10px;background:#eee;min-height:676px;position:relative}
+
+.win{width:100%;height:648px;display:flex;background:var(--panel);border:1px solid var(--line);
+  border-radius:7px;overflow:hidden;position:relative;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.rail{width:48px;flex:none;background:var(--sidebar);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:3px}
+.rail .ic{width:30px;height:30px;border-radius:6px;display:grid;place-items:center;color:var(--sidebar-idle)}
+.rail .ic.on{color:var(--accent)}
+.rail svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.list{width:196px;flex:none;background:var(--list-bg);border-right:1px solid var(--line-soft);display:flex;flex-direction:column}
+.list .top{height:44px;display:flex;align-items:center;padding:0 10px;font-size:12px;font-weight:600}
+.row{display:flex;gap:8px;align-items:center;padding:8px;border-radius:5px;position:relative}
+.row.on{background:var(--row-hover)}
+.row .av{width:28px;height:28px;flex:none;border-radius:4px;background:#7ba7d7;color:#fff;
+  display:grid;place-items:center;font-size:11px}
+.row .nm{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .pv{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.pane{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel);position:relative}
+.shead{height:44px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;
+  background:var(--list-bg);border-bottom:1px solid var(--line-soft);font-size:12px}
+.shead .back{color:var(--text-2)}
+.sbody{flex:1;padding:14px;min-height:0;overflow:hidden;position:static}
+.hintline{font-size:10.5px;color:var(--faint);line-height:1.6;margin-bottom:12px}
+.colhead{display:flex;gap:8px;font-size:10px;color:var(--faint);padding:0 8px 6px;border-bottom:1px solid var(--line-soft)}
+.colhead .a{flex:1}.colhead .s{width:52px}.colhead .o{width:62px;text-align:right}
+.arow{display:flex;gap:8px;align-items:center;padding:9px 8px;border-bottom:1px solid var(--line-soft)}
+.arow .a{flex:1;min-width:0}
+.arow .nm{font-size:11.5px}
+.arow .pv{font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{display:inline-block;font-size:9.5px;padding:2px 5px;border-radius:3px;line-height:1.4}
+.badge.here{background:var(--warn-soft);color:var(--warn)}
+.badge.gone{background:var(--surface);color:var(--faint)}
+.act{font-size:10.5px;color:var(--danger-fg);cursor:pointer;white-space:nowrap;text-align:right}
+.act:hover{text-decoration:underline}
+
+/* 右键菜单（叠在窗口上） */
+.menu{position:absolute;width:172px;background:var(--panel);border:1px solid var(--line);
+  border-radius:7px;box-shadow:0 8px 26px rgba(0,0,0,.18);padding:5px;z-index:4}
+.mi{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:4px;font-size:11.5px}
+.mi:hover{background:var(--surface)}
+.mi .arr{margin-left:auto;color:var(--faint)}
+.mi.danger{color:var(--danger-fg)}
+.mi .sub{font-size:9.5px;color:var(--faint);margin-left:auto}
+.sep{height:1px;background:var(--line-soft);margin:4px 2px}
+.submenu{position:absolute;left:158px;width:160px;background:var(--panel);border:1px solid var(--line);
+  border-radius:7px;box-shadow:0 8px 26px rgba(0,0,0,.18);padding:5px;z-index:5}
+
+/* 弹层 */
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.16);z-index:8}
+.dlg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:250px;
+  background:var(--panel);border:1px solid var(--line);border-radius:9px;
+  box-shadow:0 14px 40px rgba(0,0,0,.22);z-index:9;overflow:hidden;max-width:calc(100% - 36px)}
+.dlg .dh{padding:12px 13px 8px;font-size:11.5px;font-weight:600}
+.dlg .dd{padding:0 13px 9px;font-size:10px;color:var(--muted);line-height:1.55}
+.warn{margin:0 13px 10px;padding:7px 9px;border-radius:4px;background:var(--danger-soft);
+  border:1px solid var(--danger);color:var(--danger-fg);font-size:10.5px;line-height:1.5}
+.field{margin:0 13px 10px}
+.field label{display:block;font-size:10.5px;color:var(--text-2);margin-bottom:5px}
+.field input{width:100%;height:27px;border:1px solid var(--line-strong);border-radius:5px;
+  padding:0 8px;font:inherit;font-size:11px;outline:none;background:#fff}
+.field input:focus{border-color:var(--danger)}
+.dfoot{display:flex;justify-content:flex-end;gap:7px;padding:0 13px 12px}
+.btn{height:26px;padding:0 11px;border-radius:5px;font-size:11px;display:flex;align-items:center;cursor:default}
+.btn.cancel{background:var(--panel-alt);color:var(--text-2)}
+.btn.go{background:var(--danger);color:#fff}
+.btn.go.dis{background:#f0c9c9;color:#fff}
+.btn.ok{background:var(--accent);color:#fff}
+/* 进度条（方案 03 用） */
+.steps{margin:0 13px 10px;display:flex;flex-direction:column;gap:7px}
+.step{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--muted)}
+.step .dot{width:15px;height:15px;border-radius:50%;background:var(--accent);color:#fff;
+  display:grid;place-items:center;font-size:9px;flex:none}
+.step.wait .dot{background:var(--line-strong);color:#fff}
+
+/* 页脚 */
+.notes{max-width:1400px;margin:24px auto 0;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.note{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.note h3{margin:0 0 7px;font-size:12px;font-weight:600}
+.note p{margin:0;font-size:11.5px;line-height:1.7;color:#666}
+.note p+p{margin-top:7px}
+.note b{color:var(--text);font-weight:600}
+.bottom{max-width:1400px;margin:18px auto 0;background:#fff;border:1px solid var(--line);
+  border-radius:8px;padding:14px 16px;font-size:11.5px;line-height:1.8;color:#555}
+.bottom b{color:var(--text)}
+code{font-family:'JetBrainsMono','DejaVu Sans Mono',monospace;font-size:10.5px;background:#f4f4f4;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div>
+    <h1>撕原件 · 入口怎么走</h1>
+    <p class="sub">现状：<b>能力早就有，只是藏得深</b>——右键「更多 › 撕原件…」会先撞引擎 409「先归档」；归档库里选中才出「撕原件」，再手输名字确认。
+      三套方案都<b>保留手输名字</b>（不可逆动作的多走一步），争的是<b>入口距用户几步</b>。点卡片切换高亮，点按钮 / 输入框有交互。</p>
+  </div>
+  <div class="sw" id="switcher">
+    <button data-v="all" class="on">三套并排</button>
+    <button data-v="1">01 现状</button>
+    <button data-v="2">02 加一步引导</button>
+    <button data-v="3">03 一步到位</button>
+  </div>
+</div>
+
+<div class="cards">
+
+  <!-- ── 方案 01：现状 ─────────────────────────────── -->
+  <div class="card" data-card="1">
+    <div class="cap"><span class="n">1</span><h2>现状 · 两步分开</h2><span class="tag">.menu → 409 → 归档库</span></div>
+    <div class="body">
+      <div class="win">
+        <div class="rail">
+          <div class="ic on"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 18V9M9.3 18V5M14.7 18v-6M20 18v-9"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></div>
+        </div>
+        <div class="list">
+          <div class="top">会话</div>
+          <div class="row on"><div class="av">q</div><div><div class="nm">zz-探针（可删）</div><div class="pv">这条先归档再撕</div></div></div>
+          <div class="row"><div class="av">模</div><div><div class="nm">模板重命名</div><div class="pv">POST /rename</div></div></div>
+          <div class="row"><div class="av o">数</div><div><div class="nm">数据监控室</div><div class="pv">拉片读数</div></div></div>
+        </div>
+        <div class="pane">
+          <div class="shead"><span class="back">‹</span><span>聊天</span></div>
+          <div class="sbody" style="background:var(--chat-bg);padding:18px">
+            <div style="font-size:11px;color:var(--muted);line-height:1.7">
+              右键一条会话 →「更多 ›」→「撕原件…」<br><br>
+              <span style="color:var(--danger-fg)">引擎回 409：还没归档过，先归档再撕</span><br><br>
+              再点「归档该聊天…」→ 去归档库 → 选中 → 撕原件 → 手输名字。
+            </div>
+            <!-- 右键子菜单：现状有「撕原件…」但副标题写着先归档 -->
+            <div class="menu" style="left:34px;top:186px">
+              <div class="mi">归档该聊天…</div>
+              <div class="mi danger" style="background:var(--surface)">撕原件…<span class="sub">先归档</span></div>
+              <div class="sep"></div>
+              <div class="mi">复制会话 id</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 方案 02：右键里加一句引导 ─────────────────── -->
+  <div class="card" data-card="2">
+    <div class="cap"><span class="n">2</span><h2>归档时问一句</h2><span class="tag">一次确认框解决</span></div>
+    <div class="body">
+      <div class="win">
+        <div class="rail">
+          <div class="ic on"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 18V9M9.3 18V5M14.7 18v-6M20 18v-9"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></div>
+        </div>
+        <div class="list">
+          <div class="top">会话</div>
+          <div class="row on"><div class="av">q</div><div><div class="nm">zz-探针（可删）</div><div class="pv">右键 → 归档该聊天…</div></div></div>
+          <div class="row"><div class="av">模</div><div><div class="nm">模板重命名</div><div class="pv">POST /rename</div></div></div>
+        </div>
+        <div class="pane">
+          <div class="shead"><span class="back">‹</span><span>聊天</span></div>
+          <div class="sbody" style="background:var(--chat-bg)">
+            <!-- 归档确认框：多问一句 -->
+            <div class="scrim"></div>
+            <div class="dlg">
+              <div class="dh">归档这条会话</div>
+              <div class="dd">复印件会存进归档库，原会话从列表消失。随时可以去归档库打捞回来。</div>
+              <label style="display:flex;gap:7px;align-items:center;margin:0 16px 13px;font-size:11px;cursor:pointer">
+                <input type="checkbox" id="purgeToo" style="accent-color:var(--danger)">
+                归档后立刻撕掉原件（不可撤销，还要再手输名字确认）
+              </label>
+              <div style="font-size:10px;color:var(--faint);margin:0 16px 10px;line-height:1.5">
+                不勾 = 跟现在完全一样。勾了 = 走完归档马上弹撕原件确认。
+              </div>
+              <div class="dfoot"><span class="btn cancel">取消</span><span class="btn ok">归档</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 方案 03：右键一步到位 ─────────────────────── -->
+  <div class="card" data-card="3">
+    <div class="cap"><span class="n">3</span><h2>右键「归档并撕原件」</h2><span class="tag">把两步合成一个动作</span></div>
+    <div class="body">
+      <div class="win">
+        <div class="rail">
+          <div class="ic on"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 18V9M9.3 18V5M14.7 18v-6M20 18v-9"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></div>
+        </div>
+        <div class="list">
+          <div class="top">会话</div>
+          <div class="row on"><div class="av">q</div><div><div class="nm">zz-探针（可删）</div><div class="pv">右键 → 归档并撕原件…</div></div></div>
+        </div>
+        <div class="pane">
+          <div class="shead"><span class="back">‹</span><span>聊天</span></div>
+          <div class="sbody" style="background:var(--chat-bg)">
+            <div class="scrim"></div>
+            <div class="dlg">
+              <div class="dh">归档并撕原件：zz-探针（可删）</div>
+              <div class="dd">两步会连着做：① 复印进归档库 → ② 真删活库里的原件。撕完不能撤销。</div>
+              <div class="warn">这一步会删掉原件和它的复印件 —— 确认你把这条会话的名字打对。</div>
+              <div class="steps">
+                <div class="step"><span class="dot">1</span>复印进归档库（gen-20261116）</div>
+                <div class="step wait"><span class="dot">2</span>撕原件（归档成功后自动接上）</div>
+              </div>
+              <div class="field"><label for="nm3">输入会话名字以确认</label><input id="nm3" placeholder="zz-探针（可删）" autocomplete="off"></div>
+              <div class="dfoot"><span class="btn cancel">取消</span><span class="btn go dis" id="go3">撕掉原件</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="notes">
+  <div class="note" data-note="1">
+    <h3>01 · 现状（尺子）</h3>
+    <p><b>这套是什么</b>：什么都不改。右键「撕原件…」副标题已经写着"先归档"，用户撞 409 才知道要先归档；归档库里撕要手输名字。</p>
+    <p><b>代价</b>：清一条测试会话要点 <b>7–8 下</b>，跨两个页面。四个探针会话清完，没人愿意再来一次。</p>
+  </div>
+  <div class="note" data-note="2">
+    <h3>02 · 归档时问一句</h3>
+    <p><b>这套想干什么</b>：把"归档并撕原件"做成归档确认框里的一个勾。用户本来就要归档，顺手勾一下，不用记"撕原件要先归档"这条隐藏规则。</p>
+    <p><b>代价</b>：归档框从此有两种语义（普通归档 / 归档即撕），勾选框是"顺手就勾了"的危险入口 —— 与「不可逆要多走一步」有点打架。但勾了之后还要再手输名字，多的一步还在。</p>
+  </div>
+  <div class="note" data-note="3">
+    <h3>03 · 右键一步到位</h3>
+    <p><b>这套想干什么</b>：右键直接出一个「归档并撕原件…」，把两步合一个动作。弹层里把两步列出来，勾掉"先归档才知道"的坑；手输名字确认原样保留。</p>
+    <p><b>代价</b>：菜单里多一个红字危险项，跟「撕原件…」并存会让人选哪个。若选它，<b>必须把旧的「撕原件…」从右键撤掉</b>（它现在永远可点、副标题"先归档"），只留这一个 —— 同一个动作不能有两个入口。</p>
+  </div>
+</div>
+
+<div class="bottom">
+  <b>三套共同的底线（不拿来做方案差异）</b>：① 手输会话名字才解锁红色按钮 —— 现有 <code>archive_confirm.rs</code> 的双层确认要保留；
+  ② 引擎那四道守卫（忙 / 没归档 / 没完整复印件 / 有活分支）一个都不绕，409 原文给用户看；
+  ③ 归档先于撕原件 —— 顺序不能反。<br>
+  <b>还没定</b>：如果选 03，右键那个旧的「撕原件…」是撤掉还是留着？按 <code>AGENTS.md</code>「同一个动作只留一个入口」，我建议撤掉，归档库页里那条「撕原件」也跟着撤 —— 危险动作只在右键这一个口子上。
+</div>
+
+<script>
+/* 顶部切方案 */
+const sw = document.getElementById('switcher');
+sw.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...sw.children].forEach(x => x.classList.remove('on')); b.classList.add('on');
+  const v = b.dataset.v;
+  document.querySelectorAll('.card').forEach(c => c.style.display = (v === 'all' || c.dataset.card === v) ? '' : 'none');
+  document.querySelectorAll('.note').forEach(n => n.style.display = (v === 'all' || n.dataset.note === v) ? '' : 'none');
+});
+// 默认三套并排 —— 一眼对比，不用切来切去。
+
+/* 03 的手输名字解锁 */
+const input = document.getElementById('nm3');
+const go = document.getElementById('go3');
+const target = 'zz-探针（可删）';
+input.addEventListener('input', () => {
+  const ok = input.value.trim() === target;
+  go.classList.toggle('dis', !ok);
+  go.textContent = ok ? '撕掉原件' : '撕掉原件';
+});
+</script>
+</body>
+</html>
