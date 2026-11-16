@@ -25,6 +25,7 @@ mod md;
 mod nav_ui;
 mod preset_confirm;
 mod preset_menu;
+mod recent;
 mod search;
 mod session_nav;
 mod settings;

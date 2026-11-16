@@ -34,6 +34,7 @@ use nous_engine::{EngineClient, EngineError};
 use smol::Timer;
 
 use crate::nav_ui::SessionNav;
+use crate::recent::Recent;
 
 pub(crate) mod scrollbar;
 
@@ -246,6 +247,8 @@ pub struct Desktop {
     /// 输入区悬停提示两位：鼠标在不在输入区上 / 提示字在不在场（淡出那 250ms 里也得在场）。
     composer_hover: bool,
     composer_hint: bool,
+    /// 本机「最近打开过哪几条」：只喂排序，见 `recent.rs` 的模块注释。
+    recent: Recent,
     /// 左栏的搜索框。**单行**的 `InputState`（输入区那个是多行 `TextareaState`）。
     /// 空着 = 不过滤，列表跟没有搜索这回事一样。
     search: Entity<InputState>,
@@ -640,6 +643,7 @@ impl Desktop {
             composer_hover: false,
             composer_hint: false,
             search,
+            recent: Recent::load(),
             slash: crate::slash::Slash::default(),
             skills: None,
             slash_items: vec![],
@@ -701,10 +705,11 @@ impl Desktop {
         cx.notify();
 
         let cfg = self.conn.clone();
+        let recent = self.recent.clone();
         cx.spawn(async move |this, cx| {
             let handle = crate::TOKIO.get().cloned();
             let outcome = match handle {
-                Some(h) => match h.spawn(load_engine(cfg)).await {
+                Some(h) => match h.spawn(load_engine(cfg, recent)).await {
                     Ok(Ok(v)) => Ok(v),
                     Ok(Err(e)) => Err(e),
                     Err(e) => Err(format!("任务挂了：{e}")),
@@ -881,8 +886,10 @@ impl Desktop {
                 if !go {
                     continue;
                 }
-                let (engine, selected) =
-                    match this.update(cx, |this, _| (this.engine.clone(), this.selected)) {
+                let (engine, selected, recent) =
+                    match this.update(cx, |this, _| {
+                        (this.engine.clone(), this.selected, this.recent.clone())
+                    }) {
                         Ok(v) => v,
                         Err(_) => break,
                     };
@@ -907,7 +914,7 @@ impl Desktop {
                 };
 
                 let mut next = list.items;
-                sort_sessions(&mut next);
+                sort_sessions(&mut next, &recent);
                 let _ = this.update(cx, |this, cx| {
                     // 选中的那条被别人写了：重拉它的历史。
                     let stale_entries = selected.is_some_and(|id| {
@@ -962,11 +969,24 @@ impl Desktop {
         self.select_session(id, false, cx);
     }
 
+    /// 记一笔「本机刚打开过这条」，然后落盘。
+    ///
+    /// 写盘失败不拦人：排序退化成老样子，用户照样能用 —— 只往日志里扔一行。
+    /// 文件很小（几百条 = 几 KB），点开会话本来就不是高频动作，不值得上防抖队列。
+    fn touch_recent(&mut self, id: i64) {
+        self.recent.touch(id);
+        if let Err(e) = self.recent.save() {
+            log::warn!("最近打开记不下来：{e}");
+        }
+    }
+
     pub(crate) fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
         if self.selected == Some(id) && !force {
             return;
         }
         self.selected = Some(id);
+        // 记一笔「本机什么时候打开过它」。只喂排序（`sort_sessions`），不写引擎。
+        self.touch_recent(id);
         self.nav.reset();
         self.entries.clear();
         self.entries_error = None;
@@ -1994,7 +2014,7 @@ impl Desktop {
                     return;
                 };
                 let mut next = list.items;
-                sort_sessions(&mut next);
+                sort_sessions(&mut next, &this.recent);
                 this.sessions = next;
                 if let Some(gone) = archived.filter(|id| this.selected == Some(*id)) {
                     match next_selection_after_archive(&this.sessions, gone) {
@@ -3793,6 +3813,7 @@ fn short_text(text: &str, max_chars: usize) -> String {
 /// 重新读盘会让「保存了什么」和「连了什么」有可能对不上。
 async fn load_engine(
     cfg: Config,
+    recent: Recent,
 ) -> Result<(Arc<EngineClient>, Vec<Session>, Option<String>, String), String> {
     let url = resolve_engine(&cfg.host, &cfg.board, SELF_BLOCK, ENGINE_BLOCK)
         .await
@@ -3801,7 +3822,7 @@ async fn load_engine(
         EngineClient::new(url.as_str(), Duration::from_secs(10)).map_err(|e| e.to_string())?;
     let sessions = engine.sessions().await.map_err(|e| e.to_string())?.items;
     let mut sessions = sessions;
-    sort_sessions(&mut sessions);
+    sort_sessions(&mut sessions, &recent);
     // 版本只是「关于」里的展示项，拿不到不妨碍连接。
     let node = engine.device().await.ok().and_then(|d| d.node);
     Ok((Arc::new(engine), sessions, node, url.as_str().to_string()))
@@ -3826,23 +3847,50 @@ pub(crate) fn error_notice(err: &EngineError) -> String {
     }
 }
 
-/// 会话排序：按 `last.id` 倒序 = 最后说话的那条在最上面。
+/// 会话排序。**聊过的一律在上面，只有壳子的在下面** —— 两堆分开排。
 ///
-/// `EntryId` 是全局单调的（durable 的 `conversation-tails` 就靠这条），实测也成立：
-/// session 465 → last.id 483、session 14 → 458、session 2 → 411。所以排序**不需要时间**。
+/// 以前是一个比较器把两套刻度混着比：`last.id`（全局单调的 entry 序号，真聊过的会话是
+/// 几百）跟会话 id（空会话是 1500+）。结果 **15 条真聊过的会话全部掉到 111 名以后**，
+/// 上面 110 行是 134 条空壳（2026-11-16 量出来的，见 `验证.md`）。这不是调参能救的，
+/// 是两个序列根本不可比。
 ///
-/// 一条 entry 都没有的新会话没有 `last`，退化成按会话 id 排（两个序列都随时间增），
-/// 保证刚建的那条落在最上面。
-fn sort_sessions(sessions: &mut [Session]) {
-    sessions.sort_by(|a, b| {
-        activity_of(b)
-            .cmp(&activity_of(a))
-            .then_with(|| b.id.cmp(&a.id))
-    });
+/// 现在是两层：
+///
+/// 1. **有 `last` 的**：按 `last.id` 倒序 = 最后说话的在最上面。`EntryId` 全局单调
+///    （durable 的 `conversation-tails` 就靠这条），实测也成立：session 465 → 483、
+///    session 2 → 411。所以这一层**不需要时间**。
+/// 2. **没有 `last` 的**：先看本机「最近打开」（`recent.rs`，只在这台机器上），
+///    再退化成会话 id 倒序（= 建的先后）。引擎对这 134 条什么时间都不给，
+///    本地那份是唯一能让「我刚点开的那条」浮上来的东西。
+///
+/// 置顶再叠在这一切之上（`order_ids`），不在这个比较器里。
+fn sort_sessions(sessions: &mut [Session], recent: &Recent) {
+    sessions.sort_by_key(|s| std::cmp::Reverse(sort_key(s, recent)));
+}
+
+/// 排序键。三段的含义见 `sort_sessions`：`(层, 层内小档, 数值)`，整套降序。
+///
+/// 第一段的取值：`2` = 有对话，`1` = 空会话。
+fn sort_key(s: &Session, recent: &Recent) -> (u8, u8, u64) {
+    if let Some(entry) = s.last.as_ref().and_then(|l| l.id.as_i64()) {
+        return (2, 0, entry.max(0) as u64);
+    }
+    // 引擎偶尔给 `updatedAt`（毫秒）：它比「本机什么时候点开」更硬，先认它。
+    // 秒级排序就够了，所以统一折成秒。
+    if let Some(ms) = s.updated_at {
+        return (1, 2, (ms.max(0) as u64) / 1000);
+    }
+    if let Some(ts) = recent.ts(s.id) {
+        return (1, 1, ts);
+    }
+    (1, 0, s.id.max(0) as u64)
 }
 
 /// 一行的「长相」。轮询时只比这个，不变就不 `cx.notify()`。
 /// 活跃度：最后一条 entry 的 id。没有 entry 的新会话退化成会话 id。
+///
+/// **只给「有没有新动静」用**（轮询比对、分支视图），**不要**拿它排左栏 ——
+/// 左栏的排序要分层，见 `sort_sessions`。
 pub(crate) fn activity_of(s: &Session) -> i64 {
     s.last.as_ref().and_then(|l| l.id.as_i64()).unwrap_or(s.id)
 }
@@ -4159,8 +4207,8 @@ fn nav_child_index(
 #[allow(non_snake_case)]
 mod tests {
     use super::{
-        Bar, NoticeKind, NoticeState, error_notice, nav_child_index,
-        next_selection_after_archive, order_ids, short_cwd, short_model, when_text,
+        Bar, NoticeKind, NoticeState, Recent, error_notice, nav_child_index,
+        next_selection_after_archive, order_ids, short_cwd, short_model, sort_sessions, when_text,
     };
     use nous_engine::EngineError;
     use nous_engine::types::{Entry, Session};
@@ -4366,6 +4414,55 @@ x
     #[test]
     fn 置顶里已经不存在的会话被忽略() {
         assert_eq!(order_ids(&[5, 4], &[99, 4]), vec![4, 5]);
+    }
+
+    /// 2026-11-16 的 bug 回归：`last.id`（几百）和空会话的会话 id（1500+）混在一起比大小，
+    /// 结果 15 条真聊过的会话全部掉到 111 名以后，上面 110 行是空壳。
+    /// 现在分成两层 —— 空壳的 id 再大也排不到聊过的前面。
+    #[test]
+    fn 聊过的永远在空壳前面() {
+        let mut list = vec![s(1539, None), s(2, Some(411)), s(1533, None), s(25, Some(300))];
+        sort_sessions(&mut list, &Recent::default());
+        let ids: Vec<i64> = list.iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec![2, 25, 1539, 1533], "聊过的按 last.id 倒序在前，空壳按 id 倒序在后");
+    }
+
+    /// 空壳之间：连引擎也不给时间，只能看本机点开过没有 —— 点过的那批在上，按时间倒序。
+    #[test]
+    fn 空壳按本机最近打开排_没点过的按_id() {
+        let mut recent = Recent::default();
+        recent.remember(100, 1_700_000_500);
+        recent.remember(900, 1_700_000_900);
+        let mut list = vec![s(1500, None), s(100, None), s(900, None), s(700, None)];
+        sort_sessions(&mut list, &recent);
+        let ids: Vec<i64> = list.iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec![900, 100, 1500, 700], "点过的按时间倒序，剩下的按 id 倒序");
+    }
+
+    /// 引擎自己给了 `updatedAt` 时以它为准 —— 本机记录只是引擎没话说时的兜底，
+    /// 两边不一致不能拿本地的把引擎的按下去（否则「忘了清理 recent.json」就会盖掉真相）。
+    #[test]
+    fn 引擎给了时间就优先于本机记录() {
+        let mut recent = Recent::default();
+        recent.remember(20, 1_700_000_900);
+        let engine_old = Session {
+            updated_at: Some(1_700_000_100_000),
+            ..s(10, None)
+        };
+        let mut list = vec![s(20, None), engine_old];
+        sort_sessions(&mut list, &recent);
+        assert_eq!(list[0].id, 10, "引擎时间（早）与本地时间（晚）不可直接比数值 —— 引擎那条先");
+    }
+
+    /// 本机记录只记「打开」这件事，不该把聊过的会话也抬到引擎上面（那会盖掉「最后说话」的排序）。
+    #[test]
+    fn 本机记录不会改变聊过那堆的内部顺序() {
+        let mut recent = Recent::default();
+        recent.remember(2, 1_700_000_900);
+        let mut list = vec![s(2, Some(411)), s(25, Some(700))];
+        sort_sessions(&mut list, &recent);
+        let ids: Vec<i64> = list.iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec![25, 2], "最后说话的在上，不看本机打开时间");
     }
 
     #[test]
