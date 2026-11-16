@@ -2002,9 +2002,9 @@ impl Desktop {
                     };
                     if rows.is_empty() {
                         if searching {
-                            vec![empty_hint(&format!("「{query}」"), &sec.title, 0)]
+                            vec![empty_hint(&format!("「{query}」"), sec.title, 0)]
                         } else {
-                            vec![empty_hint(&title, &sec.title, d.categories.len())]
+                            vec![empty_hint(&title, sec.title, d.categories.len())]
                         }
                     } else {
                         rows.into_iter()
