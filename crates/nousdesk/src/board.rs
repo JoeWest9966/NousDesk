@@ -88,6 +88,45 @@ impl ExtKind {
     }
 }
 
+/// 键盘停靠点。**只有五站**：中央那颗圆 + 四张卡。
+///
+/// Name 输入框故意不在队里 —— 它自己会抢焦点，把 Tab 也吞了的话，
+/// 从这里就再也走不到卡片上了。想改名字用鼠标点，或者先用 Tab 走到别处。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Stop {
+    Create,
+    Model,
+    Context,
+    Ext,
+    Perms,
+}
+
+impl Stop {
+    /// 一圈的固定顺序（顺时针：中央 → 左上 → 右上 → 左下 → 右下）。
+    const RING: [Stop; 5] = [
+        Stop::Create,
+        Stop::Model,
+        Stop::Context,
+        Stop::Ext,
+        Stop::Perms,
+    ];
+
+    fn step(self, back: bool) -> Stop {
+        let n = Self::RING.len();
+        let i = Self::RING.iter().position(|s| *s == self).unwrap_or(0);
+        Self::RING[(i + if back { n - 1 } else { 1 }) % n]
+    }
+
+    fn of(slot: art::Slot) -> Stop {
+        match slot {
+            art::Slot::Model => Stop::Model,
+            art::Slot::Context => Stop::Context,
+            art::Slot::Ext => Stop::Ext,
+            art::Slot::Perms => Stop::Perms,
+        }
+    }
+}
+
 /// 盘面的状态。**选择是本地草稿**：这一页还没落库，一切都在内存里，
 /// 按 Create 才变成一次 `POST /v1/sessions`。
 pub(crate) struct NewChat {
@@ -131,6 +170,15 @@ pub(crate) struct NewChat {
     ext_cat: Option<String>,
     /// 这次会话带哪些扩展。初始 = `loadable`（这台装上且能加载的）。
     picked_exts: BTreeSet<String>,
+
+    /// 键盘停在哪一格。`None` = 还没动过键盘（跟鼠标点击同步）。
+    kb: Option<Stop>,
+    /// 下一次渲染要把焦点抢到盘面上。用 `Cell` 是因为 `render_board` 只有 `&self`，
+    /// 而「开一次就抢一次」这件事必须在渲染时做（那时才有 window）。
+    needs_focus: std::cell::Cell<bool>,
+    /// 停在 Context 站点时，`← →` 选的是里面哪一半：`false` = 技能（左），`true` = 模板（右）。
+    /// 那张卡里本来就是两个不等价的子块，用一个 Enter 说不清。
+    ctx_half: bool,
 
     /// 只读 = 不给会写的工具（引擎侧摘 `WRITE_TOOLS`）。别的都一样：读文件、查目录、
     /// 回答问题全在。默认 `false` —— 开盘面是为了干活，不是先锁上再说。
@@ -189,6 +237,9 @@ impl NewChat {
             ext_query,
             ext_cat: None,
             picked_exts: BTreeSet::new(),
+            kb: None,
+            needs_focus: std::cell::Cell::new(false),
+            ctx_half: false,
             read_only: false,
             sheet: None,
             sheet_scroll: ScrollHandle::new(),
@@ -422,11 +473,18 @@ impl Desktop {
         self.newchat.open = true;
         self.newchat.sheet = None;
         self.newchat.flash = None;
+        self.newchat.kb = None;
+        self.newchat.needs_focus.set(true);
         window.focus(&self.newchat.focus, cx);
         cx.notify();
         if self.newchat.models.is_none() && !self.newchat.loading {
             self.board_load(cx);
         }
+    }
+
+    /// 下一次渲染把焦点抢到盘面上（调试入口用；正常入口在 [`NewChat::board_open`] 里）。
+    pub(crate) fn request_focus(&self) {
+        self.newchat.needs_focus.set(true);
     }
 
     /// 按得动 Create 吗。**按钮的长相和点击都吃这一份判定**，别两处各判一次。
@@ -747,10 +805,100 @@ impl Desktop {
         .detach();
     }
 
+    // ── 键盘 ──────────────────────────────────────────────────────────
+
+    /// 盘面的键盘。**五个停靠点**（圆 + 四张卡），Tab 一圈。
+    ///
+    /// 只绑这些：Tab 走站、Enter 按下去、`← →` 在 Context 里分两半、`⌘⏎` 直接建。
+    /// 不做几何方向键 —— 四个角加一个中心，上下左右怎么走都能讲出一套道理，
+    /// 而讲不出一套所有人不用想就能用的。
+    pub(crate) fn board_key(&mut self, ks: &Keystroke, cx: &mut Context<Self>) -> bool {
+        let key = ks.key.as_str();
+        let mods = ks.modifiers;
+
+        // 回车有两个名字：GPUI 自己的键位叫 `enter`，X11 传上来的 keysym 有时是 `return`。
+        // 只认一个的话，键盘流在真机上会「Tab 走得了、回车按不动」。
+        let enter = key == "enter" || key == "return";
+
+        // ⌘⏎ / Ctrl+⏎：盘面上唯一值得记一个组合键的动作。
+        if enter && (mods.platform || mods.control) {
+            self.board_create(cx);
+            return true;
+        }
+
+        // 弹层开着的时候，盘面的键位全让路（Esc 例外，它归弹层）。
+        if self.newchat.sheet.is_some() {
+            if key == "escape" {
+                self.newchat.sheet = None;
+                cx.notify();
+                return true;
+            }
+            return false;
+        }
+
+        match key {
+            "escape" => {
+                self.board_close(cx);
+                return true;
+            }
+            "tab" => {
+                // 还没停过就从最后一站起步，第一次 Tab 落到圆上。
+                let cur = self.newchat.kb.unwrap_or(Stop::Perms);
+                self.newchat.kb = Some(cur.step(mods.shift));
+                cx.notify();
+                return true;
+            }
+            "left" | "right" if self.newchat.kb == Some(Stop::Context) => {
+                self.newchat.ctx_half = key == "right";
+                cx.notify();
+                return true;
+            }
+            _ if enter => {
+                let Some(stop) = self.newchat.kb else {
+                    return false;
+                };
+                match stop {
+                    Stop::Create => self.board_create(cx),
+                    Stop::Model => {
+                        self.newchat.sheet = Some(Sheet::Model);
+                        cx.notify();
+                    }
+                    Stop::Context => {
+                        self.newchat.sheet =
+                            Some(if self.newchat.ctx_half { Sheet::Prompt } else { Sheet::Skills });
+                        cx.notify();
+                    }
+                    Stop::Ext => {
+                        self.newchat.sheet = Some(Sheet::Ext);
+                        cx.notify();
+                    }
+                    // 只有一个来回，Enter 就是那个来回。
+                    Stop::Perms => {
+                        self.newchat.read_only = !self.newchat.read_only;
+                        cx.notify();
+                    }
+                }
+                return true;
+            }
+            _ => {}
+        }
+        false
+    }
+
     // ── 渲染 ──────────────────────────────────────────────────────────
 
     /// 整块盘面。**顶替**右侧聊天区那一格（`app.rs` 的 render 里换掉 `render_chat`）。
     pub(crate) fn render_board(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        // 盘面一开就把焦点抢过来 —— 不然 `track_focus` 白挂，Tab / ⏎ 一个都收不到。
+        // 走 `needs_focus` 而不是在 `board_open` 里直接 focus：那条调试路径
+        // （`NOUS_OPEN_BOARD=1`）手上没有 window，两条路得落在同一处。
+        // 焦点丢了就抢回来：没有窗口管理器的 X 环境里，窗口一激活 GPUI 会把元素焦点清空，
+        // 结果 `track_focus` 白挂、Tab / ⏎ 一个都收不到。只在**谁都不要焦点**的时候抢 ——
+        // 输入框拿着焦点时不动（否则打字打到一半焦点会被拽走）。
+        let nobody = self.newchat.open && self.newchat.sheet.is_none() && window.focused(cx).is_none();
+        if self.newchat.needs_focus.replace(false) || nobody {
+            window.focus(&self.newchat.focus, cx);
+        }
         // 基准是**右格**不是整窗：盘面现在是三栏里的一格。
         let m = art::M::new(window.viewport_size(), self.tab);
         let b = &self.newchat;
@@ -770,14 +918,8 @@ impl Desktop {
                 .text_size(m.f(1.75, 12., 16.))
                 .track_focus(&b.focus)
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                    if ev.keystroke.key == "escape" {
-                        if this.newchat.sheet.is_some() {
-                            this.newchat.sheet = None;
-                        } else {
-                            this.board_close(cx);
-                            return;
-                        }
-                        cx.notify();
+                    if this.board_key(&ev.keystroke, cx) {
+                        cx.stop_propagation();
                     }
                 }))
                 .child(self.board_stack(&m, cx))
@@ -823,14 +965,8 @@ impl Desktop {
             .line_height(relative(1.5))
             .track_focus(&b.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                if ev.keystroke.key == "escape" {
-                    if this.newchat.sheet.is_some() {
-                        this.newchat.sheet = None;
-                    } else {
-                        this.board_close(cx);
-                        return;
-                    }
-                    cx.notify();
+                if this.board_key(&ev.keystroke, cx) {
+                    cx.stop_propagation();
                 }
             }))
             .child(body)
@@ -947,6 +1083,10 @@ impl Desktop {
                     .h(px(2. * (r + halo)))
                     .rounded_full()
                     .bg(rgb(art::solid()).opacity(0.05))
+                    // 键盘停在圆上时，光环变成一圈实线框。
+                    .when(b.kb == Some(Stop::Create), |el| {
+                        el.border_2().border_color(rgb(art::accent()))
+                    })
                     .flex()
                     .items_center()
                     .justify_center()
@@ -975,6 +1115,7 @@ impl Desktop {
                             .when(live, |el| {
                                 el.hover(|s| s.opacity(0.94))
                                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.newchat.kb = Some(Stop::Create);
                                         this.board_create(cx)
                                     }))
                             })
@@ -1035,9 +1176,18 @@ impl Desktop {
             .rounded(t().r(10.))
             .when(enabled, |el| {
                 el.hover(|s| s.border_color(rgb(art::line())))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        // 鼠标点哪张卡，键盘就停在哪张 —— 两种操作同一套状态。
+                        this.newchat.kb = Some(Stop::of(slot));
+                        on_click(this, cx);
+                    }))
             })
             .when(!enabled, |el| el.opacity(0.55))
+            // 焦点框压在最上面：键盘停在这一格时，别的描边都让位。
+            // 2px 而不是只换色：`mono` 皮的 accent 跟边线同为白色，只有粗细能说话。
+            .when(self.newchat.kb == Some(Stop::of(slot)), |el| {
+                el.border_2().border_color(rgb(art::accent()))
+            })
             .child(
                 div()
                     .font_family(art::mono())
@@ -1120,7 +1270,11 @@ impl Desktop {
             .border_color(rgb(art::border()))
             .rounded(t().r(10.))
             .hover(|s| s.border_color(rgb(art::line())))
+            .when(b.kb == Some(Stop::Ext), |el| {
+                el.border_2().border_color(rgb(art::accent()))
+            })
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.newchat.kb = Some(Stop::Ext);
                 this.newchat.sheet = Some(Sheet::Ext);
                 cx.notify();
             }))
@@ -1202,7 +1356,11 @@ impl Desktop {
             .border_color(rgb(art::border()))
             .rounded(t().r(10.))
             .hover(|s| s.border_color(rgb(art::line())))
+            .when(self.newchat.kb == Some(Stop::Perms), |el| {
+                el.border_2().border_color(rgb(art::accent()))
+            })
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.newchat.kb = Some(Stop::Perms);
                 this.newchat.read_only = !this.newchat.read_only;
                 cx.notify();
             }))
@@ -1265,14 +1423,6 @@ impl Desktop {
         let r = art::node_rect(&m, art::Slot::Context);
         let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
         let prompt = b.template.clone().unwrap_or_else(|| "none".into());
-        let pickable = b.ext_pickable();
-        let picked = pickable.iter().filter(|n| b.picked_exts.contains(*n)).count();
-        let broken = b.ext_broken();
-        let ext = if broken > 0 {
-            format!("{picked}/{} · {broken} 坏", pickable.len())
-        } else {
-            format!("{picked}/{}", pickable.len())
-        };
         let prompt_summary = b.template.as_ref().and_then(|name| {
             b.prompt_list().into_iter().find(|p| &p.name == name).and_then(|p| {
                 // `summary` 是模板仓库自己写的中文一句话；`description` 常常是
@@ -1284,7 +1434,12 @@ impl Desktop {
             })
         });
         let sub =
-            |id: &'static str, k: &'static str, v: String, cx: &mut Context<Self>, open: Sheet| {
+            |id: &'static str,
+             k: &'static str,
+             v: String,
+             cx: &mut Context<Self>,
+             open: Sheet,
+             hot: bool| {
                 div()
                     .id(ElementId::Name(id.into()))
                     .flex()
@@ -1299,8 +1454,12 @@ impl Desktop {
                     .rounded(t().r(7.))
                     .bg(rgb(art::bg()))
                     .hover(|s| s.border_color(rgb(art::line())))
+                    .when(hot, |el| el.border_2().border_color(rgb(art::accent())))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.newchat.sheet = Some(open);
+                        // 点哪一半，键盘就停在哪一半。
+                        this.newchat.kb = Some(Stop::Context);
+                        this.newchat.ctx_half = open == Sheet::Prompt;
                         cx.notify();
                     }))
                     .child(
@@ -1336,6 +1495,9 @@ impl Desktop {
             .border_1()
             .border_color(rgb(art::border()))
             .rounded(t().r(10.))
+            .when(b.kb == Some(Stop::Context), |el| {
+                el.border_2().border_color(rgb(art::accent()))
+            })
             .child(
                 div()
                     .font_family(art::mono())
@@ -1347,8 +1509,22 @@ impl Desktop {
                 div()
                     .flex()
                     .gap(m.v(0.6))
-                    .child(sub("board-skills", "SKILLS", skills, cx, Sheet::Skills))
-                    .child(sub("board-prompt", "PROMPT", prompt, cx, Sheet::Prompt)),
+                    .child(sub(
+                        "board-skills",
+                        "SKILLS",
+                        skills,
+                        cx,
+                        Sheet::Skills,
+                        b.kb == Some(Stop::Context) && !b.ctx_half,
+                    ))
+                    .child(sub(
+                        "board-prompt",
+                        "PROMPT",
+                        prompt,
+                        cx,
+                        Sheet::Prompt,
+                        b.kb == Some(Stop::Context) && b.ctx_half,
+                    )),
             )
             .child(div().flex_1())
             // 选了模板就把它的摘要顶上来 —— 这句原本是句废话装饰，
@@ -1438,6 +1614,15 @@ impl Desktop {
                         rgb(art::surface())
                     })
                     .px(m.v(1.0))
+                    // 点进来打字，键盘就把停靠点交出去 —— 不然「⏎ 建会话」会把
+                    // 用户在输入框里按的回车吃掉。
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.newchat.kb = None;
+                            cx.notify();
+                        }),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -1507,6 +1692,7 @@ impl Desktop {
                    value: String,
                    sheet: Option<Sheet>,
                    toggle: bool,
+                   hot: bool,
                    cx: &mut Context<Self>| {
             let mut el = div()
                 .id(ElementId::Name(id.into()))
@@ -1521,6 +1707,7 @@ impl Desktop {
                 .when(sheet.is_some() || toggle, |el| {
                     el.hover(|s| s.border_color(rgb(art::line())))
                 })
+                .when(hot, |el| el.border_2().border_color(rgb(art::accent())))
                 .child(
                     div()
                         .font_family(art::mono())
@@ -1585,6 +1772,9 @@ impl Desktop {
                     } else {
                         rgb(art::surface())
                     })
+                    .when(b.kb == Some(Stop::Create), |el| {
+                        el.border_2().border_color(rgb(art::accent()))
+                    })
                     .text_color(if live || b.creating {
                         rgb(art::bg())
                     } else {
@@ -1629,6 +1819,7 @@ impl Desktop {
                 model,
                 Some(Sheet::Model),
                 false,
+                b.kb == Some(Stop::Model),
                 cx,
             ))
             .child(row(
@@ -1636,11 +1827,21 @@ impl Desktop {
                 "CONTEXT",
                 "Skills · Prompt",
                 format!("{skills} · {prompt}"),
-                Some(Sheet::Skills),
+                Some(if b.ctx_half { Sheet::Prompt } else { Sheet::Skills }),
                 false,
+                b.kb == Some(Stop::Context),
                 cx,
             ))
-            .child(row("stk-ext", "EXTENSIONS", "Extensions", ext, Some(Sheet::Ext), false, cx))
+            .child(row(
+                "stk-ext",
+                "EXTENSIONS",
+                "Extensions",
+                ext,
+                Some(Sheet::Ext),
+                false,
+                b.kb == Some(Stop::Ext),
+                cx,
+            ))
             .child(row(
                 "stk-perm",
                 "PERMISSIONS",
@@ -1648,6 +1849,7 @@ impl Desktop {
                 if b.read_only { "只读" } else { "可写" }.into(),
                 None,
                 true,
+                b.kb == Some(Stop::Perms),
                 cx,
             ))
             // 状态行放最底下：竖排档顶部已经够挤，它在那儿会被输入框压住。
