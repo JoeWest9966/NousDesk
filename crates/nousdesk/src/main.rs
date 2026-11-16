@@ -24,6 +24,7 @@ mod live;
 mod md;
 mod nav_ui;
 mod new_entry;
+mod perf;
 mod preset_confirm;
 mod preview;
 mod preset_menu;
