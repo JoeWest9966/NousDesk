@@ -1,4 +1,4 @@
-const D = {
+window.D = {
  "skills": {
   "root": "/opt/Nous-skills",
   "repo": {
