@@ -166,6 +166,30 @@ pub(crate) struct NewCatDraft {
     pub err: Option<String>,
 }
 
+/// 「复制成新的」弹层。源模板的原文**在点确定时才读** —— 不然打开弹层就得先发
+/// 三四个请求，还可能在用户填名字的时候源那边被改了。
+pub(crate) struct CopyDraft {
+    /// 从哪条复制。
+    pub from: String,
+    /// 新名字（默认 `<原名>-copy`，用户改）。
+    pub name: Entity<InputState>,
+    pub busy: bool,
+    pub err: Option<String>,
+}
+
+/// 过滤一条模板：名字 / 摘要 / 类别，任一包含就算命中（不分大小写）。
+///
+/// 类别也搜 —— 人在列表里看见的是「写作/周报」，按它找比记住模板名自然。
+pub(crate) fn matches_query(p: &Preset, q: &str) -> bool {
+    let q = q.trim().to_lowercase();
+    if q.is_empty() {
+        return true;
+    }
+    p.name.to_lowercase().contains(&q)
+        || p.summary.to_lowercase().contains(&q)
+        || p.category.iter().any(|c| c.to_lowercase().contains(&q))
+}
+
 /// 「改类别」弹层的草稿。`picked` 是**整份**类别（勾掉就删），保存时整份发过去。
 pub(crate) struct CatEditDraft {
     pub name: String,
@@ -407,6 +431,8 @@ impl Desktop {
                 .filter(|c| !c.is_empty())
                 .collect(),
             from: from_device.then(|| "device".to_string()),
+            spec: None,
+            body: None,
         };
         if let Some(d) = self.new_preset.as_mut() {
             d.busy = true;
@@ -474,6 +500,152 @@ impl Desktop {
             self.new_cat.err = None;
             cx.notify();
         }
+    }
+
+    /// 打开「复制成新的」：只记源模板名，原文**点确定才读**。
+    pub(crate) fn open_copy(&mut self, from: String, window: &mut Window, cx: &mut Context<Self>) {
+        // 先给一个能直接用的名字（`原名-copy`），大多时候改两个字就够了。
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("新名字（就是目录名）")
+                .default_value(format!("{from}-copy"))
+        });
+        // 弹层里的输入框必须走组件自己的 focus（`window.focus(&handle)` 只是半个焦点，坑.md 72）。
+        input.update(cx, |st, cx| st.focus(window, cx));
+        self.preset_copy = Some(CopyDraft {
+            from,
+            name: input,
+            busy: false,
+            err: None,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn close_copy(&mut self, cx: &mut Context<Self>) {
+        if self.preset_copy.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// 复制一条模板：读源目录的清单原文 + `PRESET.md`，改个名字重新落一份。
+    ///
+    /// 为什么不请求「复制目录」的端点：引擎的创建口本来就收整份 `spec`（`body.spec`），
+    /// 它会覆盖 `name`/`summary`/`category` 三个键 —— 拷贝这件事不需要引擎再开一条路。
+    /// 这也意味着**新模板的其余字段原样带过去**（模型、ctx、工具权限…），这正是「做变体」要的。
+    pub(crate) fn submit_copy(&mut self, cx: &mut Context<Self>) {
+        let Some(draft) = self.preset_copy.as_ref() else {
+            return;
+        };
+        if draft.busy {
+            return;
+        }
+        let name = draft.name.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            if let Some(d) = self.preset_copy.as_mut() {
+                d.err = Some("名字不能空 —— 它就是目录名".into());
+            }
+            cx.notify();
+            return;
+        }
+        let from = draft.from.clone();
+        let Some(engine) = self.engine.clone() else {
+            if let Some(d) = self.preset_copy.as_mut() {
+                d.err = Some("还没连上引擎".into());
+            }
+            cx.notify();
+            return;
+        };
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        if let Some(d) = self.preset_copy.as_mut() {
+            d.busy = true;
+            d.err = None;
+        }
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let out: Result<(), String> = async {
+                // 1) 源目录里有哪些文件 → 挑清单（段的清单名不写死，见 `pick_manifest`）。
+                let files = engine
+                    .preset_files(section_id, &from)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let manifest = crate::editor::pick_manifest(&files.files);
+                let src = engine
+                    .preset_file(section_id, &from, &manifest)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let mut spec: serde_json::Value =
+                    serde_json::from_str(&src.text).map_err(|e| format!("源模板不是合法 JSON：{e}"))?;
+                // 2) 摘要 / 类别跟着原文走（`create` 会用这两个字段覆盖 spec 里的同名键）。
+                let summary = spec
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let category: Vec<String> = spec
+                    .get("category")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                // 3) 说明书（`PRESET.md`）也带过去 —— 复制完发现说明没了，等于丢一半。
+                let body = if files.files.iter().any(|f| f.path == "PRESET.md") {
+                    engine
+                        .preset_file(section_id, &from, "PRESET.md")
+                        .await
+                        .ok()
+                        .map(|f| f.text)
+                } else {
+                    None
+                };
+                // 4) 落一份新的。`spec` 原样发，引擎覆盖 name/summary/category。
+                let body = NewPreset {
+                    name: name.clone(),
+                    summary,
+                    category,
+                    from: None,
+                    spec: Some(spec.take()),
+                    body,
+                };
+                engine
+                    .create_preset(section_id, &body)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            .await;
+
+            this.update(cx, |this, cx| {
+                match out {
+                    Ok(()) => {
+                        this.preset_copy = None;
+                        this.notify(
+                            format!("已复制成「{name}」"),
+                            crate::app::NoticeKind::Info,
+                            cx,
+                        );
+                        // 复制完停在新的那条上：看得见才算复制成功。
+                        this.preset_cat = None;
+                        this.archive_view = false;
+                        this.load_section(sec_idx, true, cx);
+                        this.picked_preset = Some(name.clone());
+                    }
+                    Err(e) => {
+                        if let Some(d) = this.preset_copy.as_mut() {
+                            d.busy = false;
+                            d.err = Some(e);
+                        }
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// 建类别。引擎回的是**整段重算过**的词表 + 名册，直接覆盖本地。
@@ -695,6 +867,114 @@ impl Desktop {
         Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
     }
 
+    /// 「复制成新的」弹层。一个输入框（新名字）+ 两句说明。
+    pub(crate) fn copy_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let draft = self.preset_copy.as_ref()?;
+        let input = draft.name.clone();
+        let busy = draft.busy;
+        let err = draft.err.clone();
+        let from = draft.from.clone();
+
+        let scrim = div()
+            .id("copy-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_copy(cx)));
+
+        let dialog = div()
+            .id("copy-dialog")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(t().d(380.))
+                    .rounded(t().r(10.))
+                    .bg(rgb(t().p.panel))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .shadow_lg()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(18.))
+                            .text_size(t().fs(14.))
+                            .text_color(rgb(t().p.text))
+                            .child(format!("从「{from}」复制一条")),
+                    )
+                    .child(
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(4.))
+                            .pb(t().d(14.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .child("字段、模型、工具权限、说明都照抄，只换名字。名字就是目录名。"),
+                    )
+                    .child(div().px(t().d(20.)).child(Input::new(&input)))
+                    .children(err.map(|e| {
+                        div()
+                            .px(t().d(20.))
+                            .pt(t().d(8.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.danger_fg))
+                            .child(e)
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .px(t().d(20.))
+                            .py(t().d(16.))
+                            .child(
+                                div()
+                                    .id("copy-cancel")
+                                    .flex()
+                                    .items_center()
+                                    .h(t().d(28.))
+                                    .px(t().d(12.))
+                                    .rounded(t().r(6.))
+                                    .text_size(t().fs(12.))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.close_copy(cx)
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("copy-ok")
+                                    .flex()
+                                    .items_center()
+                                    .h(t().d(28.))
+                                    .px(t().d(14.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                                    .text_size(t().fs(12.))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.submit_copy(cx)
+                                    }))
+                                    .child(if busy { "复制…" } else { "复制" }),
+                            ),
+                    ),
+            );
+
+        Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
+    }
+
     // ── 生命周期：右键菜单 / 改类别 / 归档·彻底删 ───────────────
     //
     // 菜单条目和动作映射在 `preset_menu.rs`，两屏确认在 `preset_confirm.rs`；
@@ -704,6 +984,7 @@ impl Desktop {
     pub(crate) fn on_preset_menu(
         &mut self,
         action: crate::preset_menu::PresetMenuAction,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         use crate::preset_menu::PresetMenuAction as A;
@@ -726,6 +1007,7 @@ impl Desktop {
                 });
                 cx.notify();
             }
+            A::Copy { name } => self.open_copy(name, window, cx),
             A::CopyDir { dir } => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(dir.clone()));
                 self.notify(format!("目录路径已复制：{dir}"), crate::app::NoticeKind::Info, cx);
@@ -1638,7 +1920,18 @@ impl Desktop {
             .map(|d| d.presets.iter().filter(|p| p.category.is_empty()).count())
             .unwrap_or(0);
 
-        let (title, count) = if self.archive_view {
+        // 过滤词：搜索是**全段**搜，忽略当前类别 —— 找不到东西的人不该还得先切对类别。
+        let query = self.preset_filter.read(cx).value().trim().to_string();
+        let searching = !query.is_empty() && !self.archive_view;
+
+        let (title, count) = if searching {
+            (
+                "搜索".to_string(),
+                sec.data
+                    .as_ref()
+                    .map_or(0, |d| d.presets.iter().filter(|p| matches_query(p, &query)).count()),
+            )
+        } else if self.archive_view {
             // 归档视图的标题：别顶着「全部 5 条」在那儿列 1 条归档，人会对不上。
             (
                 "已归档".to_string(),
@@ -1693,15 +1986,26 @@ impl Desktop {
             match &sec.data {
                 None => vec![note("还没数据")],
                 Some(d) => {
-                    let rows: Vec<&Preset> = match &self.preset_cat {
-                        None => d.presets.iter().collect(),
-                        Some(c) if c == UNCATEGORIZED => {
-                            d.presets.iter().filter(|p| p.category.is_empty()).collect()
+                    let rows: Vec<&Preset> = if searching {
+                        d.presets
+                            .iter()
+                            .filter(|p| matches_query(p, &query))
+                            .collect()
+                    } else {
+                        match &self.preset_cat {
+                            None => d.presets.iter().collect(),
+                            Some(c) if c == UNCATEGORIZED => {
+                                d.presets.iter().filter(|p| p.category.is_empty()).collect()
+                            }
+                            Some(c) => d.presets.iter().filter(|p| in_category(p, c)).collect(),
                         }
-                        Some(c) => d.presets.iter().filter(|p| in_category(p, c)).collect(),
                     };
                     if rows.is_empty() {
-                        vec![empty_hint(&title, &sec.title, d.categories.len())]
+                        if searching {
+                            vec![empty_hint(&format!("「{query}」"), sec.title, 0)]
+                        } else {
+                            vec![empty_hint(&title, sec.title, d.categories.len())]
+                        }
                     } else {
                         rows.into_iter()
                             .map(|p| self.preset_row(p, cx).into_any_element())
@@ -1795,6 +2099,14 @@ impl Desktop {
                             .child("新建")
                     })),
             )
+            // 搜索框常驻：模板到几十条之后，靠类别树翻不如直接打两个字。
+            // 归档视图里不出现 —— 那是个小口袋，塞个搜索框反而让人以为能搜归档。
+            .children((!self.archive_view).then(|| {
+                div()
+                    .mx(t().d(14.))
+                    .mb(t().d(6.))
+                    .child(Input::new(&self.preset_filter))
+            }))
             // 生命周期动作跑着的时候常驻一行：引擎那边要 commit + push，
             // 实测几分钟 —— 不给这一行，用户会以为点了没反应又点第二次。
             .children(self.preset_busy.clone().map(|what| {
@@ -2115,8 +2427,8 @@ impl Desktop {
         );
         row.context_menu(move |menu, window, cx| {
             let this = this.clone();
-            crate::preset_menu::build_menu(menu, window, cx, &target, ok, move |action, cx| {
-                let _ = this.update(cx, |this, cx| this.on_preset_menu(action, cx));
+            crate::preset_menu::build_menu(menu, window, cx, &target, ok, move |action, window, cx| {
+                let _ = this.update(cx, |this, cx| this.on_preset_menu(action, window, cx));
             })
         })
         .into_any_element()
@@ -2366,7 +2678,24 @@ mod tests {
     // **别写 `use super::*;`**：`super` 链上有 `gpui_kit::*`，它带一个 `test` 宏，
     // 会把 `#[test]` 抢过去（报「recursion limit reached while expanding #[test]」）。
     // `app.rs` 里的测试也是只挑要用的东西，同一个原因。
-    use super::{Preset, UNCATEGORIZED, facet_tree, in_category, keep_category};
+    use super::{
+        Preset, UNCATEGORIZED, facet_tree, in_category, keep_category, matches_query,
+    };
+
+    /// 过滤词命中：名字 / 摘要 / 类别，任一包含就算（不分大小写）。
+    /// 空的过滤词**永远为真** —— 否则列表在没人搜的时候会整片空掉。
+    #[test]
+    fn query_hits_name_summary_and_category() {
+        let mut p = preset("deep-dive", &["写作/周报"]);
+        p.summary = "深挖一个话题".into();
+        assert!(matches_query(&p, ""), "空词应该全中");
+        assert!(matches_query(&p, "  "), "空白词也不算搜");
+        assert!(matches_query(&p, "DEEP"), "名字不分大小写");
+        assert!(matches_query(&p, "深挖"), "摘要也能搜");
+        assert!(matches_query(&p, "周报"), "类别也要能搜 —— 那是列表里看得见的东西");
+        assert!(!matches_query(&p, "flash"), "完全不相干的词不该命中");
+        assert!(!matches_query(&p, "写作 周报"), "整串匹配，不做分词");
+    }
 
     fn preset(name: &str, categories: &[&str]) -> Preset {
         Preset {

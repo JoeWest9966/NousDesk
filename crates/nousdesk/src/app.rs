@@ -399,6 +399,11 @@ pub struct Desktop {
     pub(crate) new_preset: Option<crate::templates::NewPresetDraft>,
     /// 「新建类别」弹层。
     pub(crate) new_cat: crate::templates::NewCatDraft,
+    /// 模板列表的过滤词。**常驻**，不是点放大镜才出来 ——
+    /// 找不到东西的人不会先去点那个图标。
+    pub(crate) preset_filter: Entity<InputState>,
+    /// 「复制成新的」弹层。`Some` = 开着。
+    pub(crate) preset_copy: Option<crate::templates::CopyDraft>,
     /// 窄窗下 Template 页的类别抽屉开着没有（宽窗常驻，不用这个）。
     pub(crate) cat_drawer: bool,
     /// Template 页在看**归档区**（列表栏换成归档列表）。
@@ -427,6 +432,9 @@ impl Desktop {
         });
         // 左栏的搜索框：单行，带搜索图标 + 一键清空。
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜索会话"));
+        let preset_filter = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("搜模板：名字 / 摘要 / 类别")
+        });
 
         // 配置在这里同步读掉：设置页要立刻显示 host / board，不能等 tokio。
         // 读坏了也先拿默认值把窗口支起来，错误交给 connect() 报。
@@ -477,6 +485,14 @@ impl Desktop {
             cx.subscribe_in(&search, window, {
                 move |_, _, event: &InputEvent, _, cx| {
                     // 每敲一个字都要重排列表（纯本地过滤，不请求引擎）。
+                    if matches!(event, InputEvent::Change) {
+                        cx.notify();
+                    }
+                }
+            }),
+            cx.subscribe_in(&preset_filter, window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    // 同上：模板列表的过滤也是纯本地，敲一个字重排一次。
                     if matches!(event, InputEvent::Change) {
                         cx.notify();
                     }
@@ -674,8 +690,20 @@ impl Desktop {
                                 cx.notify();
                                 return true;
                             }
+                            if this.preset_copy.is_some() {
+                                this.close_copy(cx);
+                                return true;
+                            }
                             if this.new_cat.input.is_some() {
                                 this.close_new_category(cx);
+                                return true;
+                            }
+                            // 搜索词比「选中」更强：Esc 先把搜索框清掉，别一键把整页都收了。
+                            if !this.preset_filter.read(cx).value().is_empty() {
+                                this.preset_filter.update(cx, |input, cx| {
+                                    input.set_value("", window, cx)
+                                });
+                                cx.notify();
                                 return true;
                             }
                             if this.new_preset.take().is_some() {
@@ -837,6 +865,8 @@ impl Desktop {
             triggers: crate::triggers::State::new(window, cx),
             section: 0,
             preset_cat: None,
+            preset_filter,
+            preset_copy: None,
             preset_closed: std::collections::HashSet::new(),
             creating: None,
             picked_preset: None,
@@ -4416,6 +4446,7 @@ impl Render for Desktop {
             .children(self.cat_drawer_overlay(cx))
             // 「新建类别」弹层
             .children(self.new_cat_overlay(cx))
+            .children(self.copy_overlay(cx))
             // Template 页：改类别 / 归档·彻底删的确认（最上面两层）
             .children(self.cat_edit_overlay(cx))
             .children(self.preset_confirm_overlay(cx))

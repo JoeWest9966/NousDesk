@@ -52,6 +52,8 @@ pub enum PresetMenuAction {
     Open { name: String },
     /// 打开编辑器（C1 工作台）。
     Edit { name: String },
+    /// 复制成新的：读源模板的原文改个名字再落一份（连 `PRESET.md` 一起）。
+    Copy { name: String },
     ChangeCategory { name: String },
     CopyDir { dir: String },
     Reload,
@@ -65,6 +67,7 @@ pub enum PresetMenuEntry {
     Open,
     ChangeCategory,
     Edit,
+    Copy,
     CopyDir,
     Reload,
     Archive,
@@ -84,6 +87,7 @@ pub fn lines() -> Vec<MenuLine> {
         MenuLine::Item(PresetMenuEntry::Open),
         MenuLine::Item(PresetMenuEntry::ChangeCategory),
         MenuLine::Item(PresetMenuEntry::Edit),
+        MenuLine::Item(PresetMenuEntry::Copy),
         MenuLine::Separator,
         MenuLine::Item(PresetMenuEntry::CopyDir),
         MenuLine::Item(PresetMenuEntry::Reload),
@@ -99,6 +103,7 @@ pub fn label(entry: PresetMenuEntry) -> &'static str {
         PresetMenuEntry::Open => "开一条新对话",
         PresetMenuEntry::ChangeCategory => "改类别…",
         PresetMenuEntry::Edit => "编辑",
+        PresetMenuEntry::Copy => "复制成新的…",
         PresetMenuEntry::CopyDir => "复制目录路径",
         PresetMenuEntry::Reload => "重扫这一段",
         PresetMenuEntry::Archive => "归档…",
@@ -110,6 +115,7 @@ pub fn label(entry: PresetMenuEntry) -> &'static str {
 pub fn hint(entry: PresetMenuEntry) -> Option<&'static str> {
     match entry {
         PresetMenuEntry::Purge => Some(PURGE_HINT),
+        PresetMenuEntry::Copy => Some("连说明一起"),
         _ => None,
     }
 }
@@ -135,6 +141,7 @@ pub fn entry_action(
         PresetMenuEntry::Open => PresetMenuAction::Open { name: name() },
         PresetMenuEntry::ChangeCategory => PresetMenuAction::ChangeCategory { name: name() },
         PresetMenuEntry::Edit => PresetMenuAction::Edit { name: name() },
+        PresetMenuEntry::Copy => PresetMenuAction::Copy { name: name() },
         PresetMenuEntry::CopyDir => PresetMenuAction::CopyDir {
             dir: target.dir.clone(),
         },
@@ -153,7 +160,7 @@ pub fn build_menu(
     cx: &mut Context<PopupMenu>,
     target: &PresetTarget,
     can_open: bool,
-    on_pick: impl Fn(PresetMenuAction, &mut App) + Clone + 'static,
+    on_pick: impl Fn(PresetMenuAction, &mut Window, &mut App) + Clone + 'static,
 ) -> PopupMenu {
     let _ = (window, cx);
     let mut menu = menu;
@@ -174,7 +181,7 @@ fn item_for<F>(
     on_pick: F,
 ) -> PopupMenuItem
 where
-    F: Fn(PresetMenuAction, &mut App) + 'static,
+    F: Fn(PresetMenuAction, &mut Window, &mut App) + 'static,
 {
     let text = label(entry);
     let enabled = entry_enabled(entry, can_open);
@@ -185,7 +192,9 @@ where
         return PopupMenuItem::label(text);
     };
 
-    let handler = move |_: &ClickEvent, _: &mut Window, cx: &mut App| on_pick(action.clone(), cx);
+    let handler = move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+        on_pick(action.clone(), window, cx)
+    };
 
     match hint(entry) {
         Some(hint) => PopupMenuItem::element(move |_window, _cx| {
@@ -245,6 +254,7 @@ mod tests {
                 MenuLine::Item(PresetMenuEntry::Open),
                 MenuLine::Item(PresetMenuEntry::ChangeCategory),
                 MenuLine::Item(PresetMenuEntry::Edit),
+                MenuLine::Item(PresetMenuEntry::Copy),
                 MenuLine::Separator,
                 MenuLine::Item(PresetMenuEntry::CopyDir),
                 MenuLine::Item(PresetMenuEntry::Reload),
