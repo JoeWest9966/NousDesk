@@ -100,6 +100,22 @@ Nous 的**桌面客户端**。GPUI + `gpui-kit` 原生应用，不是网页。
    验证方法交给用户；**不要自己合并、不要推 `main`、不要删分支**。
 3. 用户人工验过、明确说「没问题」之后，才允许合并、推送、删分支；合并方式默认
    `git merge --no-ff`（保留这条分支的证据），除非用户另有要求。
+4. **一个 worktree 一个分支；`/opt/NousDesk` 只放 `main`。** 要开工先
+   `git worktree add /opt/NousDesk-<主题> -b feat/<主题> origin/main`，在自己的目录里改；
+   干完就 `--no-ff` 并进 `main`，再 `git worktree remove` 掉。
+
+**为什么第 4 条是硬要求**（2026-11-16 立的，一天内绊到两次）：多人 / 多会话共用一个工作树时，
+未提交的改动会一直挂在上面 —— 别人 `git checkout` 切不动、`git branch -d` 删不掉，
+`git add` 还能一不小心把别人的未完成代码卷进自己的提交（真发生过一次）。
+一条规则抵掉三种事故，比每次提交前逐 hunk 挑干净便宜得多。
+
+一个 worktree 里同时只能有一个分支，所以「并行」靠目录并行，不靠切来切去：
+
+```bash
+git worktree list                                           # 现在谁在哪儿、干什么
+git worktree add /opt/NousDesk-tpl -b feat/xxx origin/main  # 开工
+git worktree remove /var/tmp/…                              # 收工（先合进 main）
+```
 
 例外：只改文档/注释且不动代码的琐碎改动（改错别字、补一行说明）可以直推 `main`，
 但**平台、协议、配置路径**相关的文档改动仍走分支。
@@ -108,6 +124,9 @@ Nous 的**桌面客户端**。GPUI + `gpui-kit` 原生应用，不是网页。
 
 - **踩一个坑就往 `坑.md` 加一条。** 三行以内：症状 → 根因 → 解。追加到末尾、编号顺延，
   别改写旧条目、别写成日记。同一个坑踩第二次是这一条失灵的信号。
+- **追加式文档合冲突必须两边都留。** `坑.md` / `decisions.md` / `验证.md` 永远只往末尾追加，
+  所以冲突就是「两边各加了几条」—— 解完两份都在。**不许整份取一边**：2026-11-16 有人这么干，
+  `坑.md` 的 68–71 四条从 `main` 上蒸发了（隔天才由另一条线补回；`验证.md` / `decisions.md` 侥幸没受影响）。
 - **SSE 合帧到 16ms 再 `cx.notify()`。** `bytes_stream` 往 buffer 里塞，定时器读一次再通知 UI。
   一个 token 一次 `cx.notify()` 是这一层最容易犯的错，和 bjes6b 手机上那条 rAF 规矩一个字不差。
 - **未知字段用 `serde_json::Value` 收着原样透传。** 不许 `deny_unknown_fields` —— 那个 flag
