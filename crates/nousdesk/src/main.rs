@@ -42,6 +42,7 @@ mod templates;
 mod templates_graph;
 mod theme;
 mod triggers;
+mod window_state;
 
 use std::io::Write as _;
 use std::sync::OnceLock;
@@ -180,27 +181,43 @@ fn main() {
             // 各自的逻辑尺寸和位置，别靠猜。Wayland 下 scale_factor 由窗口所在屏决定，
             // 窗口拖到另一块屏会变 —— 这里记的是启动那一刻的主屏值。
             log_display_env(cx);
-            // 窗口：标题 NousDesk，1280x800 居中。桌面聊天应用的第一屏。
+            // 窗口几何，三档优先级：
+            //   1. `NOUS_WINDOW_SIZE=640x480` —— 验窄窗 / 脚本用，必须能覆盖一切；
+            //   2. 上次关窗时记下的（`window_state`，详见那个文件为什么单独落盘）；
+            //   3. 1280×800 居中 —— 从没开过（或状态读坏了）。
             //
             // **Linux 自画标题栏**（见 decisions.md）：GNOME 不给 server-side decorations，
             // 走 client 侧的话窗口就没标题栏/关闭按钮。所以拿 gpui-kit 的 `TitleBar` 自己画
             // 一条 —— 拖动、双击最大化、三个窗口按钮都是它自带的（Linux 上走点击，
             // Windows 上走 `window_control_area`）。Windows 那条线冻结了，仍用系统标题栏。
-            // 验证窄窗用：`NOUS_WINDOW_SIZE=640x480` 直接以那个尺寸起来。
             // （Xvfb 里用 `xdotool windowsize` 改窗口大小会留下上一帧的旧像素，
             // 截图看着像「布局坏了」，见 坑.md 63。）
-            let (start_w, start_h) = std::env::var("NOUS_WINDOW_SIZE")
+            let env_size = std::env::var("NOUS_WINDOW_SIZE")
                 .ok()
                 .and_then(|s| {
                     let (w, h) = s.split_once('x')?;
                     Some((w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?))
-                })
-                .unwrap_or((1280., 800.));
+                });
+            let remembered = crate::window_state::WindowState::load();
+            let start_bounds = match (env_size, remembered) {
+                (Some((w, h)), _) => WindowBounds::centered(size(px(w), px(h)), cx),
+                (None, Some(state)) => {
+                    log::info!(
+                        "窗口几何：读回上次的 {:.0}×{:.0}{}{}",
+                        state.width,
+                        state.height,
+                        if state.maximized { " · 最大化" } else { "" },
+                        match (state.x, state.y) {
+                            (Some(x), Some(y)) => format!(" · 在 ({x:.0},{y:.0})"),
+                            _ => " · 居中".to_string(),
+                        },
+                    );
+                    state.to_window_bounds(cx)
+                }
+                (None, None) => WindowBounds::centered(size(px(1280.), px(800.)), cx),
+            };
             let mut options = WindowOptions {
-                window_bounds: Some(WindowBounds::centered(
-                    size(px(start_w), px(start_h)),
-                    cx,
-                )),
+                window_bounds: Some(start_bounds),
                 // 最小尺寸：再窄下去三栏（图标条 + 会话列表 + 聊天区）就装不下内容了。
                 // 640x480 是「半屏」还能用的下限；窗口管理器从此不给缩得更小。
                 window_min_size: Some(size(px(MIN_WINDOW_W), px(MIN_WINDOW_H))),
