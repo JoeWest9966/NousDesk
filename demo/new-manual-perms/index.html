@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Permissions 卡 · 一个开关 · 6 套</title>
+<style>
+  :root{
+    --bg:#ededed; --panel:#fff; --surface:#f6f6f6; --line:#e6e6e6; --line-soft:#f1f1f1;
+    --text:#1a1a1a; --text2:#333; --muted:#999; --faint:#aaa; --ghost:#c8c8c8;
+    --accent:#07c160; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f; --accent-tint:#07c16022;
+    --warn:#c77700; --warn-soft:#fff8ee; --bad:#c0392b; --bad-soft:#fdf1ef;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: Inter, "Manrope", -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#fafafa;color:var(--text);font-family:var(--sans);}
+  body{padding:52px 44px 140px;}
+  h1{font-size:23px;font-weight:600;letter-spacing:-.015em;margin:0 0 10px;}
+  .lede{font-size:13.5px;color:#666;line-height:1.85;max-width:980px;margin:0;}
+  .lede b{color:#111;font-weight:600;}
+  code{font-family:var(--mono);font-size:12px;background:#efefef;padding:1px 5px;border-radius:3px;color:#333;}
+
+  .answer{border:1px solid #e8e8e8;background:#fff;border-radius:10px;padding:18px 22px;margin:26px 0 0;max-width:980px;}
+  .answer h3{margin:0 0 10px;font-size:13px;font-weight:600;}
+  .answer p{margin:0 0 9px;font-size:12.5px;color:#555;line-height:1.85;}
+  .answer p:last-child{margin-bottom:0;}
+  .answer b{color:#111;}
+  .answer .ok{color:#0a7a3f;font-weight:600;}
+  .answer .no{color:#b06a00;font-weight:600;}
+
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:52px 52px;margin-top:44px;max-width:1180px;align-items:start;}
+  .pane-head{display:flex;align-items:baseline;gap:10px;margin:0 0 4px;}
+  .num{font-family:var(--mono);font-size:10.5px;color:#c0c0c0;border:1px solid #e8e8e8;border-radius:3px;padding:1px 5px;}
+  .num.hot{color:var(--accent-fg);border-color:var(--accent);background:var(--accent-soft);}
+  .pane-head h2{font-size:14.5px;font-weight:600;margin:0;letter-spacing:-.01em;}
+  .why{font-size:12px;color:#7d7d7d;line-height:1.7;margin:0 0 16px 34px;max-width:640px;}
+  .why b{color:#333;font-weight:600;}
+  .why .cost{color:#b06a00;}
+
+  /* ── 参数卡本体：真尺寸 230×96（1280 档），跟 board.rs 的 board_card 对齐 ── */
+  .pair{display:flex;gap:18px;align-items:flex-start;}
+  .col{display:flex;flex-direction:column;gap:7px;}
+  .col .cap{font-family:var(--mono);font-size:9px;color:#c8c8c8;letter-spacing:.04em;}
+  .card{width:230px;height:96px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:9px 12px 8px;display:flex;flex-direction:column;position:relative;transition:border-color .12s;}
+  .card .k{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.02em;}
+  .card .t{font-size:13px;font-weight:700;line-height:1.25;margin-top:2px;}
+  .card .v{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:5px;}
+  .card .tag{position:absolute;right:12px;bottom:8px;font-size:10px;color:var(--faint);}
+  .card.soon{opacity:.55;}
+
+  /* 01 两段胶囊 */
+  .seg{display:flex;gap:3px;margin-top:auto;margin-bottom:2px;}
+  .seg span{flex:1;text-align:center;font-size:11px;line-height:20px;height:22px;border-radius:6px;
+            border:1px solid var(--line);color:var(--muted);background:#fff;}
+  .seg span.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .seg.ro span.on{background:#333;border-color:#333;color:#fff;}
+
+  /* 02 值 + 解释 + 右下动作（照 Model 卡） */
+  .card.mv .v{color:var(--text2);}
+  .card.mv .sub{font-size:10.5px;color:var(--faint);margin-top:auto;margin-bottom:2px;}
+
+  /* 03 整卡即开关 */
+  .card.whole{cursor:pointer;}
+  .card.whole .big{font-size:17px;font-weight:700;line-height:1.1;margin-top:6px;letter-spacing:-.01em;}
+  .card.whole .hint{font-size:10.5px;color:var(--faint);margin-top:auto;margin-bottom:2px;}
+
+  /* 04 底部整行两 pill */
+  .pills{display:flex;gap:5px;margin-top:auto;margin-bottom:1px;}
+  .pills span{flex:1;text-align:center;font-size:10.5px;height:21px;line-height:19px;border-radius:99px;
+              border:1px solid var(--line);color:var(--muted);}
+  .pills span.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-fg);font-weight:600;}
+
+  /* 05 单个 toggle 滑块 */
+  .sw{display:flex;align-items:center;justify-content:space-between;margin-top:auto;margin-bottom:3px;}
+  .sw .lbl{font-size:11px;color:var(--text2);}
+  .sw .tk{width:34px;height:19px;border-radius:99px;border:1px solid var(--line);background:#eee;position:relative;flex:none;}
+  .sw .tk i{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;
+            box-shadow:0 1px 2px rgba(0,0,0,.18);transition:.12s;}
+  .sw .tk.on{background:var(--accent);border-color:var(--accent);}
+  .sw .tk.on i{left:17px;}
+
+  /* 06 一个词 + 一行解释，切换靠整卡 hover 露出「切换 ›」 */
+  .card.oneword .big{font-size:19px;font-weight:700;letter-spacing:-.02em;margin-top:4px;}
+  .card.oneword .sub{font-size:10.5px;color:var(--faint);margin-top:auto;margin-bottom:2px;}
+  .card.oneword:hover{border-color:#bdbdbd;}
+  .card.oneword .sw2{position:absolute;right:12px;bottom:8px;font-size:10px;color:var(--accent-fg);opacity:0;}
+  .card.oneword:hover .sw2{opacity:1;}
+
+  .note{font-size:11px;color:#9a9a9a;line-height:1.7;margin:10px 0 0 34px;max-width:620px;}
+</style>
+</head>
+<body>
+
+<h1>Permissions 卡 —— 一个开关，六种画法</h1>
+<p class="lede">
+这张卡现在写着 <code>— / soon</code>，是盘面上最后一处假东西。先把话说清楚：
+<b>引擎里没有 permission 这个概念</b>（<code>/v1/permissions</code> 是 404，<code>server.js</code> 里 grep <code>permission</code> 零处），
+唯一存在的语义是 <code>readOnly</code> ——
+<code>server.js:3245</code> 那句 <code>modelTools: body.readOnly ? { remove: WRITE_TOOLS } : null</code>。
+<b>只读 = 不给会写的工具</b>，别的都一样（读文件、查目录、回答问题全都在）。
+所以这张卡真能表达的只有一件事：<b>这次会话能不能动东西</b>。
+下面六套都是在回答同一个问题 —— 一个二值开关，塞进一张 230×96 的卡，怎么塞才不像设置页。
+</p>
+
+<div class="answer">
+  <h3>先排除两条路</h3>
+  <p><b>不做弹层。</b>另外三张卡都是「点开一列东西挑一个」，因为选项多。这里只有两个选项，
+     弹层的开合成本比选择本身还高 <span class="no">（而且弹层里只有一个开关，看着像 bug）</span>。</p>
+  <p><b>不做成设置项。</b>这张卡在盘面上，跟 Model / Context / Extensions 并排。
+     别人都是「一句话说清现在是什么」，它不能变成「一个需要操作才知道状态」的控件。</p>
+</div>
+
+<div class="grid">
+
+  <!-- 00 -->
+  <div>
+    <div class="pane-head"><span class="num">00</span><h2>现状</h2></div>
+    <p class="why">写着 <code>soon</code>，点不动，整张卡 0.55 不透明度。留在这儿只为对照。</p>
+    <div class="pair"><div class="col"><div class="card soon">
+      <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+      <div class="v">—</div><div class="tag">soon</div>
+    </div></div></div>
+  </div>
+
+  <!-- 01 -->
+  <div>
+    <div class="pane-head"><span class="num">01</span><h2>两段胶囊</h2></div>
+    <p class="why">卡底一整行两个可点段，选中实底。<b>可发现性最好</b>：两个选项都写在脸上，
+      不用先点才知道能切。代价是卡里多了一行控件，比另外三张卡「重」。只读态用中性黑而不是绿 ——
+      <span class="cost">红/绿会被读成「好/坏」，这里没有好坏，只有两种模式。</span></p>
+    <div class="pair">
+      <div class="col"><div class="cap">可写</div><div class="card">
+        <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+        <div class="seg"><span class="on">可写</span><span>只读</span></div>
+      </div></div>
+      <div class="col"><div class="cap">只读</div><div class="card">
+        <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+        <div class="seg ro"><span>可写</span><span class="on">只读</span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- 02 -->
+  <div>
+    <div class="pane-head"><span class="num hot">02</span><h2>照 Model 卡的写法：值 + 一句解释</h2></div>
+    <p class="why"><b>跟另外三张卡同一个语法</b>：小标题、大字、下面一行灰字说清「现在这意味着什么」。
+      可写 → 「能改文件、能跑命令」，只读 → 「只能读，不能改」。区别在右下角那个词：
+      别处是 <code>change ›</code>（要挑），这里是 <code>切换 ›</code>（只有一个来回）。
+      <b>整卡可点</b>，不用瞄准一个小控件。这是我觉得最像这块盘面的一套。</p>
+    <div class="pair">
+      <div class="col"><div class="cap">可写</div><div class="card mv">
+        <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+        <div class="v">可写</div>
+        <div class="sub">能改文件、能跑命令</div>
+        <div class="tag">切换 ›</div>
+      </div></div>
+      <div class="col"><div class="cap">只读</div><div class="card mv">
+        <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+        <div class="v">只读</div>
+        <div class="sub">只能读，改不了东西</div>
+        <div class="tag">切换 ›</div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- 03 -->
+  <div>
+    <div class="pane-head"><span class="num">03</span><h2>整卡即开关</h2></div>
+    <p class="why">不要小控件：整张卡就是一个按钮，大字直接是状态，下面一行「点一下变只读」。
+      <b>最 Tesla</b>：一个控件都不多。问题是<b>可发现性最差</b> —— 一张长得像信息卡的按钮，
+      没人会去点它，除非那行小字刚好被读到。</p>
+    <div class="pair">
+      <div class="col"><div class="cap">可写</div><div class="card whole">
+        <div class="k">PERMISSIONS</div>
+        <div class="big">可写</div>
+        <div class="hint">点一下变只读</div>
+      </div></div>
+      <div class="col"><div class="cap">只读</div><div class="card whole">
+        <div class="k">PERMISSIONS</div>
+        <div class="big">只读</div>
+        <div class="hint">点一下变可写</div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- 04 -->
+  <div>
+    <div class="pane-head"><span class="num">04</span><h2>底部两 pill（跟 dock 呼应）</h2></div>
+    <p class="why">用跟盘面底部 <code>≡ 更多 / 模板 / 机器</code> 同一套 pill 造型，只是缩小。
+      <b>跟整块盘面长得最像一家人</b>。代价：pill 在底部 dock 是「入口」，在这里是「选择」，
+      同一个造型干两件事，<span class="cost">用户会先点一下试试对不对</span>。</p>
+    <div class="pair">
+      <div class="col"><div class="cap">可写</div><div class="card">
+        <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+        <div class="pills"><span class="on">可写</span><span>只读</span></div>
+      </div></div>
+      <div class="col"><div class="cap">只读</div><div class="card">
+        <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+        <div class="pills"><span>可写</span><span class="on">只读</span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- 05 -->
+  <div>
+    <div class="pane-head"><span class="num">05</span><h2>一个滑块</h2></div>
+    <p class="why">标准 iOS/系统设置开关，标签写「允许写操作」。<b>最省字</b>，一眼知道是开关。
+      代价：<span class="cost">开关天生是「开/关」，而这里两端都不是「关」</span> ——
+      「允许写」关掉不等于「不能干活」，用户容易以为只读 = 半残。</p>
+    <div class="pair">
+      <div class="col"><div class="cap">可写</div><div class="card">
+        <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+        <div class="sw"><span class="lbl">允许写操作</span><span class="tk on"><i></i></span></div>
+      </div></div>
+      <div class="col"><div class="cap">只读</div><div class="card">
+        <div class="k">PERMISSIONS</div><div class="t">Permissions</div>
+        <div class="sw"><span class="lbl">允许写操作</span><span class="tk"><i></i></span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- 06 -->
+  <div>
+    <div class="pane-head"><span class="num">06</span><h2>一个大词，切换藏在 hover 里</h2></div>
+    <p class="why">状态当成一个 19px 的词，什么控件都不画；鼠标进卡才浮出右下角的「切换 ›」。
+      <b>静止时最干净</b>。代价是 <span class="cost">「点得动」这条信息只在 hover 时才存在</span>，
+      而盘面是给人快速看一眼用的 —— 触屏或键盘用户永远看不到。</p>
+    <div class="pair">
+      <div class="col"><div class="cap">可写</div><div class="card oneword">
+        <div class="k">PERMISSIONS</div>
+        <div class="big">可写</div>
+        <div class="sub">能改文件、能跑命令</div>
+        <div class="sw2">切换 ›</div>
+      </div></div>
+      <div class="col"><div class="cap">只读</div><div class="card oneword">
+        <div class="k">PERMISSIONS</div>
+        <div class="big">只读</div>
+        <div class="sub">只能读，改不了东西</div>
+        <div class="sw2">切换 ›</div>
+      </div></div>
+    </div>
+  </div>
+
+</div>
+
+<p class="note">
+  六套都在 230×96（1280 窗口下的真实卡片尺寸）里画。<b>02 和 06 的区别只有一处</b>：
+  06 把「切换 ›」藏进 hover，02 让它一直挂着 —— 这一处就是「干净」和「可发现」的全部差价。
+</p>
+
+</body>
+</html>
