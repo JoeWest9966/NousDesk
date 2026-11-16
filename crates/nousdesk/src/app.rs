@@ -413,6 +413,12 @@ pub struct Desktop {
     pub(crate) branches: bool,
     /// 分支视图的根。进视图时锁住：点分支里的会话只换右侧，列表不跟着塌。
     pub(crate) branch_of: Option<i64>,
+    /// 「下次进分支视图该锁哪个根」的一次性提示。
+    ///
+    /// `新建分支` 成功后选中了新会话，手动点「⑂ 分支」时 `self.selected` 是**新叉**，
+    /// 拿它当根会看到「还没有分支」（新叉自己没有子）。所以 fork 成功时把**父会话**
+    /// 记在这儿，进视图时优先用，用完清掉 —— 一次性，不影响别的手动进入。
+    fork_root_hint: Option<i64>,
     /// 分支视图里展开着的会话。纯内存，重启重置（它不是事实，是「我眼下看到哪」）。
     pub(crate) expanded: std::collections::HashSet<i64>,
     /// 这一轮是**用户自己按的停止**。abort 会让流断开，那不是错误，别弹红条。
@@ -1046,6 +1052,7 @@ impl Desktop {
             bg_seen: None,
             branches: false,
             branch_of: None,
+            fork_root_hint: None,
             expanded: std::collections::HashSet::new(),
             user_stopped: false,
             pins_client: None,
@@ -4449,7 +4456,10 @@ impl Desktop {
                 // 然后直接进去（force=true，万一点之前正好选着它也要重新载入）。
                 this.reload_sessions(None, cx);
                 this.choose_session(forked.id, cx);
-                // 分支视图开着时把根锁到父会话 —— 不然进视图看不到刚分的叉。
+                // 分支视图**开着**时直接把根换到父会话；关着时记一笔一次性提示，
+                // 等用户点「⑂ 分支」再用 —— 那时 `self.selected` 已经是新叉，
+                // 拿它当根只会显示「还没有分支」（新叉自己没子）。
+                this.fork_root_hint = Some(id);
                 if this.branches {
                     this.branch_of = Some(id);
                     cx.notify();
@@ -4522,7 +4532,12 @@ impl Desktop {
                 if this.branches {
                     this.exit_branches(cx);
                 } else {
-                    this.enter_branches(this.selected.unwrap_or(id), cx);
+                    // 刚 fork 过就优先锁到父会话；一次性，用完清掉。
+                    let root = this
+                        .fork_root_hint
+                        .take()
+                        .unwrap_or_else(|| this.selected.unwrap_or(id));
+                    this.enter_branches(root, cx);
                 }
             }))
             .child(
