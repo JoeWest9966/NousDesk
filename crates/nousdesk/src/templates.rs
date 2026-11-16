@@ -2904,15 +2904,35 @@ impl Desktop {
             cx,
         ));
 
-        let repo_line = match (&sec.data, &sec.error) {
+        // 仓状态那句话走两个页面共用的 `sync_state` —— 以前这里自己写「仓干净」，
+        // 而 `ahead` / `behind` 根本没进判断：j1900 推不回 GitHub、攒了一堆没推的提交，
+        // 界面照旧说干净（`坑.md 89`）。
+        let unpublished = sec
+            .data
+            .as_ref()
+            .map(|d| d.presets.iter().filter(|p| !p.tracked).count())
+            .unwrap_or(0);
+        let repo_line: (String, u32) = match (&sec.data, &sec.error) {
             (Some(d), _) => match &d.repo {
                 Some(r) => {
                     let head: String = r.head.as_deref().unwrap_or("—").chars().take(7).collect();
-                    if r.dirty {
-                        (format!("● 有未提交的改动 · {head}"), warn())
-                    } else {
-                        (format!("● 仓干净 · {head}"), t().p.ok_fg)
-                    }
+                    let (text, tone) = crate::sync_state::sync_state(
+                        Some(crate::sync_state::SyncFacts::of(
+                            r.ahead.unwrap_or(0),
+                            r.behind.unwrap_or(0),
+                            r.dirty,
+                        )),
+                        // 模板没有逐条的「改过没改过」标记（引擎不回），只有整段脏不脏 ——
+                        // 所以这一格留 0，交给 `repo_dirty` 那支说「仓里有没提交的改动」。
+                        0,
+                        unpublished,
+                    );
+                    let color = match tone {
+                        crate::sync_state::Tone::Ok => t().p.ok_fg,
+                        crate::sync_state::Tone::Warn => warn(),
+                        crate::sync_state::Tone::Idle => muted(),
+                    };
+                    (format!("● {text} · {head}"), color)
                 }
                 None => ("● 仓状态未知".to_string(), muted()),
             },
@@ -3990,7 +4010,7 @@ fn launchable(p: &Preset) -> bool {
 }
 
 /// `resolved` 里任何一项 `state == "invalid"` 就开不了。
-fn has_invalid(p: &Preset) -> bool {
+pub(crate) fn has_invalid(p: &Preset) -> bool {
     p.resolved
         .as_ref()
         .and_then(|v| v.as_object())
