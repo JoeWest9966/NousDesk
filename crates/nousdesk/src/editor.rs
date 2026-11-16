@@ -3125,6 +3125,66 @@ impl crate::app::Desktop {
     }
 
     /// 发布对话框。
+    /// 发布前那几行检查单：在这条模板按「发布」之前，先让人看见
+    /// **会不会被拦**、**仓现在什么状态**。
+    ///
+    /// 故意不列文件清单 —— 真要提交哪几个文件只有引擎知道（`spec` / `PRESET.md` /
+    /// 引用它的终极模板都可能一起动），在这儿猜一份就是对着人编。要说就说知道的：
+    /// 这段目录、校验结果、仓领先落后。
+    fn publish_checklist(&self) -> Vec<AnyElement> {
+        let section = self.editor.section.clone();
+        let name = self.editor.name.clone();
+        let data = self
+            .sections
+            .iter()
+            .find(|s| s.id == section)
+            .and_then(|s| s.data.as_ref());
+        let Some(p) = data.and_then(|d| d.presets.iter().find(|p| p.name == name)) else {
+            return Vec::new();
+        };
+        let mut rows = Vec::new();
+
+        let (vtext, vcolor) = if let Some(err) = &p.spec_error {
+            (format!("⚠ 这条自己写坏了，会被拦下：{err}"), rgb(t().p.danger))
+        } else if crate::templates::has_invalid(p) {
+            (
+                "⚠ 有引用失效 —— 发布后开它的会话会红".to_string(),
+                rgb(t().p.warn),
+            )
+        } else {
+            ("形状闸会过".to_string(), rgb(t().p.muted))
+        };
+        rows.push(check_row("校验", vtext, vcolor));
+        rows.push(check_row(
+            "会提交",
+            format!("{} 整个目录", p.dir),
+            rgb(t().p.text_2),
+        ));
+
+        // 仓状态：跟左栏那句同一个函数，两处不许说出两种话。
+        let unpublished = data
+            .map(|d| d.presets.iter().filter(|q| !q.tracked).count())
+            .unwrap_or(0);
+        if let Some(r) = data.and_then(|d| d.repo.as_ref()) {
+            let (text, tone) = crate::sync_state::sync_state(
+                Some(crate::sync_state::SyncFacts::of(
+                    r.ahead.unwrap_or(0),
+                    r.behind.unwrap_or(0),
+                    r.dirty,
+                )),
+                0,
+                unpublished,
+            );
+            let color = match tone {
+                crate::sync_state::Tone::Ok => rgb(t().p.ok_fg),
+                crate::sync_state::Tone::Warn => rgb(t().p.warn),
+                crate::sync_state::Tone::Idle => rgb(t().p.muted),
+            };
+            rows.push(check_row("仓", text, color));
+        }
+        rows
+    }
+
     pub(crate) fn publish_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let input = self.editor.publish_msg.as_ref()?;
         let scrim = div()
@@ -3171,6 +3231,7 @@ impl crate::app::Desktop {
                             .text_color(rgb(t().p.muted))
                             .child("会先过形状闸（不过就一个字节都不动），再 commit + push。"),
                     )
+                    .children(self.publish_checklist())
                     .child(div().px(t().d(20.)).child(Input::new(input)))
                     .child(
                         div()
@@ -3215,6 +3276,34 @@ impl crate::app::Desktop {
             );
         Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
     }
+}
+
+/// 检查单的一行：左边固定的标签，右边一句话。
+fn check_row(label: &str, text: String, color: gpui::Rgba) -> AnyElement {
+    let t = t();
+    div()
+        .flex()
+        .flex_row()
+        .gap(t.d(8.))
+        .px(t.d(20.))
+        .py(t.d(2.5))
+        .child(
+            div()
+                .flex_none()
+                .w(t.d(34.))
+                .text_size(t.fs(10.))
+                .text_color(rgb(t.p.faint))
+                .child(label.to_string()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(t.d(0.))
+                .text_size(t.fs(10.5))
+                .text_color(color)
+                .child(text),
+        )
+        .into_any_element()
 }
 
 fn wrapper(
