@@ -1833,11 +1833,8 @@ fn status_of(item: &TriggerItem) -> (&'static str, u32, u32) {
     }
 }
 
+use crate::category::{CatNode, is_under};
 use crate::sync_state::{SyncFacts, Tone, sync_state};
-
-fn is_under(cat: &str, root: &str) -> bool {
-    cat == root || cat.starts_with(&format!("{root}/"))
-}
 
 impl Desktop {
     pub(crate) fn render_triggers(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -2072,46 +2069,29 @@ impl Desktop {
         let uncat = data
             .map(|d| d.triggers.iter().filter(|t| t.category.is_empty()).count())
             .unwrap_or(0);
-        let mut counts = std::collections::BTreeMap::<String, usize>::new();
-        if let Some(d) = data {
-            for item in &d.triggers {
-                // 同一条触发器挂了「时间」和「时间/一次」时，祖先「时间」只算一次。
-                let mut paths = std::collections::HashSet::new();
-                for cat in &item.category {
-                    let mut path = String::new();
-                    for part in cat.split('/') {
-                        if !path.is_empty() {
-                            path.push('/');
-                        }
-                        path.push_str(part);
-                        paths.insert(path.clone());
-                    }
-                }
-                for path in paths {
-                    *counts.entry(path).or_default() += 1;
-                }
-            }
-        }
+        // 树和计数走 `category.rs` —— 跟模板那边**同一套**。以前这里手搓了一个
+        // `BTreeMap` 计数 + `cats.sort()`：语义一模一样，只有排序不一样（那边按词表
+        // 父在子前、这边纯字母序）。同样的东西写两遍、只有一处悄悄不一样，改一处就漏一处。
         let current = self.triggers.cat.clone();
+        let tree: Vec<CatNode> = data
+            .map(|d| {
+                crate::category::build_tree(
+                    &d.categories,
+                    d.triggers.iter().map(|t| t.category.as_slice()),
+                )
+            })
+            .unwrap_or_default();
         let mut rows = vec![];
         rows.push(self.trigger_cat_row(None, "全部", all, current.is_none(), cx));
         rows.push(self.trigger_cat_row(Some(UNCATEGORIZED), "未分类", uncat, current.as_deref() == Some(UNCATEGORIZED), cx));
-        // 类别树 = 词表（含零计数的节点）× 卡片上真出现的路径。
-        // 只信词表的话，词表没同步时会整棵树空掉；只信计数的话，空类别会消失。
-        let mut cats: Vec<String> = data.map(|d| d.categories.clone()).unwrap_or_default();
-        for k in counts.keys() {
-            if !cats.iter().any(|c| c == k) {
-                cats.push(k.clone());
-            }
-        }
-        cats.sort();
-        for cat in &cats {
-                let depth = cat.matches('/').count();
-                let label = cat.rsplit('/').next().unwrap_or(cat);
-                let count = counts.get(cat).copied().unwrap_or(0);
-                let on = current.as_deref() == Some(cat.as_str());
-                let c = cat.clone();
-                let right = cat.clone();
+        for node in &tree {
+                let depth = node.depth;
+                let label = node.label.clone();
+                let count = node.count;
+                let cat = &node.path;
+                let on = current.as_deref() == Some(node.path.as_str());
+                let c = node.path.clone();
+                let right = node.path.clone();
                 rows.push(
                     div()
                         .id(ElementId::Name(format!("tcat-{cat}").into()))
@@ -2227,7 +2207,7 @@ impl Desktop {
                         div()
                             .text_size(t().fs(10.))
                             .text_color(rgb(t().p.muted))
-                            .child(format!("{}", counts.len())),
+                            .child(format!("{}", tree.len())),
                     ),
             )
             .child(
