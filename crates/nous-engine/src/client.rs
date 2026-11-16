@@ -664,4 +664,124 @@ impl EngineClient {
         }
         Ok(crate::sse::parse(resp.bytes_stream()))
     }
+
+    // ── 资源仓写接口 ─────────────────────────────────────────────────────
+    //
+    // 端点照 qrd3wh 源码（skills-api.js / prompts-api.js / server.js 头注释）。
+    // 这一层是哑的：路径白名单 + body 原样转发 + `{error}` 原样带出来，
+    // 不校验名字、不算状态、不替引擎决定能不能发布。
+
+    /// 三个资源仓的路径前缀。未知仓在发 HTTP 之前就挡掉 ——
+    /// 不让调用点拼出一个引擎不认识的地址还假装成功了。
+    fn resource_root(kind: &str) -> Result<&'static str, EngineError> {
+        match kind {
+            "skills" => Ok("v1/skills"),
+            "prompts" => Ok("v1/prompts"),
+            "extensions" => Ok("v1/extensions"),
+            other => Err(EngineError::Engine {
+                status: 400,
+                message: format!("未知资源仓：{other}"),
+            }),
+        }
+    }
+
+    /// 资源仓的哑请求：方法 / 路径 / query / body 全由调用方给，回包原样 `Value`。
+    /// 具体方法只是这层的一层薄壳，新增端点不用再碰 HTTP。
+    pub async fn resource_req(
+        &self,
+        method: reqwest::Method,
+        kind: &str,
+        op: &str,
+        query: &[(&str, &str)],
+        body: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value, EngineError> {
+        let root = Self::resource_root(kind)?;
+        let mut url = self.url(&format!("{root}/{op}"))?;
+        if !query.is_empty() {
+            url.query_pairs_mut()
+                .extend_pairs(query.iter().copied());
+        }
+        let mut req = self.http.request(method, url);
+        if let Some(body) = body {
+            req = req.json(body);
+        }
+        self.json(req.send().await?).await
+    }
+
+    /// `POST /v1/{skills,prompts,extensions}/create`。
+    /// 校验（名字 / 必填项）全在引擎，这边一个字都不改。
+    pub async fn skill_create(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, EngineError> {
+        self.resource_req(reqwest::Method::POST, "skills", "create", &[], Some(body))
+            .await
+    }
+
+    pub async fn prompt_create(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, EngineError> {
+        self.resource_req(reqwest::Method::POST, "prompts", "create", &[], Some(body))
+            .await
+    }
+
+    pub async fn extension_create(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, EngineError> {
+        self.resource_req(reqwest::Method::POST, "extensions", "create", &[], Some(body))
+            .await
+    }
+
+    /// `PUT /v1/{kind}/file` —— 写一个文件，只落盘不提交。
+    pub async fn resource_file_put(
+        &self,
+        kind: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, EngineError> {
+        self.resource_req(reqwest::Method::PUT, kind, "file", &[], Some(body))
+            .await
+    }
+
+    /// `POST /v1/{kind}/publish`。message 省掉就不发这个键（引擎有默认文案）。
+    pub async fn resource_publish(
+        &self,
+        kind: &str,
+        message: Option<&str>,
+    ) -> Result<serde_json::Value, EngineError> {
+        let body = match message {
+            Some(m) => serde_json::json!({ "message": m }),
+            None => serde_json::json!({}),
+        };
+        self.resource_req(reqwest::Method::POST, kind, "publish", &[], Some(&body))
+            .await
+    }
+
+    /// `GET /v1/{kind}/files?name=`。
+    pub async fn resource_files(
+        &self,
+        kind: &str,
+        name: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        self.resource_req(reqwest::Method::GET, kind, "files", &[("name", name)], None)
+            .await
+    }
+
+    /// `GET /v1/{kind}/file?name=&path=`。
+    pub async fn resource_file_get(
+        &self,
+        kind: &str,
+        name: &str,
+        path: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        self.resource_req(
+            reqwest::Method::GET,
+            kind,
+            "file",
+            &[("name", name), ("path", path)],
+            None,
+        )
+        .await
+    }
 }
