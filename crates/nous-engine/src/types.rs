@@ -292,6 +292,31 @@ pub struct Presets {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// `GET /v1/presets/<段>/files?name=` —— 这条预设目录里有哪些文件。
+///
+/// **清单文件名不写死**：段的 `manifest` 住在仓根的 `sections.json` 里
+/// （`Session-Template` 是 `preset.json`，`Ultimate-Template` 是 `ultimate.json`），
+/// 客户端照这个清单挑，别自己记。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetFiles {
+    pub name: String,
+    #[serde(default)]
+    pub files: Vec<PresetFileMeta>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetFileMeta {
+    pub path: String,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 /// `GET /v1/presets/<段>/pending`。仓状态 + **待提交单元**（一条预设一个 unit）。
 ///
 /// `units[].files[].added/removed` 是引擎已经数好的行数 —— 客户端不自己数。
@@ -361,6 +386,50 @@ pub struct PendingFile {
     pub added: u32,
     #[serde(default)]
     pub removed: u32,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/triggers`。触发器 = 一段「什么时候发起」的声明，参数由它自己定。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Triggers {
+    #[serde(default)]
+    pub triggers: Vec<Trigger>,
+    pub root: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Trigger {
+    pub name: String,
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
+    pub version: Option<String>,
+    /// 这个触发器要哪些参数 —— **终极模板的参数表单是照着它画的**，不是写死的。
+    #[serde(default)]
+    pub params: Vec<TriggerParam>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerParam {
+    pub name: String,
+    /// `epoch` / `string` / `number` / `boolean` / … 认不出来的一律当文本。
+    #[serde(rename = "type")]
+    pub ty: String,
+    pub label: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    pub help: Option<String>,
+    #[serde(default)]
+    pub choices: Vec<String>,
+    pub default: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
