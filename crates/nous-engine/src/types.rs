@@ -562,6 +562,13 @@ pub struct NewPreset {
     /// `"device"` = 跟设备默认模型起手；不传 = 空白（所有可选键都不写）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
+    /// 整份 spec 原样落。**复制一条模板**就靠它（读源模板的原文改个名字发过来）。
+    /// 引擎只管形状，并且会用 `name` / `summary` / `category` 覆盖掉里面同名的三个键。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spec: Option<serde_json::Value>,
+    /// 给人看的说明书（`PRESET.md`）。**永不进提示词**，空 = 不落。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
 }
 
 /// `POST /v1/presets/<段>/categories` 的请求体：类别词表的增 / 删 / 改名。
