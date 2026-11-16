@@ -210,6 +210,15 @@ pub(crate) struct ImportDraft {
     pub err: Option<String>,
 }
 
+/// 「重命名」弹层。名字就是目录名，所以改它等于搬家 —— 引擎连引用一起改，
+/// 这里只要一个新名字。
+pub(crate) struct RenameDraft {
+    pub from: String,
+    pub to: Entity<InputState>,
+    pub busy: bool,
+    pub err: Option<String>,
+}
+
 /// 导出文件的信封版本。读的时候看这个键在不在：在 = 我们的包（有 `spec` / `body`），
 /// 不在 = 裸清单（别人手工写的 `preset.json` 也直接能导进来）。
 pub(crate) const EXPORT_ENVELOPE: &str = "nousdeskExport";
@@ -1267,6 +1276,236 @@ impl Desktop {
         .detach();
     }
 
+    /// 重命名弹层。默认值就是原名 —— 改两个字比重打一遍快。
+    pub(crate) fn open_preset_rename(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("新名字：小写字母 / 数字开头，只留 . _ -")
+                .default_value(name.clone())
+        });
+        input.update(cx, |st, cx| st.focus(window, cx));
+        self.preset_rename = Some(RenameDraft {
+            from: name,
+            to: input,
+            busy: false,
+            err: None,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn close_preset_rename(&mut self, cx: &mut Context<Self>) {
+        if self.preset_rename.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// 改名字。**不在客户端拼目录 / 改清单 / 更新引用** —— 那是引擎一次做的三件事，
+    /// 少做一件就是红（目录和 `name` 对不上，或者引用它的终极模板指向一个不存在的名字）。
+    pub(crate) fn submit_preset_rename(&mut self, cx: &mut Context<Self>) {
+        let Some(draft) = self.preset_rename.as_ref() else {
+            return;
+        };
+        if draft.busy {
+            return;
+        }
+        let from = draft.from.clone();
+        let to = draft.to.read(cx).value().trim().to_string();
+        if to.is_empty() {
+            if let Some(d) = self.preset_rename.as_mut() {
+                d.err = Some("新名字不能空 —— 它就是目录名".into());
+            }
+            cx.notify();
+            return;
+        }
+        if to == from {
+            if let Some(d) = self.preset_rename.as_mut() {
+                d.err = Some("新名字和旧名字一样".into());
+            }
+            cx.notify();
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            if let Some(d) = self.preset_rename.as_mut() {
+                d.err = Some("还没连上引擎".into());
+            }
+            cx.notify();
+            return;
+        };
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        if let Some(d) = self.preset_rename.as_mut() {
+            d.busy = true;
+            d.err = None;
+        }
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let body = nous_engine::types::RenamePreset {
+                name: from.clone(),
+                to: to.clone(),
+            };
+            let handle = crate::TOKIO.get().cloned();
+            let result = match &handle {
+                Some(h) => {
+                    let engine = engine.clone();
+                    h.spawn(async move { engine.rename_preset(section_id, &body).await })
+                        .await
+                        .ok()
+                }
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(done)) => {
+                        this.preset_rename = None;
+                        // 引用了它的终极模板是引擎连带改的 —— 不说一声就是偷偷动了别人的东西。
+                        let extra = if done.refs.is_empty() {
+                            String::new()
+                        } else {
+                            format!("（顺带改了引用它的 {} 条终极模板：{}）", done.refs.len(), done.refs.join("、"))
+                        };
+                        this.notify(
+                            format!("已改名为「{to}」{extra}"),
+                            crate::app::NoticeKind::Info,
+                            cx,
+                        );
+                        this.load_section(sec_idx, true, cx);
+                        this.picked_preset = Some(to.clone());
+                    }
+                    Some(Err(e)) => {
+                        if let Some(d) = this.preset_rename.as_mut() {
+                            d.busy = false;
+                            d.err = Some(e.to_string());
+                        }
+                    }
+                    None => {
+                        if let Some(d) = this.preset_rename.as_mut() {
+                            d.busy = false;
+                            d.err = Some("任务没跑完".into());
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 重命名弹层。
+    pub(crate) fn preset_rename_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let draft = self.preset_rename.as_ref()?;
+        let from = draft.from.clone();
+        let busy = draft.busy;
+        let err = draft.err.clone();
+
+        let scrim = div()
+            .id("rename-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_preset_rename(cx)));
+
+        let mut card = div()
+            .flex()
+            .flex_col()
+            .w(t().d(400.))
+            .rounded(t().r(10.))
+            .bg(rgb(t().p.panel))
+            .border(t().d(1.))
+            .border_color(rgb(t().p.line))
+            .shadow_lg()
+            .overflow_hidden()
+            .child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(18.))
+                    .text_size(t().fs(14.))
+                    .text_color(rgb(t().p.text))
+                    .child(format!("重命名「{from}」")),
+            )
+            .child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(6.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.muted))
+                    .child("目录跟着改名（git 认得出是改名，历史不断）；挂在它上面的终极模板会一起指着新名字。"),
+            )
+            .child(div().px(t().d(20.)).pt(t().d(12.)).child(Input::new(&draft.to)));
+        if let Some(e) = err {
+            card = card.child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(8.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.danger_fg))
+                    .child(e),
+            );
+        }
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(scrim)
+                .child(
+                    div()
+                        .id("rename-dialog")
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                            cx.stop_propagation()
+                        })
+                        .child(card.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .justify_end()
+                                .gap(t().d(8.))
+                                .px(t().d(20.))
+                                .py(t().d(16.))
+                                .child(
+                                    div()
+                                        .id("rename-cancel")
+                                        .flex()
+                                        .items_center()
+                                        .h(t().d(28.))
+                                        .px(t().d(12.))
+                                        .rounded(t().r(6.))
+                                        .text_size(t().fs(12.))
+                                        .text_color(rgb(t().p.text_2))
+                                        .cursor_pointer()
+                                        .hover(|h| h.bg(rgb(t().p.hover)))
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.close_preset_rename(cx)
+                                        }))
+                                        .child("取消"),
+                                )
+                                .child(
+                                    div()
+                                        .id("rename-ok")
+                                        .flex()
+                                        .items_center()
+                                        .h(t().d(28.))
+                                        .px(t().d(14.))
+                                        .rounded(t().r(6.))
+                                        .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                                        .text_size(t().fs(12.))
+                                        .text_color(rgb(t().p.on_accent))
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.submit_preset_rename(cx)
+                                        }))
+                                        .child(if busy { "改名中…" } else { "改名" }),
+                                ),
+                        )),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// 「导入」弹层：文件已经读进来了，这里只剩「叫什么」。
     pub(crate) fn import_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let draft = self.preset_import.as_ref()?;
@@ -1832,6 +2071,7 @@ impl Desktop {
                 cx.notify();
             }
             A::Copy { name } => self.open_copy(name, window, cx),
+            A::Rename { name } => self.open_preset_rename(name, window, cx),
             A::Export { name } => self.export_preset(name, cx),
             A::CopyDir { dir } => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(dir.clone()));

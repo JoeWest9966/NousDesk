@@ -582,6 +582,34 @@ pub struct CategoryOp {
     pub to: Option<String>,
 }
 
+/// `POST /v1/presets/<段>/rename` 的入参。**只改名字**：目录（`git mv`，保历史）、
+/// 清单里的 `name`、以及引用了它的终极模板的 `session` —— 后两件引擎做，客户端别自己改。
+#[derive(Debug, Clone, Serialize)]
+pub struct RenamePreset {
+    pub name: String,
+    pub to: String,
+}
+
+/// `POST /v1/presets/<段>/rename` 的回包。
+///
+/// `refs` 是**连带改掉的终极模板**（名字）。界面得说出来 —— 改名顺手动了别人的东西，
+/// 不说一声就是偷偷改。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenamedPreset {
+    #[serde(default)]
+    pub ok: bool,
+    pub name: String,
+    pub to: String,
+    /// 引擎连 `pushed` 一起回（推没推上去）。`None` = 没远端 / 没东西可推。
+    #[serde(default)]
+    pub pushed: Option<bool>,
+    #[serde(default)]
+    pub refs: Vec<String>,
+    #[serde(default)]
+    pub commit: serde_json::Value,
+}
+
 /// `POST /v1/presets/<段>/categories` 的回包。引擎顺手把新的名册 / 词表带回来 ——
 /// 客户端**别自己拼**（改名会连带改预设上的挂载，本地猜必错）。
 #[derive(Debug, Clone, Deserialize)]
