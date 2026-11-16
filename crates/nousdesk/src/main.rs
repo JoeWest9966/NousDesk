@@ -14,6 +14,7 @@ mod board_art;
 mod branches;
 // Linux 自绘标题栏（GNOME 不给 server-side decorations）。其它平台不挂这个文件。
 #[cfg(target_os = "linux")]
+mod category;
 mod chrome;
 mod composer;
 mod diff;
@@ -39,6 +40,7 @@ mod session_nav;
 mod settings;
 mod sound;
 mod slash;
+mod sync_state;
 mod templates;
 mod templates_graph;
 mod theme;
