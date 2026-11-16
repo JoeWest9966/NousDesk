@@ -26,7 +26,7 @@ use gpui_kit::*;
 use nous_engine::EngineError;
 use nous_engine::triggers::{
     ArchivedTrigger, NewTrigger, TriggerFileMeta, TriggerItem, TriggerList,
-    TriggerParam, TriggerPublish,
+    TriggerParam, TriggerPublish, TriggerRepo,
 };
 
 use crate::app::Desktop;
@@ -78,6 +78,11 @@ pub(crate) struct CodeState {
     pub publish_error: Option<String>,
     pub notice: Option<(String, bool)>,
     pub diff: bool,
+    /// 点「发布」先出这一屏检查单，确认后真跑。
+    pub preflight: bool,
+    /// 发布开始时刻（算「已用 37s」）；结束后换成总用时。
+    pub publish_started: Option<std::time::Instant>,
+    pub publish_elapsed: Option<u64>,
     /// 差异视图里被点开的那几段折叠（按折叠块起始下标记）。
     pub diff_open: std::collections::HashSet<usize>,
     /// 只读代码视图 → 编辑（Textarea）。保存后回到只读。
@@ -186,6 +191,9 @@ impl State {
                 publish_error: None,
                 notice: None,
                 diff: false,
+                preflight: false,
+                publish_started: None,
+                publish_elapsed: None,
                 diff_open: std::collections::HashSet::new(),
                 editing: false,
             },
@@ -382,6 +390,8 @@ impl Desktop {
         self.triggers.code.publish_error = None;
         self.triggers.code.notice = None;
         self.triggers.code.base.clear();
+        self.triggers.code.preflight = false;
+        self.triggers.code.diff_open.clear();
         self.triggers.layer = Layer::Code;
         cx.notify();
         let Some(client) = self.triggers.client.clone() else { return };
@@ -522,6 +532,9 @@ impl Desktop {
             return;
         };
         self.triggers.code.busy = true;
+        self.triggers.code.preflight = false;
+        self.triggers.code.publish_started = Some(std::time::Instant::now());
+        self.triggers.code.publish_elapsed = None;
         self.triggers.code.publish = None;
         self.triggers.code.publish_error = None;
         self.triggers.code.notice = Some(("发布中：cargo check → build → index → commit → push".into(), false));
@@ -532,6 +545,12 @@ impl Desktop {
             let res = handle.spawn(async move { client.publish(&n).await }).await;
             let _ = this.update(cx, |this, cx| {
                 this.triggers.code.busy = false;
+                this.triggers.code.publish_elapsed = this
+                    .triggers
+                    .code
+                    .publish_started
+                    .take()
+                    .map(|s| s.elapsed().as_secs());
                 match res {
                     Ok(Ok(out)) => {
                         if !out.pushed && out.committed {
@@ -561,6 +580,24 @@ impl Desktop {
                 }
                 cx.notify();
             });
+        })
+        .detach();
+        // 一秒一下，只为让「已用 37s」真的在走 —— 引擎是同步长请求，没有进度可拿。
+        cx.spawn(async move |this, cx| loop {
+            smol::Timer::after(std::time::Duration::from_secs(1)).await;
+            let alive = this
+                .update(cx, |this, cx| {
+                    if this.triggers.code.busy {
+                        cx.notify();
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false);
+            if !alive {
+                break;
+            }
         })
         .detach();
         self.load_trigger_list(true, cx);
@@ -1776,6 +1813,57 @@ fn status_of(item: &TriggerItem) -> (&'static str, u32, u32) {
     }
 }
 
+/// 同步芯片的颜色档位。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Tone {
+    /// 干净。
+    Ok,
+    /// 有东西要处理（推 / 发布 / 拉）。
+    Warn,
+    /// 触发器本身没事，但仓库里有别的改动。
+    Idle,
+}
+
+/// 同步芯片该写什么。
+///
+/// 顺序按「先解决哪个」排：落后 → 没推 → 有改动 → 未发布 → 仓库脏 → 干净。
+/// `ahead > 0` 排在 `dirty > 0` 前面，是因为前者只要推一下就完事，
+/// 而后者还得先发布；反过来会出现「改了 2 个」盖住「3 个提交没推」的情况，
+/// 人就一直看不到自己其实一直没推上去。两个数都非零时并排写，不吞信息。
+pub(crate) fn sync_state(
+    repo: Option<&TriggerRepo>,
+    dirty: usize,
+    unpublished: usize,
+) -> (String, Tone) {
+    let ahead = repo.map(|r| r.ahead).unwrap_or(0);
+    let behind = repo.map(|r| r.behind).unwrap_or(0);
+    let repo_dirty = repo.map(|r| r.dirty).unwrap_or(false);
+    if behind > 0 {
+        return (format!("远端有新提交 · 落后 {behind}"), Tone::Warn);
+    }
+    if ahead > 0 {
+        let mut text = format!("{ahead} 个提交没推");
+        if dirty > 0 {
+            text.push_str(&format!(" · {dirty} 个有改动"));
+        }
+        return (text, Tone::Warn);
+    }
+    if dirty > 0 {
+        let mut text = format!("{dirty} 个有改动");
+        if unpublished > 0 {
+            text.push_str(&format!(" · {unpublished} 个未发布"));
+        }
+        return (text, Tone::Warn);
+    }
+    if unpublished > 0 {
+        return (format!("{unpublished} 个未发布"), Tone::Warn);
+    }
+    if repo_dirty {
+        return ("仓库有别的改动".to_string(), Tone::Idle);
+    }
+    ("已同步".to_string(), Tone::Ok)
+}
+
 fn is_under(cat: &str, root: &str) -> bool {
     cat == root || cat.starts_with(&format!("{root}/"))
 }
@@ -1828,14 +1916,17 @@ impl Desktop {
             .unwrap_or_else(|| "—".into());
         let dirty = self.triggers.dirty_count();
         let unpublished = self.triggers.unpublished_count();
-        let sync_text = if dirty > 0 {
-            format!("{dirty} 个有改动")
-        } else if unpublished > 0 {
-            format!("{unpublished} 个未发布")
-        } else {
-            "已同步".to_string()
+        let repo_state = self
+            .triggers
+            .data
+            .as_ref()
+            .and_then(|d| d.repo.as_ref());
+        let (sync_text, tone) = sync_state(repo_state, dirty, unpublished);
+        let sync_color = match tone {
+            Tone::Ok => t().p.accent,
+            Tone::Warn => t().p.warn,
+            Tone::Idle => t().p.muted,
         };
-        let sync_color = if dirty + unpublished > 0 { t().p.warn } else { t().p.accent };
 
         div()
             .flex()
@@ -3659,6 +3750,214 @@ impl Desktop {
             .into_any_element()
     }
 
+    /// 「发布」按下去之前那一屏：这次会提交什么、仓库什么状态、大概要等多久。
+    fn trigger_preflight_block(&self, cx: &mut Context<Self>) -> AnyElement {
+        let code = &self.triggers.code;
+        let item = self
+            .triggers
+            .data
+            .as_ref()
+            .and_then(|d| d.triggers.iter().find(|t| Some(&t.name) == code.name.as_ref()))
+            .cloned();
+        let repo = self.triggers.data.as_ref().and_then(|d| d.repo.clone());
+        let name = code.name.clone().unwrap_or_default();
+        let running = code.busy;
+        let elapsed = code
+            .publish_started
+            .map(|s| s.elapsed().as_secs())
+            .or(code.publish_elapsed);
+
+        let human = |n: u64| -> String {
+            if n >= 1024 * 1024 {
+                format!("{:.1} MB", n as f64 / (1024.0 * 1024.0))
+            } else if n >= 1024 {
+                format!("{:.1} KB", n as f64 / 1024.0)
+            } else {
+                format!("{n} B")
+            }
+        };
+
+        let file_rows: Vec<AnyElement> = code
+            .files
+            .iter()
+            .map(|f| {
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .py(t().d(2.5))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.text_2))
+                            .child(f.path.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(t().d(6.))
+                            .when(f.changed, |el| {
+                                el.child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .gap(t().d(4.))
+                                        .when(f.added > 0, |el| {
+                                            el.child(
+                                                div()
+                                                    .text_size(t().fs(9.5))
+                                                    .text_color(rgb(t().p.accent_fg))
+                                                    .child(format!("+{}", f.added)),
+                                            )
+                                        })
+                                        .when(f.removed > 0, |el| {
+                                            el.child(
+                                                div()
+                                                    .text_size(t().fs(9.5))
+                                                    .text_color(rgb(t().p.danger))
+                                                    .child(format!("−{}", f.removed)),
+                                            )
+                                        }),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .text_size(t().fs(9.5))
+                                    .text_color(rgb(t().p.muted))
+                                    .child(human(f.size)),
+                            ),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+        let file_count = code.files.len();
+
+        let repo_line = match &repo {
+            Some(r) => {
+                let mut bits = vec![r.branch.clone().unwrap_or_else(|| "—".into())];
+                if r.ahead > 0 {
+                    bits.push(format!("领先 {} 个提交", r.ahead));
+                }
+                if r.behind > 0 {
+                    bits.push(format!("落后 {} 个提交", r.behind));
+                }
+                bits.push(if r.dirty {
+                    format!("仓库有 {} 个未提交改动", r.dirty_count)
+                } else {
+                    "工作区干净".to_string()
+                });
+                bits.join(" · ")
+            }
+            None => "拿不到仓库状态".to_string(),
+        };
+
+        div()
+            .p(t().d(14.))
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
+            .flex()
+            .flex_col()
+            .gap(t().d(9.))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_size(t().fs(9.5))
+                            .text_color(rgb(t().p.muted))
+                            .child("将要提交"),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(t().fs(9.5))
+                            .text_color(rgb(t().p.muted))
+                            .child(format!("{file_count} 个文件 + index.json")),
+                    ),
+            )
+            .child(div().flex().flex_col().children(file_rows))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .py(t().d(2.5))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.accent_fg))
+                            .child("index.json"),
+                    )
+                    .child(
+                        div()
+                            .text_size(t().fs(9.5))
+                            .text_color(rgb(t().p.muted))
+                            .child(if item.as_ref().map(|i| i.tracked).unwrap_or(false) {
+                                format!("改写 {name} 这一条")
+                            } else {
+                                format!("新增 {name} 这一条")
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .pt(t().d(7.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(t().p.line_soft))
+                    .text_size(t().fs(9.5))
+                    .line_height(t().d(14.))
+                    .text_color(rgb(t().p.muted))
+                    .child(repo_line),
+            )
+            .child(
+                div()
+                    .text_size(t().fs(9.5))
+                    .line_height(t().d(14.))
+                    .text_color(rgb(t().p.muted))
+                    .child(
+                        "整条一般 1–3 分钟。任何一步炸了就停在那一步：check / build 失败等于什么都没提交，\
+                         推送失败则本地提交留着，不会丢。",
+                    ),
+            )
+            .when(running || elapsed.is_some(), |el| {
+                el.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(t().d(6.))
+                        .child(
+                            div()
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(if running { t().p.warn } else { t().p.accent_fg }))
+                                .child(if running {
+                                    format!("发布中 · 已用 {}s", elapsed.unwrap_or(0))
+                                } else {
+                                    format!("上次用时 {}s", elapsed.unwrap_or(0))
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_size(t().fs(9.5))
+                                .text_color(rgb(t().p.muted))
+                                .child(if running {
+                                    "引擎一次跑完才回话，这里只能给计时"
+                                } else {
+                                    ""
+                                }),
+                        ),
+                )
+            })
+            .into_any_element()
+    }
+
     fn trigger_publish_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let item = self
             .triggers
@@ -3706,11 +4005,11 @@ impl Desktop {
                                     .text_size(t().fs(9.5))
                                     .text_color(rgb(t().p.muted))
                                     .child(match *label {
-                                        "cargo check" => "编不过就不提交",
-                                        "cargo build" => "产物落 target/debug",
-                                        "node index.mjs" => "重扫索引",
+                                        "cargo check" => "编不过就不提交 · 一般 20–90s",
+                                        "cargo build" => "产物落 target/debug · 30–120s",
+                                        "node index.mjs" => "重扫索引 · 秒级",
                                         "commit" => "只 add 这个触发器 + index.json",
-                                        _ => "origin/main",
+                                        _ => "推到 origin/main",
                                     }),
                             ),
                     )
@@ -3761,6 +4060,7 @@ impl Desktop {
                     .flex_1()
                     .min_h(t().d(0.))
                     .overflow_y_scroll()
+                    .child(self.trigger_preflight_block(cx))
                     .child(
                         div()
                             .p(t().d(14.))
@@ -3862,34 +4162,92 @@ impl Desktop {
                     .p(t().d(14.))
                     .border_t(t().d(1.))
                     .border_color(rgb(t().p.line_soft))
-                    .child(
-                        div()
-                            .id("trigger-publish-btn")
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .gap(t().d(6.))
-                            .h(t().d(32.))
-                            .rounded(t().r(6.))
-                            .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
-                            .cursor_pointer()
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                if !this.triggers.code.busy {
-                                    this.publish_trigger(cx);
-                                }
-                            }))
+                    .when(self.triggers.code.preflight && !busy, |el| {
+                        el.flex()
+                            .flex_row()
+                            .gap(t().d(8.))
                             .child(
-                                Icon::new(IconName::Upload)
-                                    .size(t().d(14.))
-                                    .text_color(rgb(t().p.on_accent)),
+                                div()
+                                    .id("trigger-preflight-cancel")
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .flex_1()
+                                    .h(t().d(32.))
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(11.))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.triggers.code.preflight = false;
+                                        cx.notify();
+                                    }))
+                                    .child("再看一眼"),
                             )
                             .child(
                                 div()
-                                    .text_size(t().fs(11.))
-                                    .text_color(rgb(t().p.on_accent))
-                                    .child(if busy { "发布中…" } else { "发布" }),
-                            ),
-                    ),
+                                    .id("trigger-preflight-go")
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .gap(t().d(6.))
+                                    .flex_1()
+                                    .h(t().d(32.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.publish_trigger(cx);
+                                    }))
+                                    .child(
+                                        Icon::new(IconName::Upload)
+                                            .size(t().d(14.))
+                                            .text_color(rgb(t().p.on_accent)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(t().fs(11.))
+                                            .text_color(rgb(t().p.on_accent))
+                                            .child("开始发布"),
+                                    ),
+                            )
+                    })
+                    .when(!self.triggers.code.preflight || busy, |el| {
+                        el.child(
+                            div()
+                                .id("trigger-publish-btn")
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .gap(t().d(6.))
+                                .h(t().d(32.))
+                                .rounded(t().r(6.))
+                                .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    if this.triggers.code.busy {
+                                        return;
+                                    }
+                                    // 先出检查单，别让人对着一个五步流水线干等。
+                                    this.triggers.code.preflight = true;
+                                    cx.notify();
+                                }))
+                                .child(
+                                    Icon::new(IconName::Upload)
+                                        .size(t().d(14.))
+                                        .text_color(rgb(t().p.on_accent)),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(t().fs(11.))
+                                        .text_color(rgb(t().p.on_accent))
+                                        .child(if busy { "发布中…" } else { "发布…" }),
+                                ),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -4526,4 +4884,72 @@ fn code_block(text: &str) -> AnyElement {
         .bg(rgb(t().p.code_bg))
         .children(lines)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::{sync_state, Tone, TriggerRepo};
+
+    fn repo(ahead: i64, behind: i64, dirty: bool) -> TriggerRepo {
+        TriggerRepo {
+            ahead,
+            behind,
+            dirty,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn clean_repo_says_synced() {
+        let (text, tone) = sync_state(Some(&repo(0, 0, false)), 0, 0);
+        assert_eq!(text, "已同步");
+        assert_eq!(tone, Tone::Ok);
+    }
+
+    /// 这就是当初那个 bug：`ahead: 1` 却报「已同步」。
+    #[test]
+    fn ahead_wins_over_everything_except_behind() {
+        let (text, tone) = sync_state(Some(&repo(1, 0, false)), 0, 0);
+        assert_eq!(text, "1 个提交没推");
+        assert_eq!(tone, Tone::Warn);
+    }
+
+    #[test]
+    fn ahead_keeps_dirty_count_visible() {
+        let (text, _) = sync_state(Some(&repo(3, 0, false)), 2, 0);
+        assert_eq!(text, "3 个提交没推 · 2 个有改动");
+    }
+
+    #[test]
+    fn behind_is_first_thing_to_fix() {
+        let (text, tone) = sync_state(Some(&repo(2, 5, false)), 9, 9);
+        assert_eq!(text, "远端有新提交 · 落后 5");
+        assert_eq!(tone, Tone::Warn);
+    }
+
+    #[test]
+    fn dirty_before_unpublished_but_both_shown() {
+        let (text, _) = sync_state(Some(&repo(0, 0, false)), 2, 1);
+        assert_eq!(text, "2 个有改动 · 1 个未发布");
+    }
+
+    #[test]
+    fn unpublished_alone() {
+        let (text, _) = sync_state(Some(&repo(0, 0, false)), 0, 3);
+        assert_eq!(text, "3 个未发布");
+    }
+
+    #[test]
+    fn repo_dirty_but_triggers_clean_is_idle_not_warn() {
+        let (text, tone) = sync_state(Some(&repo(0, 0, true)), 0, 0);
+        assert_eq!(text, "仓库有别的改动");
+        assert_eq!(tone, Tone::Idle);
+    }
+
+    #[test]
+    fn no_repo_block_degrades_to_counts() {
+        let (text, tone) = sync_state(None, 0, 0);
+        assert_eq!(text, "已同步");
+        assert_eq!(tone, Tone::Ok);
+    }
 }

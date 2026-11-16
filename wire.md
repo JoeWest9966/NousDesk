@@ -280,6 +280,22 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 界面要把 `refs` 说出来 —— 改名顺手动了别人的东西，不说一声就是偷偷改。
 
 - 只有 POST；`to` 走和新建同一套名字规则（`400`）、目标已存在 `409`、源不存在 `404`。
+#### GET / POST /v1/presets/:section/order
+
+手动排序。**全局一份**（所有类别共用一套顺序），跟通讯录一样。
+
+`order.json` 住在段目录里，`{ v: 1, order: ["第一条", "第二条", …] }`。
+
+- **它不能写进 `preset.json`**：`PRESET_KEYS` / `ULTIMATE_KEYS` 是白名单，多一个键就报
+  「不认识这个键」—— 而它们报得对（拼错的键等于那条设置静默没生效）。
+- 是**文件不是目录**：`scan` 和仓里的 `index.mjs` 都只认目录，不会把它当成一条模板。
+- `GET` 回 `{ order: [...] }`；`POST` 收 `{ order: [...] }` —— **完整顺序**，不是「谁挪到
+  谁前面」。一次落盘、一次提交，服务端不重放移动。
+- 回包的 `order` 是**盘上真正存下来的那份**（服务端会把盘上已经不存在的名字滤掉）。
+- `GET /presets/:section` 的 `presets[]` **已经按它排好** —— 客户端别自己再排一遍。
+  表里没有的条目排在后面、按名字（新模板位置稳定，不会每次刷新换一处）。
+- 读不到 / 读坏的 `order.json` 一律当「没有顺序」：排序挂了不该让整段打不开。
+
 - **索引不跟着这次提交走**：`regenIndex` 会把「新建了还没发布」的条目也扫进 `index.json`，
   一起提交就成了「仓说我有它、实际推不上去」。留成 `M index.json`，下次发布收。
 
@@ -384,3 +400,31 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 | `restore` 收 `gen` 改成收别的 | 打捞 400，归档库页点了没反应 |
 
 所以：启动时打 `GET /v1/device` 记引擎版本，About 里显示，出问题先对版本。
+
+---
+
+## 另一个来源：`d6s4v1`（`agent.sqlite` 的 X 光机）
+
+数据监控室（`crates/nousdesk/src/data_console.rs`）有一半数据**不走引擎**，走的是面板
+`d6s4v1`：`/p/<board>/d6s4v1/api/*`。地址同样是「宿主 + board」，别在调用点拼。
+
+客户端在 `crates/nous-engine/src/console.rs`，五个端点：
+
+| 端点 | 我们依赖什么 |
+|---|---|
+| `GET api/overview` | `file{db,wal,shm,mtime,walMtime}`、`pragmas{pageSize,pageCount,freelist,journalMode,schemaVersion}`、`bytes{free,used}`、`counts{<表名>: 行数}`、`tables[{name,rows,bytes,pages}]`、`indexes[]`、`entriesByKind[{kind,count,bytes}]`、`integrity{checked,ok,messages}`、`target{id,path}` |
+| `GET api/conversations` | `count`、`list[{id,entries,tokens,cost,toolCalls,models,firstAt,lastAt,title}]`、`totals{entries,tokens}` |
+| `GET api/conversation?id=N` | `id`、`entries[{seq,kind,role,tokens,bytes,at,text,isError,tool,usage}]`、`tasks[{id,kind,status,startedAt,endedAt,ms}]`、`documents[]`、`submissions[]`、`prompt{messages[{id,label,text,chars,tokens}],totals}` |
+| `GET api/cost` | `totals{entries,tokens,input,output,cacheRead,cacheWrite,reasoning,cost}`、`byDay/byHour/byModel/byConv[{label,tokens,cost,calls,input,output,cacheRead}]`、`note` |
+| `GET api/health` | `tasks{total,byStatus,stuck,sleeping,avgMs,p95,slowest[{id,conv,kind,status,startedAt,endedAt}]}`、`submissions{total,byStatus,unanswered[{id,conv,status}]}`、`documents{documents,byKind,revisions,base,delta,deltaRatio}`、`walBytes`、`freelist{free,bytes}`、`maintenance[{label,why,cmd,danger}]` |
+
+几条别忘：
+
+- **`mtime` / `walMtime` 是 epoch 毫秒**（不是秒）。乘 1000 会得到 5 万年后的时间。
+- **`file.db`（文件字节）和 `pageSize × pageCount` 不总相等**：WAL 模式下 db 文件长度会落后几页。
+  真库上差 2 页，别断言相等。
+- 每份响应都带一段 `diagrams`（mermaid 源码）。桌面端不渲 mermaid，用 `Value` / `BTreeMap`
+  收着透传，别删字段。
+- 面板崩的时候回的是**整页 HTML**（502 网关那种）。错误文案必须先压平去标签再上屏，
+  否则一个红框能把整页顶下去（`console::flatten`）。
+- 这些端点是**只读**的：没有 POST。归档 / 打捞 / 撕原件仍然走引擎 `/v1/*`。

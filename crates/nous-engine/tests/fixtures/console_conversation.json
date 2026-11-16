@@ -1,0 +1,262 @@
+{
+ "id": 2,
+ "ownerConv": null,
+ "ownerTask": null,
+ "entries": [
+  {
+   "id": 9,
+   "conv": 2,
+   "seq": 3,
+   "head": null,
+   "kind": "pi.user",
+   "bytes": 118,
+   "at": 1793156783434,
+   "role": "user",
+   "model": null,
+   "provider": null,
+   "tokens": 0,
+   "cost": 0,
+   "usage": null,
+   "tool": null,
+   "toolCalls": [],
+   "isError": false,
+   "ms": null,
+   "stopReason": null,
+   "toolsAdded": [],
+   "chars": 9,
+   "text": "只回答两个字：收到"
+  },
+  {
+   "id": 12,
+   "conv": 2,
+   "seq": 5,
+   "head": null,
+   "kind": "pi.system",
+   "bytes": 2862,
+   "at": 1793156783442,
+   "role": "system",
+   "model": null,
+   "provider": null,
+   "tokens": 0,
+   "cost": 0,
+   "usage": null,
+   "tool": null,
+   "toolCalls": [],
+   "isError": false,
+   "ms": null,
+   "stopReason": null,
+   "toolsAdded": [
+    "read",
+    "write",
+    "edit",
+    "bash"
+   ],
+   "chars": 0,
+   "text": ""
+  },
+  {
+   "id": 13,
+   "conv": 2,
+   "seq": 7,
+   "head": null,
+   "kind": "pi.assistant",
+   "bytes": 584,
+   "at": 1793156783448,
+   "role": "assistant",
+   "model": "deepseek-v4-flash-260425",
+   "provider": "volc-ark",
+   "tokens": 996,
+   "cost": 0,
+   "usage": {
+    "input": 994,
+    "output": 2,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "reasoning": 0,
+    "totalTokens": 996,
+    "cost": 0
+   },
+   "tool": null,
+   "toolCalls": [],
+   "isError": false,
+   "ms": 3779,
+   "stopReason": "stop",
+   "toolsAdded": [],
+   "chars": 2,
+   "text": "收到"
+  },
+  {
+   "id": 36,
+   "conv": 2,
+   "seq": 52,
+   "head": null,
+   "kind": "pi.user",
+   "bytes": 115,
+   "at": 1793160749375,
+   "role": "user",
+   "model": null,
+   "provider": null,
+   "tokens": 0,
+   "cost": 0,
+   "usage": null,
+   "tool": null,
+   "toolCalls": [],
+   "isError": false,
+   "ms": null,
+   "stopReason": null,
+   "toolsAdded": [],
+   "chars": 5,
+   "text": "nihao"
+  },
+  {
+   "id": 39,
+   "conv": 2,
+   "seq": 63,
+   "head": null,
+   "kind": "pi.assistant",
+   "bytes": 975,
+   "at": 1793160749398,
+   "role": "assistant",
+   "model": "deepseek-v4-flash-260425",
+   "provider": "volc-ark",
+   "tokens": 1079,
+   "cost": 0,
+   "usage": {
+    "input": 1002,
+    "output": 77,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "reasoning": 74,
+    "totalTokens": 1079,
+    "cost": 0
+   },
+   "tool": null,
+   "toolCalls": [],
+   "isError": false,
+   "ms": 3933,
+   "stopReason": "stop",
+   "toolsAdded": [],
+   "chars": 310,
+   "text": "The user just said \"nihao\" (hello). The previous instruction"
+  }
+ ],
+ "tasks": [
+  {
+   "id": 11,
+   "kind": "pi.generation",
+   "status": "terminal",
+   "startedAt": 1793156783438,
+   "endedAt": 1793156787228,
+   "ms": 3790
+  },
+  {
+   "id": 38,
+   "kind": "pi.generation",
+   "status": "terminal",
+   "startedAt": 1793160749387,
+   "endedAt": 1793160753333,
+   "ms": 3946
+  },
+  {
+   "id": 42,
+   "kind": "pi.generation",
+   "status": "terminal",
+   "startedAt": 1793160761989,
+   "endedAt": 1793160766289,
+   "ms": 4300
+  }
+ ],
+ "documents": [
+  {
+   "id": 7,
+   "kind": "pi.agent",
+   "key": "\"\"",
+   "revisions": 3,
+   "bytes": 384,
+   "createdAt": 1,
+   "retired": false
+  },
+  {
+   "id": 4,
+   "kind": "pi.inbox",
+   "key": "\"\"",
+   "revisions": 1,
+   "bytes": 12,
+   "createdAt": 1,
+   "retired": false
+  },
+  {
+   "id": 3,
+   "kind": "pi.live",
+   "key": "\"\"",
+   "revisions": 1,
+   "bytes": 2,
+   "createdAt": 1,
+   "retired": false
+  }
+ ],
+ "submissions": [
+  {
+   "id": 10,
+   "status": "done",
+   "requestId": null
+  },
+  {
+   "id": 37,
+   "status": "done",
+   "requestId": "\"1943141880014f14caa2a9e71057a6d6\""
+  },
+  {
+   "id": 41,
+   "status": "done",
+   "requestId": "\"3d9abedb1dc494248a362a322dc2e5ec\""
+  }
+ ],
+ "diagrams": {},
+ "prompt": {
+  "conv": 2,
+  "upTo": null,
+  "messages": [
+   {
+    "id": 9,
+    "label": "user",
+    "kind": "pi.user",
+    "bytes": 118,
+    "chars": 9,
+    "tokens": 0,
+    "cost": 0,
+    "head": false,
+    "text": "只回答两个字：收到"
+   },
+   {
+    "id": 12,
+    "label": "system · 4 个工具描述（read write edit bash）",
+    "kind": "pi.system",
+    "bytes": 2862,
+    "chars": 0,
+    "tokens": 0,
+    "cost": 0,
+    "head": false,
+    "text": ""
+   },
+   {
+    "id": 13,
+    "label": "assistant · deepseek-v4-flash-260425",
+    "kind": "pi.assistant",
+    "bytes": 584,
+    "chars": 2,
+    "tokens": 996,
+    "cost": 0,
+    "head": false,
+    "text": "收到"
+   }
+  ],
+  "totals": {
+   "messages": 90,
+   "chars": 93246,
+   "toolChars": 0,
+   "approxTokens": 25902,
+   "realInputTokens": 0
+  }
+ }
+}

@@ -1,0 +1,235 @@
+{
+ "target": {
+  "id": "qrd3wh",
+  "own": false,
+  "path": "/opt/Nous/content/new1/map/qrd3wh/data/agent.sqlite"
+ },
+ "file": {
+  "db": 1171456,
+  "wal": 486192,
+  "shm": 32768,
+  "mtime": 1794807593545.2988,
+  "walMtime": 1794812553752.7693
+ },
+ "pragmas": {
+  "pageSize": 4096,
+  "pageCount": 288,
+  "freelist": 1,
+  "journalMode": "wal",
+  "autoVacuum": 0,
+  "userVersion": 0,
+  "schemaVersion": 2
+ },
+ "bytes": {
+  "db": 1171456,
+  "wal": 486192,
+  "shm": 32768,
+  "free": 4096,
+  "used": 1167360,
+  "onDisk": 1690416
+ },
+ "counts": {
+  "entries": 216,
+  "documents": 931,
+  "document_revisions": 1624,
+  "tasks": 136,
+  "record_ids": 1531,
+  "submissions": 62,
+  "conversations": 183,
+  "durable_metadata": 1,
+  "durable_schema": 1
+ },
+ "tables": [
+  {
+   "name": "entries",
+   "bytes": 425984,
+   "pages": 104,
+   "rows": 216
+  },
+  {
+   "name": "documents",
+   "bytes": 196608,
+   "pages": 48,
+   "rows": 931
+  },
+  {
+   "name": "document_revisions",
+   "bytes": 167936,
+   "pages": 41,
+   "rows": 1624
+  },
+  {
+   "name": "tasks",
+   "bytes": 61440,
+   "pages": 15,
+   "rows": 136
+  },
+  {
+   "name": "record_ids",
+   "bytes": 32768,
+   "pages": 8,
+   "rows": 1531
+  },
+  {
+   "name": "submissions",
+   "bytes": 24576,
+   "pages": 6,
+   "rows": 62
+  },
+  {
+   "name": "conversations",
+   "bytes": 4096,
+   "pages": 1,
+   "rows": 183
+  },
+  {
+   "name": "durable_metadata",
+   "bytes": 4096,
+   "pages": 1,
+   "rows": 1
+  },
+  {
+   "name": "durable_schema",
+   "bytes": 4096,
+   "pages": 1,
+   "rows": 1
+  }
+ ],
+ "indexes": [
+  {
+   "name": "conversations_by_owner_conversation",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "conversations"
+  },
+  {
+   "name": "conversations_by_owner_task",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "conversations"
+  },
+  {
+   "name": "document_revisions_by_kind",
+   "bytes": 36864,
+   "pages": 9,
+   "table": "document_revisions"
+  },
+  {
+   "name": "documents_by_address",
+   "bytes": 49152,
+   "pages": 12,
+   "table": "documents"
+  },
+  {
+   "name": "documents_by_scope",
+   "bytes": 32768,
+   "pages": 8,
+   "table": "documents"
+  },
+  {
+   "name": "documents_by_scope_kind",
+   "bytes": 45056,
+   "pages": 11,
+   "table": "documents"
+  },
+  {
+   "name": "entries_by_conversation",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "entries"
+  },
+  {
+   "name": "entry_heads_by_conversation",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "entries"
+  },
+  {
+   "name": "sqlite_autoindex_document_revisions_1",
+   "bytes": 28672,
+   "pages": 7,
+   "table": "document_revisions"
+  },
+  {
+   "name": "submissions_by_conversation",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "submissions"
+  },
+  {
+   "name": "submissions_by_request",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "submissions"
+  },
+  {
+   "name": "submissions_by_status",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "submissions"
+  },
+  {
+   "name": "tasks_by_abort_requested",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "tasks"
+  },
+  {
+   "name": "tasks_by_background",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "tasks"
+  },
+  {
+   "name": "tasks_by_conversation",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "tasks"
+  },
+  {
+   "name": "tasks_by_kind",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "tasks"
+  },
+  {
+   "name": "tasks_by_status",
+   "bytes": 4096,
+   "pages": 1,
+   "table": "tasks"
+  }
+ ],
+ "entriesByKind": [
+  {
+   "kind": "pi.assistant",
+   "count": 99,
+   "bytes": 151392
+  },
+  {
+   "kind": "pi.system",
+   "count": 18,
+   "bytes": 117489
+  },
+  {
+   "kind": "pi.tool-result",
+   "count": 37,
+   "bytes": 64965
+  },
+  {
+   "kind": "pi.user",
+   "count": 62,
+   "bytes": 8583
+  }
+ ],
+ "integrity": {
+  "checked": true,
+  "ok": true,
+  "messages": [
+   "ok"
+  ]
+ },
+ "attention": [
+  "旁路：这份库属于别的块，这页只是隔着文件名读它"
+ ],
+ "diagrams": {}
+}

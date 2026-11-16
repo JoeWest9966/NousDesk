@@ -19,6 +19,9 @@ mod composer;
 mod diff;
 mod config;
 mod config_panel;
+mod data_console;
+#[cfg(test)]
+mod data_console_tests;
 mod editor;
 mod fonts;
 mod live;

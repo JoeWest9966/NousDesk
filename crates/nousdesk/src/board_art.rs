@@ -142,6 +142,8 @@ pub(crate) fn pane_width(win_w: f32, tab: crate::app::Tab) -> f32 {
         crate::app::Tab::Templates if folder => t.rail_w + crate::app::TEMPLATE_LIST_W_NARROW,
         crate::app::Tab::Templates => t.rail_w + t.preset_tree_w + t.template_list_w,
         crate::app::Tab::Triggers => t.rail_w + 214.,
+    // 数据监控室自己画满三列，这一份只用来算盘面的宽度基准（不画盘面）。
+    crate::app::Tab::Data => t.rail_w + 214.,
     };
     (win_w - left).max(1.)
 }
