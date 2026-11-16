@@ -78,6 +78,8 @@ pub(crate) struct CodeState {
     pub publish_error: Option<String>,
     pub notice: Option<(String, bool)>,
     pub diff: bool,
+    /// 差异视图里被点开的那几段折叠（按折叠块起始下标记）。
+    pub diff_open: std::collections::HashSet<usize>,
     /// 只读代码视图 → 编辑（Textarea）。保存后回到只读。
     pub editing: bool,
 }
@@ -154,7 +156,7 @@ pub(crate) struct State {
 
 impl State {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜名字 / 说明 / 类别"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜名字 / 说明 / 类别 / 参数 / 二进制"));
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("morning-review"));
         let summary = cx.new(|cx| {
             InputState::new(window, cx).placeholder("每天第一条会话时，按昨天的日志起一条复盘")
@@ -184,6 +186,7 @@ impl State {
                 publish_error: None,
                 notice: None,
                 diff: false,
+                diff_open: std::collections::HashSet::new(),
                 editing: false,
             },
             wizard: Wizard {
@@ -432,6 +435,7 @@ impl Desktop {
                         });
                         this.triggers.code.etag = file.etag;
                         this.triggers.code.base = file.base.unwrap_or_default();
+                        this.triggers.code.diff_open.clear();
                         this.triggers.code.path = Some(file.path);
                         this.triggers.code.notice = None;
                     }
@@ -2021,8 +2025,16 @@ impl Desktop {
         let mut rows = vec![];
         rows.push(self.trigger_cat_row(None, "全部", all, current.is_none(), cx));
         rows.push(self.trigger_cat_row(Some(UNCATEGORIZED), "未分类", uncat, current.as_deref() == Some(UNCATEGORIZED), cx));
-        if let Some(d) = data {
-            for cat in &d.categories {
+        // 类别树 = 词表（含零计数的节点）× 卡片上真出现的路径。
+        // 只信词表的话，词表没同步时会整棵树空掉；只信计数的话，空类别会消失。
+        let mut cats: Vec<String> = data.map(|d| d.categories.clone()).unwrap_or_default();
+        for k in counts.keys() {
+            if !cats.iter().any(|c| c == k) {
+                cats.push(k.clone());
+            }
+        }
+        cats.sort();
+        for cat in &cats {
                 let depth = cat.matches('/').count();
                 let label = cat.rsplit('/').next().unwrap_or(cat);
                 let count = counts.get(cat).copied().unwrap_or(0);
@@ -2075,7 +2087,6 @@ impl Desktop {
                         .into_any_element(),
                 );
             }
-        }
         rows.push(
             div()
                 .id("tcat-archived")
@@ -2252,13 +2263,38 @@ impl Desktop {
                     Some(UNCATEGORIZED) => item.category.is_empty(),
                     Some(cat) => item.category.iter().any(|c| is_under(c, cat)),
                 };
-                let hay = format!(
-                    "{} {} {}",
+                // 搜名字 / 说明 / 类别之外，还要能按**参数名**和**二进制名**捞 ——
+                // 「哪个触发器收 epoch」这种问题不该靠翻卡片。
+                let mut hay = format!(
+                    "{} {} {} {}",
                     item.name,
                     item.summary,
+                    item.version,
                     item.category.join(" ")
-                )
-                .to_lowercase();
+                );
+                if let Some(b) = &item.binary {
+                    hay.push(' ');
+                    hay.push_str(b);
+                }
+                for p in &item.params {
+                    hay.push(' ');
+                    hay.push_str(&p.name);
+                    hay.push(' ');
+                    hay.push_str(&p.kind);
+                    if let Some(l) = &p.label {
+                        hay.push(' ');
+                        hay.push_str(l);
+                    }
+                    if let Some(h) = &p.help {
+                        hay.push(' ');
+                        hay.push_str(h);
+                    }
+                    for o in &p.options {
+                        hay.push(' ');
+                        hay.push_str(o);
+                    }
+                }
+                let hay = hay.to_lowercase();
                 by_status && by_cat && (needle.is_empty() || hay.contains(&needle))
             })
             .cloned()
@@ -3474,46 +3510,152 @@ impl Desktop {
     }
 
     fn trigger_diff(&self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::diff::{self as d, Kind, Row};
         let text = self.triggers.code.text.read(cx).value().to_string();
-        let base: HashSet<&str> = self.triggers.code.base.lines().collect();
-        let lines: Vec<AnyElement> = text
-            .lines()
-            .enumerate()
-            .map(|(i, line)| {
-                let added = !line.trim().is_empty() && !base.contains(line);
+        let old = self.triggers.code.base.clone();
+        let lines = d::diff(&old, &text);
+        let st = d::stat(&lines);
+        let rows = d::rows(&lines, 3, &self.triggers.code.diff_open);
+        let folded = rows.iter().filter(|r| matches!(r, Row::Fold { .. })).count();
+
+        // 头上那行：`+7 −3`；干净时说「和 HEAD 一样」。
+        let head = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(t().d(8.))
+            .px(t().d(10.))
+            .h(t().d(26.))
+            .flex_none()
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
+            .child(
                 div()
+                    .text_size(t().fs(10.))
+                    .text_color(rgb(if st.added > 0 { t().p.accent_fg } else { t().p.muted }))
+                    .child(format!("+{}", st.added)),
+            )
+            .child(
+                div()
+                    .text_size(t().fs(10.))
+                    .text_color(rgb(if st.removed > 0 { t().p.danger } else { t().p.muted }))
+                    .child(format!("−{}", st.removed)),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .text_size(t().fs(9.5))
+                    .text_color(rgb(t().p.muted))
+                    .child(if st.added == 0 && st.removed == 0 {
+                        "和 HEAD 里的这一版一模一样".to_string()
+                    } else if folded > 0 {
+                        format!("{folded} 处未变已折叠 · 点开看")
+                    } else {
+                        "相对 HEAD 的改动".to_string()
+                    }),
+            );
+
+        let no_col = |n: Option<usize>| {
+            div()
+                .w(t().d(30.))
+                .flex_none()
+                .pr(t().d(7.))
+                .text_right()
+                .text_size(t().fs(9.))
+                .text_color(rgb(t().p.muted))
+                .child(n.map(|n| n.to_string()).unwrap_or_default())
+        };
+
+        let body: Vec<AnyElement> = rows
+            .into_iter()
+            .map(|row| match row {
+                Row::Fold { start, count } => div()
+                    .id(ElementId::Name(format!("tdiff-fold-{start}").into()))
                     .flex()
                     .flex_row()
-                    .min_h(t().d(19.))
-                    .when(added, |el| el.bg(rgb(t().p.accent_soft)))
+                    .items_center()
+                    .h(t().d(20.))
+                    .px(t().d(6.))
+                    .rounded(t().r(4.))
+                    .cursor_pointer()
+                    .hover(|h| h.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.triggers.code.diff_open.insert(start);
+                        cx.notify();
+                    }))
                     .child(
                         div()
-                            .w(t().d(38.))
-                            .flex_none()
-                            .pr(t().d(9.))
-                            .text_right()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.muted))
-                            .child(format!("{}", i + 1)),
+                            .text_color(rgb(t().p.accent_fg))
+                            .child(format!("⋯ {count} 行未变，点开")),
                     )
-                    .child(
-                        div()
-                            .whitespace_nowrap()
-                            .text_size(t().fs(10.5))
-                            .text_color(rgb(if added { t().p.accent_fg } else { t().p.text_2 }))
-                            .child(if line.is_empty() { " ".to_string() } else { line.to_string() }),
-                    )
-                    .into_any_element()
+                    .into_any_element(),
+                Row::Line(i) => {
+                    let line = &lines[i];
+                    let (tint, fg) = match line.kind {
+                        Kind::Add => (Some(t().p.accent_soft), t().p.accent_fg),
+                        Kind::Del => (None, t().p.danger),
+                        Kind::Same => (None, t().p.text_2),
+                    };
+                    div()
+                        .flex()
+                        .flex_row()
+                        .min_h(t().d(19.))
+                        .when_some(tint, |el, c| el.bg(rgb(c)))
+                        // 删的行在左边来一条红，不铺底色 —— 一屏里红块太多就没法读了
+                        .when(line.kind == Kind::Del, |el| {
+                            el.border_l(t().d(2.)).border_color(rgb(t().p.danger))
+                        })
+                        .when(line.kind == Kind::Add, |el| {
+                            el.border_l(t().d(2.)).border_color(rgb(t().p.accent))
+                        })
+                        .child(no_col(line.old_no))
+                        .child(no_col(line.new_no))
+                        .child(
+                            div()
+                                .w(t().d(11.))
+                                .flex_none()
+                                .text_size(t().fs(9.5))
+                                .text_color(rgb(fg))
+                                .child(match line.kind {
+                                    Kind::Add => "+",
+                                    Kind::Del => "−",
+                                    Kind::Same => "",
+                                }),
+                        )
+                        .child(
+                            div()
+                                .whitespace_nowrap()
+                                .text_size(t().fs(10.5))
+                                .text_color(rgb(fg))
+                                .child(if line.text.is_empty() {
+                                    " ".to_string()
+                                } else {
+                                    line.text.to_string()
+                                }),
+                        )
+                        .into_any_element()
+                }
             })
             .collect();
+
         div()
             .id("trigger-diff-scroll")
             .flex_1()
             .min_h(t().d(0.))
-            .overflow_scroll()
+            .flex()
+            .flex_col()
             .bg(rgb(t().p.code_bg))
-            .p(t().d(6.))
-            .child(div().flex().flex_col().children(lines))
+            .child(head)
+            .child(
+                div()
+                    .id("trigger-diff-body")
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .overflow_scroll()
+                    .p(t().d(6.))
+                    .child(div().flex().flex_col().children(body)),
+            )
             .into_any_element()
     }
 

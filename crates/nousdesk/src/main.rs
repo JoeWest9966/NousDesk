@@ -16,6 +16,7 @@ mod branches;
 #[cfg(target_os = "linux")]
 mod chrome;
 mod composer;
+mod diff;
 mod config;
 mod config_panel;
 mod editor;
