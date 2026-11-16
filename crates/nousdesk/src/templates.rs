@@ -18,7 +18,7 @@
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
 use gpui_kit::assets::IconName;
@@ -164,6 +164,26 @@ pub(crate) struct NewCatDraft {
     pub input: Option<Entity<InputState>>,
     pub busy: bool,
     pub err: Option<String>,
+}
+
+/// 类别这一层的弹层：改名（输入框）或删除（确认）。
+///
+/// **删除会连带摘挂载**（引擎侧 `mutateCategories` 会把所有挂在它下面、含子类别的预设
+/// 的 `category` 一起摘掉），所以文案必须把「几条会变成未分类」说出来，别写成「删一个空类别」。
+pub(crate) enum CatDialog {
+    Rename {
+        name: String,
+        input: Entity<InputState>,
+        busy: bool,
+        err: Option<String>,
+    },
+    Delete {
+        name: String,
+        /// 会被摘掉挂载的预设条数（含子类别）。
+        count: usize,
+        busy: bool,
+        err: Option<String>,
+    },
 }
 
 /// 「复制成新的」弹层。源模板的原文**在点确定时才读** —— 不然打开弹层就得先发
@@ -717,6 +737,170 @@ impl Desktop {
         .detach();
     }
 
+    /// 打开类别的「改名」弹层。
+    pub(crate) fn open_cat_rename(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("新类别名")
+                .default_value(name.clone())
+        });
+        // 弹层输入框走组件自己的 focus（坑.md 72）。
+        input.update(cx, |st, cx| st.focus(window, cx));
+        self.cat_dialog = Some(CatDialog::Rename {
+            name,
+            input,
+            busy: false,
+            err: None,
+        });
+        cx.notify();
+    }
+
+    /// 打开类别的「删除」弹层。`count` 是会被摘掉挂载的条数（含子类别）。
+    pub(crate) fn open_cat_delete(&mut self, name: String, count: usize, cx: &mut Context<Self>) {
+        self.cat_dialog = Some(CatDialog::Delete {
+            name,
+            count,
+            busy: false,
+            err: None,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn close_cat_dialog(&mut self, cx: &mut Context<Self>) {
+        if self.cat_dialog.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// 类别改名 / 删除。两者都走 `mutate_categories`，回包带着**重算过**的词表和名册。
+    ///
+    /// 回包里的 `presets` 是**半成品**（没有 `tracked` / `resolved`），所以只拿 `categories`，
+    /// 名册照样重拉 —— 跟新建类别那条一个道理。
+    pub(crate) fn submit_cat_dialog(&mut self, cx: &mut Context<Self>) {
+        let Some(d) = self.cat_dialog.as_ref() else {
+            return;
+        };
+        // 先把要用的东西全拷出来，**别**让这只 `&` 活到后面的 `as_mut()`。
+        let (is_rename, from, input, to) = match d {
+            CatDialog::Rename { name, input, busy, .. } => {
+                if *busy {
+                    return;
+                }
+                (
+                    true,
+                    name.clone(),
+                    Some(input.clone()),
+                    input.read(cx).value().trim().to_string(),
+                )
+            }
+            CatDialog::Delete { name, busy, .. } => {
+                if *busy {
+                    return;
+                }
+                (false, name.clone(), None, String::new())
+            }
+        };
+
+        if is_rename && to.is_empty() {
+            if let Some(CatDialog::Rename { err, .. }) = self.cat_dialog.as_mut() {
+                *err = Some("新名字不能空".into());
+            }
+            cx.notify();
+            return;
+        }
+        if is_rename && to == from {
+            self.close_cat_dialog(cx);
+            return;
+        }
+
+        let body = nous_engine::types::CategoryOp {
+            op: if is_rename { "rename" } else { "remove" }.into(),
+            name: from.clone(),
+            to: is_rename.then(|| to.clone()),
+        };
+        let Some(engine) = self.engine.clone() else {
+            if let Some(d) = self.cat_dialog.as_mut() {
+                match d {
+                    CatDialog::Rename { err, .. } | CatDialog::Delete { err, .. } => {
+                        *err = Some("还没连上引擎".into())
+                    }
+                }
+            }
+            cx.notify();
+            return;
+        };
+        let _ = input;
+        if let Some(d) = self.cat_dialog.as_mut() {
+            match d {
+                CatDialog::Rename { busy, err, .. } | CatDialog::Delete { busy, err, .. } => {
+                    *busy = true;
+                    *err = None;
+                }
+            }
+        }
+        cx.notify();
+
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let result = match &handle {
+                Some(h) => h
+                    .spawn(async move { engine.mutate_categories(section_id, &body).await })
+                    .await
+                    .ok(),
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(r)) => {
+                        this.cat_dialog = None;
+                        if let Some(d) = this.sections[sec_idx].data.as_mut() {
+                            d.categories = r.categories;
+                        }
+                        // 当前选中的类别被改名 / 删掉了，就跟着走（否则列表停在一条不存在的类别上）。
+                        let cur = this.preset_cat.clone().unwrap_or_default();
+                        if cur == from || cur.starts_with(&format!("{from}/")) {
+                            let tail = &cur[from.len()..];
+                            this.preset_cat = if !is_rename {
+                                None
+                            } else if tail.is_empty() {
+                                Some(to.clone())
+                            } else {
+                                Some(format!("{to}{tail}"))
+                            };
+                        }
+                        this.load_section(sec_idx, true, cx);
+                    }
+                    Some(Err(e)) => {
+                        if let Some(d) = this.cat_dialog.as_mut() {
+                            match d {
+                                CatDialog::Rename { busy, err, .. }
+                                | CatDialog::Delete { busy, err, .. } => {
+                                    *busy = false;
+                                    *err = Some(e.to_string());
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        if let Some(d) = this.cat_dialog.as_mut() {
+                            match d {
+                                CatDialog::Rename { busy, err, .. }
+                                | CatDialog::Delete { busy, err, .. } => {
+                                    *busy = false;
+                                    *err = Some("任务没跑完".into());
+                                }
+                            }
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// 窄窗下的「类别」抽屉：把常驻的那一栏原样搬到一个左滑的浮层里。
     ///
     /// 只在 `TREE_FOLD_W` 以下出现（宽窗类别树本来就常驻，抽屉永远关着）。
@@ -865,6 +1049,156 @@ impl Desktop {
             );
 
         Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
+    }
+
+    /// 类别弹层：改名（一个输入框）或删除（几句实话 + 红按钮）。
+    pub(crate) fn cat_dialog_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let dialog = self.cat_dialog.as_ref()?;
+        let (title, sub, danger, input, busy, err) = match dialog {
+            CatDialog::Rename { name, input, busy, err } => (
+                format!("重命名类别「{name}」"),
+                "子类别跟着改（`写作/周报` → `新名/周报`），挂在它下面的模板也一起改。".to_string(),
+                false,
+                Some(input.clone()),
+                *busy,
+                err.clone(),
+            ),
+            CatDialog::Delete { name, count, busy, err } => (
+                format!("删除类别「{name}」"),
+                if *count == 0 {
+                    "这个类别下面没有模板，删掉就完了。".to_string()
+                } else {
+                    format!("**{count} 条模板**会变成未分类（子类别一起删）。模板本身不会没，只是不再属于这个类别。")
+                },
+                true,
+                None,
+                *busy,
+                err.clone(),
+            ),
+        };
+
+        let scrim = div()
+            .id("catdlg-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_cat_dialog(cx)));
+
+        let mut dialog_el = div()
+            .flex()
+            .flex_col()
+            .w(t().d(400.))
+            .rounded(t().r(10.))
+            .bg(rgb(t().p.panel))
+            .border(t().d(1.))
+            .border_color(rgb(if danger { t().p.danger } else { t().p.line }))
+            .shadow_lg()
+            .overflow_hidden()
+            .child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(18.))
+                    .text_size(t().fs(14.))
+                    .text_color(rgb(if danger { t().p.danger } else { t().p.text }))
+                    .child(title),
+            )
+            .child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(6.))
+                    .pb(t().d(14.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.muted))
+                    .child(sub.replace("**", "")),
+            );
+        if let Some(input) = input {
+            dialog_el = dialog_el.child(div().px(t().d(20.)).child(Input::new(&input)));
+        }
+        if let Some(e) = err {
+            dialog_el = dialog_el.child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(8.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.danger_fg))
+                    .child(e),
+            );
+        }
+
+        let boxed = div()
+            .id("catdlg-dialog")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+            .child(
+                dialog_el.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_end()
+                        .gap(t().d(8.))
+                        .px(t().d(20.))
+                        .py(t().d(16.))
+                        .child(
+                            div()
+                                .id("catdlg-cancel")
+                                .flex()
+                                .items_center()
+                                .h(t().d(28.))
+                                .px(t().d(12.))
+                                .rounded(t().r(6.))
+                                .text_size(t().fs(12.))
+                                .text_color(rgb(t().p.text_2))
+                                .cursor_pointer()
+                                .hover(|h| h.bg(rgb(t().p.hover)))
+                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.close_cat_dialog(cx)
+                                }))
+                                .child("取消"),
+                        )
+                        .child(
+                            div()
+                                .id("catdlg-ok")
+                                .flex()
+                                .items_center()
+                                .h(t().d(28.))
+                                .px(t().d(14.))
+                                .rounded(t().r(6.))
+                                .bg(rgb(if busy {
+                                    t().p.disabled
+                                } else if danger {
+                                    t().p.danger
+                                } else {
+                                    t().p.accent
+                                }))
+                                .text_size(t().fs(12.))
+                                .text_color(rgb(t().p.on_accent))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.submit_cat_dialog(cx)
+                                }))
+                                .child(if busy {
+                                    "处理中…"
+                                } else if danger {
+                                    "删掉"
+                                } else {
+                                    "改名"
+                                }),
+                        ),
+                ),
+            );
+
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(scrim)
+                .child(boxed)
+                .into_any_element(),
+        )
     }
 
     /// 「复制成新的」弹层。一个输入框（新名字）+ 两句说明。
@@ -1883,7 +2217,13 @@ impl Desktop {
         // **点击挂在整行上**（跟会话列表那些行同一个写法）：子元素上的 `on_click` 在这套布局里
         // 收不到事件（踩过，见 `坑.md` 37）。箭头是行的子元素，它自己那一小块也接点击 ——
         // 收不到就算了，主交互（选类别）不受影响。
-        div()
+        // 菜单用的路径要先摘出来：下面 `on_click` 那个闭包会 `move` 掉整个 `pick`。
+        let menu_path = match &pick {
+            Pick::Cat(path) => Some(path.clone()),
+            _ => None,
+        };
+
+        let row = div()
             .id(ElementId::Name(format!("cat-{}-{depth}", label).into()))
             .flex()
             .flex_row()
@@ -1901,8 +2241,38 @@ impl Desktop {
             .when(is_current, |el| el.bg(rgb(selected_bg())))
             .when(!is_current, |el| el.hover(|h| h.bg(rgb(t().p.hover))))
             .child(caret_cell)
-            .child(name)
-            .into_any_element()
+            .child(name);
+
+        // 右键：改名 / 删除。只有 `Pick::Cat` 才挂 —— 「全部」「未分类」不在词表里，
+        // 对它们做这两件事没有意义（也就不该出现一个点了没反应的菜单）。
+        match menu_path {
+            Some(path) => {
+                let this = cx.entity().downgrade();
+                row.context_menu(move |menu, _window, _cx| {
+                    let ren = this.clone();
+                    let del = this.clone();
+                    let p1 = path.clone();
+                    let p2 = path.clone();
+                    menu.item(
+                        PopupMenuItem::new("改名…").on_click(
+                            move |_: &ClickEvent, window, cx: &mut App| {
+                                let p = p1.clone();
+                                let _ = ren
+                                    .update(cx, |this, cx| this.open_cat_rename(p, window, cx));
+                            },
+                        ),
+                    )
+                    .item(PopupMenuItem::new("删除…").on_click(
+                        move |_: &ClickEvent, _window, cx: &mut App| {
+                            let p = p2.clone();
+                            let _ = del.update(cx, |this, cx| this.open_cat_delete(p, count, cx));
+                        },
+                    ))
+                })
+                .into_any_element()
+            }
+            None => row.into_any_element(),
+        }
     }
 
     // ── 渲染：预设列表 ──────────────────────────────────────
