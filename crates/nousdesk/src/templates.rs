@@ -197,6 +197,97 @@ pub(crate) struct CopyDraft {
     pub err: Option<String>,
 }
 
+/// 「导入」弹层。文件选完才出现：名字还能改（它就是目录名，也是引擎里的主键）。
+pub(crate) struct ImportDraft {
+    /// 从哪个文件来（显示给人看，出错也知道去改哪个）。
+    pub from: std::path::PathBuf,
+    /// 文件里的清单原文。
+    pub spec: serde_json::Value,
+    /// 说明全文（原 `PRESET.md`），可空。
+    pub body: Option<String>,
+    pub name: Entity<InputState>,
+    pub busy: bool,
+    pub err: Option<String>,
+}
+
+/// 导出文件的信封版本。读的时候看这个键在不在：在 = 我们的包（有 `spec` / `body`），
+/// 不在 = 裸清单（别人手工写的 `preset.json` 也直接能导进来）。
+pub(crate) const EXPORT_ENVELOPE: &str = "nousdeskExport";
+
+/// 一条模板导成什么样：`{nousdeskExport, section, name, spec, body}`。
+/// 纯函数，好测 —— 导出这事的形状不该埋在 async 里。
+pub(crate) fn export_doc(
+    section: &str,
+    name: &str,
+    spec: serde_json::Value,
+    body: Option<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        EXPORT_ENVELOPE: 1,
+        "section": section,
+        "name": name,
+        "spec": spec,
+        "body": body,
+    })
+}
+
+/// 拆一个导入文件：`(清单, 说明)`。带信封的和裸清单都认 —— 别人扔一份 `preset.json`
+/// 过来也该能导，那是这个功能最常见的用法。
+pub(crate) fn import_doc(
+    doc: serde_json::Value,
+) -> Result<(serde_json::Value, Option<String>), String> {
+    if !doc.is_object() {
+        return Err("这个文件不是一份模板（顶层不是 JSON 对象）".into());
+    }
+    if doc.get(EXPORT_ENVELOPE).is_some() {
+        let spec = doc
+            .get("spec")
+            .cloned()
+            .ok_or_else(|| "导出包里没有 `spec`".to_string())?;
+        if !spec.is_object() {
+            return Err("导出包里的 `spec` 不是一个对象".into());
+        }
+        let body = doc
+            .get("body")
+            .and_then(|b| b.as_str())
+            .map(|s| s.to_string());
+        return Ok((spec, body));
+    }
+    Ok((doc, None))
+}
+
+/// 导出时的默认目录：有 `~/下载` / `~/Downloads` 就去那儿，否则家目录。
+pub(crate) fn export_dir() -> std::path::PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    for d in ["下载", "Downloads"] {
+        let p = home.join(d);
+        if p.is_dir() {
+            return p;
+        }
+    }
+    home
+}
+
+/// 模板名当文件名用之前把路径分隔符那些换掉（名字里带 `/` 的模板是合法的，比如 `写作/周报`）。
+pub(crate) fn sanitize_file_name(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0' => '-',
+            c if c.is_control() => '-',
+            c => c,
+        })
+        .collect();
+    let s = s.trim().trim_start_matches('.').to_string();
+    if s.is_empty() {
+        "template".to_string()
+    } else {
+        s
+    }
+}
+
 /// 过滤一条模板：名字 / 摘要 / 类别，任一包含就算命中（不分大小写）。
 ///
 /// 类别也搜 —— 人在列表里看见的是「写作/周报」，按它找比记住模板名自然。
@@ -901,6 +992,405 @@ impl Desktop {
         .detach();
     }
 
+    /// 导出一条模板成一个文件。不改仓里任何东西 —— 备份 / 发给别人用这个。
+    ///
+    /// 走平台的「另存为」对话框；取消就静默（用户自己的动作，不用回一句废话）。
+    pub(crate) fn export_preset(&mut self, name: String, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
+            return;
+        };
+        let section = SECTIONS[self.section].0.to_string();
+        self.notify("正在读那条模板…", crate::app::NoticeKind::Info, cx);
+        cx.spawn(async move |this, cx| {
+            let out: Result<serde_json::Value, String> = async {
+                let files = engine
+                    .preset_files(&section, &name)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let manifest = crate::editor::pick_manifest(&files.files);
+                let src = engine
+                    .preset_file(&section, &name, &manifest)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let spec: serde_json::Value = serde_json::from_str(&src.text)
+                    .map_err(|e| format!("清单不是合法 JSON：{e}"))?;
+                let body = if files.files.iter().any(|f| f.path == "PRESET.md") {
+                    engine
+                        .preset_file(&section, &name, "PRESET.md")
+                        .await
+                        .ok()
+                        .map(|f| f.text)
+                } else {
+                    None
+                };
+                Ok(export_doc(&section, &name, spec, body))
+            }
+            .await;
+
+            let _ = this.update(cx, |this, cx| {
+                let doc = match out {
+                    Ok(d) => d,
+                    Err(e) => {
+                        this.notify(format!("导不出来：{e}"), crate::app::NoticeKind::Error, cx);
+                        return;
+                    }
+                };
+                // 「另存为」得回前台，所以放在 update 里开。
+                let dir = export_dir();
+                let suggested = format!("{}.json", sanitize_file_name(&name));
+                let rx = cx.prompt_for_new_path(&dir, Some(&suggested));
+                cx.spawn(async move |this, cx| {
+                    let picked = match rx.await {
+                        Ok(Ok(Some(p))) => p,
+                        Ok(Ok(None)) => return, // 用户取消
+                        Ok(Err(e)) => {
+                            let _ = this.update(cx, |this, cx| {
+                                this.notify(
+                                    format!("打不开保存对话框：{e}"),
+                                    crate::app::NoticeKind::Error,
+                                    cx,
+                                )
+                            });
+                            return;
+                        }
+                        Err(_) => return,
+                    };
+                    let text = match serde_json::to_string_pretty(&doc) {
+                        Ok(t) => t + "\n",
+                        Err(e) => {
+                            let _ = this.update(cx, |this, cx| {
+                                this.notify(
+                                    format!("拼不出文件内容：{e}"),
+                                    crate::app::NoticeKind::Error,
+                                    cx,
+                                )
+                            });
+                            return;
+                        }
+                    };
+                    let res = std::fs::write(&picked, text);
+                    let _ = this.update(cx, |this, cx| match res {
+                        Ok(()) => this.notify(
+                            format!("已导出到 {}", picked.display()),
+                            crate::app::NoticeKind::Info,
+                            cx,
+                        ),
+                        Err(e) => this.notify(
+                            format!("写不进 {}：{e}", picked.display()),
+                            crate::app::NoticeKind::Error,
+                            cx,
+                        ),
+                    });
+                })
+                .detach();
+            });
+        })
+        .detach();
+    }
+
+    /// 选一份导出文件，读出来之后弹「导入为…」（名字还能改，目录名就是它）。
+    pub(crate) fn open_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let opts = PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("选一份导出的模板 .json".into()),
+        };
+        let rx = cx.prompt_for_paths(opts);
+        let _ = window;
+        cx.spawn(async move |this, cx| {
+            let picked = match rx.await {
+                Ok(Ok(Some(mut v))) if !v.is_empty() => v.remove(0),
+                Ok(Ok(_)) => return, // 取消
+                Ok(Err(e)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.notify(
+                            format!("打不开文件对话框：{e}"),
+                            crate::app::NoticeKind::Error,
+                            cx,
+                        )
+                    });
+                    return;
+                }
+                Err(_) => return,
+            };
+            let parsed: Result<(serde_json::Value, Option<String>), String> =
+                std::fs::read_to_string(&picked)
+                    .map_err(|e| format!("读不了 {}：{e}", picked.display()))
+                    .and_then(|text| {
+                        serde_json::from_str::<serde_json::Value>(&text)
+                            .map_err(|e| format!("不是合法 JSON：{e}"))
+                    })
+                    .and_then(import_doc);
+
+            let _ = this.update_in(cx, |this, window, cx| {
+                let (spec, body) = match parsed {
+                    Ok(v) => v,
+                    Err(e) => {
+                        this.notify(format!("导不进来：{e}"), crate::app::NoticeKind::Error, cx);
+                        return;
+                    }
+                };
+                // 默认名：文件里写的是 `name` → 文件名（去掉扩展名）→ 兜底一个。
+                let fallback = picked
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let name = spec
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .filter(|n| !n.trim().is_empty())
+                    .map(|n| n.to_string())
+                    .unwrap_or(fallback);
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .placeholder("导进来叫什么")
+                        .default_value(name)
+                });
+                input.update(cx, |st, cx| st.focus(window, cx));
+                this.preset_import = Some(ImportDraft {
+                    from: picked,
+                    spec,
+                    body,
+                    name: input,
+                    busy: false,
+                    err: None,
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn close_import(&mut self, cx: &mut Context<Self>) {
+        if self.preset_import.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// 落一份新的：`spec` 原样发，引擎用 name / summary / category 覆盖同名键。
+    /// 摘要和类别从清单里读 —— 导进来的包不额外要求用户再填一遍。
+    pub(crate) fn submit_import(&mut self, cx: &mut Context<Self>) {
+        let Some(draft) = self.preset_import.as_ref() else {
+            return;
+        };
+        if draft.busy {
+            return;
+        }
+        let name = draft.name.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            if let Some(d) = self.preset_import.as_mut() {
+                d.err = Some("名字不能空 —— 它就是目录名".into());
+            }
+            cx.notify();
+            return;
+        }
+        let spec = draft.spec.clone();
+        let body = draft.body.clone();
+        let Some(engine) = self.engine.clone() else {
+            if let Some(d) = self.preset_import.as_mut() {
+                d.err = Some("还没连上引擎".into());
+            }
+            cx.notify();
+            return;
+        };
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        let summary = spec
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let category: Vec<String> = spec
+            .get("category")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(d) = self.preset_import.as_mut() {
+            d.busy = true;
+            d.err = None;
+        }
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let req = NewPreset {
+                name: name.clone(),
+                summary,
+                category,
+                from: None,
+                spec: Some(spec),
+                body,
+            };
+            let handle = crate::TOKIO.get().cloned();
+            let result = match &handle {
+                Some(h) => h
+                    .spawn(async move { engine.create_preset(section_id, &req).await })
+                    .await
+                    .ok(),
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Some(Ok(_)) => {
+                        this.preset_import = None;
+                        this.notify(
+                            format!("已导入「{name}」"),
+                            crate::app::NoticeKind::Info,
+                            cx,
+                        );
+                        this.preset_cat = None;
+                        this.archive_view = false;
+                        this.load_section(sec_idx, true, cx);
+                        this.picked_preset = Some(name.clone());
+                    }
+                    Some(Err(e)) => {
+                        if let Some(d) = this.preset_import.as_mut() {
+                            d.busy = false;
+                            d.err = Some(e.to_string());
+                        }
+                    }
+                    None => {
+                        if let Some(d) = this.preset_import.as_mut() {
+                            d.busy = false;
+                            d.err = Some("任务没跑完".into());
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 「导入」弹层：文件已经读进来了，这里只剩「叫什么」。
+    pub(crate) fn import_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let draft = self.preset_import.as_ref()?;
+        let from = draft.from.display().to_string();
+        let err = draft.err.clone();
+        let busy = draft.busy;
+
+        let scrim = div()
+            .id("import-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_import(cx)));
+
+        let mut boxed = div()
+            .flex()
+            .flex_col()
+            .w(t().d(420.))
+            .rounded(t().r(10.))
+            .bg(rgb(t().p.panel))
+            .border(t().d(1.))
+            .border_color(rgb(t().p.line))
+            .shadow_lg()
+            .overflow_hidden()
+            .child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(18.))
+                    .text_size(t().fs(14.))
+                    .text_color(rgb(t().p.text))
+                    .child("导入模板"),
+            )
+            .child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(6.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.muted))
+                    .child(format!("来自 {from}")),
+            )
+            .child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(12.))
+                    .child(Input::new(&draft.name)),
+            );
+        if let Some(e) = err {
+            boxed = boxed.child(
+                div()
+                    .px(t().d(20.))
+                    .pt(t().d(8.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.danger_fg))
+                    .child(e),
+            );
+        }
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(scrim)
+                .child(
+                    div()
+                        .id("import-dialog")
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                            cx.stop_propagation()
+                        })
+                        .child(boxed.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .justify_end()
+                                .gap(t().d(8.))
+                                .px(t().d(20.))
+                                .py(t().d(16.))
+                                .child(
+                                    div()
+                                        .id("import-cancel")
+                                        .flex()
+                                        .items_center()
+                                        .h(t().d(28.))
+                                        .px(t().d(12.))
+                                        .rounded(t().r(6.))
+                                        .text_size(t().fs(12.))
+                                        .text_color(rgb(t().p.text_2))
+                                        .cursor_pointer()
+                                        .hover(|h| h.bg(rgb(t().p.hover)))
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.close_import(cx)
+                                        }))
+                                        .child("取消"),
+                                )
+                                .child(
+                                    div()
+                                        .id("import-ok")
+                                        .flex()
+                                        .items_center()
+                                        .h(t().d(28.))
+                                        .px(t().d(14.))
+                                        .rounded(t().r(6.))
+                                        .bg(rgb(if busy {
+                                            t().p.disabled
+                                        } else {
+                                            t().p.accent
+                                        }))
+                                        .text_size(t().fs(12.))
+                                        .text_color(rgb(t().p.on_accent))
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            this.submit_import(cx)
+                                        }))
+                                        .child(if busy { "导入中…" } else { "导入" }),
+                                ),
+                        )),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// 窄窗下的「类别」抽屉：把常驻的那一栏原样搬到一个左滑的浮层里。
     ///
     /// 只在 `TREE_FOLD_W` 以下出现（宽窗类别树本来就常驻，抽屉永远关着）。
@@ -1342,6 +1832,7 @@ impl Desktop {
                 cx.notify();
             }
             A::Copy { name } => self.open_copy(name, window, cx),
+            A::Export { name } => self.export_preset(name, cx),
             A::CopyDir { dir } => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(dir.clone()));
                 self.notify(format!("目录路径已复制：{dir}"), crate::app::NoticeKind::Info, cx);
@@ -1877,6 +2368,27 @@ impl Desktop {
                     })
                     .on_click(cx.listener(|this, _, window, cx| this.open_new_category(window, cx)))
                     .child("＋ 类别"),
+            )
+            .child(
+                div()
+                    .id("import-preset")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(t().d(24.))
+                    .px(t().d(9.))
+                    .rounded(t().r(6.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.text_2))
+                    .cursor_pointer()
+                    .hover(|h| {
+                        h.border_color(rgb(t().p.text_2))
+                            .text_color(rgb(t().p.text))
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| this.open_import(window, cx)))
+                    .child("导入…"),
             )
             .into_any_element()
     }
@@ -3059,8 +3571,66 @@ mod tests {
     // 会把 `#[test]` 抢过去（报「recursion limit reached while expanding #[test]」）。
     // `app.rs` 里的测试也是只挑要用的东西，同一个原因。
     use super::{
-        Preset, UNCATEGORIZED, facet_tree, in_category, keep_category, matches_query,
+        EXPORT_ENVELOPE, Preset, UNCATEGORIZED, export_doc, facet_tree, import_doc, in_category,
+        keep_category, matches_query, sanitize_file_name,
     };
+
+    /// 导出成什么样：信封 + 清单 + 说明。`section` / `name` 留着，人打开文件能看懂。
+    #[test]
+    fn export_wraps_the_manifest_and_the_readme() {
+        let doc = export_doc(
+            "Session-Template",
+            "scratch",
+            serde_json::json!({"name": "scratch", "summary": "随手记"}),
+            Some("# 说明".into()),
+        );
+        assert_eq!(doc[EXPORT_ENVELOPE], 1);
+        assert_eq!(doc["section"], "Session-Template");
+        assert_eq!(doc["name"], "scratch");
+        assert_eq!(doc["spec"]["summary"], "随手记");
+        assert_eq!(doc["body"], "# 说明");
+
+        // 没有 PRESET.md 的模板也导得出来，`body` 是 null。
+        let bare = export_doc("Session-Template", "x", serde_json::json!({}), None);
+        assert!(bare["body"].is_null());
+    }
+
+    /// 导入两种形状都收：我们的包，以及**别人手写的一份裸 `preset.json`**。
+    #[test]
+    fn import_takes_our_envelope_and_a_bare_manifest() {
+        let pkg = serde_json::json!({
+            EXPORT_ENVELOPE: 1,
+            "section": "Session-Template",
+            "name": "scratch",
+            "spec": {"name": "scratch", "summary": "s"},
+            "body": "说明",
+        });
+        let (spec, body) = import_doc(pkg).expect("包该认");
+        assert_eq!(spec["summary"], "s");
+        assert_eq!(body.as_deref(), Some("说明"));
+
+        // 裸清单：最常见的「别人扔一份 json 过来」。
+        let bare = serde_json::json!({"name": "asd", "summary": "旧模板"});
+        let (spec, body) = import_doc(bare).expect("裸清单该认");
+        assert_eq!(spec["name"], "asd");
+        assert_eq!(body, None);
+
+        // 坏东西要说人话，不能静默导进一个空模板。
+        assert!(import_doc(serde_json::json!("不是对象")).is_err());
+        assert!(import_doc(serde_json::json!({EXPORT_ENVELOPE: 1})).is_err());
+        assert!(
+            import_doc(serde_json::json!({EXPORT_ENVELOPE: 1, "spec": [1, 2]})).is_err()
+        );
+    }
+
+    /// 名字里的 `/` 不能带进文件名（`写作/周报` 是合法的类别名，也是合法的模板名）。
+    #[test]
+    fn file_name_for_export_drops_path_separators() {
+        assert_eq!(sanitize_file_name("写作/周报"), "写作-周报");
+        assert_eq!(sanitize_file_name("a\\b:c*d"), "a-b-c-d");
+        assert_eq!(sanitize_file_name(".hidden"), "hidden");
+        assert_eq!(sanitize_file_name("   "), "template");
+    }
 
     /// 过滤词命中：名字 / 摘要 / 类别，任一包含就算（不分大小写）。
     /// 空的过滤词**永远为真** —— 否则列表在没人搜的时候会整片空掉。
