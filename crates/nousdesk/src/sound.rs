@@ -192,6 +192,9 @@ const ASSETS: &[(&str, &[u8])] = &[
 /// 给没有声音服务器的环境（裸 X、最小容器），它不连服务、直接开设备。
 const PLAYERS: &[&str] = &["pw-play", "paplay", "aplay"];
 
+/// 后台完成音的合并窗口。见 [`chime_background`]。
+const MERGE_WINDOW: Duration = Duration::from_secs(60);
+
 /// 播放器进程最多活多久。超过就杀 —— 卡住的 `paplay` 会一直占着设备，
 /// 下一次播放就排不上队，表现成「提示音响了一次之后再也不响」。
 const PLAY_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -205,6 +208,40 @@ pub fn chime(prefs: Prefs, cue: Cue, allowed: bool) {
         return;
     }
     play(cue);
+}
+
+/// 后台那条路上的「完成」：**60 秒内只响一次**，几次跑完算一件事。
+///
+/// 跨会话的合并只能在这条路上做：前台那条 SSE 流只知道自己看的那个会话，
+/// 它既不知道别的会话跑完了，也没必要知道。所以"合并"这件事被钉在
+/// 「后台心跳 + 未读表」这一条链路上，别挪到 `chime` 里去 —— `chime` 是
+/// 单事件的防抖（2 秒），两件事不一样。
+///
+/// 为什么是 60 秒：人不在电脑前，连续响三声等于没响。这一声的意思是
+/// "有事了，回来看一眼"，不是"三件事分别发生了"。
+///
+/// `sessions` 只进日志。以后接上桌面通知，那行标题就是「3 个会话有新内容」。
+pub fn chime_background(prefs: Prefs, sessions: usize) -> bool {
+    if sessions == 0 || !prefs.enabled(Cue::Done) {
+        return false;
+    }
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let Ok(mut last) = LAST.lock() else {
+        return false;
+    };
+    let now = Instant::now();
+    if let Some(prev) = *last
+        && now.duration_since(prev) < MERGE_WINDOW
+    {
+        log::info!("后台又有 {sessions} 个会话跑完；{MERGE_WINDOW:?} 内已经响过，这次不出声");
+        return false;
+    }
+    *last = Some(now);
+    log::info!("后台 {sessions} 个会话有新内容 → 响一声完成音");
+    // 直接走 `play`：该不该响已经在这儿算完了，再进 `chime` 会被 2 秒防抖
+    // 和 `allowed` 判一遍，等于把同一件事判两次。
+    play(Cue::Done);
+    true
 }
 
 /// 「试听」用：不看偏好、不看防抖，直接响。
