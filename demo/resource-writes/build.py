@@ -175,14 +175,19 @@ function setForm(kind,key,val){ S.form[kind][key]=val; render(); }
 function previewOf(kind,f){
   const escJson = v => JSON.stringify(v,null,2);
   if(kind==='skill'){
+    // 引擎 createSkill：description 在 SKILL.md 的 frontmatter；nous.json 只有 name/summary/category
     const cats=f.category.trim()?f.category.split(/[,，\s]+/).filter(Boolean):[];
-    return {path:'/opt/Nous-skills/'+ (f.name||'<name>') +'/nous.json',
-      text:escJson({name:f.name||'<name>',description:f.description||'<description>',category:cats})};
+    const dir='/opt/Nous-skills/'+ (f.name||'<name>') +'/';
+    return {path:dir+'SKILL.md',
+      text:'---\nname: '+(f.name||'<name>')+'\ndescription: '+escJson(f.description||'<description>')+'\n---\n\n# '+(f.name||'<name>')+'\n',
+      extra:{path:dir+'nous.json',text:escJson({name:f.name||'<name>',summary:'',category:cats})+'\n'}};
   }
   if(kind==='prompt'){
+    // 引擎 createPrompt：PROMPT.md 是纯正文（无 frontmatter）；summary 在 nous.json
     const cats=f.category.trim()?f.category.split(/[,，\s]+/).filter(Boolean):[];
-    return {path:'/opt/Nous-prompts/'+ (f.name||'<name>') +'/nous.json',
-      text:'---\n'+cats.map(c=>'  - '+c).join('\n')+(cats.length?'\n':'')+'---\n\n# '+(f.name||'<name>')+'\n\n'+(f.summary||'<summary>')};
+    const dir='/opt/Nous-prompts/'+ (f.name||'<name>') +'/';
+    return {path:dir+'PROMPT.md', text:'# '+(f.name||'<name>')+'\n',
+      extra:{path:dir+'nous.json',text:escJson({name:f.name||'<name>',summary:f.summary||'<summary>',category:cats})+'\n'}};
   }
   return {path:'/opt/Nous-extend/extensions/'+ (f.name||'<name>') +'/nous.json',
     text:escJson({name:f.name||'<name>',description:f.summary||'<summary>'})};
@@ -257,7 +262,8 @@ function newForm(kind){
         <div class="err">${err.summary||''}</div><div class="tip">≤ 200 字。核心三条 <code>nous/skills/prompts</code> 不让新建。</div></div>`:''}
       ${catField}</div>
       <div class="previewcard"><div class="cap">落盘预览 · 改一个字这里就跟着变</div>
-        <div class="path">${esc(pv.path)}</div><pre>${esc(pv.text)}</pre></div></div>
+        <div class="path">${esc(pv.path)}</div><pre>${esc(pv.text)}</pre>
+        ${pv.extra?`<div class="path" style="margin-top:10px">${esc(pv.extra.path)}</div><pre>${esc(pv.extra.text)}</pre>`:''}</div></div>
     <div class="wbfoot"><div class="st">${good?'<b>都填对了</b> · 建完这条会停在未发布并选中':`还差：${Object.values(err).join('、')}`}</div>
       <button class="btn2" data-act="cancel">取消</button>
       <button class="btn2 pri ${good?'':'dis'}" data-act="create:${kind}">建，去编辑</button></div>

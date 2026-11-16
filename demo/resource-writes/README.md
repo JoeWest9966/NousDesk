@@ -16,7 +16,7 @@ IA 已定 **03**（一个「资源」图标，两段：内容 / 扩展），见 
 | 镜头 | 看什么 |
 |---|---|
 | `#new-skill` | 新建技能：必填 `description`，右边预览 `nous.json` |
-| `#new-prompt` | 新建提示词：必填 `summary`，预览是 frontmatter + `PROMPT.md` |
+| `#new-prompt` | 新建提示词：必填 `summary`（写 `nous.json`），`PROMPT.md` 是纯正文 |
 | `#new-ext` | 新建扩展：必填说明 ≤ 200，核心三条不让用，预览 `nous.json` |
 | `#created` | 建完停在「未发布」并选中新条目，不自动发布；提示词建完进编辑器 |
 | `#edit` | 编辑是整页工作台：文件树 + 正文 + 状态，不是右栏抽屉 |
@@ -26,7 +26,8 @@ IA 已定 **03**（一个「资源」图标，两段：内容 / 扩展），见 
 ## 四条各落在哪
 
 1. **三张表各说各的必填 + 实时预览落盘内容**：`#new-skill` / `#new-prompt` / `#new-ext`。
-   技能写 `nous.json`（`description` 必填）；提示词写 frontmatter + `PROMPT.md`（`summary` 必填）；
+   技能写 `SKILL.md`（frontmatter 里 `description` 必填）+ `nous.json`（只有 name/summary:""/category）；
+   提示词写 `PROMPT.md`（纯正文，**无 frontmatter**）+ `nous.json`（`summary` 必填）；
    扩展写 `nous.json`（说明 ≤ 200、核心三条不让用）。改一个字预览跟着变。
 2. **建完停在未发布 + 选中新条目**：`#created`。琥珀「未发布」chip，不自动发布。
    提示词的「建完进编辑器」是同样流程 —— 正文就是编辑器里的内容。

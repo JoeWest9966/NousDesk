@@ -1026,7 +1026,8 @@ AGENTS 里写的是「Tesla 那 9 套」全要。**只落一套是有意的**：
 IA 已定 03（上一条）。写完只读第一刀后，四条对外观和接口的决定：
 
 **① 新建三张表各说各的必填项，右边实时预览落盘内容。**
-技能必填 `description`、写 `nous.json`；提示词必填 `summary`、写 frontmatter + `PROMPT.md`；
+技能必填 `description`、写在 `SKILL.md` 的 frontmatter（`nous.json` 只有 name/summary:""/category）；
+提示词必填 `summary`、写在 `nous.json`，`PROMPT.md` 是纯正文、**没有 frontmatter**；
 扩展必填说明（≤ 200）、写 `nous.json` 且核心三条 `nous/skills/prompts` 不让新建。
 名字规则 `^[a-z0-9][a-z0-9._-]*$` ≤ 64 字，校验文案照引擎原话，不泛化。
 理由：三张表落盘形状不同，用一张通用表等于把差异藏起来；边填边看落盘内容，
