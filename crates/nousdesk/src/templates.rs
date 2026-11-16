@@ -2595,6 +2595,16 @@ fn spec_str(p: &Preset, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn pick_note(text: String, color: u32) -> AnyElement {
+    div()
+        .px(t().d(10.))
+        .py(t().d(14.))
+        .text_size(t().fs(11.5))
+        .text_color(rgb(color))
+        .child(text)
+        .into_any_element()
+}
+
 /// 能开 = spec 没坏 && 没有失效引用。tracked 只影响显示，不影响可开。
 fn launchable(p: &Preset) -> bool {
     p.spec_error.is_none() && !has_invalid(p)
@@ -2793,6 +2803,156 @@ mod tests {
 // ── 渲染：右栏关系图（37 节点图） ──────────────────────────
 
 impl Desktop {
+/// 打开 / 收起 `＋` 菜单里「从模板起」那张清单。
+///
+/// 它是**左栏里的一块浮层**，不是第二级菜单（demo 里 B 方案定的）：选中一条就直接开，
+/// 不再进 New Manual 盘面 —— 盘面那一圈「选模型 / 选技能 / 选目录」模板自己会带。
+pub(crate) fn open_preset_pick(&mut self, cx: &mut Context<Self>) {
+    self.preset_pick = true;
+    // 拉当前段的清单（拉过就不重拉）。`Session-Template` 才是「能开」的那一段。
+    self.load_presets(false, cx);
+    cx.notify();
+}
+
+pub(crate) fn close_preset_pick(&mut self, cx: &mut Context<Self>) {
+    if !self.preset_pick {
+        return;
+    }
+    self.preset_pick = false;
+    cx.notify();
+}
+
+/// 「从模板起」那张卡。挂在左列里（`render_session_list` 的最后），没有就返回 `None`。
+///
+/// 三条出口都在：点遮罩、`Esc`（走 `intercept_keystrokes` 那条链）、再点一次菜单项。
+pub(crate) fn preset_pick_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    if !self.preset_pick {
+        return None;
+    }
+    let sec = &self.sections[self.section];
+    let mut rows: Vec<AnyElement> = Vec::new();
+
+    if let Some(err) = &sec.error {
+        rows.push(pick_note(format!("清单拉不到：{err}"), bad()));
+    } else if sec.data.is_none() {
+        rows.push(pick_note("拉模板清单…".into(), muted()));
+    } else if let Some(d) = &sec.data {
+        if d.presets.is_empty() {
+            rows.push(pick_note("这一段还没有模板".into(), muted()));
+        } else {
+            for p in &d.presets {
+                rows.push(self.preset_pick_row(p, cx));
+            }
+        }
+    }
+
+    Some(
+        div()
+            .id("preset-pick-scrim")
+            .absolute()
+            .inset_0()
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_preset_pick(cx)))
+            .child(
+                div()
+                    // 贴着 `＋` 下面那块地：左列宽 280，卡片左右各留 8。
+                    .absolute()
+                    .left(t().d(8.))
+                    .right(t().d(8.))
+                    .top(t().d(46.))
+                    .max_h(t().d(380.))
+                    .flex()
+                    .flex_col()
+                    .bg(rgb(t().p.panel))
+                    .rounded(t().r(9.))
+                    .border_1()
+                    .border_color(rgb(t().p.line_strong))
+                    .shadow_md()
+                    .overflow_hidden()
+                    // 卡片里的空白（标题下、行之间）没有 hitbox：不挡的话点上去会落到罩子上，
+                    // 挑模板时手一抖就关（跟历史抽屉同一条，见 `nav_ui::drawer`）。
+                    .block_mouse_except_scroll()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(t().d(6.))
+                            .px(t().d(10.))
+                            .h(t().d(30.))
+                            .border_b_1()
+                            .border_color(rgb(t().p.line_soft))
+                            .child(
+                                div()
+                                    .text_size(t().fs(11.5))
+                                    .text_color(rgb(t().p.muted))
+                                    .child("从模板起 · 选一条直接开会话"),
+                            )
+                            .child(
+                                div()
+                                    .ml_auto()
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.faint))
+                                    .child("Esc 关"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("preset-pick-scroll")
+                            .flex_1()
+                            .min_h(t().d(0.))
+                            .overflow_y_scroll()
+                            .children(rows),
+                    ),
+            )
+            .into_any_element(),
+    )
+}
+
+/// 清单里的一行。开不了的那几条也画出来、只是灰着并写原因 —— 藏起来会让人
+/// 以为模板没了（跟 Template 页同一条）。
+fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
+    let open = launchable(p);
+    let name = p.name.clone();
+    let summary = p.summary.clone();
+    div()
+        .id(ElementId::Name(format!("pick-{}", p.name).into()))
+        .flex()
+        .flex_col()
+        .gap(t().d(1.))
+        .px(t().d(10.))
+        .py(t().d(6.))
+        .when(open, |el| {
+            el.cursor_pointer()
+                .hover(|s| s.bg(rgb(t().p.hover)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    // 选中就开：关卡片 → 走 Template 页那条一模一样的老路
+                    // （`POST /v1/sessions { preset }` + 名字带时间）。
+                    this.close_preset_pick(cx);
+                    this.launch_preset(name.clone(), cx);
+                }))
+        })
+        .child(
+            div()
+                .text_size(t().fs(12.5))
+                .text_color(rgb(if open { t().p.text } else { t().p.faint }))
+                .child(p.name.clone()),
+        )
+        .child(
+            div()
+                .text_size(t().fs(11.))
+                .text_color(rgb(if open { t().p.muted } else { t().p.faint }))
+                .truncate()
+                .child(if open {
+                    summary
+                } else if p.spec_error.is_some() {
+                    "这条自己写坏了（JSON / 形状）".to_string()
+                } else {
+                    "引用失效，现在开不了".to_string()
+                }),
+        )
+        .into_any_element()
+}
+
+
     /// Template 页第三栏：选中那条预设的**关系图**。
     ///
     /// 图是「看一眼就走」的：中心 = 这条预设，一圈 = 它钉住的维度，外圈 = 具体的

@@ -33,8 +33,8 @@ use gpui_kit::*;
 
 use nous_engine::EngineError;
 use nous_engine::types::{
-    CreateSession, CreatedSession, Dirs, Extensions, Machines, Model, Models, Prompt, Prompts, Skill,
-    Skills,
+    ConfigPatch, CreateSession, CreatedSession, Dirs, Extensions, Machines, Model, Models, Prompt,
+    Prompts, Skill, Skills,
 };
 
 use crate::app::Desktop;
@@ -43,6 +43,8 @@ use crate::board_art as art;
 /// 打开着哪一层的弹层。`None` = 就在盘面上。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Sheet {
+    /// 会话页的「这个会话带什么」：四行摘要，点哪行就开哪张卡的弹层。
+    Session,
     Model,
     Skills,
     Prompt,
@@ -171,6 +173,9 @@ pub(crate) struct NewChat {
     /// 这次会话带哪些扩展。初始 = `loadable`（这台装上且能加载的）。
     picked_exts: BTreeSet<String>,
 
+    /// 弹层现在改的是哪儿：`None` = 盘面上的草稿（按 Create 才落库），
+    /// `Some(id)` = 一条已经存在的会话（改一处推一处，走 `POST /v1/sessions/:id/config`）。
+    target: Option<i64>,
     /// 键盘停在哪一格。`None` = 还没动过键盘（跟鼠标点击同步）。
     kb: Option<Stop>,
     /// 下一次渲染要把焦点抢到盘面上。用 `Cell` 是因为 `render_board` 只有 `&self`，
@@ -237,6 +242,7 @@ impl NewChat {
             ext_query,
             ext_cat: None,
             picked_exts: BTreeSet::new(),
+            target: None,
             kb: None,
             needs_focus: std::cell::Cell::new(false),
             ctx_half: false,
@@ -472,6 +478,7 @@ impl Desktop {
         self.newchat.ext_cat = None;
         self.newchat.open = true;
         self.newchat.sheet = None;
+        self.newchat.target = None;
         self.newchat.flash = None;
         self.newchat.kb = None;
         self.newchat.needs_focus.set(true);
@@ -485,6 +492,83 @@ impl Desktop {
     /// 下一次渲染把焦点抢到盘面上（调试入口用；正常入口在 [`NewChat::board_open`] 里）。
     pub(crate) fn request_focus(&self) {
         self.newchat.needs_focus.set(true);
+    }
+
+    /// 会话页改的是**已经存在的会话**：改一处推一处，别攒到关弹层 ——
+    /// 攒着的话「改完直接按 Esc」就丢一次，而用户看不出来。
+    ///
+    /// 推的是全量（模型 / 档位 / 技能 / 模板 / 只读），服务端自己算差集。
+    /// 回包是**生效值**（换模型会重夹档位），拿它覆盖本地，别乐观假定写成功了。
+    fn cfg_push(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.newchat.target else { return };
+        let Some(engine) = self.engine.clone() else { return };
+        let Some((provider, model_id)) = self.newchat.picked.clone() else {
+            return;
+        };
+        let patch = ConfigPatch {
+            model: Some(format!("{provider}/{model_id}")),
+            thinking_level: Some(self.newchat.level.clone()),
+            skills: Some(self.newchat.picked_skills.iter().cloned().collect()),
+            template: Some(self.newchat.template.clone()),
+            read_only: Some(self.newchat.read_only),
+            machine: None,
+            cwd: None,
+        };
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let Some(h) = handle else { return };
+            let got = h.spawn(async move { engine.config(id, &patch).await }).await.ok();
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Some(Ok(cfg)) => {
+                        // 生效值覆盖本地这条会话：别自己把「点的那份」写上去。
+                        if let Some(s) = this.sessions.iter_mut().find(|s| s.id == id) {
+                            s.model = cfg.model.clone();
+                            s.thinking_level = cfg.thinking_level.clone();
+                            s.skills = cfg.skills.clone();
+                            s.template = cfg.template.clone();
+                            s.read_only = cfg.read_only;
+                        }
+                        this.newchat.read_only = cfg.read_only;
+                        if let Some(lv) = cfg.thinking_level.as_ref().and_then(|v| v.as_str()) {
+                            this.newchat.level = lv.to_string();
+                        }
+                        this.newchat.flash = None;
+                    }
+                    Some(Err(e)) => {
+                        this.newchat.flash = Some(format!("改配置失败：{e}"));
+                    }
+                    None => this.newchat.flash = Some("改配置失败了".into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 在会话页打开「这个会话带什么」：把这条会话的当前值当成草稿装进 `newchat`
+    /// —— 弹层只认这一套状态，省得给每张卡再写一份「只读版」。
+    pub(crate) fn open_session_sheet(&mut self, id: i64, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.iter().find(|s| s.id == id).cloned() else {
+            return;
+        };
+        self.newchat.target = Some(id);
+        if let Some((p, m)) = s.model.as_deref().and_then(|m| m.split_once('/')) {
+            self.newchat.picked = Some((p.to_string(), m.to_string()));
+        }
+        if let Some(lv) = s.thinking_level.as_ref().and_then(|v| v.as_str()) {
+            self.newchat.level = lv.to_string();
+        }
+        self.newchat.picked_skills = s.skills.iter().cloned().collect();
+        self.newchat.template = s.template.clone();
+        self.newchat.read_only = s.read_only;
+        self.newchat.sheet = Some(Sheet::Session);
+        // 会话页从来没拉过清单（`board_load` 是开盘面时调的）：不拉的话点开模型 / 模板
+        // 会看到「这个盘上还没有提示词模板」——而它只是没人去问过引擎。
+        if self.newchat.models.is_none() && !self.newchat.loading {
+            self.board_load(cx);
+        }
+        cx.notify();
     }
 
     /// 按得动 Create 吗。**按钮的长相和点击都吃这一份判定**，别两处各判一次。
@@ -1330,6 +1414,136 @@ impl Desktop {
             .into_any_element()
     }
 
+    /// 会话页的「这个会话带什么」：四行摘要，点哪行就开哪张卡的弹层。
+    ///
+    /// 这里**不重复一套控件** —— 模型 / 模板 / 技能三行都是入口，真正的选择还是
+    /// 盘面那三张弹层（它们已经写好了搜索、树、勾选）。唯一的例外是权限：
+    /// 只有一个来回，点了就切，不绕。
+    fn sheet_session(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let b = &self.newchat;
+        let model = b.picked_label().unwrap_or_else(|| "—".into());
+        let template = b.template.clone().unwrap_or_else(|| "无模板".into());
+        let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
+        let ro = b.read_only;
+
+        // 一行 = 小标题 + 值 + `›`。三行开弹层，一行直接切。
+        let row = |id: &'static str,
+                   k: &'static str,
+                   v: String,
+                   sub: Option<String>,
+                   cx: &mut Context<Self>,
+                   act: Option<Sheet>,
+                   toggle: bool| {
+            div()
+                .id(ElementId::Name(id.into()))
+                .flex()
+                .items_center()
+                .gap(m.v(1.))
+                .px(m.v(1.6))
+                .py(m.v(0.85))
+                .border_b(t().d(1.))
+                .border_color(rgb(art::border()))
+                .hover(|s| s.bg(rgb(art::surface())))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    if toggle {
+                        this.newchat.read_only = !this.newchat.read_only;
+                        // 会话页改的是真会话：改一处推一处。
+                        this.cfg_push(cx);
+                    } else if let Some(sh) = act {
+                        this.newchat.sheet = Some(sh);
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_none()
+                        .w(m.v(9.))
+                        .font_family(art::mono())
+                        .text_size(m.f(0.9, 7.5, 9.))
+                        .text_color(rgb(art::faint()))
+                        .child(k),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(t().d(0.))
+                        .flex()
+                        .flex_col()
+                        .gap(m.v(0.1))
+                        .child(
+                            div()
+                                .font_family(art::mono())
+                                .text_size(m.f(1.2, 9.5, 11.))
+                                .text_color(rgb(art::fg()))
+                                .truncate()
+                                .child(v),
+                        )
+                        .children(sub.map(|s| {
+                            div()
+                                .text_size(m.f(0.9, 7.5, 9.))
+                                .text_color(rgb(art::muted()))
+                                .truncate()
+                                .child(s)
+                        })),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(m.f(1., 8., 9.5))
+                        .text_color(rgb(art::muted()))
+                        .child("›"),
+                )
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(t().d(0.))
+            .child(row(
+                "ss-model",
+                "MODEL",
+                model,
+                None,
+                cx,
+                Some(Sheet::Model),
+                false,
+            ))
+            .child(row(
+                "ss-template",
+                "TEMPLATE",
+                template,
+                None,
+                cx,
+                Some(Sheet::Prompt),
+                false,
+            ))
+            .child(row(
+                "ss-skills",
+                "SKILLS",
+                skills,
+                None,
+                cx,
+                Some(Sheet::Skills),
+                false,
+            ))
+            .child(row(
+                "ss-perms",
+                "PERMS",
+                if ro { "只读" } else { "可写" }.into(),
+                Some(if ro {
+                    "只能读，改不了东西".into()
+                } else {
+                    "能改文件、能跑命令".into()
+                }),
+                cx,
+                None,
+                true,
+            ))
+            .into_any_element()
+    }
+
     /// Permissions 那张卡：一个二值开关，**不弹层**。
     ///
     /// 引擎里没有「权限」这个概念（`/v1/permissions` 是 404），只有 `readOnly` ——
@@ -1897,10 +2111,15 @@ impl Desktop {
 
     /// 弹层：「就地弹出」。**贴着被点的那张卡**，不是居中一个模态框 ——
     /// 选参数的时候还想看得见盘面（点空白处 / Esc 关闭）。
-    fn board_sheet(&self, m: &art::M, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(crate) fn board_sheet(&self, m: &art::M, cx: &mut Context<Self>) -> Option<AnyElement> {
         let m = *m;
         let sheet = self.newchat.sheet?;
         let (title, hint, slot) = match sheet {
+            Sheet::Session => (
+                "这个会话带什么",
+                "从盘面挑的那几项 · 点一行就改",
+                None,
+            ),
             Sheet::Model => (
                 "选择模型",
                 "供应商 › 模型 › 思考 · 点模型即收回",
@@ -1926,6 +2145,7 @@ impl Desktop {
         };
 
         let kind = match sheet {
+            Sheet::Session => art::PopKind::Session,
             Sheet::Model => art::PopKind::Model,
             Sheet::Skills => art::PopKind::Skills,
             Sheet::Dir => art::PopKind::Dir,
@@ -1935,6 +2155,7 @@ impl Desktop {
         };
         let pop = art::pop_rect(&m, slot, kind);
         let body = match sheet {
+            Sheet::Session => self.sheet_session(&m, cx),
             Sheet::Model => self.sheet_model(&m, pop.w, cx),
             Sheet::Skills => self.sheet_skills(&m, cx),
             Sheet::Prompt => self.sheet_prompt(&m, cx),
@@ -2231,6 +2452,7 @@ impl Desktop {
                                     }
                                     _ => this.newchat.level = label.clone(),
                                 }
+                                this.cfg_push(cx);
                                 cx.notify();
                             }
                         }))
@@ -3034,6 +3256,7 @@ impl Desktop {
                                 } else {
                                     Some(name.clone())
                                 };
+                            this.cfg_push(cx);
                             cx.notify();
                         })
                     })

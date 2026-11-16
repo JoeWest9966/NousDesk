@@ -315,6 +315,11 @@ pub struct Desktop {
     pub(crate) tab: Tab,
     /// 底部「≡ 更多」菜单开着没有。
     pub(crate) menu_open: bool,
+    /// 「从模板起」那张模板清单开着没有（`＋` 菜单的第二项）。
+    /// 它是左栏里的一块浮层，不是第二级菜单 —— 见 `preset_pick_overlay`。
+    pub(crate) preset_pick: bool,
+    /// 「复制这条会话」在途。防连点：`Ctrl+D` 按住会自动重复，不挡的话一秒能建十条。
+    pub(crate) copying: bool,
     /// 右栏是不是在显示全局设置（整页替换聊天区，左栏不动）。
     pub(crate) settings_open: bool,
     /// 设置页左边选的那一项。
@@ -533,6 +538,20 @@ impl Desktop {
                         .unwrap_or(false);
                     if handled {
                         app.stop_propagation();
+                        return;
+                    }
+                    // 左栏「新建」那三条：Ctrl+N 空白 / Ctrl+Shift+N 从模板起 /
+                    // Ctrl+D 复制当前这条。键帽在菜单里画着，这里是真按。
+                    // **只在编辑器没开时**管 —— 编辑器开着时 Ctrl+N 该是它自己的事
+                    // （那条分支上面已经挡掉了，走到这儿说明编辑器没吃它）。
+                    let shift = ev.keystroke.modifiers.shift;
+                    let handled = weak
+                        .update(app, |this, cx| {
+                            this.new_entry_shortcut(key, shift, window, cx)
+                        })
+                        .unwrap_or(false);
+                    if handled {
+                        app.stop_propagation();
                     }
                     // 别的 Ctrl 组合照旧不归这里管。
                     return;
@@ -601,6 +620,21 @@ impl Desktop {
                     }
                 }
                 if key == "escape" {
+                    // 会话页的「带什么」弹层：它跟盘面共用一层 sheet，但这时盘面没开着。
+                    if weak
+                        .update(app, |this, cx| {
+                            if this.newchat.open || this.newchat.sheet.is_none() {
+                                return false;
+                            }
+                            this.newchat.sheet = None;
+                            cx.notify();
+                            true
+                        })
+                        .unwrap_or(false)
+                    {
+                        app.stop_propagation();
+                        return;
+                    }
                     // 盖在最上面的两层先拿 Esc：「撕原件」确认只关不撕；归档库页只收页。
                     // 都走 `stop_propagation`，不让 Esc 再落到下面去关别的面板。
                     let closed = weak
@@ -675,6 +709,12 @@ impl Desktop {
                     // 明明满屏都是自己点开的东西，按 Esc 一点反应都没有。
                     let closed = weak
                         .update(app, |this, cx| {
+                            // 「从模板起」那张卡：盖在左栏里、比 `≡` 菜单更靠上（它是从菜单
+                            // 点出来的），所以先收它。
+                            if this.preset_pick {
+                                this.close_preset_pick(cx);
+                                return true;
+                            }
                             if this.menu_open {
                                 this.close_menu(cx);
                                 return true;
@@ -820,6 +860,8 @@ impl Desktop {
             loading: true,
             input,
             menu_open: open_at_start == "menu",
+            preset_pick: false,
+            copying: false,
             settings_open: open_at_start == "settings",
             // `NOUS_DESKTOP_OPEN=editor`：列表一拉回来就打开第一条的编辑器（验编辑器用）。
             auto_editor: open_at_start == "editor",
@@ -2681,6 +2723,9 @@ impl Desktop {
     /// 只加 `.item(...)`，不用改这段的骨架。
     fn render_new_chat_button(&self, cx: &mut Context<Self>) -> AnyElement {
         let weak = cx.weak_entity();
+        // 菜单实体是**打开那次**才建的（gpui-kit 用 keyed state 缓存），所以这个
+        // 「有没有选中会话」的判定跟着那一次打开走，不会卡在首帧的值上。
+        let has_sel = self.selected.is_some();
         Button::new("new-chat-btn")
             .ghost()
             .small()
@@ -2690,18 +2735,192 @@ impl Desktop {
             // `TopRight`：菜单落在按钮**下方**、右边缘对齐（`Anchor` 说的是浮层自己
             // 贴着触发器的哪条边 —— 写 `BottomRight` 会翻到按钮上方去）。
             .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
-                let weak = weak.clone();
-                menu.min_w(t().d(180.)).item(
-                    PopupMenuItem::new("New Manual")
-                        .icon(Icon::new(IconName::PenLine))
-                        .on_click(move |_, window, cx| {
-                            if let Some(this) = weak.upgrade() {
-                                this.update(cx, |this, cx| this.board_open(window, cx));
-                            }
-                        }),
-                )
+                let mut menu = menu.min_w(t().d(216.));
+                for (i, group) in crate::new_entry::menu().into_iter().enumerate() {
+                    // 组与组之间来一条分隔线；第一组上面不画（贴着菜单顶）。
+                    if i > 0 {
+                        menu = menu.item(PopupMenuItem::separator());
+                    }
+                    if let Some(title) = group.title {
+                        menu = menu.item(PopupMenuItem::label(title));
+                    }
+                    for entry in group.items {
+                        menu = menu.item(Self::new_entry_item(entry, has_sel, weak.clone()));
+                    }
+                }
+                menu
             })
             .into_any_element()
+    }
+
+    /// 菜单里的一行：图标 + 名字 + 右边那枚键帽。
+    ///
+    /// 用 `PopupMenuItem::element` 而不是 `new(...)`：`new` 只能挂一串纯文字，
+    /// 键帽右对齐不了。没有选中会话时「复制设置」整行灰掉，键帽换成「先选一条」——
+    /// 灰着还写着 Ctrl+D 会让人以为按了有用。
+    fn new_entry_item(
+        entry: crate::new_entry::Entry,
+        has_sel: bool,
+        weak: gpui::WeakEntity<Self>,
+    ) -> PopupMenuItem {
+        use crate::new_entry::Action;
+        let label = entry.label;
+        let keys = entry.keys;
+        let (icon, disabled) = match entry.action {
+            Action::Manual => (IconName::PenLine, false),
+            Action::FromPreset => (IconName::LayoutTemplate, false),
+            // 没选中会话时「从当前这条」无从谈起：灰掉，并写清楚为什么。
+            Action::CopySettings => (IconName::Copy, !has_sel),
+        };
+        let action = entry.action;
+        PopupMenuItem::element(move |_, _| {
+            div()
+                .flex()
+                .items_center()
+                .flex_1()
+                .min_w(t().d(0.))
+                .child(div().truncate().child(label))
+                .when(disabled, |el| {
+                    el.child(
+                        div()
+                            .ml_auto()
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(t().p.faint))
+                            .child("先选一条"),
+                    )
+                })
+                .when(!disabled, |el| el.child(Self::kbd_chip(keys)))
+        })
+        .icon(Icon::new(icon).size(t().d(15.)))
+        .disabled(disabled)
+        .on_click(move |_, window, cx| {
+            if let Some(this) = weak.upgrade() {
+                this.update(cx, |this, cx| this.new_entry_click(action, window, cx));
+            }
+        })
+    }
+
+    /// 菜单项点下去。三个动作各自只有一行，真正的活都在别处。
+    pub(crate) fn new_entry_click(
+        &mut self,
+        action: crate::new_entry::Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::new_entry::Action;
+        match action {
+            Action::Manual => self.board_open(window, cx),
+            Action::FromPreset => self.open_preset_pick(cx),
+            Action::CopySettings => self.copy_current_settings(cx),
+        }
+    }
+
+    /// 三条快捷键：`Ctrl+N` 空白 / `Ctrl+Shift+N` 从模板起 / `Ctrl+D` 复制当前这条。
+    ///
+    /// 在 `intercept_keystrokes` 的 Ctrl 分支里叫。返回 `false` = 这个组合不归这里管
+    /// （`Ctrl+S` / `Ctrl+K` 已经先走了）。
+    fn new_entry_shortcut(
+        &mut self,
+        key: &str,
+        shift: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        // 编辑器是整页，开在上面时这三条不归这里管（Ctrl+N 会把它顶掉）。
+        if self.editor.open {
+            return false;
+        }
+        match (key, shift) {
+            ("n", true) => {
+                self.open_preset_pick(cx);
+                true
+            }
+            ("n", false) => {
+                self.board_open(window, cx);
+                true
+            }
+            ("d", false) => {
+                // 没选中就什么都不做 —— 跟菜单里灰掉那行一致（提示已经在菜单里写过了，
+                // 快捷键没菜单可看，这里补一条轻提示）。
+                if self.selected.is_none() {
+                    self.notify("先选一条会话", NoticeKind::Info, cx);
+                    return true;
+                }
+                self.copy_current_settings(cx);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 「复制这条会话」：把当前会话的设置抄成一条新会话（**不带对话**）。
+    ///
+    /// 请求体在 [`crate::new_entry::copy_body`]（纯函数，带测试）。这里只做
+    /// 「起任务 → 三种结局分开 → 成功就切过去」，跟 `launch_preset` 一个套路。
+    fn copy_current_settings(&mut self, cx: &mut Context<Self>) {
+        let Some(sess) = self.cur_session().cloned() else {
+            self.notify("先选一条会话", NoticeKind::Info, cx);
+            return;
+        };
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        if self.copying {
+            return;
+        }
+        self.copying = true;
+        cx.notify();
+
+        let body = crate::new_entry::copy_body(&sess);
+        let from = sess.name.clone();
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            // create → 紧跟一次 sessions()，一次任务里带回落库后的列表。
+            let outcome: Option<Result<(nous_engine::types::CreatedSession, Vec<Session>), EngineError>> =
+                match &handle {
+                    Some(h) => {
+                        h.spawn(async move {
+                            let created = engine.create(&body).await?;
+                            let sessions = engine.sessions().await?.items;
+                            Ok((created, sessions))
+                        })
+                        .await
+                        .ok()
+                    }
+                    _ => None,
+                };
+            let _ = this.update(cx, |this, cx| {
+                this.copying = false;
+                match outcome {
+                    Some(Ok((created, sessions))) => {
+                        let mut sessions = sessions;
+                        sessions.sort_by(|a, b| b.id.cmp(&a.id));
+                        this.sessions = sessions;
+                        // 复制出来的不该还赖在盘面上。
+                        this.newchat.open = false;
+                        this.newchat.sheet = None;
+                        this.select_session(created.id, true, cx);
+                        // 引擎说缺什么要如实说，别把 201 当全须全尾（wire.md 「建会话」）。
+                        let missing = created.missing.len()
+                            + created.missing_extensions.len()
+                            + created.missing_templates.len();
+                        if missing > 0 {
+                            this.notify(
+                                format!("已复制「{from}」，但有 {missing} 项引擎那边找不到"),
+                                NoticeKind::Error,
+                                cx,
+                            );
+                        } else {
+                            this.notify(format!("已复制「{from}」的设置"), NoticeKind::Info, cx);
+                        }
+                    }
+                    Some(Err(e)) => this.notify_error(&e, cx),
+                    None => this.notify("任务没跑完", NoticeKind::Error, cx),
+                }
+            });
+        })
+        .detach();
     }
 
     /// 搜索中的列表：**先过滤，再按组摆**。
@@ -2772,6 +2991,27 @@ impl Desktop {
             );
         }
         out
+    }
+
+    /// 菜单右侧那枚键帽（`Ctrl+N` 这种）。
+    ///
+    /// 画出来比写在文档里管用 —— 不写等于没有快捷键。
+    fn kbd_chip(label: &'static str) -> AnyElement {
+        div()
+            .flex_none()
+            .ml(t().d(6.))
+            .h(t().d(16.))
+            .px(t().d(5.))
+            .flex()
+            .items_center()
+            .rounded(t().r(4.))
+            .bg(rgb(t().p.hover))
+            .border_1()
+            .border_color(rgb(t().p.line))
+            .text_size(t().fs(10.))
+            .text_color(rgb(t().p.muted))
+            .child(label)
+            .into_any_element()
     }
 
     /// 一行「可能带高亮」的文本。
@@ -2866,6 +3106,9 @@ impl Desktop {
             .flex_col()
             .w(px(t().list_w))
             .h_full()
+            // `relative`：`＋` 菜单里「从模板起」那张清单绝对定位在这一列里
+            // （见 `templates::preset_pick_overlay`）。
+            .relative()
             .bg(rgb(t().p.list_bg))
             .child(
                 // 顶部就一行：搜索框（计数内嵌右端）+ 一颗 `＋`。
@@ -2919,6 +3162,8 @@ impl Desktop {
                         self.bar(Bar::List).1,
                     )),
             )
+            // 「从模板起」的模板清单：盖在列表上、压在这一列里，不铺到整窗。
+            .children(self.preset_pick_overlay(cx))
             .into_any_element()
     }
 
@@ -2927,6 +3172,11 @@ impl Desktop {
         // 窄窗（< 960）时顶栏要收着点：副标题和「历史与目录」四个字一起塞，
         // 640 宽会把右边那个按钮裁掉一半（截图里只剩「历史与目」）。
         let narrow = window.viewport_size().width.as_f32() < NAV_COLUMN_MIN_W;
+        // 会话页的弹层跟盘面共用同一套（`board_sheet`）。但**右格宽度不一样**：
+        // 会话页比盘面多一栏「历史与目录」（`nav_ui::NAV_W`），`pane_width` 没算它
+        // —— 不扣掉的话弹层会按盘面的宽度居中，整块偏到右边去。
+        let mut m = crate::board_art::M::new(window.viewport_size(), self.tab);
+        m.w = (m.w - crate::nav_ui::NAV_W).max(1.);
         let Some(id) = self.selected else {
             return div()
                 .flex()
@@ -2938,12 +3188,13 @@ impl Desktop {
                 .into_any_element();
         };
 
-        let title = self
-            .sessions
-            .iter()
-            .find(|s| s.id == id)
+        let session = self.sessions.iter().find(|s| s.id == id);
+        let title = session
             .map(|s| s.name.clone())
             .unwrap_or_else(|| format!("会话 {id}"));
+        // 顶栏那行「它带什么」。盘面上选的东西进会话之后就在这儿落脚 —— 否则
+        // 四张卡看起来只是建会话时的一次性表单。
+        let brief = session.map(brief_of).unwrap_or_default();
 
         // 9 号方案：主视图只留最近 KEEP 条。`nav.main_from` 被抽屉的桥往前推时才会变长，
         // 顶栏给一颗「收起」把它还原。
@@ -3006,6 +3257,8 @@ impl Desktop {
         };
 
         div()
+            // 弹层（「这个会话带什么」）按右格坐标 absolute 定位，得有个定位祖先。
+            .relative()
             .flex()
             .flex_col()
             .flex_1()
@@ -3025,6 +3278,30 @@ impl Desktop {
                     .px(t().d(12.))
                     .bg(rgb(t().p.list_bg))
                     .child(div().flex_none().truncate().child(title))
+                    .children((!narrow).then(|| {
+                        div()
+                            .id(ElementId::Name("chat-brief".into()))
+                            .flex_none()
+                            .max_w(t().d(300.))
+                            .truncate()
+                            .px(t().d(6.))
+                            .py(t().d(2.))
+                            .rounded(t().r(5.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .hover(|s| {
+                                s.bg(rgb(t().p.surface)).text_color(rgb(t().p.text))
+                            })
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.open_session_sheet(id, cx);
+                            }))
+                            // 什么都没配也要有个入口：不然「加个模板」找不到地方。
+                            .child(if brief.is_empty() {
+                                "配置 ›".to_string()
+                            } else {
+                                brief
+                            })
+                    }))
                     .children((!narrow).then(|| {
                         div()
                             .flex_none()
@@ -3165,6 +3442,8 @@ impl Desktop {
                 self.slash_panel(cx),
                 self.cfg_first_tool(cx),
             ))
+            // 「这个会话带什么」那张弹层：跟盘面同一个 `board_sheet`，只是目标不同。
+            .children(self.board_sheet(&m, cx))
             .into_any_element()
     }
 
@@ -3532,7 +3811,8 @@ impl Desktop {
             .last
             .as_ref()
             .and_then(|l| l.text.as_deref())
-            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+            // markdown 记号在这一层摘掉：预览是给人扫的，不是给渲染器看的（`preview.rs`）。
+            .map(|t| crate::preview::plain(t))
             .unwrap_or_default();
         let selected = self.selected == Some(s.id);
         // `busy` 是 `"queued" | "running" | <task kind> | null`，不是布尔（`wire.md`）。
@@ -4060,6 +4340,27 @@ impl Desktop {
     }
 }
 
+/// 顶栏那行「这个会话带什么」：`deepseek-v4-flash · smart-ass · 5 技能 · 只读`。
+///
+/// 空的部分**不占位** —— 四个 `·` 排成一排比什么都没有还难看。`skills` 只在有选中时
+/// 出现（`0 技能` 是噪声，没有就是没有）。
+fn brief_of(s: &Session) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(m) = short_model(s.model.as_deref()) {
+        parts.push(m);
+    }
+    if let Some(tpl) = s.template.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+        parts.push(tpl.to_string());
+    }
+    if !s.skills.is_empty() {
+        parts.push(format!("{} 技能", s.skills.len()));
+    }
+    if s.read_only {
+        parts.push("只读".into());
+    }
+    parts.join(" · ")
+}
+
 /// 左栏顺序：**置顶的在前**（顺序照 `pins` 给的），其余保持原来那套顺序。
 ///
 /// 纯函数（只吃 id），所以能直接拿数字做单测 —— 排序这种事写错一次能烦一星期。
@@ -4570,7 +4871,7 @@ fn nav_child_index(
 #[allow(non_snake_case)]
 mod tests {
     use super::{
-        Bar, ListIndex, NoticeKind, NoticeState, Recent, error_notice, nav_child_index,
+        Bar, ListIndex, NoticeKind, NoticeState, Recent, brief_of, error_notice, nav_child_index,
         next_selection_after_archive, order_ids, short_cwd, short_model, sort_sessions, when_text,
     };
     use nous_engine::EngineError;
@@ -4600,6 +4901,48 @@ mod tests {
             seen[i] = true;
         }
         assert!(seen.iter().all(|hit| *hit), "有下标没人认领：{:?}", seen);
+    }
+
+    /// 顶栏那行「带什么」：空的段不出现，别留一串悬空的 `·`。
+    #[test]
+    fn 会话顶栏摘要只写有内容的段() {
+        let base = Session {
+            id: 1,
+            name: "x".into(),
+            parent: None,
+            owner: None,
+            model: None,
+            thinking_level: None,
+            thinking_levels: vec![],
+            skills: vec![],
+            template: None,
+            read_only: false,
+            cwd: None,
+            machine: None,
+            busy: None,
+            updated_at: None,
+            last: None,
+            archived: None,
+            extra: HashMap::new(),
+        };
+        assert_eq!(brief_of(&base), "", "什么都没有就是空串，不是四个点");
+
+        let full = Session {
+            model: Some("volc-ark/deepseek-v4-flash-260425".into()),
+            template: Some("smart-ass".into()),
+            skills: vec!["a".into(), "b".into()],
+            read_only: true,
+            ..base.clone()
+        };
+        // 模型摘掉 provider 前缀和日期尾巴，这是 `short_model` 的活儿。
+        assert_eq!(brief_of(&full), "deepseek-v4-flash · smart-ass · 2 技能 · 只读");
+
+        // `0 技能` 是噪声：没有就是没有。
+        let no_skill = Session {
+            skills: vec![],
+            ..full.clone()
+        };
+        assert_eq!(brief_of(&no_skill), "deepseek-v4-flash · smart-ass · 只读");
     }
 
     /// 滚动条默认不在场：不然一启动每块面板都挂着一根线。
