@@ -158,6 +158,8 @@ pub(crate) struct State {
     pub cat_del: Option<String>,
     /// 「已归档」里点开的那一条（右侧详情）。
     pub archived_detail: Option<String>,
+    /// 有没保存的改动时，用户想切过去的那个文件（等一句确认）。
+    pub pending_path: Option<String>,
     pub commit: Commit,
     pub conflict: Option<String>,
     pub scroll: ScrollHandle,
@@ -221,6 +223,7 @@ impl State {
             cat_form: None,
             cat_del: None,
             archived_detail: None,
+            pending_path: None,
             commit: Commit::default(),
             conflict: None,
             scroll: ScrollHandle::new(),
@@ -398,6 +401,7 @@ impl Desktop {
         self.triggers.code.base.clear();
         self.triggers.code.preflight = false;
         self.triggers.code.diff_open.clear();
+        self.triggers.pending_path = None;
         self.triggers.layer = Layer::Code;
         cx.notify();
         let Some(client) = self.triggers.client.clone() else { return };
@@ -435,6 +439,15 @@ impl Desktop {
         cx: &mut Context<Self>,
     ) {
         let Some(client) = self.triggers.client.clone() else { return };
+        // 编辑框里有没保存的东西、而且不是同一个文件 —— 切过去就没了，先问一句。
+        let unsaved = self.triggers.code.editing
+            && self.triggers.code.path.as_deref() != Some(path)
+            && self.triggers.code.text.read(cx).value() != self.triggers.code.base;
+        if unsaved {
+            self.triggers.pending_path = Some(path.to_string());
+            cx.notify();
+            return;
+        }
         let name = name.to_string();
         let path = path.to_string();
         self.triggers.code.path = Some(path.clone());
@@ -1912,6 +1925,9 @@ impl Desktop {
         if layer == Layer::Wizard {
             root = root.child(self.trigger_wizard(cx));
         }
+        if self.triggers.pending_path.is_some() {
+            root = root.child(self.trigger_pending_overlay(cx));
+        }
         if self.triggers.archived_detail.is_some() {
             root = root
                 .child(self.trigger_scrim(cx))
@@ -3167,6 +3183,120 @@ impl Desktop {
                                     .text_size(t().fs(11.))
                                     .text_color(rgb(t().p.danger))
                                     .child("彻底删除"),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 「这个文件改了还没保存，真要切走？」
+    ///
+    /// 只在编辑态且有未保存内容时出现。不是模态对话框 —— 它只挡这一下切换，
+    /// 因为丢的是**当前屏幕上的文本**，别的什么都没动。
+    fn trigger_pending_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(next) = self.triggers.pending_path.clone() else {
+            return div().into_any_element();
+        };
+        let current = self.triggers.code.path.clone().unwrap_or_default();
+        let name = self.triggers.code.name.clone().unwrap_or_default();
+        div()
+            .absolute()
+            .top(t().d(56.))
+            .left(t().d(214.))
+            .right_0()
+            .bottom_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(t().p.scrim))
+            .child(
+                div()
+                    .w(t().d(400.))
+                    .p(t().d(18.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .text_size(t().fs(13.))
+                            .text_color(rgb(t().p.text))
+                            .child(format!("{current} 有没保存的改动")),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(6.))
+                            .text_size(t().fs(10.))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.muted))
+                            .child(format!("切到 {next} 会把编辑框里的内容换掉，改动就没了（磁盘上还是旧的那版）。")),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(14.))
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .child(
+                                div()
+                                    .id("tp-save-first")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.accent))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                        this.triggers.pending_path = None;
+                                        this.save_trigger_file(false, window, cx);
+                                    }))
+                                    .child("先保存"),
+                            )
+                            .child(
+                                div()
+                                    .id("tp-discard")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.danger_soft))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.danger))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.danger_soft)))
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                        this.triggers.pending_path = None;
+                                        this.open_trigger_file(&name.clone(), &next.clone(), window, cx);
+                                    }))
+                                    .child("放弃改动"),
+                            )
+                            .child(
+                                div()
+                                    .id("tp-stay")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.triggers.pending_path = None;
+                                        cx.notify();
+                                    }))
+                                    .child("留在这"),
                             ),
                     ),
             )
