@@ -581,6 +581,21 @@ impl Desktop {
                     }
                 }
                 if key == "escape" {
+                    // 会话页的「带什么」弹层：它跟盘面共用一层 sheet，但这时盘面没开着。
+                    if weak
+                        .update(app, |this, cx| {
+                            if this.newchat.open || this.newchat.sheet.is_none() {
+                                return false;
+                            }
+                            this.newchat.sheet = None;
+                            cx.notify();
+                            true
+                        })
+                        .unwrap_or(false)
+                    {
+                        app.stop_propagation();
+                        return;
+                    }
                     // 盖在最上面的两层先拿 Esc：「撕原件」确认只关不撕；归档库页只收页。
                     // 都走 `stop_propagation`，不让 Esc 再落到下面去关别的面板。
                     let closed = weak
@@ -2902,6 +2917,11 @@ impl Desktop {
         // 窄窗（< 960）时顶栏要收着点：副标题和「历史与目录」四个字一起塞，
         // 640 宽会把右边那个按钮裁掉一半（截图里只剩「历史与目」）。
         let narrow = window.viewport_size().width.as_f32() < NAV_COLUMN_MIN_W;
+        // 会话页的弹层跟盘面共用同一套（`board_sheet`）。但**右格宽度不一样**：
+        // 会话页比盘面多一栏「历史与目录」（`nav_ui::NAV_W`），`pane_width` 没算它
+        // —— 不扣掉的话弹层会按盘面的宽度居中，整块偏到右边去。
+        let mut m = crate::board_art::M::new(window.viewport_size(), self.tab);
+        m.w = (m.w - crate::nav_ui::NAV_W).max(1.);
         let Some(id) = self.selected else {
             return div()
                 .flex()
@@ -2913,12 +2933,13 @@ impl Desktop {
                 .into_any_element();
         };
 
-        let title = self
-            .sessions
-            .iter()
-            .find(|s| s.id == id)
+        let session = self.sessions.iter().find(|s| s.id == id);
+        let title = session
             .map(|s| s.name.clone())
             .unwrap_or_else(|| format!("会话 {id}"));
+        // 顶栏那行「它带什么」。盘面上选的东西进会话之后就在这儿落脚 —— 否则
+        // 四张卡看起来只是建会话时的一次性表单。
+        let brief = session.map(brief_of).unwrap_or_default();
 
         // 9 号方案：主视图只留最近 KEEP 条。`nav.main_from` 被抽屉的桥往前推时才会变长，
         // 顶栏给一颗「收起」把它还原。
@@ -2981,6 +3002,8 @@ impl Desktop {
         };
 
         div()
+            // 弹层（「这个会话带什么」）按右格坐标 absolute 定位，得有个定位祖先。
+            .relative()
             .flex()
             .flex_col()
             .flex_1()
@@ -3000,6 +3023,30 @@ impl Desktop {
                     .px(t().d(12.))
                     .bg(rgb(t().p.list_bg))
                     .child(div().flex_none().truncate().child(title))
+                    .children((!narrow).then(|| {
+                        div()
+                            .id(ElementId::Name("chat-brief".into()))
+                            .flex_none()
+                            .max_w(t().d(300.))
+                            .truncate()
+                            .px(t().d(6.))
+                            .py(t().d(2.))
+                            .rounded(t().r(5.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.muted))
+                            .hover(|s| {
+                                s.bg(rgb(t().p.surface)).text_color(rgb(t().p.text))
+                            })
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.open_session_sheet(id, cx);
+                            }))
+                            // 什么都没配也要有个入口：不然「加个模板」找不到地方。
+                            .child(if brief.is_empty() {
+                                "配置 ›".to_string()
+                            } else {
+                                brief
+                            })
+                    }))
                     .children((!narrow).then(|| {
                         div()
                             .flex_none()
@@ -3140,6 +3187,8 @@ impl Desktop {
                 self.slash_panel(cx),
                 self.cfg_first_tool(cx),
             ))
+            // 「这个会话带什么」那张弹层：跟盘面同一个 `board_sheet`，只是目标不同。
+            .children(self.board_sheet(&m, cx))
             .into_any_element()
     }
 
@@ -4035,6 +4084,27 @@ impl Desktop {
     }
 }
 
+/// 顶栏那行「这个会话带什么」：`deepseek-v4-flash · smart-ass · 5 技能 · 只读`。
+///
+/// 空的部分**不占位** —— 四个 `·` 排成一排比什么都没有还难看。`skills` 只在有选中时
+/// 出现（`0 技能` 是噪声，没有就是没有）。
+fn brief_of(s: &Session) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(m) = short_model(s.model.as_deref()) {
+        parts.push(m);
+    }
+    if let Some(tpl) = s.template.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+        parts.push(tpl.to_string());
+    }
+    if !s.skills.is_empty() {
+        parts.push(format!("{} 技能", s.skills.len()));
+    }
+    if s.read_only {
+        parts.push("只读".into());
+    }
+    parts.join(" · ")
+}
+
 /// 左栏顺序：**置顶的在前**（顺序照 `pins` 给的），其余保持原来那套顺序。
 ///
 /// 纯函数（只吃 id），所以能直接拿数字做单测 —— 排序这种事写错一次能烦一星期。
@@ -4522,7 +4592,7 @@ fn nav_child_index(
 #[allow(non_snake_case)]
 mod tests {
     use super::{
-        Bar, ListIndex, NoticeKind, NoticeState, Recent, error_notice, nav_child_index,
+        Bar, ListIndex, NoticeKind, NoticeState, Recent, brief_of, error_notice, nav_child_index,
         next_selection_after_archive, order_ids, short_cwd, short_model, sort_sessions, when_text,
     };
     use nous_engine::EngineError;
@@ -4552,6 +4622,48 @@ mod tests {
             seen[i] = true;
         }
         assert!(seen.iter().all(|hit| *hit), "有下标没人认领：{:?}", seen);
+    }
+
+    /// 顶栏那行「带什么」：空的段不出现，别留一串悬空的 `·`。
+    #[test]
+    fn 会话顶栏摘要只写有内容的段() {
+        let base = Session {
+            id: 1,
+            name: "x".into(),
+            parent: None,
+            owner: None,
+            model: None,
+            thinking_level: None,
+            thinking_levels: vec![],
+            skills: vec![],
+            template: None,
+            read_only: false,
+            cwd: None,
+            machine: None,
+            busy: None,
+            updated_at: None,
+            last: None,
+            archived: None,
+            extra: HashMap::new(),
+        };
+        assert_eq!(brief_of(&base), "", "什么都没有就是空串，不是四个点");
+
+        let full = Session {
+            model: Some("volc-ark/deepseek-v4-flash-260425".into()),
+            template: Some("smart-ass".into()),
+            skills: vec!["a".into(), "b".into()],
+            read_only: true,
+            ..base.clone()
+        };
+        // 模型摘掉 provider 前缀和日期尾巴，这是 `short_model` 的活儿。
+        assert_eq!(brief_of(&full), "deepseek-v4-flash · smart-ass · 2 技能 · 只读");
+
+        // `0 技能` 是噪声：没有就是没有。
+        let no_skill = Session {
+            skills: vec![],
+            ..full.clone()
+        };
+        assert_eq!(brief_of(&no_skill), "deepseek-v4-flash · smart-ass · 只读");
     }
 
     /// 滚动条默认不在场：不然一启动每块面板都挂着一根线。

@@ -19,7 +19,7 @@ use nous_engine::types::Entry;
 
 use crate::session_nav::{NavDay, NavRound, answer_preview, build_nav, main_from, one_line};
 
-const NAV_W: f32 = 240.;
+pub(crate) const NAV_W: f32 = 240.;
 const DRAWER_W: f32 = 0.86;
 /// 原 `DAY_MUTED = 0x9a9a9a`；由 muted 这个语义槽接管。
 fn day_muted() -> u32 { t().p.muted }

@@ -442,6 +442,8 @@ pub(crate) struct Pop {
 /// 弹层各自的脾气 —— 宽度、贴哪边、要不要翻边，全在这里定。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PopKind {
+    /// 会话页的「带什么」清单：居中，不贴任何节点（会话页没有四角卡）。
+    Session,
     /// 模型：贴卡片下方，宽 600。
     Model,
     /// 技能：左树 + 右列表，要 620 才站得下两栏。
@@ -518,6 +520,15 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
                     w,
                     anchor: Anchor::Top(down),
                 }
+            }
+        }
+        None if kind == PopKind::Session => {
+            // 会话页没有四角卡可贴：居中偏上，宽 460。
+            let w = (m.w - 28.).min(460.);
+            Pop {
+                x: (m.w - w) / 2.,
+                w,
+                anchor: Anchor::Top((m.h * 0.18).max(20.)),
             }
         }
         None => {
