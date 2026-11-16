@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>New Manual · 扩展（Extensions）· 卡片 + 弹层</title>
+<style>
+  :root{
+    --bg:#ededed; --panel:#fff; --surface:#f6f6f6; --line:#e6e6e6; --line-soft:#f1f1f1;
+    --text:#1a1a1a; --text2:#333; --muted:#999; --faint:#aaa; --ghost:#c8c8c8;
+    --accent:#07c160; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f; --accent-tint:#07c16022;
+    --warn:#c77700; --warn-soft:#fff8ee; --bad:#c0392b; --bad-soft:#fdf1ef;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: Inter, "Manrope", -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#fafafa;color:var(--text);font-family:var(--sans);}
+  body{padding:52px 44px 140px;}
+  h1{font-size:23px;font-weight:600;letter-spacing:-.015em;margin:0 0 10px;}
+  .lede{font-size:13.5px;color:#666;line-height:1.8;max-width:960px;margin:0;}
+  .lede b{color:#111;font-weight:600;}
+  code{font-family:var(--mono);font-size:12px;background:#efefef;padding:1px 5px;border-radius:3px;color:#333;}
+
+  .facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:1120px;margin:24px 0 6px;}
+  .fact{border:1px solid #ececec;background:#fff;border-radius:9px;padding:12px 14px;}
+  .fact .k{font-family:var(--mono);font-size:10px;color:#bbb;letter-spacing:.04em;}
+  .fact .v{font-size:12.5px;color:#333;line-height:1.65;margin-top:5px;}
+  .fact .v b{color:#0a7a3f;}
+  .fact .v i{color:#aaa;font-style:normal;}
+
+  .note{border-left:2px solid #d8d8d8;padding:2px 0 2px 14px;margin:26px 0 0;max-width:960px;
+        font-size:12.5px;color:#777;line-height:1.85;}
+  .note b{color:#111;}
+
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:46px 52px;margin-top:44px;max-width:1400px;align-items:start;}
+  .pane.wide{grid-column:1 / -1;}
+  .pane-head{display:flex;align-items:baseline;gap:10px;margin:0 0 4px;}
+  .num{font-family:var(--mono);font-size:10.5px;color:#c0c0c0;border:1px solid #e8e8e8;border-radius:3px;padding:1px 5px;}
+  .num.hot{color:var(--accent-fg);border-color:var(--accent);background:var(--accent-soft);}
+  .pane-head h2{font-size:14.5px;font-weight:600;margin:0;letter-spacing:-.01em;}
+  .why{font-size:12px;color:#7d7d7d;line-height:1.7;margin:0 0 14px 34px;max-width:660px;}
+  .why b{color:#333;font-weight:600;}
+  .why .cost{color:#b06a00;}
+
+  /* ── 弹层外壳 ───────────────────────── */
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+         box-shadow:0 12px 34px rgba(0,0,0,.075),0 1px 2px rgba(0,0,0,.03);}
+  .sheet.w460{width:460px;} .sheet.w520{width:520px;} .sheet.w620{width:620px;}
+  .shead{display:flex;align-items:flex-start;justify-content:space-between;padding:11px 15px 9px;border-bottom:1px solid var(--line);}
+  .shead .t{font-size:12.5px;font-weight:600;line-height:1.3;}
+  .shead .h{font-size:10.5px;color:var(--muted);font-style:italic;margin-top:2px;}
+  .shead .x{color:#c4c4c4;font-size:14px;line-height:1;}
+  .sfoot{display:flex;align-items:center;justify-content:space-between;padding:8px 15px;border-top:1px solid var(--line);}
+  .sfoot .l{font-family:var(--mono);font-size:9.5px;color:var(--faint);}
+  .sfoot .r{font-family:var(--mono);font-size:10px;color:var(--accent-fg);border:1px solid var(--accent);
+            background:var(--accent-soft);border-radius:5px;padding:2px 9px;}
+
+  .pbar{display:flex;align-items:center;gap:7px;margin:10px 14px 0;padding:0 9px;min-height:30px;
+        background:var(--surface);border:1px solid transparent;border-radius:7px;}
+  .pbar .ico{font-family:var(--mono);font-size:11px;color:#c2c2c2;flex:none;}
+  .pbar input{flex:1;min-width:0;border:0;background:transparent;outline:0;font-family:var(--mono);
+              font-size:11.5px;color:var(--text);}
+  .pbar input::placeholder{color:#bfbfbf;}
+
+  /* ── 行 ─────────────────────────────── */
+  .rows{padding:6px 8px 8px;}
+  .row{display:flex;align-items:flex-start;gap:9px;padding:8px 9px;border-radius:7px;border:1px solid transparent;}
+  .row.on{background:var(--accent-soft);border-color:#cdebd9;}
+  .row.lock{opacity:.55;}
+  .box{margin-top:2px;width:13px;height:13px;border-radius:3px;border:1px solid var(--line);
+       flex:none;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--accent);}
+  .row.on .box{border-color:var(--accent);}
+  .row.lock .box{background:#f0f0f0;border-style:dashed;}
+  .row .body{flex:1;min-width:0;}
+  .row .n{font-family:var(--mono);font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;}
+  .row .n .v{font-size:9.5px;color:#c0c0c0;}
+  .row .d{font-size:11px;color:var(--muted);line-height:1.55;margin-top:3px;}
+  .row .d .s{font-family:var(--mono);font-size:9.5px;color:#b8b8b8;}
+  .tag{font-family:var(--mono);font-size:9px;color:#a8a8a8;border:1px solid var(--line-soft);
+       background:#fbfbfb;border-radius:3px;padding:0 4px;line-height:14px;flex:none;white-space:nowrap;}
+  .tag.acc{color:var(--accent-fg);border-color:#cdebd9;background:var(--accent-soft);}
+  .tag.warn{color:var(--warn);border-color:#f2e2c9;background:var(--warn-soft);}
+  .tag.bad{color:var(--bad);border-color:#f2d7d3;background:var(--bad-soft);}
+  .tag.gray{color:#b0b0b0;}
+
+  .gh{display:flex;align-items:center;gap:8px;padding:11px 14px 3px;}
+  .gh .t{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:#b8b8b8;}
+  .gh .line{flex:1;height:1px;background:var(--line-soft);}
+  .gh .c{font-family:var(--mono);font-size:9.5px;color:#cdcdcd;}
+  .gh .whyx{font-size:9.5px;color:#d0d0d0;font-style:italic;}
+
+  .hint{font-family:var(--mono);font-size:9.5px;color:#c8c8c8;padding:7px 15px 9px;}
+  .empty{padding:30px 16px;text-align:center;font-size:11.5px;color:var(--ghost);}
+
+  /* ── 表格排版 ───────────────────────── */
+  .tbl{width:100%;border-collapse:collapse;font-size:11.5px;}
+  .tbl th{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+          color:#c0c0c0;font-weight:500;text-align:left;padding:8px 10px 5px;border-bottom:1px solid var(--line);}
+  .tbl td{padding:7px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top;}
+  .tbl tr:last-child td{border-bottom:0;}
+  .tbl .nm{font-family:var(--mono);font-size:11.5px;color:var(--text2);}
+  .tbl .nm .v{font-size:9.5px;color:#c4c4c4;margin-left:5px;}
+  .tbl .sm{font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.5;}
+  .tbl .sec{font-family:var(--mono);font-size:9.5px;color:#b0b0b0;}
+  .sw{width:26px;height:14px;border-radius:7px;background:var(--accent);position:relative;flex:none;}
+  .sw::after{content:"";position:absolute;width:10px;height:10px;border-radius:50%;background:#fff;top:2px;right:2px;}
+  .sw.off{background:#e4e4e4;}
+  .sw.off::after{right:auto;left:2px;}
+  .sw.lock{background:#efefef;}
+
+  /* ── 卡片（盘面上的那张） ───────────── */
+  .cards{display:flex;gap:26px;flex-wrap:wrap;}
+  .card{width:220px;height:92px;background:#fff;border:1px solid #ececec;border-radius:10px;padding:11px 13px;
+        display:flex;flex-direction:column;}
+  .card .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:#c4c4c4;text-transform:uppercase;}
+  .card .t{font-size:12.5px;font-weight:600;margin-top:4px;color:#1a1a1a;}
+  .card .v{font-family:var(--mono);font-size:10px;color:#8a8a8a;margin-top:5px;line-height:1.5;}
+  .card .v b{color:#0a7a3f;font-weight:500;}
+  .card .v i{color:#c8c8c8;font-style:normal;}
+  .card .go{margin-top:auto;font-family:var(--mono);font-size:9px;color:#cfcfcf;}
+  .card.now .v{color:#c8c8c8;font-style:italic;}
+  .swrow{display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap;}
+  .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none;}
+  .dot.off{background:#e0e0e0;}
+  .dot.bad{background:var(--bad);}
+</style>
+</head>
+<body>
+
+<h1>扩展（Extensions）· 卡片 + 弹层</h1>
+<p class="lede">
+  <b>先说个前提：不用等接口了，<code>/v1/extensions</code> 已经在跑。</b>盘面上那张卡现在还写着
+  <code>none</code>，是因为我们从来没请求过它。<br>
+  但接上去不只是「把 4 个名字打出来」—— 那份数据里有 <b>5 类不同的东西</b>，
+  混在一列里根本读不懂。所以先出 demo。
+</p>
+
+<div class="facts">
+  <div class="fact"><div class="k">装上 · installed</div>
+    <div class="v"><b>4</b> 条：<code>nous</code> <code>skills</code> <code>prompts</code> <code>123</code>
+      <br><b>前三条是核心</b>：引擎启动路径上硬编码 import，卸了下次起不来</div></div>
+  <div class="fact"><div class="k">另外四类不出现在 installed 里</div>
+    <div class="v"><b>内置</b> <code>coding-tools</code>（卸不掉）·
+      <b>变体</b> <code>123@123</code>（load failed）·
+      <b>已归档</b> <code>demo</code> · <b>受保护分类</b> <code>Basics</code></div></div>
+  <div class="fact"><div class="k">仓库状态</div>
+    <div class="v"><code>drift: true</code> + <code>pullError</code>（分支没跟踪信息）
+      <br><i>要不要在卡上报红？这是 demo 里要定的一件事</i></div></div>
+</div>
+
+<div class="note">
+  <b>真实数据搬进来，没编。</b>4 条扩展的 summary / sections / 版本 / 分类都是照接口抄的 ——
+  包括那条明显是测试垃圾的 <code>123</code>（summary 就写着「213」）。
+  它恰恰能试出「脏数据长什么样」，别删。
+</div>
+
+<div class="grid">
+
+  <!-- 00 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">00</span><h2>现状</h2></div>
+    <p class="why">卡片只有一行 <code>none</code>，没有数字、没有状态，点开也没有弹层
+      —— 现在点「Extensions」什么都不会发生。</p>
+    <div class="cards">
+      <div class="card now">
+        <div class="k">Extensions</div>
+        <div class="t">Extensions</div>
+        <div class="v">none</div>
+        <div class="go">choose ›</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 01 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">01</span><h2>卡片上写什么</h2></div>
+    <p class="why">四种都摆出来。跟 SKILLS 的 <code>0 / 5</code> 一样，卡上只能放<b>一个数</b>，
+      问题是用哪个：装上的总数？核心的？还是「活的 sections」？</p>
+    <div class="cards" style="gap:16px">
+      <div class="card">
+        <div class="k">Extensions</div>
+        <div class="t">Extensions</div>
+        <div class="v"><b>4</b> 装上 · 3 核心</div>
+        <div class="go">choose ›</div>
+      </div>
+      <div class="card">
+        <div class="k">Extensions</div>
+        <div class="t">Extensions</div>
+        <div class="v"><b>4</b> / 4</div>
+        <div class="go">choose ›</div>
+      </div>
+      <div class="card">
+        <div class="k">Extensions</div>
+        <div class="t">Extensions</div>
+        <div class="v" style="font-family:var(--sans);font-size:10.5px">
+          <span style="font-family:var(--mono)">nous · skills · prompts</span>
+          <span style="color:#c8c8c8">+1</span>
+        </div>
+        <div class="go">choose ›</div>
+      </div>
+      <div class="card">
+        <div class="k">Extensions</div>
+        <div class="t">Extensions</div>
+        <div class="swrow">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="dot"></span><span class="dot bad"></span>
+          <span style="font-family:var(--mono);font-size:9.5px;color:#a8a8a8;margin-left:2px">4/5</span>
+        </div>
+        <div class="go">1 个坏了 ›</div>
+      </div>
+    </div>
+    <div class="hint" style="padding-left:0">
+      1 = 数字说全了但两个数要看两遍 ·
+      2 = 分母是谁？「4 条可选」其实也是 4 ·
+      3 = 名字有信息量，但 4 个名字塞不进 220 宽 ·
+      4 = 一个点一条，坏的那条红着 —— 一眼看出「有活没干完」
+    </div>
+  </div>
+
+  <!-- 02 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">02</span><h2>弹层 · 一列多选</h2></div>
+    <p class="why">最省事：跟技能一模一样的一列，勾选，关掉。4 条刚好一屏。
+      <span class="cost">代价：分不出「内置」「归档」「变体」—— <code>coding-tools</code> 卸不掉、
+      <code>demo</code> 已经归档、<code>123@123</code> 加载失败，三种都跟普通扩展长得一样。</span></p>
+    <div class="sheet w460">
+      <div class="shead"><div><div class="t">上下文 · 扩展</div><div class="h">勾完按「完成」· 多选</div></div><div class="x">✕</div></div>
+      <div class="rows">
+        <div class="row on"><div class="box">✓</div><div class="body">
+          <div class="n">nous <span class="v">0.1.0</span></div>
+          <div class="d">agent 在 Nous 里的自我介绍 + 当前工作目录 <span class="s">preamble · cwd</span></div></div>
+          <span class="tag">核心</span></div>
+        <div class="row on"><div class="box">✓</div><div class="body">
+          <div class="n">skills <span class="v">0.2.0</span></div>
+          <div class="d">扫 Nous-skills 仓库，把选中的技能渲染成 &lt;available_skills&gt; <span class="s">skills</span></div></div>
+          <span class="tag">核心</span></div>
+        <div class="row on"><div class="box">✓</div><div class="body">
+          <div class="n">prompts <span class="v">0.1.0</span></div>
+          <div class="d">扫 Nous-prompts 私库，把选中的模板正文渲染进系统提示词 <span class="s">prompts</span></div></div>
+          <span class="tag">核心</span></div>
+        <div class="row on"><div class="box">✓</div><div class="body">
+          <div class="n">123 <span class="v">0.1.0</span></div>
+          <div class="d">213</div></div>
+          <span class="tag gray">工具/搜索</span></div>
+      </div>
+      <div class="sfoot"><span class="l">4 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 03 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num hot">03 · 推荐</span><h2>弹层 · 分组列表</h2></div>
+    <p class="why">按<b>状态</b>分组，不按类别：<code>启用中 4</code> → <code>内置 1</code> → <code>变体 1</code> → <code>已归档 1</code>。
+      每组一行小字说明「这一组为什么不能随便勾」。加载失败的变体标红，坏的那条一眼找到。
+      <span class="cost">代价：比一列多 4 行段头；4 条扩展的面板上，段头占了快三分之一高度。</span></p>
+    <div class="sheet w460">
+      <div class="shead"><div><div class="t">上下文 · 扩展</div><div class="h">勾完按「完成」· 多选</div></div><div class="x">✕</div></div>
+      <div class="gh"><span class="t">启用中</span><span class="line"></span><span class="c">4</span></div>
+      <div class="rows" style="padding-top:2px">
+        <div class="row on"><div class="box">✓</div><div class="body">
+          <div class="n">nous <span class="v">0.1.0</span></div>
+          <div class="d">agent 在 Nous 里的自我介绍 + 当前工作目录 <span class="s">preamble · cwd</span></div></div>
+          <span class="tag">核心</span></div>
+        <div class="row on"><div class="box">✓</div><div class="body">
+          <div class="n">skills <span class="v">0.2.0</span></div>
+          <div class="d">扫 Nous-skills 仓库，把选中的技能渲染成 &lt;available_skills&gt; <span class="s">skills</span></div></div>
+          <span class="tag">核心</span></div>
+        <div class="row on"><div class="box">✓</div><div class="body">
+          <div class="n">prompts <span class="v">0.1.0</span></div>
+          <div class="d">扫 Nous-prompts 私库，把选中的模板正文渲染进系统提示词 <span class="s">prompts</span></div></div>
+          <span class="tag">核心</span></div>
+        <div class="row on"><div class="box">✓</div><div class="body">
+          <div class="n">123 <span class="v">0.1.0</span></div>
+          <div class="d">213</div></div>
+          <span class="tag gray">工具/搜索</span></div>
+      </div>
+      <div class="gh"><span class="t">内置</span><span class="line"></span><span class="c">1</span>
+        <span class="whyx">引擎自带，卸不掉</span></div>
+      <div class="rows" style="padding-top:2px">
+        <div class="row on lock"><div class="box"></div><div class="body">
+          <div class="n">coding-tools <span class="v">builtin</span></div>
+          <div class="d">读写文件、跑命令 —— 不在仓库里，跟着引擎走</div></div>
+          <span class="tag gray">常开</span></div>
+      </div>
+      <div class="gh"><span class="t">变体</span><span class="line"></span><span class="c">1</span></div>
+      <div class="rows" style="padding-top:2px">
+        <div class="row"><div class="box"></div><div class="body">
+          <div class="n">123@123</div>
+          <div class="d">Cannot find module <span class="s">/opt/nous-ext-123-123/123/index.js</span></div></div>
+          <span class="tag bad">加载失败</span></div>
+      </div>
+      <div class="gh"><span class="t">已归档</span><span class="line"></span><span class="c">1</span></div>
+      <div class="rows" style="padding-top:2px;padding-bottom:10px">
+        <div class="row"><div class="box"></div><div class="body">
+          <div class="n">demo <span class="v">0.1.0</span></div>
+          <div class="d">凑数用的测试扩展：专门拿来练「删除本地 / 安装回来」</div></div>
+          <span class="tag">2026-11-04</span></div>
+      </div>
+      <div class="sfoot"><span class="l">4 已选 · /opt/Nous-extend · drift</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 04 -->
+  <div class="pane wide">
+    <div class="pane-head"><span class="num">04</span><h2>弹层 · 表格（620）</h2></div>
+    <p class="why">Tesla 那一路：一行一条，列是「名字 / 干什么 / 贡献什么 / 开关」。
+      <b>sections 单独成列</b>是这一套的关键 —— 扩展真正的价值是往系统提示词里塞了哪几段，
+      这个信息在别的方案里都被挤成了尾巴上的小字。
+      <span class="cost">代价：桌子比列表冷；而且 <code>sections</code> 是内部术语，要配一行解释。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">上下文 · 扩展</div><div class="h">开关就是勾选 · 关掉即从系统提示词里摘掉</div></div><div class="x">✕</div></div>
+      <table class="tbl">
+        <thead><tr><th style="width:150px">扩展</th><th>干什么</th><th style="width:120px">贡献</th><th style="width:56px;text-align:right">开</th></tr></thead>
+        <tbody>
+          <tr><td><div class="nm">nous<span class="v">0.1.0</span></div><span class="tag" style="margin-top:4px;display:inline-block">核心</span></td>
+            <td><div class="sm">agent 在 Nous 里的自我介绍 + 当前工作目录</div></td>
+            <td><div class="sec">preamble<br>cwd</div></td>
+            <td style="text-align:right"><div class="sw" style="display:inline-block"></div></td></tr>
+          <tr><td><div class="nm">skills<span class="v">0.2.0</span></div><span class="tag" style="margin-top:4px;display:inline-block">核心</span></td>
+            <td><div class="sm">扫 Nous-skills 仓库，把选中的技能渲染成 &lt;available_skills&gt;</div></td>
+            <td><div class="sec">skills</div></td>
+            <td style="text-align:right"><div class="sw" style="display:inline-block"></div></td></tr>
+          <tr><td><div class="nm">prompts<span class="v">0.1.0</span></div><span class="tag" style="margin-top:4px;display:inline-block">核心</span></td>
+            <td><div class="sm">扫 Nous-prompts 私库，把选中的模板正文渲染进系统提示词</div></td>
+            <td><div class="sec">prompts</div></td>
+            <td style="text-align:right"><div class="sw" style="display:inline-block"></div></td></tr>
+          <tr><td><div class="nm">123<span class="v">0.1.0</span></div></td>
+            <td><div class="sm">213</div></td>
+            <td><div class="sec">—</div></td>
+            <td style="text-align:right"><div class="sw" style="display:inline-block"></div></td></tr>
+          <tr><td><div class="nm">coding-tools</div><span class="tag gray" style="margin-top:4px;display:inline-block">内置</span></td>
+            <td><div class="sm">读写文件、跑命令 —— 跟着引擎走，不在仓库里</div></td>
+            <td><div class="sec">tools</div></td>
+            <td style="text-align:right"><div class="sw lock" style="display:inline-block"></div></td></tr>
+          <tr><td><div class="nm">123@123</div><span class="tag bad" style="margin-top:4px;display:inline-block">失败</span></td>
+            <td><div class="sm">Cannot find module /opt/nous-ext-123-123/123/index.js</div></td>
+            <td><div class="sec">—</div></td>
+            <td style="text-align:right"><div class="sw off" style="display:inline-block"></div></td></tr>
+        </tbody>
+      </table>
+      <div class="sfoot"><span class="l">4 开 · 1 内置 · 1 坏 · 已归档 1 条（这里不列）</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 05 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">05</span><h2>弹层 · 左树 + 右列表（技能同款）</h2></div>
+    <p class="why">跟技能弹层一个语法：左边按类别，右边勾。两个面板变成一个东西，
+      学一次就够。<span class="cost">代价：扩展只有 4 条，左树里一半分类是空的
+      （工具/文件、记忆、Basics/234 都没扩展）；而且「内置 / 变体 / 归档」不是分类，塞不进树。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">上下文 · 扩展</div><div class="h">按类别找 · 勾完按「完成」</div></div><div class="x">✕</div></div>
+      <div style="display:flex;border-top:1px solid var(--line)">
+        <div style="width:172px;flex:none;border-right:1px solid var(--line);padding:9px 6px 11px;background:#fcfcfc;
+                    font-family:var(--mono);font-size:10.5px;color:#666">
+          <div style="display:flex;padding:4px 8px;background:#fff;border:1px solid var(--line);border-radius:5px;color:#1a1a1a">
+            全部<span style="margin-left:auto;font-size:9px;color:#c8c8c8">5</span></div>
+          <div style="display:flex;padding:4px 8px">工具<span style="margin-left:auto;font-size:9px;color:#c8c8c8">2</span></div>
+          <div style="display:flex;padding:4px 8px 4px 23px">搜索<span style="margin-left:auto;font-size:9px;color:#c8c8c8">1</span></div>
+          <div style="display:flex;padding:4px 8px 4px 23px;color:#d2d2d2">文件<span style="margin-left:auto;font-size:9px;color:#dedede">0</span></div>
+          <div style="display:flex;padding:4px 8px">观察<span style="margin-left:auto;font-size:9px;color:#c8c8c8">2</span></div>
+          <div style="display:flex;padding:4px 8px">记忆<span style="margin-left:auto;font-size:9px;color:#c8c8c8">1</span></div>
+          <div style="display:flex;padding:4px 8px 4px 23px">向量<span style="margin-left:auto;font-size:9px;color:#c8c8c8">1</span></div>
+          <div style="display:flex;padding:4px 8px">Basics<span style="margin-left:auto;font-size:9px;color:#c8c8c8">3</span></div>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div class="rows">
+            <div class="row on"><div class="box">✓</div><div class="body">
+              <div class="n">nous <span class="v">0.1.0</span></div>
+              <div class="d">agent 在 Nous 里的自我介绍 + 当前工作目录 <span class="s">preamble · cwd</span></div></div>
+              <span class="tag">核心</span></div>
+            <div class="row on"><div class="box">✓</div><div class="body">
+              <div class="n">skills <span class="v">0.2.0</span></div>
+              <div class="d">扫 Nous-skills 仓库，把选中的技能渲染成 &lt;available_skills&gt; <span class="s">skills</span></div></div>
+              <span class="tag">核心</span></div>
+            <div class="row on"><div class="box">✓</div><div class="body">
+              <div class="n">prompts <span class="v">0.1.0</span></div>
+              <div class="d">扫 Nous-prompts 私库，把选中的模板正文渲染进系统提示词 <span class="s">prompts</span></div></div>
+              <span class="tag">核心</span></div>
+            <div class="row on"><div class="box">✓</div><div class="body">
+              <div class="n">123 <span class="v">0.1.0</span></div>
+              <div class="d">213</div></div>
+              <span class="tag gray">工具/搜索</span></div>
+          </div>
+          <div class="hint">4 条 · 分类树里 3 个类没有扩展</div>
+        </div>
+      </div>
+      <div class="sfoot"><span class="l">4 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 06 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">06</span><h2>弹层 · 双列卡片（620）</h2></div>
+    <p class="why">每条扩展一张小卡，两列铺开。名字、版本、summary、sections 各回各的位置，
+      比一列横排更容易扫。4 条正好 2×2。
+      <span class="cost">代价：一屏只放得下 4–6 条，再多就得滚；而且「内置 / 失败」还是要靠角标救。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">上下文 · 扩展</div><div class="h">点卡片开关 · 内置的点不动</div></div><div class="x">✕</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px 14px">
+        <div style="border:1px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:9px 11px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--mono);font-size:11.5px;color:#333">nous</span>
+            <span style="font-family:var(--mono);font-size:9px;color:#c4c4c4">0.1.0</span>
+            <span class="tag" style="margin-left:auto">核心</span></div>
+          <div style="font-size:10.5px;color:#888;line-height:1.55;margin-top:5px">自我介绍 + 当前工作目录</div>
+          <div style="font-family:var(--mono);font-size:9px;color:#b0b0b0;margin-top:5px">preamble · cwd</div>
+        </div>
+        <div style="border:1px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:9px 11px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--mono);font-size:11.5px;color:#333">skills</span>
+            <span style="font-family:var(--mono);font-size:9px;color:#c4c4c4">0.2.0</span>
+            <span class="tag" style="margin-left:auto">核心</span></div>
+          <div style="font-size:10.5px;color:#888;line-height:1.55;margin-top:5px">把选中的技能渲染成 &lt;available_skills&gt;</div>
+          <div style="font-family:var(--mono);font-size:9px;color:#b0b0b0;margin-top:5px">skills</div>
+        </div>
+        <div style="border:1px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:9px 11px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--mono);font-size:11.5px;color:#333">prompts</span>
+            <span style="font-family:var(--mono);font-size:9px;color:#c4c4c4">0.1.0</span>
+            <span class="tag" style="margin-left:auto">核心</span></div>
+          <div style="font-size:10.5px;color:#888;line-height:1.55;margin-top:5px">把选中的模板正文渲染进系统提示词</div>
+          <div style="font-family:var(--mono);font-size:9px;color:#b0b0b0;margin-top:5px">prompts</div>
+        </div>
+        <div style="border:1px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:9px 11px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--mono);font-size:11.5px;color:#333">123</span>
+            <span style="font-family:var(--mono);font-size:9px;color:#c4c4c4">0.1.0</span></div>
+          <div style="font-size:10.5px;color:#888;line-height:1.55;margin-top:5px">213</div>
+          <div style="font-family:var(--mono);font-size:9px;color:#b0b0b0;margin-top:5px">—</div>
+        </div>
+      </div>
+      <div class="hint" style="border-top:1px solid var(--line);padding-top:8px">
+        另外：内置 1（coding-tools，点不动）· 失败 1（123@123）· 归档 1（demo）
+      </div>
+      <div class="sfoot"><span class="l">4 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="note" style="margin-top:52px">
+  <b>我选 03 + 卡片的第 4 种（圆点）。</b>理由：
+  <br>· <b>弹层按状态分组，不按类别</b> —— 扩展这件事的真实结构是「哪些能用、哪些不能动、哪些坏了」，
+  不是「工具 / 观察 / 记忆」。技能那边按类别是因为技能是「挑能力」，扩展这边是「看状态」。
+  <br>· <b>卡片用圆点</b>：5 个点一眼看出坏了一条，数字 <code>4/5</code> 顺带也在。而
+  <code>4 装上 · 3 核心</code> 要读两个字才明白。
+  <br><br>
+  <b>先说一件查出来的事，它改变了这套东西的重心：</b>
+  <br><b>写接口全都有</b>（<code>install</code> / <code>uninstall</code> / <code>reload</code> / <code>archive</code> …），
+  但 <code>nous</code> <code>skills</code> <code>prompts</code> 是 <b>核心扩展</b> ——
+  引擎启动路径上硬编码 <code>import</code> 的，<code>uninstall</code> 直接返回 403
+  「删了下次就起不来」。加上内置的 <code>coding-tools</code>、加载失败的变体、归档的 <code>demo</code>，
+  <b>这一屏上真正能拨的开关只有 <code>123</code> 一个。</b>
+  <br>所以这个面板的重心不是「选择器」，是<b>「我这儿都装了什么、哪些不能动、有没有坏」</b>。
+  分组（03）比分组按类别更对，就是因为这个。
+  <br><br>
+  <b>还有三件要定的事：</b>
+  <br>1. <b>能勾的只有一个，还画勾选框吗？</b>我倾向照画 —— 画面上「为什么这三个点不动」比「一个都不画」
+  更能说明架构。但核心那三条要用锁的样子，不能跟「用户只是没勾」长得一样。
+  <br>2. <b><code>drift: true</code> 报不报？</b>仓库分支没跟踪信息，<code>pullError</code> 一直挂着。
+  我倾向<b>不报在卡上</b>（跟这次会话无关），只在弹层底部放一行灰字。
+  <br>3. <b>归档的要不要露？</b><code>demo</code> 是三个月前的测试扩展，露出来只会让人问「这是啥」。
+  我倾向<b>默认折叠</b>，点「已归档 1」才展开。
+</div>
+
+</body>
+</html>
