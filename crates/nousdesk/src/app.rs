@@ -70,6 +70,10 @@ pub(crate) enum Bar {
     Settings,
     /// 归档库整页。
     Archive,
+    /// 数据监控室：左列拉片 / 中列那一屏 / 右列时间线，各一份。
+    DataFilm,
+    DataScreen,
+    DataTl,
     /// 输入框左下角那颗 DNA 打开的面板（七页正文共用）。
     Cfg,
     /// 目录列（「前几轮 / 抽屉」那条左栏）。
@@ -86,13 +90,16 @@ pub(crate) enum Bar {
 
 impl Bar {
     /// 一个不落、顺序无所谓 —— 只用来定数组长度和初始化。
-    pub(crate) const ALL: [Bar; 12] = [
+    pub(crate) const ALL: [Bar; 15] = [
         Bar::Chat,
         Bar::List,
         Bar::Tree,
         Bar::Presets,
         Bar::Settings,
         Bar::Archive,
+        Bar::DataFilm,
+        Bar::DataScreen,
+        Bar::DataTl,
         Bar::Cfg,
         Bar::Nav,
         Bar::Drawer,
@@ -150,6 +157,8 @@ pub(crate) enum Tab {
     Chats,
     Templates,
     Triggers,
+    /// 数据监控室：面板 `d6s4v1` + 归档库搬进桌面端（`data_console.rs`）。
+    Data,
 }
 
 /// 轻提示的性质：成功绿 / 失败红。
@@ -334,6 +343,8 @@ pub struct Desktop {
     pub(crate) archive_open: bool,
     /// 归档库页的状态（数据 / 载入中 / 错误原文 / 选中行）。
     pub(crate) archive: crate::archive_page::ArchivePageState,
+    /// 数据监控室（左列第四个入口）的全部状态：五份数据 + 屏 + 拉片档 + 时间线。
+    pub(crate) console: crate::data_console::ConsoleState,
     /// 「撕原件」危险确认的状态机（票 #3）。本票只负责把它接到引擎上。
     pub(crate) purge_confirm: crate::archive_confirm::PurgeConfirm,
     /// 「重命名会话」弹层（居中对话框）。输入框单独存一个复用 —— 每开一次不新建
@@ -584,6 +595,26 @@ impl Desktop {
                     .update(app, |this, cx| {
                         let ks = &ev.keystroke;
                         this.newchat.open && this.board_key(ks, cx)
+                    })
+                    .unwrap_or(false)
+                {
+                    app.stop_propagation();
+                    return;
+                }
+                // 数据监控室：`T` 收起 / 展开右列时间线（键帽画在底栏）。
+                // 这页没有输入框，所以不用像 `/` 面板那样挑「输入框聚焦时」才拦。
+                if weak
+                    .update(app, |this, cx| {
+                        if this.tab != Tab::Data {
+                            return false;
+                        }
+                        let ks = &ev.keystroke;
+                        if key != "t" || ks.modifiers.control || ks.modifiers.alt || ks.modifiers.platform {
+                            return false;
+                        }
+                        this.console.tl_open = !this.console.tl_open;
+                        cx.notify();
+                        true
                     })
                     .unwrap_or(false)
                 {
@@ -904,6 +935,7 @@ impl Desktop {
             settings_msg: None,
             archive_open: false,
             archive: crate::archive_page::ArchivePageState::new(),
+            console: crate::data_console::ConsoleState::new(),
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
             rename_box: crate::rename_box::RenameBox::new(),
             rename_input, // 上面 `cx.new` 建好的那个
@@ -946,6 +978,8 @@ impl Desktop {
                 Tab::Templates
             } else if open_at_start == "triggers" {
                 Tab::Triggers
+            } else if open_at_start == "data" {
+                Tab::Data
             } else {
                 Tab::Chats
             },
@@ -1038,6 +1072,11 @@ impl Desktop {
                         this.load_all_sections(false, cx);
                         // 触发器管理是**另一个块**（n8qkkj），单独 resolve、单独拉。
                         this.load_triggers(cx);
+                        // 直接开在数据监控室（`NOUS_DESKTOP_OPEN=data`）时，五份数据也得
+                        // 自己拉一遍 —— `switch_tab` 只在「切过去」那一刻触发。
+                        if this.tab == Tab::Data {
+                            this.load_console(false, cx);
+                        }
                         // 置顶单独去 bjes6b 拿（单源在它那儿）。
                         this.load_pins(cx);
                         // `/` 面板的技能清单：失败就认了（面板给提示）。
@@ -2711,6 +2750,7 @@ impl Desktop {
             .child(self.tab_button(IconName::MessageCircle, Tab::Chats, cx))
             .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
             .child(self.tab_button(IconName::Bolt, Tab::Triggers, cx))
+            .child(self.tab_button(IconName::Database, Tab::Data, cx))
             .child(div().flex_1())
             .child(self.more_button(cx))
     }
@@ -2741,6 +2781,7 @@ impl Desktop {
             Tab::Chats => "tab-chats",
             Tab::Templates => "tab-templates",
             Tab::Triggers => "tab-triggers",
+            Tab::Data => "tab-data",
         };
         div()
             .id(ElementId::Name(id.into()))
@@ -4781,6 +4822,8 @@ impl Render for Desktop {
                     })
                     .into_any_element(),
                 Tab::Triggers => self.render_triggers(cx).into_any_element(),
+                // 数据监控室是三列整页（拉片 / 六屏 / 时间线），自己画完全宽。
+                Tab::Data => self.render_data_console(cx).into_any_element(),
             }
         };
 

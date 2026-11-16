@@ -1,0 +1,290 @@
+{
+ "tasks": {
+  "total": 136,
+  "byStatus": [
+   {
+    "status": "pending",
+    "count": 1,
+    "sample": [
+     {
+      "id": 693,
+      "kind": "pi.generation"
+     }
+    ]
+   },
+   {
+    "status": "terminal",
+    "count": 135,
+    "sample": [
+     {
+      "id": 696,
+      "kind": "pi.generation"
+     },
+     {
+      "id": 688,
+      "kind": "pi.generation"
+     },
+     {
+      "id": 686,
+      "kind": "pi.tool"
+     },
+     {
+      "id": 683,
+      "kind": "pi.generation"
+     }
+    ]
+   }
+  ],
+  "stuck": [],
+  "sleeping": [],
+  "avgMs": 6838,
+  "p95": 18254,
+  "slowest": [
+   {
+    "id": 658,
+    "conv": 621,
+    "kind": "pi.generation",
+    "status": "terminal",
+    "background": false,
+    "startedAt": 1794218891146,
+    "endedAt": 1794219190698,
+    "outcome": "completed"
+   },
+   {
+    "id": 573,
+    "conv": 560,
+    "kind": "pi.generation",
+    "status": "terminal",
+    "background": false,
+    "startedAt": 1794217615062,
+    "endedAt": 1794217648157,
+    "outcome": "completed"
+   },
+   {
+    "id": 294,
+    "conv": 2,
+    "kind": "pi.generation",
+    "status": "terminal",
+    "background": false,
+    "startedAt": 1793183195986,
+    "endedAt": 1793183228364,
+    "outcome": "completed"
+   },
+   {
+    "id": 239,
+    "conv": 2,
+    "kind": "pi.generation",
+    "status": "terminal",
+    "background": false,
+    "startedAt": 1793183059197,
+    "endedAt": 1793183083563,
+    "outcome": "completed"
+   },
+   {
+    "id": 650,
+    "conv": 621,
+    "kind": "pi.generation",
+    "status": "terminal",
+    "background": false,
+    "startedAt": 1794218726514,
+    "endedAt": 1794218747900,
+    "outcome": "aborted"
+   },
+   {
+    "id": 80,
+    "conv": 2,
+    "kind": "pi.generation",
+    "status": "terminal",
+    "background": false,
+    "startedAt": 1793176444821,
+    "endedAt": 1793176466198,
+    "outcome": "completed"
+   }
+  ]
+ },
+ "submissions": {
+  "total": 62,
+  "byStatus": [
+   {
+    "status": "unanswered",
+    "n": 19
+   },
+   {
+    "status": "placed",
+    "n": 1
+   },
+   {
+    "status": "done",
+    "n": 42
+   }
+  ],
+  "unanswered": [
+   {
+    "id": 695,
+    "conv": 2,
+    "status": "unanswered"
+   },
+   {
+    "id": 653,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 649,
+    "conv": 621,
+    "status": "unanswered"
+   },
+   {
+    "id": 637,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 633,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 612,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 608,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 604,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 600,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 576,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 543,
+    "conv": 536,
+    "status": "unanswered"
+   },
+   {
+    "id": 532,
+    "conv": 525,
+    "status": "unanswered"
+   },
+   {
+    "id": 521,
+    "conv": 514,
+    "status": "unanswered"
+   },
+   {
+    "id": 455,
+    "conv": 14,
+    "status": "unanswered"
+   },
+   {
+    "id": 408,
+    "conv": 2,
+    "status": "unanswered"
+   },
+   {
+    "id": 361,
+    "conv": 354,
+    "status": "unanswered"
+   },
+   {
+    "id": 350,
+    "conv": 343,
+    "status": "unanswered"
+   },
+   {
+    "id": 328,
+    "conv": 316,
+    "status": "unanswered"
+   },
+   {
+    "id": 323,
+    "conv": 316,
+    "status": "unanswered"
+   }
+  ]
+ },
+ "documents": {
+  "documents": 931,
+  "byKind": [
+   {
+    "kind": "pi.agent",
+    "n": 186
+   },
+   {
+    "kind": "pi.inbox",
+    "n": 186
+   },
+   {
+    "kind": "pi.live",
+    "n": 186
+   },
+   {
+    "kind": "pi.provider",
+    "n": 186
+   },
+   {
+    "kind": "pi.usage",
+    "n": 186
+   },
+   {
+    "kind": "qrd3wh.sessions",
+    "n": 1
+   }
+  ],
+  "revisions": 1624,
+  "base": 943,
+  "delta": 681,
+  "deltaRatio": 0.41933497536945813
+ },
+ "walBytes": 486192,
+ "freelist": {
+  "free": 1,
+  "bytes": 4096
+ },
+ "maintenance": [
+  {
+   "label": "先做一次备份",
+   "why": "改动任何东西之前，先把库整份复制走 —— VACUUM 也是写操作。",
+   "cmd": "cp \"/opt/Nous/content/new1/map/qrd3wh/data/agent.sqlite\" \"/opt/Nous/content/new1/map/qrd3wh/data/agent.sqlite.$(date +%Y%m%d-%H%M).bak\"",
+   "danger": false
+  },
+  {
+   "label": "把 WAL 收回去",
+   "why": "WAL 现在 475 KB。checkpoint 只读的页面做不了，得由写者或 sqlite3 来。",
+   "cmd": "sqlite3 \"/opt/Nous/content/new1/map/qrd3wh/data/agent.sqlite\" \"PRAGMA wal_checkpoint(TRUNCATE);\"",
+   "danger": false
+  },
+  {
+   "label": "VACUUM 要回空闲页",
+   "why": "空闲页 1 个（4.0 KB）。这块停止服务后再跑 —— 它要独占写者。",
+   "cmd": "sqlite3 \"/opt/Nous/content/new1/map/qrd3wh/data/agent.sqlite\" \"VACUUM;\"",
+   "danger": false
+  },
+  {
+   "label": "看它到底是不是好的",
+   "why": "integrity_check 会把整库走一遍；库大了要几分钟。",
+   "cmd": "sqlite3 \"/opt/Nous/content/new1/map/qrd3wh/data/agent.sqlite\" \"PRAGMA integrity_check;\"",
+   "danger": false
+  },
+  {
+   "label": "把老会话搬去 storage-Archive",
+   "why": "先导出、再删。别直接 DELETE —— 那等于把历史删掉，而不是归档。",
+   "cmd": "sqlite3 \"/opt/Nous/content/new1/map/qrd3wh/data/agent.sqlite\" \".dump conversations entries tasks submissions\" > conversations-$(date +%F).sql",
+   "danger": true
+  }
+ ],
+ "diagrams": {}
+}
