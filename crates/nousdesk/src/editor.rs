@@ -21,6 +21,9 @@ use gpui_kit::*;
 use nous_engine::types::{PresetFile, PresetValidation};
 use nous_engine::EngineError;
 
+/// 终极模板那一段的 id（引擎侧的路径段）。
+const ULTIMATE: &str = "Ultimate-Template";
+
 fn t() -> crate::theme::Skin {
     crate::theme::cur()
 }
@@ -68,10 +71,23 @@ pub(crate) enum Group {
     Ext,
     Perm,
     Run,
+    /// 终极模板：基本信息（摘要 / 类别 / 启用）
+    UBase,
+    /// 终极模板：触发器和它的参数
+    UTrigger,
+    /// 终极模板：引用哪条会话模板
+    USession,
 }
 
 impl Group {
-    const ALL: [Self; 5] = [Self::Model, Self::Ctx, Self::Ext, Self::Perm, Self::Run];
+    /// 会话模板 / 终极模板是两套字段，左导航也就两套。
+    fn all(ultimate: bool) -> &'static [Self] {
+        if ultimate {
+            &[Self::UBase, Self::UTrigger, Self::USession]
+        } else {
+            &[Self::Model, Self::Ctx, Self::Ext, Self::Perm, Self::Run]
+        }
+    }
 
     fn label(self) -> &'static str {
         match self {
@@ -80,6 +96,9 @@ impl Group {
             Self::Ext => "扩展",
             Self::Perm => "权限",
             Self::Run => "运行",
+            Self::UBase => "基本",
+            Self::UTrigger => "触发器",
+            Self::USession => "会话",
         }
     }
 
@@ -115,6 +134,10 @@ pub(crate) enum PickKind {
     Prompt,
     Skill,
     Category,
+    /// 终极模板：触发器（`/v1/triggers`）
+    Trigger,
+    /// 终极模板：会话模板（Session-Template 那一段的预设名）
+    Session,
     /// 没有候选来源（`extensions`）：只有「手打一个新值」。
     Free,
 }
@@ -127,6 +150,8 @@ impl PickKind {
             Self::Prompt => "选会话模板",
             Self::Skill => "选技能",
             Self::Category => "选类别",
+            Self::Trigger => "选触发器",
+            Self::Session => "选会话模板",
             Self::Free => "填一个",
         }
     }
@@ -142,6 +167,10 @@ pub(crate) struct Candidates {
     pub prompts: Vec<PickItem>,
     pub skills: Vec<PickItem>,
     pub categories: Vec<String>,
+    /// `(名字, 摘要, 参数定义)` —— 参数表单照着它画，不是写死的。
+    pub triggers: Vec<(String, String, Vec<nous_engine::types::TriggerParam>)>,
+    /// Session-Template 那一段的预设名（终极模板的 `session` 引用的就是它们）。
+    pub session_templates: Vec<PickItem>,
     pub err: Option<String>,
 }
 
@@ -188,6 +217,9 @@ pub(crate) struct EditorState {
     pub open: bool,
     pub section: String,
     pub name: String,
+    /// 这一段的清单文件名（`preset.json` / `ultimate.json`）—— 由段的 `manifest` 决定，
+    /// 客户端不写死；打开时从 `/files` 清单里挑，之后保存 / diff / history 都认它。
+    pub manifest: String,
     /// 盘上的原文（用来算「改了什么」，也用来重读）。
     pub text: String,
     /// 读到 / 上次写回时的 etag。
@@ -236,6 +268,7 @@ impl Default for EditorState {
             open: false,
             section: String::new(),
             name: String::new(),
+            manifest: "preset.json".to_string(),
             text: String::new(),
             etag: String::new(),
             draft: serde_json::Value::Null,
@@ -296,6 +329,30 @@ impl EditorState {
 
     pub fn bool_of(&self, path: &[&str]) -> bool {
         read_bool(&self.draft, path)
+    }
+
+    /// 按路径写一份任意 JSON（数字 / 布尔这些 `set_text` 写不了的）。
+    pub fn set_json(&mut self, path: &[&str], val: serde_json::Value) {
+        if path.is_empty() {
+            return;
+        }
+        if self.draft.is_null() {
+            self.draft = serde_json::json!({});
+        }
+        let mut cur = &mut self.draft;
+        for k in &path[..path.len() - 1] {
+            if !cur.is_object() {
+                *cur = serde_json::json!({});
+            }
+            cur = cur
+                .as_object_mut()
+                .unwrap()
+                .entry((*k).to_string())
+                .or_insert_with(|| serde_json::json!({}));
+        }
+        if let Some(obj) = cur.as_object_mut() {
+            obj.insert(path[path.len() - 1].to_string(), val);
+        }
     }
 
     /// 开关。**关掉 = 删掉这个键**（跟「重置」一个哲学：`false` 就是默认，别在 JSON 里留一行噪音）。
@@ -536,6 +593,12 @@ impl crate::app::Desktop {
             section: section.clone(),
             name: name.clone(),
             loading: true,
+            // 两段是两套字段，左导航的默认组也跟着换。
+            group: if section == ULTIMATE {
+                Group::UBase
+            } else {
+                Group::Model
+            },
             ..EditorState::new()
         };
         self.picked_preset = Some(name.clone());
@@ -543,17 +606,32 @@ impl crate::app::Desktop {
 
         cx.spawn(async move |this, cx| {
             let handle = crate::TOKIO.get().cloned();
+            // ① 清单文件叫什么（`preset.json` / `ultimate.json`）—— 问清单，不猜。
+            let manifest = match &handle {
+                Some(h) => {
+                    let (e, s, n) = (engine.clone(), section.clone(), name.clone());
+                    match h.spawn(async move { e.preset_files(&s, &n).await }).await {
+                        Ok(Ok(files)) => pick_manifest(&files.files),
+                        _ => "preset.json".to_string(),
+                    }
+                }
+                _ => "preset.json".to_string(),
+            };
+            // ② 读它
             let result: Option<Result<PresetFile, EngineError>> = match &handle {
-                Some(h) => h
-                    .spawn(async move { engine.preset_file(&section, &name, "preset.json").await })
-                    .await
-                    .ok(),
+                Some(h) => {
+                    let (e, s, n, m) = (engine.clone(), section.clone(), name.clone(), manifest.clone());
+                    h.spawn(async move { e.preset_file(&s, &n, &m).await })
+                        .await
+                        .ok()
+                }
                 _ => None,
             };
             let _ = this.update(cx, |this, cx| {
                 this.editor.loading = false;
                 match result {
                     Some(Ok(f)) => {
+                        this.editor.manifest = manifest.clone();
                         this.editor.text = f.text.clone();
                         this.editor.etag = f.etag.clone();
                         this.editor.draft = serde_json::from_str(&f.text).unwrap_or_else(|e| {
@@ -611,6 +689,12 @@ impl crate::app::Desktop {
                 .iter()
                 .map(|n| PickItem::new(n.clone(), ""))
                 .collect(),
+            PickKind::Trigger => c
+                .triggers
+                .iter()
+                .map(|(name, summary, params)| PickItem::new(name.clone(), format!("{summary}（{} 个参数）", params.len())))
+                .collect(),
+            PickKind::Session => c.session_templates.clone(),
             PickKind::Free => Vec::new(),
         }
     }
@@ -665,7 +749,8 @@ impl crate::app::Desktop {
                 cmd: Cmd::Back,
             },
         ];
-        for g in Group::ALL {
+        let ultimate = self.editor.section == ULTIMATE;
+        for &g in Group::all(ultimate) {
             all.push(CmdRow {
                 label: format!("分组 · {}", g.label()),
                 hint: String::new(),
@@ -866,13 +951,14 @@ impl crate::app::Desktop {
         .detach();
     }
 
-    /// 看某一次提交改了什么（`preset.json` 那一份）。
+    /// 看某一次提交改了什么（这一段清单文件那一份）。
     pub(crate) fn pick_commit(&mut self, hash: &str, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
         };
         let section = self.editor.section.clone();
         let name = self.editor.name.clone();
+        let manifest = self.editor.manifest.clone();
         let hash = hash.to_string();
         self.editor.hist_pick = Some(hash.clone());
         self.editor.hist_diff = None;
@@ -885,7 +971,7 @@ impl crate::app::Desktop {
             let got = h
                 .spawn(async move {
                     engine
-                        .preset_commit_diff(&section, &name, &hash, "preset.json")
+                        .preset_commit_diff(&section, &name, &hash, &manifest)
                         .await
                 })
                 .await
@@ -953,13 +1039,16 @@ impl crate::app::Desktop {
                     let prompts = engine.prompts().await.ok();
                     let skills = engine.skills().await.ok();
                     let cats = engine.presets(&section).await.ok().map(|p| p.categories);
-                    (models, prompts, skills, cats)
+                    let triggers = engine.triggers().await.ok();
+                    // 终极模板的 `session` 引用的是 Session-Template 那一段 —— 候选也从那儿来。
+                    let sessions = engine.presets("Session-Template").await.ok();
+                    (models, prompts, skills, cats, triggers, sessions)
                 })
                 .await
                 .ok();
             let _ = this.update(cx, |this, cx| {
                 let c = &mut this.editor.candidates;
-                if let Some((models, prompts, skills, cats)) = out {
+                if let Some((models, prompts, skills, cats, triggers, sessions)) = out {
                     if let Some(m) = models {
                         c.models = m
                             .items
@@ -1006,6 +1095,26 @@ impl crate::app::Desktop {
                     }
                     if let Some(cats) = cats {
                         c.categories = cats;
+                    }
+                    if let Some(t) = triggers {
+                        c.triggers = t
+                            .triggers
+                            .iter()
+                            .map(|it| {
+                                (
+                                    it.name.clone(),
+                                    it.summary.clone().unwrap_or_default(),
+                                    it.params.clone(),
+                                )
+                            })
+                            .collect();
+                    }
+                    if let Some(sp) = sessions {
+                        c.session_templates = sp
+                            .presets
+                            .iter()
+                            .map(|it| PickItem::new(it.name.clone(), it.summary.clone()))
+                            .collect();
                     }
                     // 什么都拉不到才记一句（部分成功算成功）。
                     if c.models.is_empty() && c.prompts.is_empty() && c.skills.is_empty() {
@@ -1070,8 +1179,10 @@ impl crate::app::Desktop {
         let section = self.editor.section.clone();
         let name = self.editor.name.clone();
         let base = self.editor.etag.clone();
+        let manifest = self.editor.manifest.clone();
         let text = serde_json::to_string_pretty(&self.editor.draft).unwrap_or_default() + "\n";
         let text_for_req = text.clone();
+        let manifest_for_req = manifest.clone();
         self.editor.saving = true;
         self.editor.err = None;
         cx.notify();
@@ -1082,7 +1193,7 @@ impl crate::app::Desktop {
                 Some(h) => h
                     .spawn(async move {
                         engine
-                            .put_preset_file(&section, &name, "preset.json", &text_for_req, &base)
+                            .put_preset_file(&section, &name, &manifest_for_req, &text_for_req, &base)
                             .await
                     })
                     .await
@@ -1195,7 +1306,9 @@ impl crate::app::Desktop {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let value = self.editor.text_of(&[key]);
+        // `key` 可能是嵌套路径（`params.epoch`）—— 拆成路径读，否则读到的是空串。
+        let path: Vec<&str> = key.split('.').collect();
+        let value = self.editor.text_of(&path);
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("留空 = 不写这个键")
@@ -1214,7 +1327,36 @@ impl crate::app::Desktop {
             return;
         };
         let v = te.input.read(cx).value().to_string();
-        self.editor.set_text(&[te.key.as_str()], v.trim());
+        let v = v.trim();
+        if let Some(param) = te.key.strip_prefix("params.") {
+            // 参数得按触发器说的类型写：`epoch` 是数字，写成字符串引擎不认。
+            let ty = self
+                .editor
+                .text_of(&["trigger"])
+                .split_whitespace()
+                .next()
+                .map(|t| t.to_string())
+                .and_then(|t| {
+                    self.editor
+                        .candidates
+                        .triggers
+                        .iter()
+                        .find(|(n, _, _)| *n == t)
+                        .and_then(|(_, _, defs)| {
+                            defs.iter().find(|d| d.name == param).map(|d| d.ty.clone())
+                        })
+                })
+                .unwrap_or_else(|| "string".to_string());
+            let path = ["params", param];
+            if v.is_empty() {
+                self.editor.remove_key(&format!("params.{param}"));
+            } else {
+                self.editor.set_json(&path, typed_json(&ty, v));
+            }
+        } else {
+            let path: Vec<&str> = te.key.split('.').collect();
+            self.editor.set_text(&path, v);
+        }
         cx.notify();
     }
 }
@@ -1428,7 +1570,7 @@ impl crate::app::Desktop {
             .border_color(rgb(t().p.line_soft))
             .child(section_label("分组"));
         let mut grp = div().flex().flex_col().p(t().d(5.));
-        for g in Group::ALL {
+        for &g in Group::all(self.editor.section == ULTIMATE) {
             let on = self.editor.group == g;
             grp = grp.child(
                 div()
@@ -1537,11 +1679,24 @@ impl crate::app::Desktop {
             return col.into_any_element();
         }
 
-        for g in Group::ALL {
+        let ultimate = self.editor.section == ULTIMATE;
+        for &g in Group::all(ultimate) {
             if g != self.editor.group {
                 continue;
             }
-            let items: Vec<FldSpec> = match g {
+            let items: Vec<FldSpec> = match (ultimate, g) {
+                (true, Group::UBase) => vec![
+                    FldSpec { label: "摘要", path: &["summary"], ctl: Ctl::Text },
+                    FldSpec { label: "类别", path: &["category"], ctl: Ctl::Multi(PickKind::Category) },
+                    FldSpec { label: "启用", path: &["enabled"], ctl: Ctl::Switch },
+                ],
+                (true, Group::UTrigger) => vec![
+                    FldSpec { label: "触发器", path: &["trigger"], ctl: Ctl::Pick(PickKind::Trigger) },
+                ],
+                (true, Group::USession) => vec![
+                    FldSpec { label: "会话模板", path: &["session"], ctl: Ctl::Pick(PickKind::Session) },
+                ],
+                (false, g) => match g {
                 Group::Model => vec![
                     FldSpec { label: "供应商", path: &["model", "provider"], ctl: Ctl::Pick(PickKind::Provider) },
                     FldSpec { label: "模型", path: &["model", "modelId"], ctl: Ctl::Pick(PickKind::Model) },
@@ -1564,7 +1719,13 @@ impl crate::app::Desktop {
                     FldSpec { label: "摘要", path: &["summary"], ctl: Ctl::Text },
                     FldSpec { label: "说明", path: &["description"], ctl: Ctl::Text },
                 ],
+                    _ => Vec::new(),
+                },
+                // 极端情况（组和段对不上，比如刚切段那一下）就当没有字段。
+                (true, _) => Vec::new(),
             };
+            // 终极模板的「参数」不在这张静态表里 —— 键名和控件都跟着触发器变，下一段单独画。
+            let params_block = ultimate && g == Group::UTrigger;
 
             col = col.child(
                 div()
@@ -1586,6 +1747,9 @@ impl crate::app::Desktop {
             for spec in items {
                 col = col.child(self.editor_field(spec, cx));
             }
+            if params_block {
+                col = col.child(self.params_editor(cx));
+            }
         }
 
         col.child(
@@ -1597,6 +1761,168 @@ impl crate::app::Desktop {
                 .child("控件只画常用的几个键；别的键原样留在 JSON 里，去那一栏改。"),
         )
         .into_any_element()
+    }
+
+    /// 终极模板的「参数」：**键名和控件都来自触发器的定义**，不是写死的。
+    ///
+    /// 触发器可以有一堆参数（`epoch` 这种），也可以一个都没有 —— 都按定义画。
+    fn params_editor(&self, cx: &mut Context<Self>) -> AnyElement {
+        let e = &self.editor;
+        let trigger = e.text_of(&["trigger"]);
+        let Some((_, summary, defs)) = e
+            .candidates
+            .triggers
+            .iter()
+            .find(|(n, _, _)| *n == trigger)
+        else {
+            return note(if trigger.is_empty() {
+                "先在上面选一个触发器，它的参数会长在这儿。"
+            } else {
+                "这个触发器的定义没拉到 —— 参数只能去 JSON 那栏改。"
+            });
+        };
+        if defs.is_empty() {
+            return note("这个触发器不要参数，选好就能用。");
+        }
+
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .gap(t().d(1.))
+            .child(
+                div()
+                    .px(t().d(16.))
+                    .pt(t().d(12.))
+                    .pb(t().d(4.))
+                    .text_size(t().fs(11.))
+                    .child(format!("参数 · {summary}")),
+            );
+        for p in defs {
+            let pname = p.name.clone();
+            let ty = p.ty.clone();
+            let label = p.label.clone().unwrap_or_else(|| p.name.clone());
+            let path = ["params".to_string(), pname.clone()];
+            let pathref: Vec<&str> = path.iter().map(|s| s.as_str()).collect();
+            let key = pathref.join(".");
+            let cur = value_at(&e.draft, &pathref).cloned();
+            let shown = match &cur {
+                None | Some(serde_json::Value::Null) => String::new(),
+                Some(serde_json::Value::String(t)) => t.clone(),
+                Some(other) => other.to_string(),
+            };
+            // 秒数旁边给一句人话 —— 存进去是 UTC 秒，人不该心算。
+            let human = if ty == "epoch" {
+                shown
+                    .trim()
+                    .parse::<i64>()
+                    .ok()
+                    .map(local_time)
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let changed = cur.is_some();
+
+            let mut control = div()
+                .id(ElementId::Name(format!("ed-pv-{key}").into()))
+                .flex()
+                .items_center()
+                .gap(t().d(8.))
+                .px(t().d(8.))
+                .py(t().d(3.))
+                .rounded(t().r(6.))
+                .border(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .bg(rgb(t().p.panel))
+                .cursor_pointer()
+                .hover(|h| h.border_color(rgb(t().p.muted)))
+                .on_click(cx.listener({
+                    let key = key.clone();
+                    move |this, _, window, cx| this.edit_text_field(&key, window, cx)
+                }))
+                .child(
+                    div()
+                        .text_size(t().fs(11.5))
+                        .font_family("JetBrainsMono")
+                        .text_color(rgb(if shown.is_empty() {
+                            t().p.faint
+                        } else {
+                            t().p.text_2
+                        }))
+                        .child(if shown.is_empty() {
+                            "（没填）".to_string()
+                        } else {
+                            shown.clone()
+                        }),
+                );
+            if !human.is_empty() {
+                control = control.child(
+                    div()
+                        .text_size(t().fs(9.5))
+                        .text_color(rgb(t().p.faint))
+                        .child(format!("= 本地 {human}")),
+                );
+            }
+            control = control.child(div().text_size(t().fs(9.)).text_color(rgb(t().p.faint)).child("✎"));
+
+            col = col.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(10.))
+                    .px(t().d(16.))
+                    .py(t().d(5.))
+                    .hover(|h| h.bg(rgb(t().p.panel_alt)))
+                    .child(
+                        div()
+                            .w(t().d(96.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .gap(t().d(5.))
+                            .child(
+                                div()
+                                    .text_size(t().fs(11.5))
+                                    .text_color(rgb(t().p.muted))
+                                    .child(label),
+                            )
+                            .children((!p.required).then(|| {
+                                div()
+                                    .text_size(t().fs(9.))
+                                    .text_color(rgb(t().p.faint))
+                                    .child("选填")
+                            })),
+                    )
+                    .child(div().flex_1().min_w(t().d(0.)).child(control))
+                    .children(changed.then(|| {
+                        let k = key.clone();
+                        div()
+                            .id(ElementId::Name(format!("ed-pr-{k}").into()))
+                            .text_size(t().fs(9.5))
+                            .text_color(rgb(t().p.faint))
+                            .cursor_pointer()
+                            .hover(|h| h.text_color(rgb(t().p.accent_fg)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.editor.remove_key(&k);
+                                cx.notify();
+                            }))
+                            .child("↺ 清掉")
+                    })),
+            );
+            if let Some(help) = &p.help {
+                col = col.child(
+                    div()
+                        .px(t().d(16.))
+                        .pl(t().d(122.))
+                        .pb(t().d(3.))
+                        .text_size(t().fs(9.5))
+                        .text_color(rgb(t().p.faint))
+                        .child(help.clone()),
+                );
+            }
+        }
+        col.into_any_element()
     }
 
     /// 一行字段。`key` 是 JSON 里的键名（改动列表也按它显示）。
@@ -2174,12 +2500,6 @@ impl crate::app::Desktop {
                                 ),
                         );
                         col = col.child(diff_lines(d.before.as_deref(), d.after.as_deref()));
-                    }
-                    None if e.diff_loading => {
-                        col = col.child(note("读那份文件的改动…"));
-                    }
-                    None => {
-                        col = col.child(note("点上面一个文件看改了哪几行。"));
                     }
                 }
                 col.into_any_element()
@@ -2916,6 +3236,57 @@ fn wrapper(
         .into_any_element()
 }
 
+/// 从目录清单里挑出这一段的清单文件。
+///
+/// 段的 `manifest` 住在仓根的 `sections.json` 里（`Session-Template` = `preset.json`，
+/// `Ultimate-Template` = `ultimate.json`），引擎不额外报这个名字 —— 所以照清单挑：
+/// 先认那两个老名字，再退到「任意一个顶层的 .json」。
+fn pick_manifest(files: &[nous_engine::types::PresetFileMeta]) -> String {
+    let json: Vec<&str> = files
+        .iter()
+        .map(|f| f.path.as_str())
+        .filter(|p| p.ends_with(".json") && !p.contains('/'))
+        .collect();
+    for want in ["preset.json", "ultimate.json"] {
+        if json.iter().any(|p| *p == want) {
+            return want.to_string();
+        }
+    }
+    json.first()
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "preset.json".to_string())
+}
+
+/// UTC 秒 → 本地时间 `11-16 10:41`。引擎收的 `epoch` 参数是 UTC 秒，
+/// 让人心算是不可能的，所以填的时候就把人话摆在旁边。
+fn local_time(secs: i64) -> String {
+    match chrono::DateTime::from_timestamp(secs, 0) {
+        Some(d) => d
+            .with_timezone(&chrono::Local)
+            .format("%m-%d %H:%M")
+            .to_string(),
+        None => String::new(),
+    }
+}
+
+/// 把输入框里的字按触发器声明的类型变成 JSON 值 —— 写成字符串引擎不认。
+fn typed_json(ty: &str, raw: &str) -> serde_json::Value {
+    match ty {
+        "epoch" | "integer" | "int" => raw
+            .parse::<i64>()
+            .map(|n| serde_json::json!(n))
+            .unwrap_or_else(|_| serde_json::json!(raw)),
+        "number" | "float" => raw
+            .parse::<f64>()
+            .map(|n| serde_json::json!(n))
+            .unwrap_or_else(|_| serde_json::json!(raw)),
+        "boolean" | "bool" => {
+            serde_json::json!(matches!(raw, "true" | "1" | "是" | "yes" | "on"))
+        }
+        _ => serde_json::json!(raw),
+    }
+}
+
 /// ISO 时间戳压成 `11-15 19:42`。认不出来就原样给（别因为格式怪就把那行藏了）。
 fn stamp(at: &str) -> String {
     let s = at.trim();
@@ -3046,6 +3417,9 @@ fn glyph(g: Group) -> &'static str {
         Group::Ext => "◇",
         Group::Perm => "⚿",
         Group::Run => "▶",
+        Group::UBase => "◈",
+        Group::UTrigger => "◷",
+        Group::USession => "▤",
     }
 }
 
@@ -3195,8 +3569,8 @@ mod tests {
     // 别写 `use super::*;` —— 会把 `gpui_kit::*` 带进来，`#[test]` 展开时撞 recursion limit
     // （坑.md 68）。
     use super::{
-        DiffOp, del_key, is_dirty, line_diff, read_text, stamp, toggle_list, write_bool,
-        write_text,
+        DiffOp, del_key, is_dirty, line_diff, local_time, pick_manifest, read_text, stamp,
+        toggle_list, typed_json, write_bool, write_text,
     };
 
     fn v(text: &str) -> serde_json::Value {
@@ -3282,6 +3656,52 @@ mod tests {
         assert_eq!(stamp("2026-01-02T03:04:05Z"), "01-02 03:04");
         assert_eq!(stamp(""), "");
         assert_eq!(stamp("昨天"), "昨天");
+    }
+
+    /// 参数按触发器声明的类型落盘：`epoch` 写成字符串引擎不认。
+    fn meta(path: &str) -> nous_engine::types::PresetFileMeta {
+        nous_engine::types::PresetFileMeta {
+            path: path.to_string(),
+            size: 1,
+            extra: Default::default(),
+        }
+    }
+
+    /// 清单文件名按段变（`preset.json` / `ultimate.json`），照清单挑、不写死。
+    #[test]
+    fn the_manifest_file_is_picked_from_the_listing() {
+        assert_eq!(pick_manifest(&[meta("preset.json")]), "preset.json");
+        assert_eq!(
+            pick_manifest(&[meta("ultimate.json"), meta("PROMPT.md")]),
+            "ultimate.json"
+        );
+        // 以后段里换了名字也认得。
+        assert_eq!(pick_manifest(&[meta("other.json")]), "other.json");
+        // 一个 json 都没有（目录刚建）：退回老名字，让后面那次读直接报 404。
+        assert_eq!(pick_manifest(&[]), "preset.json");
+    }
+
+    #[test]
+    fn params_are_typed_by_the_trigger_definition() {
+        assert_eq!(typed_json("epoch", "1800000060"), serde_json::json!(1800000060));
+        assert_eq!(typed_json("integer", "7"), serde_json::json!(7));
+        assert_eq!(typed_json("number", "1.5"), serde_json::json!(1.5));
+        assert_eq!(typed_json("boolean", "是"), serde_json::json!(true));
+        assert_eq!(typed_json("boolean", "false"), serde_json::json!(false));
+        // 认不出来的类型当文本，别把它弄丢。
+        assert_eq!(typed_json("whatever", "abc"), serde_json::json!("abc"));
+        // 数字类型填了非数字：退回字符串，至少不丢人的输入。
+        assert_eq!(typed_json("epoch", "明天"), serde_json::json!("明天"));
+    }
+
+    /// UTC 秒要能翻成人话；翻不出来就空着（别画个假时间）。
+    #[test]
+    fn epoch_seconds_turn_into_local_time() {
+        let s = local_time(1_800_000_060);
+        assert_eq!(s.len(), 11, "MM-DD HH:MM 是 11 个字符，实际 {s:?}");
+        assert_eq!(&s[2..3], "-");
+        assert_eq!(&s[8..9], ":");
+        assert_eq!(local_time(i64::MAX), "");
     }
 
     #[test]

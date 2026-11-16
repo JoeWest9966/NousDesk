@@ -12,7 +12,7 @@ use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
     Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
-    PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt,
+    PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt, Triggers,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
@@ -354,6 +354,21 @@ impl EngineClient {
     }
 
     /// 读一个文件的原文（带 `etag`，写回时当 `base`）。
+    /// 这条预设目录里有哪些文件（挑清单文件用 —— 段的 manifest 名不写死在客户端）。
+    pub async fn preset_files(
+        &self,
+        section: &str,
+        name: &str,
+    ) -> Result<PresetFiles, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/presets/{section}/files"))?)
+            .query(&[("name", name)])
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
     pub async fn preset_file(
         &self,
         section: &str,
@@ -364,6 +379,16 @@ impl EngineClient {
             .http
             .get(self.url(&format!("v1/presets/{section}/file"))?)
             .query(&[("name", name), ("path", path)])
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 触发器清单（终极模板的「什么时候发起」从这儿挑）。
+    pub async fn triggers(&self) -> Result<Triggers, EngineError> {
+        let resp = self
+            .http
+            .get(self.url("v1/triggers")?)
             .send()
             .await?;
         self.json(resp).await
