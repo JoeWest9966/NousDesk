@@ -27,6 +27,7 @@ mod new_entry;
 mod preset_confirm;
 mod preset_menu;
 mod recent;
+mod rename_box;
 mod search;
 mod session_nav;
 mod settings;

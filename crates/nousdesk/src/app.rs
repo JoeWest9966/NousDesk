@@ -336,6 +336,10 @@ pub struct Desktop {
     pub(crate) archive: crate::archive_page::ArchivePageState,
     /// 「撕原件」危险确认的状态机（票 #3）。本票只负责把它接到引擎上。
     pub(crate) purge_confirm: crate::archive_confirm::PurgeConfirm,
+    /// 「重命名会话」弹层（居中对话框）。输入框单独存一个复用 —— 每开一次不新建
+    /// `Entity`，焦点也好管。
+    pub(crate) rename_box: crate::rename_box::RenameBox,
+    pub(crate) rename_input: Entity<InputState>,
     /// Template 页：归档 / 彻底删的二确认（分步两屏）。
     pub(crate) preset_confirm: crate::preset_confirm::PresetConfirm,
     /// Template 页：改类别弹层。`Some` = 开着。
@@ -440,6 +444,8 @@ impl Desktop {
         let preset_filter = cx.new(|cx| {
             InputState::new(window, cx).placeholder("搜模板：名字 / 摘要 / 类别")
         });
+        // 「重命名会话」那个对话框里的输入框。复用一份，打开时把当前名字塞进去。
+        let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("会话名字"));
 
         // 配置在这里同步读掉：设置页要立刻显示 host / board，不能等 tokio。
         // 读坏了也先拿默认值把窗口支起来，错误交给 connect() 报。
@@ -500,6 +506,17 @@ impl Desktop {
                     // 同上：模板列表的过滤也是纯本地，敲一个字重排一次。
                     if matches!(event, InputEvent::Change) {
                         cx.notify();
+                    }
+                }
+            }),
+            cx.subscribe_in(&rename_input, window, {
+                // 输入框里按回车 = 点「完成」。`InputEvent` 是**额外**的一条路：
+                // Esc 走拦截器（那里要先于组件的 Esc action）。
+                move |this, _, event: &InputEvent, window, cx| {
+                    if let InputEvent::PressEnter { shift, .. } = event
+                        && !*shift
+                    {
+                        this.confirm_rename(window, cx);
                     }
                 }
             }),
@@ -665,6 +682,11 @@ impl Desktop {
                             }
                             if this.preset_confirm.is_open() {
                                 this.preset_confirm.on_esc();
+                                cx.notify();
+                                return true;
+                            }
+                            if this.rename_box.is_open() {
+                                this.rename_box.on_esc();
                                 cx.notify();
                                 return true;
                             }
@@ -865,6 +887,8 @@ impl Desktop {
             archive_open: false,
             archive: crate::archive_page::ArchivePageState::new(),
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
+            rename_box: crate::rename_box::RenameBox::new(),
+            rename_input, // 上面 `cx.new` 建好的那个
             preset_confirm: crate::preset_confirm::PresetConfirm::new(),
             cat_edit: None,
             preset_busy: None,
@@ -2510,6 +2534,98 @@ impl Desktop {
         )
     }
 
+    /// 打开「重命名会话」。
+    ///
+    /// 输入框的初值和焦点**不在这里填**：这条路是从右键菜单回调上来的，手上没有
+    /// `window`。只立一个 `fresh` 标记，等 `rename_overlay` 那一帧再填。
+    fn open_rename(&mut self, id: i64, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .sessions
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.name.clone())
+        else {
+            // 列表刚刷过、那条没了：说一句，别静默（AGENTS：点下去没反应算 bug）。
+            self.notify("这条会话不在了", NoticeKind::Info, cx);
+            return;
+        };
+        log::info!("重命名会话 #{id}（原名字 {name}）");
+        self.rename_box.request(id, name);
+        cx.notify();
+    }
+
+    /// 「重命名会话」弹层。挂在整窗这一层（和右键菜单 / 撕原件同一层）。
+    fn rename_overlay(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.rename_box.is_open() {
+            return None;
+        }
+        // 刚打开：把原名填进输入框、全选、抢焦点 —— 打开就能直接覆盖着打。
+        if let Some((_, name)) = self.rename_box.take_fresh() {
+            self.rename_input.update(cx, |input, cx| {
+                input.set_value(name, window, cx);
+            });
+            let handle = self.rename_input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        }
+        let close = Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.rename_box.on_cancel();
+            cx.notify();
+        }));
+        let close_handler = close.clone();
+        Some(crate::rename_box::render_rename_box(
+            &self.rename_box,
+            &self.rename_input,
+            cx.listener(|this, _: &ClickEvent, window, cx| this.confirm_rename(window, cx)),
+            move |ev, window, cx| close_handler(ev, window, cx),
+        ))
+    }
+
+    /// 点「完成」/ 在输入框里按回车。
+    ///
+    /// 空名字**不发给引擎**（`wire.md`：引擎会回 400 `name 是空的`）：弹层留着、
+    /// 给一句提示，让用户接着改。省一次白跑，也省一句看不懂的错。
+    fn confirm_rename(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let raw = self.rename_input.read(cx).value().to_string();
+        match self.rename_box.submit(&raw) {
+            crate::rename_box::Submit::Nothing => {}
+            crate::rename_box::Submit::Empty => {
+                self.notify("名字不能是空的", NoticeKind::Info, cx);
+            }
+            crate::rename_box::Submit::Go(action) => self.do_rename(action, cx),
+        }
+        cx.notify();
+    }
+
+    /// 真发 `POST /v1/sessions/:id/rename`。
+    ///
+    /// 成功后**只改本地那一行的 `name`**，不重拉列表：引擎回的就是生效值（它 trim 过），
+    /// 重拉会让整列闪一下，而改名并不改变排序。
+    fn do_rename(&mut self, action: crate::rename_box::RenameAction, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        let crate::rename_box::RenameAction { session_id, name } = action;
+        log::info!("改名 #{session_id} → {name}");
+        self.run_engine(
+            cx,
+            &format!("改名没成：{session_id}"),
+            &format!("改名任务挂了：{session_id}"),
+            async move { engine.rename(session_id, &name).await },
+            move |this, renamed, cx| {
+                if let Some(s) = this.sessions.iter_mut().find(|s| s.id == renamed.id) {
+                    s.name = renamed.name.clone();
+                }
+                this.notify(
+                    format!("已改名为「{}」", renamed.name),
+                    NoticeKind::Info,
+                    cx,
+                );
+            },
+            Self::notify_engine_failure,
+        );
+    }
+
     /// 「撕原件」危险确认，挂在整窗这一层（和菜单 / 配置面板同一层）。
     fn purge_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.purge_confirm.is_open() {
@@ -4039,17 +4155,7 @@ impl Desktop {
                 self.purge_confirm.request(id, name);
                 cx.notify();
             }
-            A::Rename { id } => {
-                // spec 要求菜单里保留这一项，但 `wire.md` 里**没有**改名端点
-                // （`POST /v1/sessions/0/rename` 和 `config` 一样先查会话，404 分不出
-                // 路由在不在）。所以点了要给一句说明，不能静默（AGENTS「算 bug」）。
-                log::info!("菜单：重命名 #{id} —— 协议端点还没有");
-                self.notify(
-                    "重命名端点还没接：wire.md 里没有这条",
-                    NoticeKind::Info,
-                    cx,
-                );
-            }
+            A::Rename { id } => self.open_rename(id, cx),
         }
     }
 
@@ -4767,6 +4873,8 @@ impl Render for Desktop {
                 (self.tab == Tab::Triggers && self.triggers.conflict.is_some())
                     .then(|| self.trigger_conflict_overlay(cx)),
             )
+            // 「重命名会话」（居中对话框）：压在菜单之上、撕原件之下
+            .children(self.rename_overlay(window, cx))
             // 「撕原件」确认（盖在菜单之上）
             .children(self.purge_overlay(cx))
             // 窄窗的类别抽屉（比弹层低一层：弹层永远压在它上面）
