@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>左栏 ＋ 新建菜单：多出「从模板起」「复制这条会话」</title>
+<style>
+  :root{
+    --rail:#f0f0ee; --bg:#fbfbfa; --panel:#ffffff; --text:#171a1c; --text2:#62686d;
+    --muted:#9298a0; --faint:#b9bec3; --line:#e6e6e3; --line2:#d8d8d4;
+    --hover:#f5f5f3; --selected:#ececea; --accent:#171a1c; --chat:#fbfbfa; --page:#efefec;
+    --green:#0a7a3f; --green-soft:#e8f5ec;
+  }
+  [data-dark]{
+    --rail:#0d0d0d; --bg:#000000; --panel:#0a0a0a; --text:#ffffff; --text2:#a8a8a8;
+    --muted:#6b6b6b; --faint:#4a4a4a; --line:#262626; --line2:#2a2a2a;
+    --hover:#141414; --selected:#1f1f1f; --accent:#ffffff; --chat:#000000; --page:#0a0a0a;
+    --green:#5ed18d; --green-soft:#122a1c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--page); color:var(--text);
+    font:13px/1.45 system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC","PingFang SC",sans-serif;
+    -webkit-font-smoothing:antialiased}
+
+  .bar{position:sticky; top:0; z-index:20; display:flex; flex-wrap:wrap; gap:14px; align-items:center;
+    padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line)}
+  .bar h1{font-size:13px; font-weight:600; margin:0 8px 0 0; letter-spacing:.2px}
+  .bar .hint{color:var(--muted); font-size:12px; flex:1; min-width:220px}
+  .seg{display:flex; border:1px solid var(--line2); border-radius:7px; overflow:hidden}
+  .seg button{border:0; background:transparent; color:var(--text2); font:inherit; font-size:12px;
+    padding:5px 10px; cursor:pointer}
+  .seg button + button{border-left:1px solid var(--line2)}
+  .seg button.on{background:var(--accent); color:var(--bg)}
+  .chk{display:flex; gap:6px; align-items:center; color:var(--text2); font-size:12px; cursor:pointer}
+
+  .stage{display:flex; justify-content:center; padding:22px 16px 40px; gap:20px; flex-wrap:wrap;
+    align-items:flex-start}
+  .win{display:flex; width:1040px; max-width:96vw; height:640px; overflow:hidden;
+    background:var(--bg); border:1px solid var(--line2); border-radius:10px;
+    box-shadow:0 18px 50px rgba(0,0,0,.10)}
+  .rail{width:60px; flex:none; background:var(--rail); display:flex; flex-direction:column;
+    align-items:center; gap:8px; padding:12px 0}
+  .rail i{width:26px; height:26px; border-radius:8px; background:var(--line2); display:block; opacity:.55}
+  .rail i.on{opacity:1; background:var(--accent)}
+  .rail .grow{flex:1}
+
+  .col{position:relative; width:288px; flex:none; min-width:0; display:flex; flex-direction:column;
+    background:var(--bg); border-right:1px solid var(--line2); min-height:0}
+
+  /* 头部：跟已上线的方案一致（搜索框顶格 + 计数内嵌 + ＋），本轮只动 ＋ 的菜单 */
+  .head{padding:12px 12px 8px; display:flex; gap:6px; align-items:center; min-width:0}
+  .box{flex:1; min-width:0; display:flex; align-items:center; gap:6px; height:30px; padding:0 8px;
+    border:1px solid var(--line2); border-radius:7px; background:var(--panel)}
+  .box .mag{width:12px; height:12px; border:1.6px solid var(--faint); border-radius:50%; flex:none;
+    position:relative}
+  .box .mag::after{content:""; position:absolute; right:-4px; bottom:-3px; width:5px; height:1.6px;
+    background:var(--faint); transform:rotate(45deg)}
+  .box .ph{flex:1; color:var(--faint); font-size:12.5px}
+  .box .n{flex:none; color:var(--muted); font-size:11.5px; font-variant-numeric:tabular-nums}
+  .plus{flex:none; width:28px; height:28px; border-radius:7px; display:flex; align-items:center;
+    justify-content:center; color:var(--text2); cursor:pointer; font-size:17px; line-height:1;
+    border:1px solid transparent}
+  .plus:hover{background:var(--hover)}
+  .plus.on{background:var(--selected); border-color:var(--line2); color:var(--text)}
+
+  .list{flex:1; min-height:0; overflow-y:auto}
+  .row{display:flex; flex-direction:column; gap:2px; padding:9px 12px; border-bottom:1px solid var(--line);
+    cursor:pointer}
+  .row:hover{background:var(--hover)}
+  .row.sel{background:var(--selected)}
+  .row .l1{display:flex; align-items:baseline; gap:8px; min-width:0}
+  .row .nm{flex:1; min-width:0; font-size:13px; font-weight:500; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis}
+  .row .when{flex:none; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
+  .row .l2{color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .row.fresh{animation:pop .9s ease-out}
+  @keyframes pop{0%{background:var(--green-soft)}100%{background:transparent}}
+  .foot{flex:none; border-top:1px solid var(--line); padding:8px 12px; color:var(--faint); font-size:11px}
+
+  /* 菜单本体 */
+  .menu{position:absolute; top:44px; right:8px; z-index:30; width:268px; background:var(--panel);
+    border:1px solid var(--line2); border-radius:9px; box-shadow:0 14px 34px rgba(0,0,0,.16);
+    overflow:hidden; padding:5px}
+  .menu[hidden]{display:none}
+  .grp{color:var(--faint); font-size:10.5px; letter-spacing:.4px; padding:6px 8px 3px}
+  .item{display:flex; align-items:center; gap:9px; height:34px; padding:0 8px; border-radius:6px;
+    cursor:pointer; min-height:24px}
+  .item:hover{background:var(--hover)}
+  .item.off{opacity:.42; cursor:default}
+  .item.off:hover{background:transparent}
+  .item .ico{flex:none; width:16px; height:16px; border-radius:4px; border:1.5px solid var(--muted);
+    position:relative}
+  .item .ico.blank::before{content:""; position:absolute; inset:4px}
+  .item .ico.tpl{border-radius:3px; border-style:dashed}
+  .item .ico.dup::after{content:""; position:absolute; left:3px; top:3px; right:0; bottom:0;
+    border:1.5px solid var(--muted); border-radius:3px; background:var(--panel)}
+  .item .tx{flex:1; min-width:0; font-size:12.5px; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis}
+  .item .tx small{color:var(--faint); font-size:11px; margin-left:6px}
+  .item kbd{flex:none; font:inherit; font-size:10.5px; color:var(--muted); background:var(--hover);
+    border:1px solid var(--line2); border-radius:4px; padding:1px 5px; font-variant-numeric:tabular-nums}
+  .sep{height:1px; background:var(--line); margin:5px 4px}
+  .mfoot{padding:6px 8px 3px; color:var(--faint); font-size:10.5px; line-height:1.5}
+
+  /* 二级菜单（方案 C）：挂在第一级右边 */
+  .menu.narrow{width:180px}
+  .sub{position:absolute; top:49px; left:286px; z-index:31; width:214px; background:var(--panel);
+    border:1px solid var(--line2); border-radius:9px; box-shadow:0 14px 34px rgba(0,0,0,.16);
+    padding:5px}
+  .sub[hidden]{display:none}
+  .menu.narrow ~ .sub{left:198px}
+
+  /* 模板选择：菜单下面接着一张卡 */
+  .tpls{position:absolute; top:44px; right:8px; z-index:29; width:268px; background:var(--panel);
+    border:1px solid var(--line2); border-radius:9px; box-shadow:0 14px 34px rgba(0,0,0,.16);
+    padding:5px}
+  .tpls[hidden]{display:none}
+  .tpls .h{color:var(--faint); font-size:10.5px; letter-spacing:.4px; padding:6px 8px 3px}
+
+  .chat{flex:1; min-width:0; display:flex; flex-direction:column; background:var(--chat)}
+  .chat .top{flex:none; display:flex; align-items:center; gap:8px; padding:12px 16px;
+    border-bottom:1px solid var(--line)}
+  .chat .top .t{font-size:14px; font-weight:600}
+  .chat .top .sub2{color:var(--muted); font-size:11.5px}
+  .chat .top .grow{flex:1}
+  .btn{flex:none; display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
+    border:1px solid var(--line2); border-radius:6px; background:var(--panel); color:var(--text2);
+    font-size:13px; cursor:pointer}
+  .btn.dark{background:var(--accent); color:var(--bg); border-color:var(--accent)}
+  .body{flex:1; min-height:0; display:flex; align-items:center; justify-content:center;
+    color:var(--faint); font-size:12px; text-align:center; padding:0 24px}
+  .composer{margin:0 16px 16px; border:1px solid var(--line2); border-radius:9px; background:var(--panel);
+    padding:10px 12px; display:flex; flex-direction:column; gap:8px}
+  .composer .ph{color:var(--faint); font-size:12.5px; height:34px}
+  .composer .tools{display:flex; align-items:center; gap:8px}
+  .composer .tools .grow{flex:1}
+  .tod{flex:none; height:26px; padding:0 12px; border-radius:6px; background:var(--accent);
+    color:var(--bg); font-size:12px; display:flex; align-items:center}
+
+  /* 提示条 */
+  .toast{position:fixed; left:50%; bottom:26px; transform:translate(-50%,20px); opacity:0;
+    background:var(--accent); color:var(--bg); font-size:12px; padding:8px 14px; border-radius:8px;
+    transition:opacity .18s, transform .18s; pointer-events:none; z-index:60}
+  .toast.on{opacity:1; transform:translate(-50%,0)}
+
+  .notes{width:1040px; max-width:96vw; color:var(--text2); font-size:12px; line-height:1.65}
+  .notes h2{font-size:12px; margin:2px 0 6px; color:var(--text)}
+  .notes ul{margin:0 0 12px; padding-left:18px}
+  .notes li{margin:2px 0}
+  .notes code{font-size:11.5px; background:var(--hover); border:1px solid var(--line);
+    border-radius:4px; padding:0 4px}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>左栏 ＋ 新建菜单</h1>
+  <div class="seg" id="seg">
+    <button data-v="A">A 平铺</button>
+    <button data-v="B">B 分组</button>
+    <button data-v="C">C 两级</button>
+  </div>
+  <label class="chk"><input type="checkbox" id="dark"> 深色皮</label>
+  <span class="hint" id="hint"></span>
+</div>
+
+<div class="stage">
+  <div class="win">
+    <div class="rail">
+      <i class="on"></i><i></i><i></i><div class="grow"></div><i></i>
+    </div>
+
+    <div class="col" id="col">
+      <div class="head">
+        <div class="box"><span class="mag"></span><span class="ph">搜索会话</span><span class="n">149</span></div>
+        <div class="plus" id="plus" title="新建">＋</div>
+      </div>
+      <div class="list" id="list"></div>
+      <div class="foot">开发 123</div>
+
+      <div class="menu" id="menu" hidden></div>
+      <div class="sub" id="sub" hidden></div>
+      <div class="tpls" id="tpls" hidden></div>
+    </div>
+
+    <div class="chat">
+      <div class="top">
+        <div class="t" id="chat-title">真模型</div>
+        <div class="sub2" id="chat-sub">主视图最近 12 条</div>
+        <div class="grow"></div>
+        <div class="btn">⑂ 分支</div>
+        <div class="btn dark">历史与目录</div>
+      </div>
+      <div class="body" id="chat-body">选个会话，这里开始聊</div>
+      <div class="composer">
+        <div class="ph">问点什么…（Enter 发送 · Shift+Enter 换行）</div>
+        <div class="tools">
+          <div class="btn" title="这条对话的设置">⚙︎</div>
+          <div class="grow"></div>
+          <div class="tod">发送</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h2>三个方案在争什么</h2>
+    <ul>
+      <li><b>A 平铺</b>：三行一条直线，最短的点击路径。代价是「复制这条会话」跟「起新的」混在一起，
+        而且第二组（从这条会话派生）没有视觉边界 —— 将来想加第四条就没地方了。</li>
+      <li><b>B 分组</b>：<code>新会话</code> / <code>从当前这条</code> 两组，各 2 项。
+        「复制」这条我拆成 <b>只复制设置</b>和<b>连对话一起复制</b>两个选项 ——
+        这是本轮真需要你拍板的问题：复制出来的东西要不要带历史？</li>
+      <li><b>C 两级</b>：<code>＋</code> 展开只有一行「新会话…」，再往右展开空白 / 模板 / 复制。
+        最省地方，但要两次点击；窄列里悬停展开对触控板不友好。</li>
+    </ul>
+    <h2>快捷键（都要挂，且菜单里必须写出来）</h2>
+    <ul>
+      <li><code>Ctrl+N</code> 空白会话 · <code>Ctrl+Shift+N</code> 从模板起 · <code>Ctrl+D</code> 复制当前这条</li>
+      <li>没选中会话时「复制」整行灰掉，右侧写「先选一条」—— 别让点了没反应。</li>
+      <li>试试：在这里按 <code>Ctrl+N</code> / <code>Ctrl+Shift+N</code> / <code>Ctrl+D</code>，看新行怎么插到最上面。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── 数据：从引擎真实列表里挑的几行（id / 名字 / 第二行元信息） ─────────── */
+const ROWS = [
+  {id:2,  nm:'真模型',        when:'11月9日', l2:'#2 · deepseek-v4-flash · .../map/qrd3wh', busy:false},
+  {id:14, nm:'经宿主真模型',  when:'5 分支',  l2:'#14 · deepseek-v4-flash · .../map/qrd3wh'},
+  {id:63, nm:'pi-stop-probe2', when:'11月9日', l2:'正在输入…', busy:true},
+  {id:75, nm:'测试垃圾675可删', when:'j1900',  l2:'··· j1900 /root Linux 6.12.105+deb13-amd64'},
+  {id:74, nm:'测试垃圾659可删', when:'9996696', l2:'··· 9996696.xyz /root Linux 6.1.0-53-amd64'},
+  {id:514,nm:'（测试垃圾 #514，可删）', when:'', l2:'#514 · smart-ass · deepseek-v4-flash · …/m…'},
+];
+const TEMPLATES = [
+  {name:'deep-dive',      desc:'深读一个 diff / 一段代码'},
+  {name:'test-probe',     desc:'起一条能随手打的探针会话'},
+  {name:'代码评审',        desc:'按 checklist 过一遍改动'},
+  {name:'日报',            desc:'按天汇总做过的事'},
+];
+
+/* ── 状态 ────────────────────────────────────────────────────────── */
+const S = {variant:'A', open:false, subOpen:false, tplOpen:false, sel:2, rows:ROWS.map(r=>({...r})), seq:1};
+const $ = s => document.getElementById(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const HINT = {
+  A:'A 平铺：三行一条直线，右边挂快捷键。最短路径，但两组语义混在一起。',
+  B:'B 分组：新会话 / 从当前这条 两组。顺手把「复制」拆成「只带设置」和「连对话一起」。',
+  C:'C 两级：＋ 展开一行「新会话…」，再往右展开空白 / 模板 / 复制。省地方，两次点击。',
+};
+
+/* ── 画列表 ──────────────────────────────────────────────────────── */
+function renderList(){
+  $('list').innerHTML = S.rows.map(r=>`
+    <div class="row ${r.id===S.sel?'sel':''} ${r.fresh?'fresh':''}" data-id="${r.id}">
+      <div class="l1"><span class="nm">${esc(r.nm)}</span><span class="when">${esc(r.when||'')}</span></div>
+      <div class="l2">${esc(r.l2||'')}</div>
+    </div>`).join('');
+  S.rows.forEach(r=>{ delete r.fresh; });
+  $('list').querySelectorAll('.row').forEach(el=>{
+    el.onclick = () => {
+      S.sel = +el.dataset.id;
+      const r = S.rows.find(x=>x.id===S.sel);
+      $('chat-title').textContent = r.nm;
+      $('chat-sub').textContent = '主视图最近 12 条';
+      $('chat-body').textContent = '（这里是这条会话的正文）';
+      closeAll(); renderList();
+    };
+  });
+}
+
+/* ── 画菜单 ──────────────────────────────────────────────────────── */
+const ICO = {blank:'ico blank', tpl:'ico tpl', dup:'ico dup'};
+
+function menuHTML(){
+  const selRow = S.rows.find(r=>r.id===S.sel);
+  const nothing = !selRow;
+  const dupHint = nothing ? '<small>先选一条</small>' : '';
+
+  if (S.variant === 'A') {
+    return `
+      <div class="item" data-act="manual"><span class="${ICO.blank}"></span><span class="tx">新会话</span><kbd>Ctrl+N</kbd></div>
+      <div class="item" data-act="tpl"><span class="${ICO.tpl}"></span><span class="tx">从模板起</span><kbd>Ctrl+⇧+N</kbd></div>
+      <div class="item ${nothing?'off':''}" data-act="dup-set"><span class="${ICO.dup}"></span><span class="tx">复制这条会话${dupHint}</span><kbd>Ctrl+D</kbd></div>
+      <div class="sep"></div>
+      <div class="mfoot">复制的是这条会话的设置（模型 / cwd / 模板 / 技能），不带对话。</div>`;
+  }
+  if (S.variant === 'B') {
+    return `
+      <div class="grp">新会话</div>
+      <div class="item" data-act="manual"><span class="${ICO.blank}"></span><span class="tx">空白</span><kbd>Ctrl+N</kbd></div>
+      <div class="item" data-act="tpl"><span class="${ICO.tpl}"></span><span class="tx">从模板起</span><kbd>Ctrl+⇧+N</kbd></div>
+      <div class="sep"></div>
+      <div class="grp">从当前这条</div>
+      <div class="item ${nothing?'off':''}" data-act="dup-set"><span class="${ICO.dup}"></span><span class="tx">复制设置${dupHint}</span><kbd>Ctrl+D</kbd></div>
+      <div class="item ${nothing?'off':''}" data-act="dup-all"><span class="${ICO.dup}"></span><span class="tx">连对话一起复制${dupHint}</span></div>`;
+  }
+  /* C：一级只有一行 */
+  return `
+    <div class="item" data-act="sub"><span class="${ICO.blank}"></span><span class="tx">新会话…</span><kbd>›</kbd></div>`;
+}
+
+function subHTML(){
+  const selRow = S.rows.find(r=>r.id===S.sel);
+  const nothing = !selRow;
+  return `
+    <div class="item" data-act="manual"><span class="${ICO.blank}"></span><span class="tx">空白</span><kbd>Ctrl+N</kbd></div>
+    <div class="item" data-act="tpl"><span class="${ICO.tpl}"></span><span class="tx">从模板起</span><kbd>Ctrl+⇧+N</kbd></div>
+    <div class="item ${nothing?'off':''}" data-act="dup-set"><span class="${ICO.dup}"></span>
+      <span class="tx">复制${nothing?'<small>先选一条</small>':'当前这条'}</span><kbd>Ctrl+D</kbd></div>`;
+}
+
+function tplHTML(){
+  return `<div class="h">选一个模板<kbd style="float:right">Esc 关</kbd></div>` + TEMPLATES.map(t=>`
+    <div class="item" data-tpl="${esc(t.name)}">
+      <span class="${ICO.tpl}"></span>
+      <span class="tx">${esc(t.name)}<small>${esc(t.desc)}</small></span>
+    </div>`).join('');
+}
+
+/* ── 开 / 关 ─────────────────────────────────────────────────────── */
+function closeAll(){ S.open=false; S.subOpen=false; S.tplOpen=false; paint(); }
+
+function paint(){
+  $('plus').classList.toggle('on', S.open);
+  $('menu').hidden = !S.open;
+  $('menu').classList.toggle('narrow', S.variant === 'C');
+  if (S.open) {
+    $('menu').innerHTML = menuHTML();
+    $('menu').querySelectorAll('.item').forEach(el=>{ el.onclick = () => act(el.dataset.act); });
+  }
+  $('sub').hidden = !(S.open && S.subOpen);
+  if (S.subOpen) {
+    $('sub').innerHTML = subHTML();
+    $('sub').querySelectorAll('.item').forEach(el=>{ el.onclick = () => act(el.dataset.act); });
+  }
+  $('tpls').hidden = !S.tplOpen;
+  if (S.tplOpen) {
+    $('tpls').innerHTML = tplHTML();
+    $('tpls').querySelectorAll('.item').forEach(el=>{
+      el.onclick = () => newFromTemplate(el.dataset.tpl);
+    });
+  }
+}
+
+/* ── 动作 ────────────────────────────────────────────────────────── */
+let toastTimer = null;
+function toast(msg){
+  const t = $('toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('on'), 2200);
+}
+
+function insertRow(row){
+  row.fresh = true;
+  S.rows.unshift(row);
+  S.sel = row.id;
+  renderList();
+  $('chat-title').textContent = row.nm;
+  $('chat-sub').textContent = '刚建好 · 主视图 0 条';
+  $('chat-body').textContent = '（这里是这条会话的正文）';
+}
+
+function newBlank(){
+  const id = 9000 + (S.seq++);
+  insertRow({id, nm:'新会话', when:'刚刚', l2:`#${id} · 空白 · 还没选模型`});
+  toast('新会话（空白）');
+}
+
+function newFromTemplate(name){
+  closeAll();
+  const id = 9000 + (S.seq++);
+  insertRow({id, nm:name, when:'刚刚', l2:`#${id} · 模板 ${name} · deepseek-v4-flash`});
+  toast(`从模板起：${name}`);
+}
+
+function dupSet(){
+  const src = S.rows.find(r=>r.id===S.sel);
+  if (!src) return;
+  const id = 9000 + (S.seq++);
+  insertRow({id, nm:`${src.nm} · 副本`, when:'刚刚',
+    l2:`#${id} · 同设置（模型 / cwd / 模板 / 技能）· 不带对话`});
+  toast(`已复制「${src.nm}」的设置`);
+}
+
+function dupAll(){
+  const src = S.rows.find(r=>r.id===S.sel);
+  if (!src) return;
+  const id = 9000 + (S.seq++);
+  insertRow({id, nm:`${src.nm} · 副本（含 12 条对话）`, when:'刚刚',
+    l2:`#${id} · 同设置 · 对话已带过来`});
+  toast(`连对话一起复制：「${src.nm}」`);
+}
+
+function act(a){
+  if (a === 'sub') { S.subOpen = !S.subOpen; paint(); return; }
+  if (a === 'manual') { closeAll(); newBlank(); return; }
+  if (a === 'tpl') { S.open = false; S.tplOpen = true; S.subOpen = false; paint(); return; }
+  if (a === 'dup-set') { const r=S.rows.find(x=>x.id===S.sel); if(!r) return toast('先选一条会话'); closeAll(); dupSet(); return; }
+  if (a === 'dup-all') { const r=S.rows.find(x=>x.id===S.sel); if(!r) return toast('先选一条会话'); closeAll(); dupAll(); return; }
+}
+
+/* ── 绑定 ────────────────────────────────────────────────────────── */
+$('plus').onclick = (e) => {
+  e.stopPropagation();
+  S.open = !S.open; S.subOpen = false; S.tplOpen = false; paint();
+};
+document.addEventListener('click', (e) => {
+  if (!S.open) return;
+  /* 菜单项点完会 `paint()` 重画整块，那个被点的元素当场就离开了 DOM ——
+     `contains` 会判成「点在菜单外面」，于是刚展开的二级菜单被自己关掉。
+     先认「这已经是个死元素」，这种情况不是外部点击。 */
+  if (!document.documentElement.contains(e.target)) return;
+  if ($('col').contains(e.target)) return;   /* 菜单里 / ＋ 上不算外面 */
+  closeAll();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { if (S.open || S.tplOpen) { e.preventDefault(); closeAll(); } return; }
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const k = e.key.toLowerCase();
+  if (k === 'n' && e.shiftKey) { e.preventDefault(); S.open=false; S.tplOpen=true; S.subOpen=false; paint(); return; }
+  if (k === 'n') { e.preventDefault(); closeAll(); newBlank(); return; }
+  if (k === 'd') { e.preventDefault(); const r=S.rows.find(x=>x.id===S.sel);
+    if (!r) return toast('先选一条会话'); closeAll(); dupSet(); return; }
+});
+
+$('seg').querySelectorAll('button').forEach(b=>{
+  b.onclick = () => {
+    S.variant = b.dataset.v;
+    $('seg').querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
+    $('hint').textContent = HINT[S.variant];
+    S.open = true; S.subOpen = false; S.tplOpen = false;   /* 切方案时直接把菜单摊开给人看 */
+    paint();
+  };
+});
+$('dark').onchange = (e) => {
+  document.documentElement.toggleAttribute('data-dark', e.target.checked);
+};
+
+/* ── 起步 ────────────────────────────────────────────────────────── */
+/* `#B` / `#C` / `#B-dark`：开局就停在那个方案上（截图 / 对着看用） */
+const hash = (location.hash || '').replace('#','').toUpperCase();
+const startV = ['A','B','C'].includes(hash[0]) ? hash[0] : 'A';
+if (hash.includes('DARK')) {
+  $('dark').checked = true;
+  document.documentElement.setAttribute('data-dark','');
+}
+$('seg').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v === startV));
+S.variant = startV;
+$('hint').textContent = HINT[startV];
+renderList();
+S.open = true;    /* 一打开就摊开菜单，省得人不知道怎么开始 */
+paint();
+</script>
+</body>
+</html>
