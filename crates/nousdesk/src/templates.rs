@@ -327,6 +327,25 @@ pub(crate) fn sanitize_file_name(name: &str) -> String {
     }
 }
 
+/// 当前视图里**看得见**的那几条（顺序就是引擎给的那份，客户端不重排）。
+///
+/// 渲染和「上移/下移」都必须走它。以前 `move_preset` 自己在全量表里找邻居 ——
+/// 类别视图里按 ↑ 会和一条**不在这个类别里**的模板交换，屏幕上就看着「点了没反应」。
+pub(crate) fn visible_presets<'a>(
+    presets: &'a [Preset],
+    cat: Option<&str>,
+    query: &str,
+) -> Vec<&'a Preset> {
+    if !query.trim().is_empty() {
+        return presets.iter().filter(|p| matches_query(p, query)).collect();
+    }
+    match cat {
+        None => presets.iter().collect(),
+        Some(UNCATEGORIZED) => presets.iter().filter(|p| p.category.is_empty()).collect(),
+        Some(c) => presets.iter().filter(|p| in_category(p, c)).collect(),
+    }
+}
+
 /// 把 `from` 挪到 `to` **占它的位置**：往下拖 = 落到目标后面，往上拖 = 落到目标前面。
 ///
 /// 纯函数，单独测 —— 排序是最容易差一格的地方，而这种错在界面上看着「就是不太对」，
@@ -1357,16 +1376,31 @@ impl Desktop {
     /// 拖拽的兜底：Wayland 上拖不进别的窗口、触控板手抖、或者干脆不知道能拖 ——
     /// 都得有条路能排。
     pub(crate) fn move_preset(&mut self, name: &str, delta: isize, cx: &mut Context<Self>) {
-        let order = self.current_order();
-        let Some(pos) = order.iter().position(|n| n == name) else {
+        // 邻居要按**屏幕上看得见的**那一列找，不是全量表 —— 类别视图里全量表里
+        // 前一条可能根本不在这个类别，换完了屏幕上一点变化都没有。
+        let query = self.preset_filter.read(cx).value().trim().to_string();
+        let cat = self.preset_cat.clone();
+        let view: Vec<String> = self
+            .sections
+            .get(self.section)
+            .and_then(|s| s.data.as_ref())
+            .map(|d| {
+                visible_presets(&d.presets, cat.as_deref(), &query)
+                    .into_iter()
+                    .map(|p| p.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let Some(pos) = view.iter().position(|n| n == name) else {
             return;
         };
         let to = pos as isize + delta;
-        if to < 0 || to >= order.len() as isize {
+        if to < 0 || to >= view.len() as isize {
             return;
         }
-        // 上移/下移就是「和邻居换」，复用同一套搬家逻辑（`drop_on` 也走它）。
-        let target = order[to as usize].clone();
+        // 上移/下移 = 挪到屏幕上邻居的位置，复用同一套搬家逻辑（`drop_on` 也走它）。
+        let target = view[to as usize].clone();
+        let order = self.current_order();
         match reorder_move(&order, name, &target) {
             Some(next) => self.commit_order(next, cx),
             None => cx.notify(),
@@ -3287,20 +3321,7 @@ impl Desktop {
             match &sec.data {
                 None => vec![note("还没数据")],
                 Some(d) => {
-                    let rows: Vec<&Preset> = if searching {
-                        d.presets
-                            .iter()
-                            .filter(|p| matches_query(p, &query))
-                            .collect()
-                    } else {
-                        match &self.preset_cat {
-                            None => d.presets.iter().collect(),
-                            Some(c) if c == UNCATEGORIZED => {
-                                d.presets.iter().filter(|p| p.category.is_empty()).collect()
-                            }
-                            Some(c) => d.presets.iter().filter(|p| in_category(p, c)).collect(),
-                        }
-                    };
+                    let rows = visible_presets(&d.presets, self.preset_cat.as_deref(), &query);
                     if rows.is_empty() {
                         if searching {
                             vec![empty_hint(&format!("「{query}」"), sec.title, 0)]
@@ -4089,8 +4110,29 @@ mod tests {
     // `app.rs` 里的测试也是只挑要用的东西，同一个原因。
     use super::{
         EXPORT_ENVELOPE, Preset, UNCATEGORIZED, export_doc, facet_tree, import_doc, in_category,
-        keep_category, matches_query, reorder_move, sanitize_file_name,
+        keep_category, matches_query, reorder_move, sanitize_file_name, visible_presets,
     };
+
+    /// 视图就是「屏幕上那一列」。类别视图里按 ↑ 要动一格**看得见的**，
+    /// 而不是跟一条不在这个类别里的模板换（换完屏幕上没变化 = 点了没反应）。
+    #[test]
+    fn visible_presets_is_what_the_screen_shows() {
+        let all = vec![
+            preset("alpha", &["写作"]),
+            preset("bravo", &["研发"]),
+            preset("charlie", &["写作", "研发"]),
+            preset("delta", &[]),
+        ];
+        let names = |v: Vec<&Preset>| v.into_iter().map(|p| p.name.clone()).collect::<Vec<_>>();
+
+        assert_eq!(names(visible_presets(&all, None, "")), ["alpha", "bravo", "charlie", "delta"]);
+        // 父类别带子类别（`in_category` 的语义），「研发」看得见 bravo 和 charlie。
+        assert_eq!(names(visible_presets(&all, Some("写作"), "")), ["alpha", "charlie"]);
+        assert_eq!(names(visible_presets(&all, Some("研发"), "")), ["bravo", "charlie"]);
+        assert_eq!(names(visible_presets(&all, Some(UNCATEGORIZED), "")), ["delta"]);
+        // 搜索忽略当前类别 —— 找东西的时候不该还要先切类别。
+        assert_eq!(names(visible_presets(&all, Some("写作"), "bra")), ["bravo"]);
+    }
 
     /// 拖拽搬家：往下拖占目标的位置 = 落到它后面；往上拖 = 落到它前面。
     /// 差一格是这种代码最典型的错，所以四种情况都钉住。
