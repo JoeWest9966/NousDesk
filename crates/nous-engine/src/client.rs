@@ -13,7 +13,7 @@ use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
     Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
     PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt,
-    RenamePreset, Renamed, RenamedPreset, Triggers,
+    RenamePreset, Renamed, RenamedPreset, ReorderPreset, ReorderedPreset, Triggers,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
@@ -552,6 +552,21 @@ impl EngineClient {
             .http
             .post(self.url(&format!("v1/presets/{section}/category"))?)
             .json(&Body { name, category })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 手动排序：发**完整顺序**。引擎落 `order.json` 并提交，回包是盘上真正存下来的那份。
+    pub async fn reorder_presets(
+        &self,
+        section: &str,
+        order: Vec<String>,
+    ) -> Result<ReorderedPreset, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/order"))?)
+            .json(&ReorderPreset { order })
             .send()
             .await?;
         self.json(resp).await
