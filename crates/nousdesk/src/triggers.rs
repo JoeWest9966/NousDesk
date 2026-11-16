@@ -1802,6 +1802,8 @@ impl Desktop {
         let (label, bg, fg) = status_of(item);
         let name = item.name.clone();
         let menu_name = item.name.clone();
+        // 键盘 ↑↓ 改的是 selected，卡片上得看得见，否则像没反应。
+        let picked = self.triggers.selected.as_deref() == Some(item.name.as_str());
         let params = item.params.len();
         let dirty = item.dirty_files;
         let tile = tile_color(&item.name);
@@ -1815,7 +1817,13 @@ impl Desktop {
             .p(t().d(13.))
             .rounded(t().r(9.))
             .border(t().d(1.))
-            .border_color(rgb(if label == "清单坏了" { t().p.danger } else { t().p.line }))
+            .border_color(rgb(if picked {
+                t().p.accent
+            } else if label == "清单坏了" {
+                t().p.danger
+            } else {
+                t().p.line
+            }))
             .bg(rgb(t().p.panel))
             .cursor_pointer()
             .hover(|h| h.border_color(rgb(t().p.muted)))
