@@ -3804,7 +3804,8 @@ impl Desktop {
             .last
             .as_ref()
             .and_then(|l| l.text.as_deref())
-            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+            // markdown 记号在这一层摘掉：预览是给人扫的，不是给渲染器看的（`preview.rs`）。
+            .map(|t| crate::preview::plain(t))
             .unwrap_or_default();
         let selected = self.selected == Some(s.id);
         // `busy` 是 `"queued" | "running" | <task kind> | null`，不是布尔（`wire.md`）。
