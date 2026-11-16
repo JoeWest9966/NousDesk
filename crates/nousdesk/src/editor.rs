@@ -33,15 +33,18 @@ pub(crate) enum EditorTab {
     Issues,
     /// 仓里这份预设还没提交的改动（引擎 `/pending` + `/pending/diff`）。
     Diff,
+    /// 这条预设提交过哪些次（引擎 `/history`）。
+    History,
     Changes,
 }
 
 impl EditorTab {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Json,
         Self::Effective,
         Self::Issues,
         Self::Diff,
+        Self::History,
         Self::Changes,
     ];
 
@@ -51,6 +54,7 @@ impl EditorTab {
             Self::Effective => "生效值",
             Self::Issues => "问题",
             Self::Diff => "待提交",
+            Self::History => "历史",
             Self::Changes => "改动",
         }
     }
@@ -215,6 +219,13 @@ pub(crate) struct EditorState {
     /// 正在拉 diff 的那个文件路径（相对段目录）。
     pub diff_pick: Option<String>,
     pub diff_loading: bool,
+    /// 这条预设的提交历史（新到旧）。
+    pub history: Option<Vec<nous_engine::types::Commit>>,
+    /// 选中那次提交的 hash。
+    pub hist_pick: Option<String>,
+    /// 选中那次提交的改动。
+    pub hist_diff: Option<nous_engine::types::FileDiff>,
+    pub hist_loading: bool,
     /// 候选池。
     pub candidates: Candidates,
 }
@@ -245,6 +256,10 @@ impl Default for EditorState {
             diff: None,
             diff_pick: None,
             diff_loading: false,
+            history: None,
+            hist_pick: None,
+            hist_diff: None,
+            hist_loading: false,
             candidates: Candidates::default(),
         }
     }
@@ -707,6 +722,9 @@ impl crate::app::Desktop {
                 if t == EditorTab::Diff && self.editor.pending.is_none() {
                     self.load_pending(cx);
                 }
+                if t == EditorTab::History && self.editor.history.is_none() {
+                    self.load_history(cx);
+                }
             }
             Cmd::Save => self.save_editor(cx),
             Cmd::Publish => self.open_publish_dialog(window, cx),
@@ -799,6 +817,85 @@ impl crate::app::Desktop {
                     if !keep {
                         this.pick_diff_file(&first, cx);
                     }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 拉这条预设的提交历史（新到旧）。
+    pub(crate) fn load_history(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let section = self.editor.section.clone();
+        let name = self.editor.name.clone();
+        self.editor.hist_loading = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move { engine.preset_history(&section, &name, 30).await })
+                .await
+                .ok();
+            let _ = this.update(cx, |this, cx| {
+                this.editor.hist_loading = false;
+                match got {
+                    Some(Ok(h)) => {
+                        this.editor.history = Some(h.commits);
+                        // 默认看最近那次 —— 打开就看到改了什么，不用先点一下。
+                        let first = this
+                            .editor
+                            .history
+                            .as_ref()
+                            .and_then(|c| c.first())
+                            .map(|c| c.hash.clone());
+                        if let Some(hash) = first {
+                            this.pick_commit(&hash, cx);
+                        }
+                    }
+                    Some(Err(e)) => this.editor.err = Some(format!("读历史失败：{e}")),
+                    None => this.editor.err = Some("读历史没跑完".into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 看某一次提交改了什么（`preset.json` 那一份）。
+    pub(crate) fn pick_commit(&mut self, hash: &str, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let section = self.editor.section.clone();
+        let name = self.editor.name.clone();
+        let hash = hash.to_string();
+        self.editor.hist_pick = Some(hash.clone());
+        self.editor.hist_diff = None;
+        self.editor.hist_loading = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move {
+                    engine
+                        .preset_commit_diff(&section, &name, &hash, "preset.json")
+                        .await
+                })
+                .await
+                .ok();
+            let _ = this.update(cx, |this, cx| {
+                this.editor.hist_loading = false;
+                match got {
+                    Some(Ok(d)) => this.editor.hist_diff = Some(d),
+                    Some(Err(e)) => this.editor.err = Some(format!("读那次改动失败：{e}")),
+                    None => this.editor.err = Some("读那次改动没跑完".into()),
                 }
                 cx.notify();
             });
@@ -1389,10 +1486,6 @@ impl crate::app::Desktop {
                     .hover(|h| h.bg(rgb(t().p.panel)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.editor.tab = tab;
-                        // 「待提交」第一次点开才去问引擎，别在打开编辑器时就多打一次。
-                        if tab == EditorTab::Diff && this.editor.pending.is_none() {
-                            this.load_pending(cx);
-                        }
                         cx.notify();
                     }))
                     .child(
@@ -1780,6 +1873,7 @@ impl crate::app::Desktop {
             let badge = match tab {
                 EditorTab::Issues => errs + warns,
                 EditorTab::Diff => pending_file_count(e),
+                EditorTab::History => e.history.as_ref().map(|h| h.len()).unwrap_or(0),
                 EditorTab::Changes => changed_labels(e).len(),
                 _ => 0,
             };
@@ -1799,6 +1893,13 @@ impl crate::app::Desktop {
                     .hover(|h| h.text_color(rgb(t().p.text)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.editor.tab = tab;
+                        // 这两个 tab 的数据问引擎要，「第一次点开」才打那一次请求。
+                        if tab == EditorTab::Diff && this.editor.pending.is_none() {
+                            this.load_pending(cx);
+                        }
+                        if tab == EditorTab::History && this.editor.history.is_none() {
+                            this.load_history(cx);
+                        }
                         cx.notify();
                     }))
                     .child(tab.label())
@@ -2024,12 +2125,11 @@ impl crate::app::Desktop {
                         col = col.child(note("点上面一个文件看改了哪几行。"));
                     }
                     Some(d) => {
-                        let rows = line_diff(
+                        let (mut add, mut del) = (0, 0);
+                        for (op, _) in line_diff(
                             d.before.as_deref().unwrap_or(""),
                             d.after.as_deref().unwrap_or(""),
-                        );
-                        let (mut add, mut del) = (0, 0);
-                        for (op, _) in &rows {
+                        ) {
                             match op {
                                 DiffOp::Add => add += 1,
                                 DiffOp::Del => del += 1,
@@ -2051,6 +2151,12 @@ impl crate::app::Desktop {
                                         .text_color(rgb(t().p.faint))
                                         .child(d.path.clone()),
                                 )
+                                .children((d.before.is_none()).then(|| {
+                                    div()
+                                        .text_size(t().fs(9.))
+                                        .text_color(rgb(t().p.ok))
+                                        .child("新文件")
+                                }))
                                 .child(
                                     div()
                                         .ml_auto()
@@ -2067,42 +2173,157 @@ impl crate::app::Desktop {
                                         .child(format!("−{del}")),
                                 ),
                         );
-                        for (op, line) in rows {
-                            let (sign, fg, bg) = match op {
-                                DiffOp::Add => ("+", t().p.text, Some(rgba(soft(t().p.ok)))),
-                                DiffOp::Del => ("−", t().p.muted, Some(rgba(soft(t().p.danger)))),
-                                DiffOp::Same => (" ", t().p.text_2, None),
-                            };
+                        col = col.child(diff_lines(d.before.as_deref(), d.after.as_deref()));
+                    }
+                    None if e.diff_loading => {
+                        col = col.child(note("读那份文件的改动…"));
+                    }
+                    None => {
+                        col = col.child(note("点上面一个文件看改了哪几行。"));
+                    }
+                }
+                col.into_any_element()
+            }
+            EditorTab::History => {
+                let mut col = div()
+                    .id("ed-hist")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .overflow_y_scroll();
+                match &e.history {
+                    None if e.hist_loading => col = col.child(note("读提交历史…")),
+                    None => col = col.child(note("还没读到历史（引擎那边 /history 没回）。")),
+                    Some(list) if list.is_empty() => {
+                        col = col.child(note("这条还没提交过 —— 盘上有，HEAD 里没有。"));
+                    }
+                    Some(list) => {
+                        col = col.child(section_label(&format!("提交过 {} 次", list.len())));
+                        for c in list {
+                            let hash = c.hash.clone();
+                            let picked = e.hist_pick.as_deref() == Some(c.hash.as_str());
                             col = col.child(
                                 div()
+                                    .id(ElementId::Name(format!("ed-hc-{}", c.short).into()))
                                     .flex()
-                                    .flex_row()
-                                    .gap(t().d(6.))
-                                    .px(t().d(10.))
-                                    .when_some(bg, |el, c| el.bg(c))
-                                    .child(
-                                        div()
-                                            .w(t().d(8.))
-                                            .flex_none()
-                                            .text_size(t().fs(9.5))
-                                            .font_family("JetBrainsMono")
-                                            .text_color(rgb(fg))
-                                            .child(sign),
-                                    )
+                                    .flex_col()
+                                    .gap(t().d(2.))
+                                    .px(t().d(12.))
+                                    .py(t().d(5.))
+                                    .cursor_pointer()
+                                    .when(picked, |el| el.bg(rgb(t().p.selected)))
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, _, cx| {
+                                            this.pick_commit(&hash, cx);
+                                        },
+                                    ))
                                     .child(
                                         div()
                                             .text_size(t().fs(10.5))
-                                            .font_family("JetBrainsMono")
-                                            .text_color(rgb(fg))
-                                            .child(if line.is_empty() {
-                                                " ".to_string()
-                                            } else {
-                                                line
-                                            }),
+                                            .when(picked, |el| el.text_color(rgb(t().p.text)))
+                                            .when(!picked, |el| el.text_color(rgb(t().p.text_2)))
+                                            .truncate()
+                                            .child(c.message.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap(t().d(6.))
+                                            .child(
+                                                div()
+                                                    .text_size(t().fs(9.))
+                                                    .font_family("JetBrainsMono")
+                                                    .text_color(rgb(t().p.faint))
+                                                    .child(c.short.clone()),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(t().fs(9.))
+                                                    .text_color(rgb(t().p.faint))
+                                                    .child(
+                                                        c.at
+                                                            .as_deref()
+                                                            .map(stamp)
+                                                            .unwrap_or_default(),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(t().fs(9.))
+                                                    .text_color(rgb(t().p.faint))
+                                                    .child(
+                                                        c.author.clone().unwrap_or_default(),
+                                                    ),
+                                            ),
                                     ),
                             );
                         }
                     }
+                }
+
+                // 选中那次改了什么（只画 preset.json，别的文件去「待提交」看）。
+                col = col.child(div().h(t().d(1.)).bg(rgb(t().p.line_soft)));
+                match &e.hist_diff {
+                    Some(d) => {
+                        let (mut add, mut del) = (0, 0);
+                        for (op, _) in line_diff(
+                            d.before.as_deref().unwrap_or(""),
+                            d.after.as_deref().unwrap_or(""),
+                        ) {
+                            match op {
+                                DiffOp::Add => add += 1,
+                                DiffOp::Del => del += 1,
+                                DiffOp::Same => {}
+                            }
+                        }
+                        col = col.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(t().d(8.))
+                                .px(t().d(12.))
+                                .py(t().d(6.))
+                                .child(
+                                    div()
+                                        .text_size(t().fs(10.))
+                                        .font_family("JetBrainsMono")
+                                        .text_color(rgb(t().p.faint))
+                                        .child(d.path.clone()),
+                                )
+                                .children((d.before.is_none()).then(|| {
+                                    div()
+                                        .text_size(t().fs(9.))
+                                        .text_color(rgb(t().p.ok))
+                                        .child("新文件")
+                                }))
+                                .child(
+                                    div()
+                                        .ml_auto()
+                                        .text_size(t().fs(9.5))
+                                        .font_family("JetBrainsMono")
+                                        .text_color(rgb(t().p.ok))
+                                        .child(format!("+{add}")),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(t().fs(9.5))
+                                        .font_family("JetBrainsMono")
+                                        .text_color(rgb(t().p.danger))
+                                        .child(format!("−{del}")),
+                                ),
+                        );
+                        col = col.child(diff_lines(
+                            d.before.as_deref(),
+                            d.after.as_deref(),
+                        ));
+                    }
+                    None if e.hist_loading => col = col.child(note("读那次改动…")),
+                    None => col = col.child(note("点上面一条看那次改了什么。")),
                 }
                 col.into_any_element()
             }
@@ -2695,6 +2916,52 @@ fn wrapper(
         .into_any_element()
 }
 
+/// ISO 时间戳压成 `11-15 19:42`。认不出来就原样给（别因为格式怪就把那行藏了）。
+fn stamp(at: &str) -> String {
+    let s = at.trim();
+    if s.len() < 16 || s.as_bytes().get(10) != Some(&b'T') {
+        return s.to_string();
+    }
+    format!("{} {}", &s[5..10], &s[11..16])
+}
+
+/// 逐行 diff（增删带底色）。`None` = 那个版本没有这个文件。
+fn diff_lines(before: Option<&str>, after: Option<&str>) -> AnyElement {
+    let mut col = div().flex().flex_col();
+    for (op, line) in line_diff(before.unwrap_or(""), after.unwrap_or("")) {
+        let (sign, fg, bg) = match op {
+            DiffOp::Add => ("+", t().p.text, Some(rgba(soft(t().p.ok)))),
+            DiffOp::Del => ("−", t().p.muted, Some(rgba(soft(t().p.danger)))),
+            DiffOp::Same => (" ", t().p.text_2, None),
+        };
+        col = col.child(
+            div()
+                .flex()
+                .flex_row()
+                .gap(t().d(6.))
+                .px(t().d(10.))
+                .when_some(bg, |el, c| el.bg(c))
+                .child(
+                    div()
+                        .w(t().d(8.))
+                        .flex_none()
+                        .text_size(t().fs(9.5))
+                        .font_family("JetBrainsMono")
+                        .text_color(rgb(fg))
+                        .child(sign),
+                )
+                .child(
+                    div()
+                        .text_size(t().fs(10.5))
+                        .font_family("JetBrainsMono")
+                        .text_color(rgb(fg))
+                        .child(if line.is_empty() { " ".to_string() } else { line }),
+                ),
+        );
+    }
+    col.into_any_element()
+}
+
 /// 一个 RGB 压成很淡的底（`RRGGBBAA`，给 diff 的增删行用）。
 fn soft(color: u32) -> u32 {
     (color << 8) | 0x16
@@ -2928,7 +3195,8 @@ mod tests {
     // 别写 `use super::*;` —— 会把 `gpui_kit::*` 带进来，`#[test]` 展开时撞 recursion limit
     // （坑.md 68）。
     use super::{
-        DiffOp, del_key, is_dirty, line_diff, read_text, toggle_list, write_bool, write_text,
+        DiffOp, del_key, is_dirty, line_diff, read_text, stamp, toggle_list, write_bool,
+        write_text,
     };
 
     fn v(text: &str) -> serde_json::Value {
@@ -3005,6 +3273,15 @@ mod tests {
         let rows = line_diff("", "x\ny\n");
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|(op, _)| *op == DiffOp::Add));
+    }
+
+    /// ISO 时间压成 `MM-DD HH:MM`；认不出就原样给（不藏那行）。
+    #[test]
+    fn stamps_are_shortened_but_never_dropped() {
+        assert_eq!(stamp("2026-11-15T19:42:44+08:00"), "11-15 19:42");
+        assert_eq!(stamp("2026-01-02T03:04:05Z"), "01-02 03:04");
+        assert_eq!(stamp(""), "");
+        assert_eq!(stamp("昨天"), "昨天");
     }
 
     #[test]

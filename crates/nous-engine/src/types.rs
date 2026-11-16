@@ -365,6 +365,34 @@ pub struct PendingFile {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// 一次提交（`GET /v1/presets/<段>/history`）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    pub hash: String,
+    /// 短 hash（7 位），列表上显示的。
+    pub short: String,
+    /// ISO 时间戳（`2026-11-15T19:42:44+08:00`）。
+    pub at: Option<String>,
+    pub author: Option<String>,
+    pub message: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/presets/<段>/history?name=`。这条预设（目录）的提交历史，新到旧。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetHistory {
+    pub name: String,
+    /// 相对仓根的路径，`Session-Template/asd`。
+    pub path: Option<String>,
+    #[serde(default)]
+    pub commits: Vec<Commit>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 /// `GET /v1/presets/<段>/pending/diff?path=`。两份**全文**，`null` = 那边没有这个文件。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

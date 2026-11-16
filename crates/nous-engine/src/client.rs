@@ -11,8 +11,8 @@ use url::Url;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
-    Dirs, Entries, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile, PresetOp,
-    PresetValidation, Presets, Prompts, ReadReceipt,
+    Dirs, Entries, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
+    PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
@@ -358,6 +358,39 @@ impl EngineClient {
             .http
             .get(self.url(&format!("v1/presets/{section}/file"))?)
             .query(&[("name", name), ("path", path)])
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 这条预设的提交历史（新到旧，最多 `limit` 条）。
+    pub async fn preset_history(
+        &self,
+        section: &str,
+        name: &str,
+        limit: usize,
+    ) -> Result<PresetHistory, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/presets/{section}/history"))?)
+            .query(&[("name", name), ("limit", &limit.to_string())])
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 某一次提交在一个文件上的改动（父提交 → 该提交）。
+    pub async fn preset_commit_diff(
+        &self,
+        section: &str,
+        name: &str,
+        hash: &str,
+        path: &str,
+    ) -> Result<FileDiff, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/presets/{section}/history/diff"))?)
+            .query(&[("name", name), ("hash", hash), ("path", path)])
             .send()
             .await?;
         self.json(resp).await
