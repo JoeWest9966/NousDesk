@@ -33,6 +33,7 @@ mod slash;
 mod templates;
 mod templates_graph;
 mod theme;
+mod triggers;
 
 use std::io::Write as _;
 use std::sync::OnceLock;

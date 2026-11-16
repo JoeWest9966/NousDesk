@@ -12,8 +12,10 @@ pub mod client;
 pub mod pins;
 pub mod resolve;
 pub mod sse;
+pub mod triggers;
 pub mod types;
 
 pub use client::{EngineClient, EngineError};
 pub use pins::{PinClient, PinError};
 pub use sse::{Change, SseError, SseEvent};
+pub use triggers::TriggerClient;

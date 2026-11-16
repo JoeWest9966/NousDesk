@@ -149,6 +149,7 @@ pub(crate) const TEMPLATE_LIST_W: f32 = 300.;
 pub(crate) enum Tab {
     Chats,
     Templates,
+    Triggers,
 }
 
 /// 轻提示的性质：成功绿 / 失败红。
@@ -405,6 +406,8 @@ pub struct Desktop {
     pub(crate) newchat: crate::board::NewChat,
     /// 会话内跳转：按天分组的目录 + 9 号方案的历史抽屉。纯内存的「我眼下看到哪」。
     pub(crate) nav: SessionNav,
+    /// 触发器工作台（清单 / 详情 / 代码 / 向导）。数据来自 n8qkkj，不是 qrd3wh。
+    pub(crate) triggers: crate::triggers::State,
 }
 
 impl Desktop {
@@ -769,6 +772,8 @@ impl Desktop {
             // `=templates` 直接落在 Template 页：验右键菜单 / 生命周期时省一次点击。
             tab: if open_at_start == "templates" {
                 Tab::Templates
+            } else if open_at_start == "triggers" {
+                Tab::Triggers
             } else {
                 Tab::Chats
             },
@@ -787,6 +792,7 @@ impl Desktop {
                 crate::templates::Section::new(0),
                 crate::templates::Section::new(1),
             ],
+            triggers: crate::triggers::State::new(window, cx),
             section: 0,
             preset_cat: None,
             preset_closed: std::collections::HashSet::new(),
@@ -852,6 +858,8 @@ impl Desktop {
                         }
                         // 引擎连上之前如果点过 Template 页，「还没连上引擎」那句得自己消掉。
                         this.load_all_sections(false, cx);
+                        // 触发器管理是**另一个块**（n8qkkj），单独 resolve、单独拉。
+                        this.load_triggers(cx);
                         // 置顶单独去 bjes6b 拿（单源在它那儿）。
                         this.load_pins(cx);
                         // `/` 面板的技能清单：失败就认了（面板给提示）。
@@ -2431,6 +2439,7 @@ impl Desktop {
             .gap(t().d(6.))
             .child(self.tab_button(IconName::MessageCircle, Tab::Chats, cx))
             .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
+            .child(self.tab_button(IconName::Bolt, Tab::Triggers, cx))
             .child(div().flex_1())
             .child(self.more_button(cx))
     }
@@ -2460,6 +2469,7 @@ impl Desktop {
         let id = match tab {
             Tab::Chats => "tab-chats",
             Tab::Templates => "tab-templates",
+            Tab::Triggers => "tab-triggers",
         };
         div()
             .id(ElementId::Name(id.into()))
@@ -4250,6 +4260,7 @@ impl Render for Desktop {
                         self.render_detail(window, cx)
                     })
                     .into_any_element(),
+                Tab::Triggers => self.render_triggers(cx).into_any_element(),
             }
         };
 
@@ -4260,9 +4271,9 @@ impl Render for Desktop {
             self.render_settings(window, cx)
         } else if self.archive_open {
             self.render_archive(cx)
-        } else if self.tab == Tab::Templates {
-            // Template 页自带第三栏（关系图），聊天区这一格不画 ——
-            // 留着它会和关系图叠在一起（`flex_1` 撑开之后真的叠过）。
+        } else if self.tab != Tab::Chats {
+            // Template / 触发器页自带完整栏，聊天区这一格不画 ——
+            // 留着它会和页面的第三栏叠在一起（`flex_1` 撑开之后真的叠过）。
             div().into_any_element()
         } else if self.newchat.open {
             self.render_board(window, cx)

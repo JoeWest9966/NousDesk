@@ -186,6 +186,9 @@ impl Desktop {
         if tab == Tab::Templates {
             self.load_all_sections(false, cx);
         }
+        if tab == Tab::Triggers {
+            self.load_trigger_list(false, cx);
+        }
         cx.notify();
     }
 
