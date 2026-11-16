@@ -12,7 +12,7 @@
 //! 保存走 `PUT /file`，`base` 是读到（或上次写回）的 etag：撞了就是 409，界面上「重读」
 //! 而不是拿本地覆盖。发布是另一件事（commit + push），和保存分开两个按钮。
 
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::Icon;
 use gpui_kit::assets::IconName;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -79,6 +79,69 @@ pub(crate) struct TextEdit {
     pub input: Entity<InputState>,
 }
 
+/// 一个能挑的候选。`hint` 是右边那行小字（provider / 摘要 / 说明）。
+#[derive(Debug, Clone)]
+pub(crate) struct PickItem {
+    pub name: String,
+    pub hint: String,
+    /// `true` = 引擎说这东西现在加载不出来 / 用不了（灰着，但还列出来）。
+    pub off: bool,
+}
+
+impl PickItem {
+    fn new(name: impl Into<String>, hint: impl Into<String>) -> Self {
+        Self { name: name.into(), hint: hint.into(), off: false }
+    }
+}
+
+/// 挑选取值的来源。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PickKind {
+    Provider,
+    Model,
+    Prompt,
+    Skill,
+    Category,
+    /// 没有候选来源（`extensions`）：只有「手打一个新值」。
+    Free,
+}
+
+impl PickKind {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Provider => "选供应商",
+            Self::Model => "选模型",
+            Self::Prompt => "选会话模板",
+            Self::Skill => "选技能",
+            Self::Category => "选类别",
+            Self::Free => "填一个",
+        }
+    }
+}
+
+/// 候选池 —— 打开编辑器时拉一次，切组切字段都不再请求引擎。
+///
+/// 拉不到就空着（`err` 记一句），**不让编辑器因此打不开**：控件退回手打。
+#[derive(Debug, Default)]
+pub(crate) struct Candidates {
+    /// `(provider, modelId, 显示名, 这模型支持的思考档位)`
+    pub models: Vec<(String, String, String, Vec<String>)>,
+    pub prompts: Vec<PickItem>,
+    pub skills: Vec<PickItem>,
+    pub categories: Vec<String>,
+    pub err: Option<String>,
+}
+
+/// 挑值弹层（字段值点开那个）。
+pub(crate) struct PickerState {
+    pub kind: PickKind,
+    /// 写回用的键路径，`model.provider` 这种。
+    pub path: &'static [&'static str],
+    /// 多选（chips）还是单选。
+    pub multi: bool,
+    pub filter: Entity<InputState>,
+}
+
 /// 编辑器状态。`open == false` 时整个模块不画。
 pub(crate) struct EditorState {
     pub open: bool,
@@ -104,6 +167,10 @@ pub(crate) struct EditorState {
     pub text_edit: Option<TextEdit>,
     /// 发布对话框开着没有（里面那份 commit message）。
     pub publish_msg: Option<Entity<InputState>>,
+    /// 挑值弹层。
+    pub picker: Option<PickerState>,
+    /// 候选池。
+    pub candidates: Candidates,
 }
 
 impl Default for EditorState {
@@ -126,6 +193,8 @@ impl Default for EditorState {
             validating: false,
             text_edit: None,
             publish_msg: None,
+            picker: None,
+            candidates: Candidates::default(),
         }
     }
 }
@@ -138,13 +207,7 @@ impl EditorState {
     /// 有没有没保存的改动。和盘上那份原文比字节 —— JSON 键顺序会被 `to_string` 改，
     /// 所以比的是 **Value 相等**，不是字符串相等。
     pub fn dirty(&self) -> bool {
-        if self.loading || self.text.is_empty() {
-            return false;
-        }
-        match serde_json::from_str::<serde_json::Value>(&self.text) {
-            Ok(saved) => saved != self.draft,
-            Err(_) => true,
-        }
+        !self.loading && is_dirty(&self.text, &self.draft)
     }
 
     /// 问题条数（错误 + 警告）。
@@ -157,127 +220,186 @@ impl EditorState {
 
     /// 读一份字段。`path` 是键路径，缺了就给空串。
     pub fn text_of(&self, path: &[&str]) -> String {
-        let mut cur = &self.draft;
-        for k in path {
-            match cur.get(*k) {
-                Some(v) => cur = v,
-                None => return String::new(),
-            }
-        }
-        match cur {
-            serde_json::Value::String(s) => s.clone(),
-            serde_json::Value::Null => String::new(),
-            other => other.to_string(),
-        }
+        read_text(&self.draft, path)
     }
 
     /// 写一份字段。空串 = 删掉这个键（「不钉」就是真的不钉，不是空字符串）。
     pub fn set_text(&mut self, path: &[&str], value: &str) {
-        if self.draft.is_null() {
-            self.draft = serde_json::json!({});
-        }
-        let mut cur = &mut self.draft;
-        for k in &path[..path.len() - 1] {
-            if !cur.is_object() {
-                *cur = serde_json::json!({});
-            }
-            cur = cur
-                .as_object_mut()
-                .unwrap()
-                .entry((*k).to_string())
-                .or_insert_with(|| serde_json::json!({}));
-        }
-        let last = path[path.len() - 1];
-        let obj = match cur.as_object_mut() {
-            Some(o) => o,
-            None => return,
-        };
-        if value.trim().is_empty() {
-            obj.remove(last);
-        } else {
-            obj.insert(last.to_string(), serde_json::Value::String(value.to_string()));
-        }
+        write_text(&mut self.draft, path, value);
     }
 
     pub fn bool_of(&self, path: &[&str]) -> bool {
-        let mut cur = &self.draft;
-        for k in path {
-            match cur.get(*k) {
-                Some(v) => cur = v,
-                None => return false,
-            }
-        }
-        cur.as_bool().unwrap_or(false)
+        read_bool(&self.draft, path)
     }
 
+    /// 开关。**关掉 = 删掉这个键**（跟「重置」一个哲学：`false` 就是默认，别在 JSON 里留一行噪音）。
     pub fn set_bool(&mut self, path: &[&str], on: bool) {
-        if self.draft.is_null() {
-            self.draft = serde_json::json!({});
-        }
-        if let Some(obj) = self.draft.as_object_mut() {
-            obj.insert(path[0].to_string(), serde_json::Value::Bool(on));
-        }
+        write_bool(&mut self.draft, path, on);
     }
 
     /// 从 draft 里删掉一个键（支持 `model.provider` 这种嵌套路径）= 回到默认。
     pub fn remove_key(&mut self, dotted: &str) {
-        let parts: Vec<&str> = dotted.split('.').collect();
-        if parts.is_empty() || self.draft.is_null() {
-            return;
-        }
-        let mut cur = &mut self.draft;
-        for k in &parts[..parts.len() - 1] {
-            match cur.get_mut(*k) {
-                Some(v) => cur = v,
-                None => return,
-            }
-        }
-        if let Some(obj) = cur.as_object_mut() {
-            obj.remove(parts[parts.len() - 1]);
-        }
+        del_key(&mut self.draft, dotted);
     }
 
     /// 字符串数组（技能 / 类别）。
     pub fn list_of(&self, key: &str) -> Vec<String> {
-        self.draft
-            .get(key)
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default()
+        read_list(&self.draft, key)
     }
 
     /// 数组里加一项 / 删一项。
     pub fn toggle_in_list(&mut self, key: &str, item: &str) {
-        if self.draft.is_null() {
-            self.draft = serde_json::json!({});
-        }
-        let Some(obj) = self.draft.as_object_mut() else {
-            return;
-        };
-        let mut list = obj
-            .get(key)
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        if let Some(ix) = list
-            .iter()
-            .position(|v| v.as_str().map(|s| s == item).unwrap_or(false))
-        {
-            list.remove(ix);
-        } else {
-            list.push(serde_json::Value::String(item.to_string()));
-        }
-        obj.insert(key.to_string(), serde_json::Value::Array(list));
+        toggle_list(&mut self.draft, key, item);
     }
 
     /// JSON 那一栏显示的东西：格式化的 draft，带行号。
     pub fn pretty_lines(&self) -> Vec<String> {
         let text = serde_json::to_string_pretty(&self.draft).unwrap_or_default();
         text.lines().map(|l| l.to_string()).collect()
+    }
+}
+
+// ── 纯 JSON 操作 ───────────────────────────────────────────
+//
+// 这一层**不吃 `EditorState`**，只吃 `serde_json::Value`：编辑器的所有写入都从这里走，
+// 测试也测这里（`EditorState` 带着一堆 Entity，`#[test]` 展开会撞递归上限）。
+
+/// 按路径读一份字符串。缺了 / 不是标量就给空串。
+fn read_text(v: &serde_json::Value, path: &[&str]) -> String {
+    let mut cur = v;
+    for k in path {
+        match cur.get(*k) {
+            Some(n) => cur = n,
+            None => return String::new(),
+        }
+    }
+    match cur {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+/// 按路径写一份字符串。**空串 = 删键**（「不钉」就是真不钉，不是空字符串）。
+fn write_text(v: &mut serde_json::Value, path: &[&str], value: &str) {
+    if path.is_empty() {
+        return;
+    }
+    if v.is_null() {
+        *v = serde_json::json!({});
+    }
+    let mut cur = v;
+    for k in &path[..path.len() - 1] {
+        if !cur.is_object() {
+            *cur = serde_json::json!({});
+        }
+        cur = cur
+            .as_object_mut()
+            .unwrap()
+            .entry((*k).to_string())
+            .or_insert_with(|| serde_json::json!({}));
+    }
+    let last = path[path.len() - 1];
+    let Some(obj) = cur.as_object_mut() else {
+        return;
+    };
+    if value.trim().is_empty() {
+        obj.remove(last);
+    } else {
+        obj.insert(last.to_string(), serde_json::Value::String(value.to_string()));
+    }
+}
+
+fn read_bool(v: &serde_json::Value, path: &[&str]) -> bool {
+    let mut cur = v;
+    for k in path {
+        match cur.get(*k) {
+            Some(n) => cur = n,
+            None => return false,
+        }
+    }
+    cur.as_bool().unwrap_or(false)
+}
+
+/// 开关。**关掉 = 删键**：`false` 就是默认，别在 JSON 里留一行噪音。
+fn write_bool(v: &mut serde_json::Value, path: &[&str], on: bool) {
+    if !on {
+        del_key(v, &path.join("."));
+        return;
+    }
+    if path.is_empty() {
+        return;
+    }
+    if v.is_null() {
+        *v = serde_json::json!({});
+    }
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert(path[0].to_string(), serde_json::Value::Bool(true));
+    }
+}
+
+/// 按点号路径删一个键（`model.provider`）。父对象留着 —— 删的是那一个键。
+fn del_key(v: &mut serde_json::Value, dotted: &str) {
+    let parts: Vec<&str> = dotted.split('.').collect();
+    if parts.is_empty() || v.is_null() {
+        return;
+    }
+    let mut cur = v;
+    for k in &parts[..parts.len() - 1] {
+        match cur.get_mut(*k) {
+            Some(n) => cur = n,
+            None => return,
+        }
+    }
+    if let Some(obj) = cur.as_object_mut() {
+        obj.remove(parts[parts.len() - 1]);
+    }
+}
+
+fn read_list(v: &serde_json::Value, key: &str) -> Vec<String> {
+    v.get(key)
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 数组里加一项 / 删一项（成员就是取消，不是重复）。
+fn toggle_list(v: &mut serde_json::Value, key: &str, item: &str) {
+    if v.is_null() {
+        *v = serde_json::json!({});
+    }
+    let Some(obj) = v.as_object_mut() else {
+        return;
+    };
+    let mut list = obj
+        .get(key)
+        .and_then(|x| x.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if let Some(ix) = list
+        .iter()
+        .position(|x| x.as_str().map(|s| s == item).unwrap_or(false))
+    {
+        list.remove(ix);
+    } else {
+        list.push(serde_json::Value::String(item.to_string()));
+    }
+    obj.insert(key.to_string(), serde_json::Value::Array(list));
+}
+
+/// 有没有没保存的改动。比的是 **Value 相等**，不是字符串 —— JSON 键顺序会被
+/// `to_string` 改，按字节比会永远「脏」。
+fn is_dirty(text: &str, draft: &serde_json::Value) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(saved) => saved != *draft,
+        Err(_) => true,
     }
 }
 
@@ -323,9 +445,174 @@ impl crate::app::Desktop {
                         this.editor.err = None;
                         this.editor.conflict = false;
                         this.validate_preset(cx);
+                        this.load_candidates(cx);
                     }
                     Some(Err(e)) => this.editor.err = Some(format!("读不到 preset.json：{e}")),
                     None => this.editor.err = Some("任务没跑完".into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 这个字段能挑的候选。`Model` 会按已经选中的供应商过滤。
+    pub(crate) fn pick_items(&self, kind: PickKind) -> Vec<PickItem> {
+        let c = &self.editor.candidates;
+        match kind {
+            PickKind::Provider => {
+                let mut seen: Vec<String> = Vec::new();
+                let mut out = Vec::new();
+                for (prov, _, _, _) in &c.models {
+                    if seen.iter().any(|s| s == prov) {
+                        continue;
+                    }
+                    seen.push(prov.clone());
+                    let n = c.models.iter().filter(|(p, ..)| p == prov).count();
+                    out.push(PickItem::new(prov.clone(), format!("{n} 个模型")));
+                }
+                out
+            }
+            PickKind::Model => {
+                let want = self.editor.text_of(&["model", "provider"]);
+                c.models
+                    .iter()
+                    .filter(|(p, ..)| want.is_empty() || *p == want)
+                    .map(|(p, id, label, levels)| PickItem {
+                        name: id.clone(),
+                        hint: format!("{p} · {} · {}", levels.join("/"), label),
+                        off: false,
+                    })
+                    .collect()
+            }
+            PickKind::Prompt => c.prompts.clone(),
+            PickKind::Skill => c.skills.clone(),
+            PickKind::Category => c
+                .categories
+                .iter()
+                .map(|n| PickItem::new(n.clone(), ""))
+                .collect(),
+            PickKind::Free => Vec::new(),
+        }
+    }
+
+    /// 打开挑值弹层。
+    pub(crate) fn open_picker(
+        &mut self,
+        kind: PickKind,
+        path: &'static [&'static str],
+        multi: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(match kind {
+                PickKind::Free => "打一个新值",
+                _ => "筛选…",
+            })
+        });
+        // 每敲一个字重排一次（纯本地过滤）。
+        cx.subscribe_in(&input, window, |_, _, ev: &InputEvent, _, cx| {
+            if matches!(ev, InputEvent::Change) {
+                cx.notify();
+            }
+        });
+        self.editor.picker = Some(PickerState { kind, path, multi, filter: input });
+        cx.notify();
+    }
+
+    /// 挑中一个。
+    pub(crate) fn pick_apply(&mut self, name: &str, cx: &mut Context<Self>) {
+        let Some(p) = &self.editor.picker else {
+            return;
+        };
+        let (path, multi) = (p.path, p.multi);
+        if multi {
+            // 已是成员就删掉（再点是取消），不是就加上 —— 弹层不关，能连着挑。
+            self.editor.toggle_in_list(path[0], name);
+        } else {
+            self.editor.set_text(path, name);
+            self.editor.picker = None;
+        }
+        cx.notify();
+    }
+
+    /// 拉一次候选池：模型 / 会话模板 / 技能 / 本段类别。
+    ///
+    /// 四个请求并行发；任何一个失败都不挡编辑器 —— 只是那一类退回「手打」。
+    fn load_candidates(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let section = self.editor.section.clone();
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let out = h
+                .spawn(async move {
+                    let models = engine.models().await.ok();
+                    let prompts = engine.prompts().await.ok();
+                    let skills = engine.skills().await.ok();
+                    let cats = engine.presets(&section).await.ok().map(|p| p.categories);
+                    (models, prompts, skills, cats)
+                })
+                .await
+                .ok();
+            let _ = this.update(cx, |this, cx| {
+                let c = &mut this.editor.candidates;
+                if let Some((models, prompts, skills, cats)) = out {
+                    if let Some(m) = models {
+                        c.models = m
+                            .items
+                            .iter()
+                            .map(|it| {
+                                (
+                                    it.provider.clone(),
+                                    it.model_id.clone(),
+                                    it.name.clone().unwrap_or_else(|| it.model_id.clone()),
+                                    it.levels(),
+                                )
+                            })
+                            .collect();
+                    }
+                    if let Some(p) = prompts {
+                        c.prompts = p
+                            .prompts
+                            .iter()
+                            .map(|it| {
+                                PickItem::new(
+                                    it.name.clone(),
+                                    it.summary.clone().or(it.description.clone()).unwrap_or_default(),
+                                )
+                            })
+                            .collect();
+                    }
+                    if let Some(sk) = skills {
+                        c.skills = sk
+                            .skills
+                            .iter()
+                            .map(|it| PickItem {
+                                name: it.name.clone(),
+                                hint: it.description.clone().unwrap_or_default(),
+                                // 引擎说加载不出来 / 隐藏的，勾了也不动 —— 灰着列出来，别让人白勾。
+                                off: it.hidden
+                                    || it
+                                        .load
+                                        .as_ref()
+                                        .and_then(|l| l.get("state"))
+                                        .and_then(|v| v.as_str())
+                                        .is_some_and(|st| st != "ok"),
+                            })
+                            .collect();
+                    }
+                    if let Some(cats) = cats {
+                        c.categories = cats;
+                    }
+                    // 什么都拉不到才记一句（部分成功算成功）。
+                    if c.models.is_empty() && c.prompts.is_empty() && c.skills.is_empty() {
+                        c.err = Some("候选列表没拉到 —— 下面这些还是能手打".into());
+                    }
                 }
                 cx.notify();
             });
@@ -543,8 +830,10 @@ enum Ctl {
     Seg(&'static [&'static str]),
     /// 开 / 关
     Switch,
-    /// 字符串数组（技能 / 类别）
-    List,
+    /// 单选：从候选池里挑一个（写回字符串）
+    Pick(PickKind),
+    /// 多选：chips + 「＋」（写回字符串数组）
+    Multi(PickKind),
 }
 
 /// 一行字段：标题 + JSON 键路径 + 控件。路径是**嵌套**的（`model.provider`）。
@@ -855,8 +1144,8 @@ impl crate::app::Desktop {
             }
             let items: Vec<FldSpec> = match g {
                 Group::Model => vec![
-                    FldSpec { label: "供应商", path: &["model", "provider"], ctl: Ctl::Text },
-                    FldSpec { label: "模型", path: &["model", "modelId"], ctl: Ctl::Text },
+                    FldSpec { label: "供应商", path: &["model", "provider"], ctl: Ctl::Pick(PickKind::Provider) },
+                    FldSpec { label: "模型", path: &["model", "modelId"], ctl: Ctl::Pick(PickKind::Model) },
                     FldSpec {
                         label: "思考档位",
                         path: &["thinkingLevel"],
@@ -864,13 +1153,13 @@ impl crate::app::Desktop {
                     },
                 ],
                 Group::Ctx => vec![
-                    FldSpec { label: "技能", path: &["skills"], ctl: Ctl::List },
-                    FldSpec { label: "会话模板", path: &["template"], ctl: Ctl::Text },
+                    FldSpec { label: "技能", path: &["skills"], ctl: Ctl::Multi(PickKind::Skill) },
+                    FldSpec { label: "会话模板", path: &["template"], ctl: Ctl::Pick(PickKind::Prompt) },
                 ],
-                Group::Ext => vec![FldSpec { label: "扩展", path: &["extensions"], ctl: Ctl::List }],
+                Group::Ext => vec![FldSpec { label: "扩展", path: &["extensions"], ctl: Ctl::Multi(PickKind::Free) }],
                 Group::Perm => vec![
                     FldSpec { label: "只读", path: &["readOnly"], ctl: Ctl::Switch },
-                    FldSpec { label: "类别", path: &["category"], ctl: Ctl::List },
+                    FldSpec { label: "类别", path: &["category"], ctl: Ctl::Multi(PickKind::Category) },
                 ],
                 Group::Run => vec![
                     FldSpec { label: "摘要", path: &["summary"], ctl: Ctl::Text },
@@ -1019,18 +1308,47 @@ impl crate::app::Desktop {
                 div()
                     .id(ElementId::Name(format!("ed-sw-{k}").into()))
                     .cursor_pointer()
-                    .on_click(cx.listener({
-                        let path = path;
-                        move |this, _: &ClickEvent, _, cx| {
-                            let v = this.editor.bool_of(path);
-                            this.editor.set_bool(path, !v);
-                            cx.notify();
-                        }
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        let v = this.editor.bool_of(path);
+                        this.editor.set_bool(path, !v);
+                        cx.notify();
                     }))
                     .child(knob)
                     .into_any_element()
             }
-            Ctl::List => {
+            Ctl::Pick(kind) => {
+                let v = e.text_of(path);
+                let empty = v.is_empty();
+                let shown = if empty { "（未选）".to_string() } else { v };
+                let k = key.clone();
+                div()
+                    .id(ElementId::Name(format!("ed-pk-{k}").into()))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(t().d(8.))
+                    .px(t().d(8.))
+                    .py(t().d(3.))
+                    .rounded(t().r(6.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .bg(rgb(t().p.panel))
+                    .cursor_pointer()
+                    .hover(|h| h.border_color(rgb(t().p.muted)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_picker(kind, path, false, window, cx)
+                    }))
+                    .child(
+                        div()
+                            .text_size(t().fs(11.5))
+                            .font_family("JetBrainsMono")
+                            .text_color(rgb(if empty { t().p.faint } else { t().p.text_2 }))
+                            .child(shown),
+                    )
+                    .child(div().text_size(t().fs(9.)).text_color(rgb(t().p.faint)).child("▾"))
+                    .into_any_element()
+            }
+            Ctl::Multi(kind) => {
                 let items = e.list_of(path[0]);
                 let k = path[0].to_string();
                 let mut row = div().flex().flex_row().items_center().gap(t().d(5.)).flex_wrap();
@@ -1062,14 +1380,30 @@ impl crate::app::Desktop {
                             ),
                     );
                 }
-                if items.is_empty() {
-                    row = row.child(
-                        div()
-                            .text_size(t().fs(10.5))
-                            .text_color(rgb(t().p.faint))
-                            .child("（空）"),
-                    );
-                }
+                // 「＋」就是要挑的入口：候选池里有就挑，没有（扩展）就手打。
+                let kk = key.clone();
+                row = row.child(
+                    div()
+                        .id(ElementId::Name(format!("ed-add-{kk}").into()))
+                        .flex()
+                        .items_center()
+                        .gap(t().d(4.))
+                        .px(t().d(7.))
+                        .py(t().d(1.))
+                        .rounded(t().d(3.))
+                        .border(t().d(1.))
+                        .border_color(rgb(t().p.line))
+                        .text_size(t().fs(10.))
+                        .text_color(rgb(t().p.muted))
+                        .cursor_pointer()
+                        .hover(|h| {
+                            h.border_color(rgb(t().p.muted)).text_color(rgb(t().p.text))
+                        })
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.open_picker(kind, path, true, window, cx)
+                        }))
+                        .child("＋"),
+                );
                 row.into_any_element()
             }
         };
@@ -1364,6 +1698,202 @@ impl crate::app::Desktop {
     }
 
     /// 文本字段的输入弹层。
+    /// 挑值弹层：筛选框 + 候选列表（多选时点一下就勾，不关）。
+    pub(crate) fn picker_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let p = self.editor.picker.as_ref()?;
+        let kind = p.kind;
+        let multi = p.multi;
+        let path = p.path;
+        let input = p.filter.clone();
+        let raw = input.read(cx).value().trim().to_string();
+        let needle = raw.to_lowercase();
+        let cur = self.editor.text_of(path);
+        let cur_list = self.editor.list_of(path[0]);
+
+        let all = self.pick_items(kind);
+        let shown: Vec<PickItem> = all
+            .iter()
+            .filter(|it| {
+                needle.is_empty()
+                    || it.name.to_lowercase().contains(&needle)
+                    || it.hint.to_lowercase().contains(&needle)
+            })
+            .cloned()
+            .collect();
+        // 打进去的字本身就算一个新值（候选里没有的也能填）—— 只在「没完全匹配」时出现。
+        let offer_new = !raw.is_empty() && !all.iter().any(|it| it.name.eq_ignore_ascii_case(&raw));
+
+        let mut list = div().flex().flex_col().max_h(t().d(320.)).id("ed-pk-list").overflow_y_scroll();
+        if offer_new {
+            let val = raw.clone();
+            let is_in = cur_list.iter().any(|x| x == &val) || cur == val;
+            list = list.child(
+                div()
+                    .id("ed-pk-new")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(8.))
+                    .px(t().d(14.))
+                    .py(t().d(7.))
+                    .cursor_pointer()
+                    .bg(rgb(t().p.hover))
+                    .hover(|h| h.bg(rgb(t().p.selected)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.pick_apply(&val, cx);
+                    }))
+                    .child(
+                        div()
+                            .text_size(t().fs(11.5))
+                            .font_family("JetBrainsMono")
+                            .child(format!("用「{raw}」")),
+                    )
+                    .children((multi && is_in).then(|| {
+                        div().ml_auto().text_size(t().fs(10.)).text_color(rgb(t().p.ok)).child("已选")
+                    })),
+            );
+        }
+        for it in &shown {
+            let name = it.name.clone();
+            let on = if multi {
+                cur_list.iter().any(|x| x == &name)
+            } else {
+                cur == name
+            };
+            let off = it.off;
+            list = list.child(
+                div()
+                    .id(ElementId::Name(format!("ed-pk-{name}").into()))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(8.))
+                    .px(t().d(14.))
+                    .py(t().d(6.))
+                    .cursor_pointer()
+                    .when(on, |el| el.bg(rgb(t().p.selected)))
+                    .hover(|h| h.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.pick_apply(&name, cx);
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .flex()
+                            .flex_col()
+                            .gap(t().d(1.))
+                            .child(
+                                div()
+                                    .text_size(t().fs(11.5))
+                                    .font_family("JetBrainsMono")
+                                    .when(off, |el| el.text_color(rgb(t().p.faint)))
+                                    .when(!off && on, |el| el.text_color(rgb(t().p.text)))
+                                    .when(!off && !on, |el| el.text_color(rgb(t().p.text_2)))
+                                    .child(it.name.clone()),
+                            )
+                            .children((!it.hint.is_empty()).then(|| {
+                                div()
+                                    .text_size(t().fs(9.5))
+                                    .text_color(rgb(t().p.faint))
+                                    .truncate()
+                                    .child(it.hint.clone())
+                            })),
+                    )
+                    .children(off.then(|| {
+                        div().text_size(t().fs(9.)).text_color(rgb(t().p.warn)).child("用不了")
+                    }))
+                    .children(on.then(|| {
+                        div().text_size(t().fs(10.5)).text_color(rgb(t().p.ok)).child("✓")
+                    })),
+            );
+        }
+        if shown.is_empty() && !offer_new {
+            list = list.child(
+                div()
+                    .px(t().d(14.))
+                    .py(t().d(12.))
+                    .text_size(t().fs(10.5))
+                    .text_color(rgb(t().p.faint))
+                    .child(match kind {
+                        PickKind::Free => "打个值，下面会出「用「…」」".to_string(),
+                        _ => "没有候选 —— 上面直接打，也能当新值用".to_string(),
+                    }),
+            );
+        }
+
+        let scrim = div()
+            .id("ed-pk-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.editor.picker = None;
+                cx.notify();
+            }));
+
+        let dialog = div()
+            .id("ed-pk-dialog")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(t().d(460.))
+                    .rounded(t().r(10.))
+                    .bg(rgb(t().p.panel))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .shadow_lg()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(t().d(8.))
+                            .px(t().d(14.))
+                            .pt(t().d(12.))
+                            .pb(t().d(8.))
+                            .child(div().text_size(t().fs(12.5)).child(kind.title()))
+                            .child(
+                                div()
+                                    .ml_auto()
+                                    .text_size(t().fs(9.5))
+                                    .text_color(rgb(t().p.faint))
+                                    .child(if multi {
+                                        "点一下勾上，再点取消"
+                                    } else {
+                                        "点一个就定"
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id("ed-pk-x")
+                                    .cursor_pointer()
+                                    .px(t().d(4.))
+                                    .text_color(rgb(t().p.faint))
+                                    .hover(|h| h.text_color(rgb(t().p.text)))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.editor.picker = None;
+                                        cx.notify();
+                                    }))
+                                    .child("✕"),
+                            ),
+                    )
+                    .child(div().px(t().d(14.)).pb(t().d(8.)).child(Input::new(&input)))
+                    .child(div().h(t().d(1.)).bg(rgb(t().p.line_soft)))
+                    .child(list),
+            );
+
+        Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
+    }
+
     pub(crate) fn text_edit_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let te = self.editor.text_edit.as_ref()?;
         let key = te.key.clone();
@@ -1781,4 +2311,69 @@ fn json_error_line(e: &EditorState) -> Option<usize> {
         .iter()
         .position(|l| l.contains(&format!("\"{key}\"")))
         .map(|i| i + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    // 别写 `use super::*;` —— 会把 `gpui_kit::*` 带进来，`#[test]` 展开时撞 recursion limit
+    // （坑.md 68）。
+    use super::{del_key, is_dirty, read_text, toggle_list, write_bool, write_text};
+
+    fn v(text: &str) -> serde_json::Value {
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn nested_path_reads_and_writes() {
+        let mut d = v(r#"{"model":{"provider":"volc-ark"}}"#);
+        assert_eq!(read_text(&d, &["model", "provider"]), "volc-ark");
+        write_text(&mut d, &["model", "modelId"], "deepseek-v4");
+        assert_eq!(d["model"]["modelId"], "deepseek-v4");
+        assert_eq!(d["model"]["provider"], "volc-ark");
+    }
+
+    #[test]
+    fn empty_text_deletes_the_key_not_writes_empty_string() {
+        let mut d = v(r#"{"template":"smart-ass"}"#);
+        write_text(&mut d, &["template"], "");
+        assert!(d.get("template").is_none());
+    }
+
+    #[test]
+    fn removing_a_nested_key_keeps_the_parent() {
+        let mut d = v(r#"{"model":{"provider":"volc-ark","modelId":"x"}}"#);
+        del_key(&mut d, "model.provider");
+        assert_eq!(d["model"]["modelId"], "x");
+        assert!(d["model"].get("provider").is_none());
+    }
+
+    #[test]
+    fn switching_off_deletes_the_key() {
+        let mut d = v(r#"{"name":"a"}"#);
+        write_bool(&mut d, &["readOnly"], true);
+        assert_eq!(d["readOnly"], true);
+        write_bool(&mut d, &["readOnly"], false);
+        assert!(d.get("readOnly").is_none());
+        assert_eq!(d["name"], "a");
+    }
+
+    #[test]
+    fn reordered_keys_are_not_dirty() {
+        let d = v(r#"{"b":1,"a":2}"#);
+        assert!(!is_dirty(r#"{"a":2,"b":1}"#, &d));
+        assert!(is_dirty(r#"{"a":2}"#, &d));
+    }
+
+    #[test]
+    fn adding_an_array_member_is_dirty_and_deduped() {
+        let mut d = v(r#"{"category":["工程"]}"#);
+        let saved = r#"{"category":["工程"]}"#;
+        assert!(!is_dirty(saved, &d));
+        toggle_list(&mut d, "category", "写作");
+        assert_eq!(d["category"], serde_json::json!(["工程", "写作"]));
+        assert!(is_dirty(saved, &d));
+        toggle_list(&mut d, "category", "写作");
+        assert_eq!(d["category"], serde_json::json!(["工程"]));
+        assert!(!is_dirty(saved, &d));
+    }
 }

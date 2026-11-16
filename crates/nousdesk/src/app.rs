@@ -448,14 +448,25 @@ impl Desktop {
                     // 都走 `stop_propagation`，不让 Esc 再落到下面去关别的面板。
                     let closed = weak
                         .update(app, |this, cx| {
-                            // 编辑器是最上面一层：Esc 先关它（有改动时 close 自己会拦一次）。
-                            if this.editor.open {
-                                this.close_editor(false, cx);
+                            // 编辑器里的小弹层比编辑器本身更靠上：先收弹层，再关编辑器。
+                            if this.editor.picker.is_some() {
+                                this.editor.picker = None;
+                                cx.notify();
                                 return true;
                             }
                             if this.editor.text_edit.is_some() {
                                 this.editor.text_edit = None;
                                 cx.notify();
+                                return true;
+                            }
+                            if this.editor.publish_msg.is_some() {
+                                this.editor.publish_msg = None;
+                                cx.notify();
+                                return true;
+                            }
+                            // 编辑器是最上面一层：Esc 先关它（有改动时 close 自己会拦一次）。
+                            if this.editor.open {
+                                this.close_editor(false, cx);
                                 return true;
                             }
                             if this.preset_confirm.is_open() {
@@ -4078,6 +4089,7 @@ impl Render for Desktop {
             .children(self.cat_edit_overlay(cx))
             .children(self.preset_confirm_overlay(cx))
             // 编辑器：文本字段输入 / 发布
+            .children(self.picker_overlay(cx))
             .children(self.text_edit_overlay(cx))
             .children(self.publish_overlay(cx))
             // 轻提示：最后一层，永远看得见。
