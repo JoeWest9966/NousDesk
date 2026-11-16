@@ -2316,7 +2316,7 @@ fn json_error_line(e: &EditorState) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     // 别写 `use super::*;` —— 会把 `gpui_kit::*` 带进来，`#[test]` 展开时撞 recursion limit
-    // （坑.md 68）。
+    // （坑.md 69）。
     use super::{del_key, is_dirty, read_text, toggle_list, write_bool, write_text};
 
     fn v(text: &str) -> serde_json::Value {
