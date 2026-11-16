@@ -34,6 +34,14 @@ const SAMPLE: &str = r#"## 这是二级标题
 | bash | 12 | 跑命令 |
 | read | 7 | 看文件 |
 
+**窄表格**（上面那张，列少、话短）和**宽表格**（下面这张，六列、每列都长）要有区别：
+宽表在 480 的气泡里放不下，得看得出它是「挤成一团」还是「横向滚」。
+
+| 会话 id | 名字 | 模板 | 模型 | cwd | 备注 |
+| --- | --- | --- | --- | --- | --- |
+| 675 | 测试垃圾675可删 | gen-20261116 | anthropic/claude-sonnet-4-5-20250929 | /root/projects/nous/h58ga5 | 已撕掉原件 |
+| 659 | 测试垃圾659可删 | gen-20261116 | openai/gpt-5-codex-high | /root/projects/nous/qrd3wh | 原件在活库 |
+
 ```rust
 fn main() {
     // 一个很长的行，看看会不会把气泡撑爆：let x = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -61,8 +69,21 @@ impl Render for Preview {
             .items_start()
             .p(px(16.))
             .child(
-                div()
-                    .w(px(480.))
+                {
+                    let width = std::env::var("NOUS_MD_W")
+                        .ok()
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .unwrap_or(480.);
+                    let mut bubble = div();
+                    // `NOUS_MD_MAXW=1`：用 `max_w` 代替 `w` —— 聊天里真正的写法是
+                    // `.max_w(480).min_w(0)`（气泡跟着内容收缩），那条路容易出「内容撑破容器」。
+                    if std::env::var("NOUS_MD_MAXW").is_ok() {
+                        bubble = bubble.max_w(px(width)).min_w(px(0.));
+                    } else {
+                        bubble = bubble.w(px(width));
+                    }
+                    bubble
+                }
                     .px(px(12.))
                     .py(px(8.))
                     .rounded(px(6.))
