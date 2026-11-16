@@ -204,7 +204,7 @@ impl Desktop {
         }
     }
 
-    fn load_section(&mut self, i: usize, force: bool, cx: &mut Context<Self>) {
+    pub(crate) fn load_section(&mut self, i: usize, force: bool, cx: &mut Context<Self>) {
         let sec = &mut self.sections[i];
         if sec.loading {
             return;
@@ -245,6 +245,18 @@ impl Desktop {
                             }
                         }
                         this.sections[i].data = Some(p);
+                        // 验界面用：数据一到就把第一条的编辑器拉起来。
+                        if this.auto_editor {
+                            this.auto_editor = false;
+                            if let Some(first) = this.sections[i]
+                                .data
+                                .as_ref()
+                                .and_then(|d| d.presets.first())
+                                .map(|p| p.name.clone())
+                            {
+                                this.open_editor(first, cx);
+                            }
+                        }
                     }
                     Some(Err(e)) => this.sections[i].error = Some(e.to_string()),
                     None => this.sections[i].error = Some("任务没跑完".into()),
@@ -690,6 +702,7 @@ impl Desktop {
         use crate::preset_menu::PresetMenuAction as A;
         match action {
             A::Open { name } => self.launch_preset(name, cx),
+            A::Edit { name } => self.open_editor(name, cx),
             A::ChangeCategory { name } => {
                 let picked = self
                     .sections
@@ -2997,6 +3010,7 @@ impl Desktop {
         }
 
         let open_name = p.name.clone();
+        let edit_name = p.name.clone();
         let can_open = sec.id == SECTIONS[0].0 && launchable(p);
 
         shell(
@@ -3031,6 +3045,25 @@ impl Desktop {
                                 .whitespace_nowrap()
                                 .text_overflow(TextOverflow::Truncate("…".into()))
                                 .child(p.summary.clone()),
+                        )
+                        // 「编辑」放在开会话左边：改内容比再开一条更常做。
+                        .child(
+                            div()
+                                .id(ElementId::Name("detail-edit".into()))
+                                .flex_none()
+                                .px(t().d(9.))
+                                .py(t().d(5.))
+                                .rounded(t().r(6.))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.line))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.text_2))
+                                .cursor_pointer()
+                                .hover(|h| h.bg(rgb(t().p.hover)))
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.open_editor(edit_name.clone(), cx);
+                                }))
+                                .child("编辑"),
                         )
                         .when(can_open, |el| {
                             el.child(

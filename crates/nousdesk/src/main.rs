@@ -18,6 +18,7 @@ mod chrome;
 mod composer;
 mod config;
 mod config_panel;
+mod editor;
 mod fonts;
 mod live;
 mod md;
