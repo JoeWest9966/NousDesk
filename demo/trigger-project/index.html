@@ -1,0 +1,2433 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NousDesk · 触发器（视图 1）· 10 套</title>
+<style>
+@font-face { font-family: Inter; src: url(fonts/inter-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: JBMono; src: url(fonts/jetbrainsmono-400.woff2) format("woff2"); font-display: swap; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: #0a0b0c; color: #e7e9ea;
+  font: 400 12.5px/1.5 Inter, "Noto Sans CJK SC", "Source Han Sans SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; display: flex; overflow: hidden;
+}
+:root {
+  --sidebar: #2e2e2e; --sidebar-hover: #3a3a3a; --sidebar-idle: #9a9a9a;
+  --list: #f7f7f7; --panel: #fff; --panel2: #fafafa; --surface: #f6f6f6;
+  --ink: #1a1a1a; --ink2: #333; --muted: #999; --faint: #aaa; --disabled: #b2b2b2;
+  --line: #e6e6e6; --line-strong: #e2e2e2; --line-soft: #eee;
+  --accent: #07c160; --accent-hover: #06ad56; --accent-soft: #e8f7ee; --accent-fg: #0a7a3f;
+  --danger: #d32f2f; --danger-soft: #fff1f0; --warn: #c77700; --warn-soft: #fff8ee;
+  --ok: #079c50; --ok-fg: #2e7d32; --link: #0b6bcb; --hover: #f2f2f2;
+  --mono: JBMono, ui-monospace, monospace;
+  --code: #fbfbfa; --code-line: #c9c9c9;
+  --add: #edf9f0; --del: #fdf0ef;
+  --kw: #a626a4; --str: #4f9e4b; --com: #a0a1a7; --num: #986801; --fn: #4078f2;
+}
+
+/* ── picker ─────────────────────────────────────────────── */
+.picker { width: 262px; flex: 0 0 262px; height: 100vh; overflow: auto; background: #111315;
+  border-right: 1px solid #202428; padding: 22px 16px 18px; }
+.picker::-webkit-scrollbar { width: 0; }
+.picker h1 { font-size: 13px; font-weight: 600; letter-spacing: .01em; }
+.picker .sub { font-size: 10.5px; line-height: 1.75; color: #7c848a; margin: 7px 0 16px; }
+.plist { display: flex; flex-direction: column; gap: 1px; }
+.plist button { display: flex; align-items: baseline; gap: 9px; padding: 6px 8px; border: 0;
+  border-left: 2px solid transparent; background: transparent; color: #98a0a6; font: inherit;
+  text-align: left; cursor: pointer; }
+.plist button:hover { color: #e7e9ea; background: #171a1d; }
+.plist button.on { border-left-color: var(--accent); color: #fff; background: #1b1f22; }
+.plist b { font: 500 9.5px/1 var(--mono); color: #5f676d; min-width: 18px; }
+.plist button.on b { color: var(--accent); }
+.plist span { font-size: 11px; }
+.pnote { margin-top: 16px; padding-top: 14px; border-top: 1px solid #22262a;
+  font-size: 10.5px; line-height: 1.85; color: #8a9298; }
+.pnote b { display: block; color: #e7e9ea; font-weight: 600; margin-bottom: 5px; }
+.pnote em { font-style: normal; color: #b9c0c5; }
+.pfoot { margin-top: 16px; padding-top: 12px; border-top: 1px solid #22262a;
+  font-size: 9.5px; line-height: 1.9; color: #5f676d; }
+.pfoot code { font-family: var(--mono); color: #8a9298; }
+
+/* ── stage ──────────────────────────────────────────────── */
+.stage { flex: 1; height: 100vh; display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(1300px 760px at 58% 42%, #15181a 0%, #0a0b0c 72%); padding: 22px; }
+.scaler { position: relative; }
+.app { position: absolute; top: 0; left: 0; width: 1280px; height: 800px; display: none;
+  overflow: hidden; background: var(--panel); color: var(--ink); transform-origin: top left;
+  box-shadow: 0 34px 100px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.05); }
+.app.on { display: flex; }
+
+/* ── rail ───────────────────────────────────────────────── */
+.rail { width: 60px; flex: 0 0 60px; height: 100%; background: var(--sidebar);
+  display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 6px; }
+.rbtn { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 8px;
+  background: transparent; color: var(--sidebar-idle); cursor: pointer; flex: 0 0 40px; }
+.rbtn:hover { background: var(--sidebar-hover); color: #d6d6d6; }
+.rbtn.on { color: var(--accent); }
+.rsp { flex: 1; }
+.ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round; }
+.rail .ic { width: 22px; height: 22px; }
+
+/* ── 通用件 ─────────────────────────────────────────────── */
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.btn { height: 28px; padding: 0 11px; border: 1px solid var(--line); background: #fff; color: var(--ink2);
+  font: inherit; font-size: 11.5px; border-radius: 6px; cursor: pointer; display: inline-flex;
+  align-items: center; gap: 6px; white-space: nowrap; }
+.btn:hover { background: var(--hover); }
+.btn .ic { width: 14px; height: 14px; }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+.btn.pri:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn.ghost:hover { background: var(--hover); color: var(--ink2); }
+.btn.sm { height: 24px; padding: 0 9px; font-size: 11px; border-radius: 5px; }
+.btn.danger { color: var(--danger); border-color: #f0c9c6; }
+.btn.danger:hover { background: var(--danger-soft); }
+.input { height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: #fff; color: var(--ink); font: inherit; font-size: 11.5px; outline: none; }
+.input:focus { border-color: var(--accent); }
+.search { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+  color: var(--muted); font-size: 11.5px; min-width: 200px; }
+.search .ic { width: 14px; height: 14px; flex: 0 0 14px; color: var(--faint); }
+.kbd { display: inline-flex; align-items: center; height: 17px; padding: 0 4px; border: 1px solid var(--line);
+  border-bottom-width: 2px; border-radius: 4px; background: #fff; font: 9.5px var(--mono); color: var(--muted); }
+.chip { display: inline-flex; align-items: center; height: 19px; padding: 0 6px; border-radius: 4px;
+  background: var(--surface); color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.chip.line { background: transparent; border: 1px solid var(--line); }
+.chip.accent { background: var(--accent-soft); color: var(--accent-fg); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.danger { background: var(--danger-soft); color: var(--danger); }
+.chip.mono { font-family: var(--mono); font-size: 9.5px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: 0 0 6px; }
+.dot.off { background: var(--faint); }
+.dot.bad { background: var(--danger); }
+.dot.warn { background: var(--warn); }
+.sw { width: 32px; height: 18px; border-radius: 9px; background: #d8d8d8; position: relative;
+  flex: 0 0 32px; }
+.sw:after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.18); }
+.sw.on { background: var(--accent); }
+.sw.on:after { left: 16px; }
+.hr { height: 1px; background: var(--line-soft); }
+.kicker { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; }
+.muted { color: var(--muted); } .faint { color: var(--faint); }
+.row { display: flex; align-items: center; gap: 8px; }
+.col { display: flex; flex-direction: column; }
+.grow { flex: 1; }
+.scroll { overflow: auto; }
+.scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll::-webkit-scrollbar-thumb { background: #d5d5d5; border-radius: 4px;
+  border: 2px solid transparent; background-clip: padding-box; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* 有色字母砖 */
+.tile { display: grid; place-items: center; border-radius: 8px; color: #fff; font: 500 14px var(--mono);
+  letter-spacing: .02em; flex: 0 0 auto; }
+
+/* 状态 badge */
+.badge { display: inline-flex; align-items: center; gap: 5px; height: 19px; padding: 0 7px;
+  border-radius: 4px; font-size: 10px; font-weight: 500; letter-spacing: .01em; white-space: nowrap; }
+.badge.ok { background: #eef8f1; color: var(--ok-fg); }
+.badge.dirty { background: #fff6e9; color: #a35c00; }
+.badge.unpublished { background: #fff8e8; color: #9a6a00; border: 1px dashed #e8cf8f; }
+.badge.broken { background: var(--danger-soft); color: var(--danger); }
+.badge .dot { width: 5px; height: 5px; flex: 0 0 5px; }
+
+/* ── 代码 / diff ────────────────────────────────────────── */
+.code { font: 10.5px/1.75 var(--mono); background: var(--code); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; }
+.code-bar { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px;
+  border-bottom: 1px solid var(--line-soft); background: #f6f6f4; font-size: 10.5px; color: var(--muted); }
+.code-bar .path { font-family: var(--mono); color: var(--ink2); }
+.code-body { overflow: auto; }
+.cl { display: flex; min-height: 19px; }
+.cl .ln { width: 38px; flex: 0 0 38px; text-align: right; padding-right: 9px; color: var(--code-line);
+  user-select: none; font-size: 9.5px; line-height: 19px; }
+.cl .tx { white-space: pre; color: #303030; line-height: 19px; padding-right: 12px; }
+.cl.add { background: var(--add); }
+.cl.del { background: var(--del); }
+.cl.add .ln { color: #8bbf9d; }
+.cl.del .ln { color: #cf9b95; }
+.cl .tx .k { color: var(--kw); }
+.cl .tx .s { color: var(--str); }
+.cl .tx .c { color: var(--com); font-style: italic; }
+.cl .tx .n { color: var(--num); }
+.cl .tx .f { color: var(--fn); }
+.cl .tx .m { color: #b8860b; }
+.delta { display: inline-flex; gap: 6px; font: 10px var(--mono); }
+.delta .p { color: #2c8a5e; } .delta .m { color: #c4362b; }
+
+/* ── 浮层 / 抽屉 / 遮罩 ─────────────────────────────────── */
+.scrim { position: absolute; top: 56px; left: 214px; right: 0; bottom: 0;
+  background: rgba(10,12,13,.16); z-index: 20; }
+.sheet { position: absolute; top: 0; right: 0; bottom: 0; background: #fff; z-index: 21;
+  border-left: 1px solid var(--line); box-shadow: -24px 0 70px rgba(0,0,0,.16);
+  display: flex; flex-direction: column; }
+.drawer { position: absolute; left: 0; right: 0; bottom: 0; height: 360px; background: #fff;
+  border-top: 1px solid var(--line); box-shadow: 0 -22px 60px rgba(0,0,0,.14); z-index: 22;
+  display: flex; flex-direction: column; }
+
+/* ── 菜单 ───────────────────────────────────────────────── */
+.menu { position: absolute; z-index: 40; min-width: 212px; background: #fff; border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.14), 0 2px 8px rgba(0,0,0,.06); padding: 5px; }
+.mi { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px;
+  font-size: 11.5px; color: var(--ink2); }
+.mi .ic { width: 13px; height: 13px; color: var(--muted); flex: 0 0 13px; }
+.mi .hint { margin-left: auto; font-size: 10px; color: var(--faint); font-family: var(--mono); }
+.mi:hover { background: var(--hover); }
+.mi.danger { color: var(--danger); }
+.mi.danger .ic { color: var(--danger); }
+.msep { height: 1px; background: var(--line-soft); margin: 4px 2px; }
+
+/* ── 表单 ───────────────────────────────────────────────── */
+.fld { margin-bottom: 14px; }
+.fld .lb { font-size: 10.5px; color: var(--muted); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.fld .lb .req { color: var(--danger); }
+.fld .lb .mono { font-size: 9.5px; color: var(--faint); }
+.fld .in { width: 100%; height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: #fff; color: var(--ink); font: inherit; font-size: 11.5px; outline: none; }
+.fld .in:focus { border-color: var(--accent); }
+.fld .in.mono { font-family: var(--mono); font-size: 11px; }
+.fld .hint { font-size: 10px; color: var(--faint); margin-top: 5px; line-height: 1.6; }
+.chips-edit { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-height: 30px;
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; background: #fff; }
+.chips-edit .chip { height: 20px; }
+.chips-edit .addc { border: 0; background: transparent; color: var(--faint); font: 11px var(--mono);
+  cursor: pointer; padding: 0 3px; }
+
+/* ══ 01 · 卡片网格 + 详情浮层（n8qkkj 原样）══════════════ */
+.v1 { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.v1-top { height: 56px; flex: 0 0 56px; display: flex; align-items: center; gap: 10px;
+  padding: 0 20px; border-bottom: 1px solid var(--line); background: #fff; }
+.brand { display: flex; align-items: center; gap: 9px; }
+.brand .mark { width: 26px; height: 26px; border-radius: 7px; background: #f3f3f1; display: grid;
+  place-items: center; color: var(--ink2); }
+.brand .mark .ic { width: 15px; height: 15px; }
+.brand h1 { font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+.brand p { font-size: 10px; color: var(--faint); margin-top: 1px; font-family: var(--mono); }
+.sync-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px;
+  border: 1px solid var(--line); border-radius: 13px; background: #fff; font: 10.5px var(--mono);
+  color: var(--ink2); cursor: pointer; }
+.sync-chip .dot { width: 6px; height: 6px; }
+.sync-chip[data-state="wait"] .dot { background: var(--warn); }
+.sync-chip[data-state="bad"] .dot { background: var(--danger); }
+.v1-body { flex: 1; display: flex; min-height: 0; }
+.v1-rail { width: 214px; flex: 0 0 214px; background: var(--panel2); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 12px 0 0; }
+.v1-rail .rh { display: flex; align-items: baseline; gap: 7px; padding: 0 14px 9px; }
+.v1-rail .rh h3 { font-size: 10px; letter-spacing: .13em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; }
+.v1-rail .rh .n { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
+.frow { display: flex; align-items: center; gap: 6px; height: 29px; padding: 0 14px; font-size: 12px;
+  color: var(--ink2); cursor: pointer; white-space: nowrap; }
+.frow:hover { background: var(--hover); }
+.frow.on { background: #ececeb; font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
+.frow .n { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
+.frow .tw { width: 11px; color: var(--faint); font-size: 9px; }
+.frow.ind { padding-left: 30px; }
+.frow.zero { color: var(--faint); }
+.frow.gap { margin-top: 10px; border-top: 1px solid var(--line-soft); padding-top: 10px; height: 40px; }
+.v1-rail .foot { margin-top: auto; padding: 11px 14px; border-top: 1px solid var(--line-soft);
+  font: 9.5px/1.8 var(--mono); color: var(--faint); }
+.v1-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+.v1-filters { height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 2px;
+  padding: 0 20px; border-bottom: 1px solid var(--line-soft); }
+.fbtn { height: 26px; padding: 0 9px; border: 0; border-radius: 5px; background: transparent;
+  font: inherit; font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; }
+.fbtn:hover { background: var(--hover); }
+.fbtn.on { background: var(--surface); color: var(--ink); font-weight: 500; }
+.fbtn .n { font: 10px var(--mono); color: var(--faint); }
+.fbtn.on .n { color: var(--ink2); }
+.fbtn .dot { width: 5px; height: 5px; flex: 0 0 5px; }
+.v1-tools { display: flex; align-items: center; gap: 10px; padding: 12px 20px 10px; }
+.v1-tools .count { font: 10.5px var(--mono); color: var(--faint); }
+.v1-grid { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px; padding: 4px 20px 20px; align-content: start; }
+.v1-card { border: 1px solid var(--line); border-radius: 9px; background: #fff; padding: 13px 14px 11px;
+  display: flex; flex-direction: column; min-height: 148px; cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.v1-card:hover { border-color: #cfcfcf; box-shadow: 0 3px 12px rgba(0,0,0,.05); }
+.v1-card[data-state="broken"] { border-color: #efc9c5; background: #fffdfd; }
+.v1-card[data-state="unpublished"] { border-style: dashed; }
+.v1-card .ch { display: flex; align-items: flex-start; gap: 9px; }
+.v1-card .tile { width: 30px; height: 30px; font-size: 12px; }
+.v1-card .nm { font: 500 11.5px var(--mono); color: var(--ink); margin-top: 2px; }
+.v1-card .ver { font: 9.5px var(--mono); color: var(--faint); margin-left: auto; }
+.v1-card .sum { font-size: 11px; line-height: 1.65; color: var(--muted); margin-top: 10px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.v1-card .tags { display: flex; gap: 4px; margin-top: 9px; flex-wrap: wrap; }
+.v1-card .cf { margin-top: auto; padding-top: 10px; display: flex; align-items: center; gap: 7px; }
+.v1-card .cf .params { font: 9.5px var(--mono); color: var(--faint); }
+.v1-card .cf .sp { flex: 1; }
+.v1-detail { width: 468px; top: 56px; overflow: auto; }
+.d-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line-soft); }
+.d-head .r { display: flex; align-items: flex-start; gap: 10px; }
+.d-head .tile { width: 40px; height: 40px; font-size: 15px; }
+.d-head h2 { font: 600 16px var(--mono); letter-spacing: -.01em; }
+.d-head .meta { font-size: 10.5px; color: var(--faint); margin-top: 3px; }
+.d-head .sum { font-size: 12px; line-height: 1.7; color: var(--ink2); margin-top: 11px; }
+.d-head .acts { display: flex; gap: 7px; margin-top: 12px; }
+.d-sec { padding: 14px 20px; border-bottom: 1px solid var(--line-soft); }
+.d-sec h4 { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; margin-bottom: 9px; display: flex; align-items: center; gap: 7px; }
+.d-sec h4 .n { font-family: var(--mono); font-weight: 400; letter-spacing: 0; }
+.d-sec h4 .sp { flex: 1; }
+.d-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: 11px; }
+.d-row .k { width: 78px; flex: 0 0 78px; color: var(--faint); font-size: 10.5px; }
+.d-row .v { color: var(--ink2); font-family: var(--mono); font-size: 10.5px; }
+.d-row .v.plain { font-family: inherit; font-size: 11px; }
+.pcard { border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; margin-bottom: 6px; }
+.pcard .l1 { display: flex; align-items: center; gap: 7px; }
+.pcard .nm { font: 500 10.5px var(--mono); }
+.pcard .ty { font: 9.5px var(--mono); color: var(--faint); }
+.pcard .l1 .sp { flex: 1; }
+.pcard .help { font-size: 10px; color: var(--muted); line-height: 1.6; margin-top: 5px; }
+.d-foot { padding: 12px 20px; border-top: 1px solid var(--line-soft);
+  display: flex; align-items: center; gap: 8px; font: 9.5px var(--mono); color: var(--faint); }
+.d-foot .sp { flex: 1; }
+.sync-pop { position: absolute; left: 292px; top: 66px; width: 330px; padding: 12px 14px; }
+.sync-pop .t { font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.sync-pop .s { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.65; }
+.sync-pop .fl { margin-top: 9px; border-top: 1px solid var(--line-soft); padding-top: 7px; }
+.sync-pop .fl .f { display: flex; align-items: center; gap: 7px; font: 10px var(--mono); color: var(--ink2);
+  padding: 3px 0; }
+.sync-pop .fl .f .m { color: var(--warn); }
+.sync-pop .act { margin-top: 10px; display: flex; gap: 7px; }
+
+/* ══ 02 · 三栏常驻 + 代码抽屉 ═════════════════════════════ */
+.v2 { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.v2-top { height: 50px; flex: 0 0 50px; display: flex; align-items: center; gap: 10px; padding: 0 18px;
+  border-bottom: 1px solid var(--line); background: #fff; }
+.v2-top .crumb { font-size: 11px; color: var(--muted); }
+.v2-top .crumb b { color: var(--ink); font-weight: 500; }
+.v2-top .repo { font: 10px var(--mono); color: var(--faint); }
+.v2-body { flex: 1; display: flex; min-height: 0; }
+.v2-cats { width: 196px; flex: 0 0 196px; background: var(--panel2); border-right: 1px solid var(--line);
+  padding-top: 10px; }
+.v2-list { width: 348px; flex: 0 0 348px; border-right: 1px solid var(--line); background: var(--list);
+  display: flex; flex-direction: column; }
+.v2-list .lh { padding: 11px 14px 9px; border-bottom: 1px solid var(--line-soft); }
+.v2-list .lh .r1 { display: flex; align-items: center; gap: 7px; }
+.v2-list .lh .r1 .t { font-size: 12px; font-weight: 600; }
+.v2-list .lh .r1 .n { font: 10px var(--mono); color: var(--faint); margin-left: auto; }
+.v2-list .lh .r2 { display: flex; gap: 5px; margin-top: 8px; }
+.lrow2 { display: flex; gap: 9px; padding: 10px 14px; background: #fff; border-bottom: 1px solid var(--line-soft);
+  cursor: pointer; box-shadow: inset 2px 0 0 transparent; }
+.lrow2:hover { background: #fcfcfc; }
+.lrow2.on { box-shadow: inset 2px 0 0 var(--accent); background: #fff; }
+.lrow2 .tile { width: 28px; height: 28px; font-size: 11px; }
+.lrow2 .b { flex: 1; min-width: 0; }
+.lrow2 .nm { font: 500 11px var(--mono); display: flex; align-items: center; gap: 6px; }
+.lrow2 .nm .ver { font-size: 9.5px; color: var(--faint); font-weight: 400; }
+.lrow2 .sum { font-size: 10.5px; color: var(--muted); margin-top: 3px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.lrow2 .meta { display: flex; align-items: center; gap: 7px; margin-top: 6px; font: 9.5px var(--mono);
+  color: var(--faint); }
+.v2-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+.v2-detail .dh { padding: 18px 24px 14px; border-bottom: 1px solid var(--line-soft); }
+.v2-detail .dh .r { display: flex; align-items: center; gap: 10px; }
+.v2-detail .dh .tile { width: 34px; height: 34px; font-size: 13px; }
+.v2-detail .dh h2 { font: 600 16px var(--mono); }
+.v2-detail .dh .meta { font-size: 10.5px; color: var(--faint); margin-top: 3px; }
+.v2-detail .body { flex: 1; overflow: auto; padding: 0 24px 70px; }
+.v2-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+.v2-sec { padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+.v2-sec h4 { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; margin-bottom: 8px; }
+.v2-sec .p { font-size: 11.5px; line-height: 1.7; color: var(--ink2); }
+.v2-detail .dfoot { position: absolute; left: 544px; right: 0; bottom: 0; height: 44px; display: flex;
+  align-items: center; gap: 8px; padding: 0 24px; border-top: 1px solid var(--line-soft);
+  background: #fff; font-size: 10.5px; color: var(--faint); }
+.v2-detail .dfoot .sp { flex: 1; }
+.v2-drawer { height: 352px; }
+.v2-drawer .dh { display: flex; align-items: center; gap: 8px; height: 38px; flex: 0 0 38px;
+  padding: 0 16px; border-bottom: 1px solid var(--line-soft); background: var(--panel2); }
+.v2-drawer .dh .nm { font: 500 11px var(--mono); }
+.v2-drawer .dh .sp { flex: 1; }
+.v2-drawer .body { flex: 1; display: flex; min-height: 0; }
+.v2-files { width: 186px; flex: 0 0 186px; border-right: 1px solid var(--line-soft); padding: 7px;
+  background: #fcfcfb; }
+.v2-files .f { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 7px;
+  border-radius: 5px; font: 10px var(--mono); color: var(--muted); }
+.v2-files .f.on { background: #ececeb; color: var(--ink2); }
+.v2-files .f .sz { margin-left: auto; font-size: 9px; color: var(--faint); }
+.v2-code { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.v2-code .bar { display: flex; align-items: center; gap: 8px; height: 30px; flex: 0 0 30px;
+  padding: 0 12px; border-bottom: 1px solid var(--line-soft); font-size: 10px; color: var(--muted); }
+.v2-code .bar .sp { flex: 1; }
+.v2-code .code { border: 0; border-radius: 0; flex: 1; overflow: auto; }
+
+/* ══ 03 · 代码优先（IDE）══════════════════════════════════ */
+.v3 { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.v3-top { height: 46px; flex: 0 0 46px; display: flex; align-items: center; gap: 9px; padding: 0 16px;
+  border-bottom: 1px solid var(--line); background: #fff; }
+.v3-top .tab2 { height: 26px; padding: 0 9px; border: 0; border-radius: 5px; background: transparent;
+  font: 11px Inter; color: var(--muted); }
+.v3-top .tab2.on { background: var(--surface); color: var(--ink); font-weight: 500; }
+.v3-body { flex: 1; display: flex; min-height: 0; }
+.v3-side { width: 232px; flex: 0 0 232px; background: var(--panel2); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; }
+.v3-side .sh { padding: 12px 12px 8px; }
+.v3-side .sh .r { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.v3-side .sh .r .t { font-size: 11px; font-weight: 600; }
+.v3-side .sh .r .n { margin-left: auto; font: 9.5px var(--mono); color: var(--faint); }
+.frow3 { display: flex; align-items: center; gap: 7px; height: 27px; padding: 0 12px; font-size: 11px;
+  color: var(--ink2); cursor: pointer; }
+.frow3:hover { background: var(--hover); }
+.frow3.on { background: #ececeb; font-weight: 500; }
+.frow3 .n { margin-left: auto; font: 9.5px var(--mono); color: var(--faint); }
+.v3-list { flex: 1; overflow: auto; }
+.trow3 { padding: 9px 12px; border-top: 1px solid var(--line-soft); background: #fff; cursor: pointer;
+  box-shadow: inset 2px 0 0 transparent; }
+.trow3.on { box-shadow: inset 2px 0 0 var(--accent); }
+.trow3 .nm { font: 500 10.5px var(--mono); display: flex; align-items: center; gap: 6px; }
+.trow3 .nm .d { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+.trow3 .nm .d.dirty { background: var(--warn); }
+.trow3 .nm .d.broken { background: var(--danger); }
+.trow3 .nm .d.unpublished { background: #d8b25a; }
+.trow3 .sub { font: 9.5px var(--mono); color: var(--faint); margin-top: 3px; display: flex; gap: 7px; }
+.v3-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+.v3-editor .eh { height: 34px; flex: 0 0 34px; display: flex; align-items: center; gap: 2px;
+  padding: 0 10px; border-bottom: 1px solid var(--line-soft); background: #fcfcfb; }
+.ftab { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 5px 5px 0 0;
+  font: 10px var(--mono); color: var(--muted); border: 1px solid transparent; border-bottom: 0; }
+.ftab.on { background: #fff; border-color: var(--line); color: var(--ink2); }
+.ftab .x { color: var(--faint); font-size: 11px; }
+.v3-editor .ebar { height: 32px; flex: 0 0 32px; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; border-bottom: 1px solid var(--line-soft); }
+.v3-editor .ebar .path { font: 10px var(--mono); color: var(--muted); }
+.v3-editor .ebar .sp { flex: 1; }
+.v3-editor .ebar .seg { display: flex; gap: 1px; background: #f0f0ee; border-radius: 5px; padding: 1px; }
+.v3-editor .ebar .seg button { height: 22px; padding: 0 8px; border: 0; border-radius: 4px;
+  background: transparent; font: 10px Inter; color: var(--muted); }
+.v3-editor .ebar .seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.v3-editor .code { border: 0; border-radius: 0; flex: 1; overflow: auto; }
+.v3-editor .efoot { height: 30px; flex: 0 0 30px; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; border-top: 1px solid var(--line-soft); background: var(--panel2);
+  font-size: 9.5px; color: var(--faint); }
+.v3-editor .efoot .sp { flex: 1; }
+.v3-pub { width: 430px; flex: 0 0 430px; border-left: 1px solid var(--line); background: var(--panel2);
+  overflow: auto; }
+.v3-pub .ph { padding: 15px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+.v3-pub .ph h3 { font-size: 12px; font-weight: 600; }
+.v3-pub .ph .s { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+.v3-pub .blk { padding: 14px 18px; border-bottom: 1px solid var(--line-soft); }
+.v3-pub h4 { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; margin-bottom: 9px; display: flex; align-items: center; gap: 7px; }
+.v3-pub h4 .sp { flex: 1; }
+.step3 { display: flex; gap: 9px; padding: 5px 0; }
+.step3 .no { width: 16px; flex: 0 0 16px; font: 9.5px var(--mono); color: var(--faint); padding-top: 1px; }
+.step3 .b { flex: 1; }
+.step3 .t { font-size: 11px; color: var(--ink2); }
+.step3 .d { font: 9.5px var(--mono); color: var(--faint); margin-top: 2px; }
+.step3 .st { font-size: 9.5px; color: var(--ok); }
+.step3 .st.wait { color: var(--faint); }
+.step3 .st.bad { color: var(--danger); }
+.out { font: 9.5px/1.7 var(--mono); background: #1d2023; color: #c9d1d4; border-radius: 7px;
+  padding: 9px 11px; overflow: auto; }
+.out .g { color: #7fd39a; } .out .y { color: #e3c07b; } .out .r { color: #ef8a80; } .out .dim { color: #7b858a; }
+
+/* ══ 04 · 发布工作台（git 视角）══════════════════════════ */
+.v4 { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.v4-strip { height: 56px; flex: 0 0 56px; display: flex; align-items: center; gap: 18px; padding: 0 18px;
+  background: #24282b; color: #d8dddf; font-size: 10.5px; }
+.v4-strip .i { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.v4-strip .i .k { color: #7f898f; }
+.v4-strip .i .v { font: 10.5px var(--mono); }
+.v4-strip .i .v.bad { color: #ef8a80; }
+.v4-strip .i .v.warn { color: #e3c07b; }
+.v4-strip .sp { flex: 1; }
+.v4-body { flex: 1; display: flex; min-height: 0; }
+.v4-files { width: 304px; flex: 0 0 304px; border-right: 1px solid var(--line); background: var(--panel2);
+  display: flex; flex-direction: column; }
+.v4-files .fh { padding: 12px 14px 9px; border-bottom: 1px solid var(--line-soft); }
+.v4-files .fh .t { font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.v4-files .fh .t .n { font: 9.5px var(--mono); color: var(--faint); margin-left: auto; }
+.v4-files .fh .s { font-size: 10px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+.v4-files .body { flex: 1; overflow: auto; padding: 6px 0; }
+.grp4 { padding: 8px 14px 3px; font: 9.5px var(--mono); color: var(--faint); display: flex;
+  align-items: center; gap: 7px; }
+.grp4 .badge { height: 16px; font-size: 8.5px; }
+.fr4 { display: flex; align-items: center; gap: 8px; padding: 5px 14px; font: 10px var(--mono);
+  color: var(--ink2); cursor: pointer; }
+.fr4:hover { background: var(--hover); }
+.fr4.on { background: #fff; box-shadow: inset 2px 0 0 var(--accent); }
+.fr4 .box { width: 12px; height: 12px; border: 1px solid #c9c9c9; border-radius: 3px; background: #fff;
+  flex: 0 0 12px; display: grid; place-items: center; color: #fff; font-size: 9px; line-height: 1;
+  font-family: var(--mono); }
+.fr4.on .box { background: var(--accent); border-color: var(--accent); }
+.fr4 .st { margin-left: auto; font-size: 9px; }
+.fr4 .st.p { color: #2c8a5e; } .fr4 .st.m { color: #c4362b; }
+.v4-diff { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+.v4-diff .dh { height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 8px;
+  padding: 0 14px; border-bottom: 1px solid var(--line-soft); }
+.v4-diff .dh .nm { font: 10.5px var(--mono); }
+.v4-diff .dh .sp { flex: 1; }
+.v4-diff .code { border: 0; border-radius: 0; flex: 1; overflow: auto; }
+.v4-diff .dfoot { height: 32px; flex: 0 0 32px; display: flex; align-items: center; gap: 8px;
+  padding: 0 14px; border-top: 1px solid var(--line-soft); font-size: 9.5px; color: var(--faint);
+  background: var(--panel2); }
+.v4-check { width: 340px; flex: 0 0 340px; border-left: 1px solid var(--line); background: var(--panel2);
+  display: flex; flex-direction: column; overflow: auto; }
+.v4-check .ch { padding: 15px 16px 11px; border-bottom: 1px solid var(--line-soft); }
+.v4-check .ch h3 { font-size: 12px; font-weight: 600; }
+.v4-check .ch .s { font-size: 10px; color: var(--muted); margin-top: 3px; line-height: 1.6; }
+.v4-check .blk { padding: 13px 16px; border-bottom: 1px solid var(--line-soft); }
+.v4-check h4 { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; margin-bottom: 8px; }
+.ck4 { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 10.5px; color: var(--ink2); }
+.ck4 .ic { width: 12px; height: 12px; flex: 0 0 12px; margin-top: 1px; color: var(--ok); }
+.ck4 .ic.wait { color: var(--faint); }
+.ck4 .ic.bad { color: var(--danger); }
+.ck4 .b { flex: 1; }
+.ck4 .d { font: 9px var(--mono); color: var(--faint); margin-top: 2px; }
+.ck4 .v { font: 9px var(--mono); color: var(--faint); }
+.v4-check .pub { padding: 14px 16px; }
+.v4-check .pub .btn { width: 100%; justify-content: center; height: 32px; }
+.v4-note { padding: 0 16px 14px; font-size: 9.5px; color: var(--faint); line-height: 1.75; }
+
+/* ══ 05 · 运维表格 + 详情抽屉 ═════════════════════════════ */
+.v5 { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.v5-strip { height: 38px; flex: 0 0 38px; display: flex; align-items: center; gap: 18px; padding: 0 18px;
+  background: #262a2d; color: #d8dddf; font-size: 10.5px; }
+.v5-strip .i { display: flex; align-items: center; gap: 6px; }
+.v5-strip .i .k { color: #808a90; }
+.v5-strip .i .v { font: 10.5px var(--mono); }
+.v5-strip .i .v.bad { color: #ef8a80; }
+.v5-strip .sp { flex: 1; }
+.v5-head { padding: 18px 20px 10px; }
+.v5-head .r1 { display: flex; align-items: center; gap: 9px; }
+.v5-head h1 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.v5-head .cnt { font: 10px var(--mono); color: var(--faint); }
+.v5-head .sp { flex: 1; }
+.v5-head .tools { display: flex; align-items: center; gap: 8px; margin-top: 11px; }
+.v5-head .tools .search { width: 240px; height: 26px; }
+.v5-tablewrap { flex: 1; overflow: auto; padding: 4px 444px 18px 20px; }
+table.t5 { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.t5 th { text-align: left; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; padding: 7px 9px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.t5 th.r { text-align: right; }
+.t5 td { padding: 7px 9px; border-bottom: 1px solid var(--line-soft); color: var(--ink2);
+  white-space: nowrap; vertical-align: middle; }
+.t5 td.r { text-align: right; }
+.t5 tr { cursor: pointer; }
+.t5 tr:hover td { background: #fafafa; }
+.t5 tr.on td { background: var(--accent-soft); }
+.t5 .nm { font: 500 11px var(--mono); color: var(--ink); }
+.t5 .m { font: 10px var(--mono); color: var(--muted); }
+.t5 .cat { font-size: 10.5px; color: var(--muted); }
+.t5 .dirty { font: 9.5px var(--mono); color: var(--warn); }
+.t5 .dirty.none { color: var(--faint); }
+.v5-drawer { width: 424px; height: 100%; border-left: 1px solid var(--line); box-shadow: -16px 0 50px rgba(0,0,0,.1); }
+.v5-drawer .dh { padding: 16px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+.v5-drawer .dh .r { display: flex; align-items: center; gap: 9px; }
+.v5-drawer .tile { width: 34px; height: 34px; font-size: 12px; }
+.v5-drawer .dh h2 { font: 600 15px var(--mono); }
+.v5-drawer .dh .meta { font-size: 10px; color: var(--faint); margin-top: 3px; }
+.v5-drawer .blk { padding: 13px 18px; border-bottom: 1px solid var(--line-soft); }
+.v5-drawer h4 { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; margin-bottom: 8px; }
+.v5-drawer .p { font-size: 11px; color: var(--ink2); line-height: 1.7; }
+.v5-drawer .acts { padding: 13px 18px; display: flex; gap: 7px; flex-wrap: wrap; }
+
+/* ══ 06 · 类别与归档 ══════════════════════════════════════ */
+.v6 { flex: 1; min-width: 0; display: flex; position: relative; }
+.v6-cats { width: 312px; flex: 0 0 312px; background: var(--panel2); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; }
+.v6-cats .hd { padding: 16px 16px 10px; }
+.v6-cats .hd .r { display: flex; align-items: center; gap: 8px; }
+.v6-cats .hd h2 { font-size: 14px; font-weight: 600; }
+.v6-cats .hd .n { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
+.v6-cats .hd .s { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.65; }
+.v6-cats .body { flex: 1; overflow: auto; padding-top: 2px; }
+.crow6 { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 16px; font-size: 12px;
+  color: var(--ink2); cursor: pointer; position: relative; }
+.crow6:hover { background: var(--hover); }
+.crow6.on { background: #ececeb; font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
+.crow6 .n { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
+.crow6 .tw { width: 12px; color: var(--faint); font-size: 9px; }
+.crow6 .more { width: 16px; color: var(--faint); font-size: 12px; opacity: 0; }
+.crow6:hover .more { opacity: 1; }
+.crow6 .zero { color: var(--faint); }
+.crow6 .path { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+.v6-cats .newcat { padding: 8px 16px; border-top: 1px solid var(--line-soft); }
+.v6-cats .newcat .in { width: 100%; height: 26px; padding: 0 8px; border: 1px dashed #cfcfcf;
+  border-radius: 5px; background: #fff; font: 11px Inter; color: var(--ink); outline: none; }
+.v6-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+.v6-main .mh { padding: 16px 20px 10px; border-bottom: 1px solid var(--line-soft); }
+.v6-main .mh .r { display: flex; align-items: center; gap: 9px; }
+.v6-main .mh h1 { font-size: 16px; font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
+.v6-main .mh .cnt { font: 10px var(--mono); color: var(--faint); }
+.v6-main .mh .sp { flex: 1; }
+.v6-main .body { flex: 1; overflow: auto; padding: 12px 20px 20px; }
+.arch6 { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.arch6 .arow { display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px;
+  border-bottom: 1px solid var(--line-soft); background: #fff; }
+.arch6 .arow:last-child { border-bottom: 0; }
+.arch6 .arow:hover { background: #fcfcfc; }
+.arch6 .tile { width: 30px; height: 30px; font-size: 11px; opacity: .55; }
+.arch6 .b { flex: 1; min-width: 0; }
+.arch6 .nm { font: 500 11px var(--mono); display: flex; align-items: center; gap: 7px; }
+.arch6 .nm .ver { font: 9.5px var(--mono); color: var(--faint); font-weight: 400; }
+.arch6 .sum { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+.arch6 .mt { display: flex; gap: 8px; margin-top: 5px; font: 9.5px var(--mono); color: var(--faint); }
+.arch6 .acts { display: flex; gap: 6px; flex: 0 0 auto; }
+.v6-side { width: 400px; flex: 0 0 400px; border-left: 1px solid var(--line); background: var(--panel2);
+  display: flex; flex-direction: column; overflow: auto; }
+.v6-side .sh { padding: 16px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+.v6-side .sh .k { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+.v6-side .sh h2 { font: 600 15px var(--mono); margin-top: 5px; }
+.v6-side .sh .s { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+.v6-side .blk { padding: 14px 18px; border-bottom: 1px solid var(--line-soft); }
+.v6-side h4 { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; margin-bottom: 8px; }
+.v6-side .p { font-size: 11px; color: var(--ink2); line-height: 1.7; }
+.skip6 { border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; font: 10px var(--mono);
+  color: var(--muted); background: #fff; margin-top: 8px; }
+.skip6 .w { color: var(--warn); }
+.v6-side .foot { margin-top: auto; padding: 13px 18px; border-top: 1px solid var(--line-soft); }
+.scrim6 { position: absolute; inset: 0 0 0 312px; background: rgba(10,12,13,.18); z-index: 40; }
+.confirm { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 420px;
+  background: #fff; border-radius: 10px; box-shadow: 0 30px 80px rgba(0,0,0,.28);
+  border: 1px solid #efd5d2; padding: 18px 20px; z-index: 41; }
+.confirm h2 { font-size: 14px; font-weight: 600; }
+.confirm .hint { font-size: 10.5px; color: var(--muted); line-height: 1.7; margin-top: 7px; }
+.confirm .lb { display: block; font-size: 10.5px; color: var(--ink2); margin-top: 13px; }
+.confirm .lb code { font-family: var(--mono); color: var(--danger); background: var(--danger-soft);
+  padding: 1px 4px; border-radius: 3px; }
+.confirm .in { width: 100%; height: 30px; margin-top: 6px; padding: 0 9px; border: 1px solid #e5c3bf;
+  border-radius: 6px; font: 11px var(--mono); outline: none; }
+.confirm .acts { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
+.confirm .err { font-size: 10px; color: var(--danger); margin-top: 5px; }
+
+/* ══ 07 · 新建向导 ════════════════════════════════════════ */
+.v7 { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+.v7-top { height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 0; padding: 0 22px;
+  border-bottom: 1px solid var(--line); }
+.v7-top .back { margin-right: 12px; }
+.v7-top .steps { display: flex; align-items: center; gap: 0; flex: 1; }
+.step7 { display: flex; align-items: center; gap: 8px; }
+.step7 .n { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font: 9.5px var(--mono); border: 1px solid var(--line); color: var(--faint); background: #fff; }
+.step7 .t { font-size: 11px; color: var(--muted); }
+.step7.on .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step7.on .t { color: var(--ink); font-weight: 500; }
+.step7.done .n { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-fg); }
+.step7 .line { width: 46px; height: 1px; background: var(--line); margin: 0 10px; }
+.v7-top .sp { flex: 1; }
+.v7-body { flex: 1; display: flex; min-height: 0; }
+.v7-form { width: 460px; flex: 0 0 460px; border-right: 1px solid var(--line); overflow: auto;
+  padding: 22px 26px 80px; }
+.v7-form h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.v7-form .sub { font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.7; }
+.v7-form .fld { margin-top: 16px; }
+.v7-form .fld .lb { font-size: 10.5px; color: var(--ink2); margin-bottom: 6px; display: flex;
+  align-items: baseline; gap: 7px; }
+.v7-form .fld .lb .h { font-size: 9.5px; color: var(--faint); }
+.v7-form .fld .in { width: 100%; height: 31px; padding: 0 9px; border: 1px solid var(--line);
+  border-radius: 6px; font: 11.5px Inter; outline: none; }
+.v7-form .fld .in.mono { font-family: var(--mono); font-size: 11px; }
+.v7-form .fld .hint { font-size: 10px; color: var(--faint); margin-top: 5px; line-height: 1.6; }
+.v7-form .ok { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--ok-fg); margin-top: 6px; }
+.v7-form .ok .ic { width: 12px; height: 12px; }
+.v7-form .bad { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--danger); margin-top: 6px; }
+.v7-form .bad .ic { width: 12px; height: 12px; }
+.par7 { border: 1px solid var(--line); border-radius: 7px; padding: 9px 10px; margin-bottom: 7px; }
+.par7 .r1 { display: flex; align-items: center; gap: 7px; }
+.par7 .nm { font: 500 10.5px var(--mono); }
+.par7 .ty { font: 9.5px var(--mono); color: var(--faint); }
+.par7 .r1 .sp { flex: 1; }
+.par7 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
+.par7 .grid2 .in { height: 26px; padding: 0 7px; border: 1px solid var(--line); border-radius: 5px;
+  font: 10.5px var(--mono); outline: none; }
+.par7 .help7 { width: 100%; height: 40px; margin-top: 7px; padding: 6px 7px; border: 1px solid var(--line);
+  border-radius: 5px; font: 10.5px Inter; color: var(--ink2); resize: none; outline: none; }
+.addp { width: 100%; height: 30px; border: 1px dashed #cfcfcf; border-radius: 6px; background: #fff;
+  font: 10.5px Inter; color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 6px; }
+.v7-preview { flex: 1; min-width: 0; background: var(--panel2); display: flex; flex-direction: column; }
+.v7-preview .ph { padding: 16px 20px 10px; border-bottom: 1px solid var(--line-soft); }
+.v7-preview .ph .r { display: flex; align-items: center; gap: 8px; }
+.v7-preview .ph h3 { font-size: 11px; font-weight: 600; }
+.v7-preview .ph .s { font-size: 10px; color: var(--muted); margin-top: 3px; }
+.v7-preview .tabs { display: flex; gap: 2px; padding: 9px 20px 0; }
+.v7-preview .tabs button { height: 24px; padding: 0 9px; border: 0; border-bottom: 2px solid transparent;
+  background: transparent; font: 10px var(--mono); color: var(--muted); }
+.v7-preview .tabs button.on { color: var(--ink); border-bottom-color: var(--ink); }
+.v7-preview .code { margin: 10px 20px 0; flex: 1; overflow: auto; }
+.v7-preview .tree { margin: 10px 20px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+  padding: 10px 12px; font: 10px/1.9 var(--mono); color: var(--muted); }
+.v7-preview .tree b { color: var(--ink2); font-weight: 500; }
+.v7-preview .warn7 { margin: 0 20px 12px; display: flex; gap: 8px; align-items: flex-start;
+  font-size: 10px; color: var(--muted); line-height: 1.65; }
+.v7-preview .warn7 .ic { width: 12px; height: 12px; color: var(--warn); flex: 0 0 12px; margin-top: 1px; }
+.v7-foot { height: 58px; flex: 0 0 58px; display: flex; align-items: center; gap: 8px; padding: 0 22px;
+  border-top: 1px solid var(--line); background: #fff; }
+.v7-foot .sp { flex: 1; }
+.v7-foot .state { font: 10px var(--mono); color: var(--faint); }
+
+/* ══ 08 · Inspector ══════════════════════════════════════ */
+.v8 { flex: 1; min-width: 0; display: flex; }
+.v8-side { width: 304px; flex: 0 0 304px; background: var(--list); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; }
+.v8-side .hd { padding: 14px 14px 9px; }
+.v8-side .seg8 { display: flex; gap: 2px; background: #ececeb; border-radius: 7px; padding: 2px; }
+.v8-side .seg8 button { flex: 1; height: 24px; border: 0; border-radius: 5px; background: transparent;
+  font: 10.5px Inter; color: var(--muted); }
+.v8-side .seg8 button.on { background: #fff; color: var(--ink); font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.v8-side .swrap { padding: 8px 14px; }
+.v8-side .list8 { flex: 1; overflow: auto; }
+.i8 { display: flex; align-items: center; gap: 9px; padding: 8px 14px; cursor: pointer;
+  border-left: 2px solid transparent; }
+.i8:hover { background: var(--hover); }
+.i8.on { background: var(--accent-soft); border-left-color: var(--accent); }
+.i8 .tile { width: 26px; height: 26px; font-size: 10px; }
+.i8 .b { flex: 1; min-width: 0; }
+.i8 .nm { font: 10.5px var(--mono); color: var(--ink2); display: flex; align-items: center; gap: 6px; }
+.i8.on .nm { color: var(--ink); font-weight: 500; }
+.i8 .nm .d { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+.i8 .nm .d.dirty { background: var(--warn); }
+.i8 .nm .d.broken { background: var(--danger); }
+.i8 .nm .d.unpublished { background: #d8b25a; }
+.i8 .mt { font: 9px var(--mono); color: var(--faint); margin-top: 2px; }
+.v8-side .foot { border-top: 1px solid var(--line); padding: 9px 14px; font: 9.5px var(--mono);
+  color: var(--faint); display: flex; align-items: center; gap: 6px; }
+.v8-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; overflow: auto; }
+.v8-main .crumb { height: 34px; flex: 0 0 34px; display: flex; align-items: center; gap: 6px;
+  padding: 0 22px; border-bottom: 1px solid var(--line-soft); font: 9.5px var(--mono); color: var(--faint); }
+.v8-main .mh { padding: 17px 22px 12px; display: flex; align-items: center; gap: 10px; }
+.v8-main .mh .tile { width: 36px; height: 36px; font-size: 13px; }
+.v8-main .mh h1 { font: 600 17px var(--mono); }
+.v8-main .mh .meta { font-size: 10px; color: var(--faint); margin-top: 3px; }
+.v8-main .mh .sp { flex: 1; }
+.v8-props { display: grid; grid-template-columns: 110px 1fr; padding: 0 22px; }
+.v8-props .k { padding: 8px 0; font-size: 10.5px; color: var(--faint); }
+.v8-props .v { padding: 8px 0; font-size: 11px; color: var(--ink2); border-bottom: 1px solid var(--line-soft);
+  display: flex; align-items: center; gap: 8px; }
+.v8-props .v .mono { font: 10px var(--mono); }
+.v8-sec { padding: 14px 22px; border-top: 1px solid var(--line-soft); }
+.v8-sec .sh8 { display: flex; align-items: center; gap: 8px; padding-bottom: 7px;
+  border-bottom: 1px solid var(--line); }
+.v8-sec .sh8 h3 { font-size: 10.5px; font-weight: 600; }
+.v8-sec .sh8 .n { font: 9.5px var(--mono); color: var(--faint); }
+.v8-sec .sh8 .sp { flex: 1; }
+.p8 { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+.p8 .l { width: 128px; flex: 0 0 128px; }
+.p8 .nm { font: 10.5px var(--mono); }
+.p8 .ty { font: 9.5px var(--mono); color: var(--faint); margin-top: 2px; }
+.p8 .h { font-size: 10.5px; color: var(--muted); line-height: 1.65; flex: 1; }
+.hist8 { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 10.5px; }
+.hist8 .v { font: 10px var(--mono); color: var(--muted); width: 54px; flex: 0 0 54px; }
+.hist8 .b { flex: 1; color: var(--ink2); }
+.hist8 .t { font: 9.5px var(--mono); color: var(--faint); }
+.v8-code { width: 366px; flex: 0 0 366px; border-left: 1px solid var(--line); background: #fcfcfb;
+  display: flex; flex-direction: column; }
+.v8-code .ch { height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; border-bottom: 1px solid var(--line-soft); }
+.v8-code .ch .nm { font: 10px var(--mono); color: var(--ink2); }
+.v8-code .ch .sp { flex: 1; }
+.v8-code .tabs8 { display: flex; gap: 2px; padding: 7px 10px 0; }
+.v8-code .tabs8 button { height: 22px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent;
+  font: 9.5px var(--mono); color: var(--muted); }
+.v8-code .tabs8 button.on { background: #ececeb; color: var(--ink2); }
+.v8-code .code { margin: 7px 10px 0; flex: 1; overflow: auto; }
+.v8-code .cf { padding: 8px 12px; border-top: 1px solid var(--line-soft); font: 9.5px var(--mono);
+  color: var(--faint); display: flex; gap: 8px; }
+.v8-code .cf .sp { flex: 1; }
+
+/* ══ 09 · 终端 / 控制台（暗色）═══════════════════════════ */
+.v9 ::-webkit-scrollbar { background: #0e1012; }
+.v9 .code, .v9 .body, .v9 .log { scrollbar-color: #2a3034 #0e1012; scrollbar-width: thin; }
+.v9 ::-webkit-scrollbar-thumb { background: #2a3034; }
+.v9 ::-webkit-scrollbar-track { background: transparent; }
+.v9 { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #0e1012; color: #d7dcdf;
+  --line: #23272b; --line-soft: #1b1f22; --panel2: #131619; --surface: #1a1e21; --ink: #e8ecee;
+  --ink2: #b9c2c7; --muted: #7f8a90; --faint: #5d676d; --hover: #1b1f22; --accent: #36c97a;
+  --accent-soft: #16301f; --accent-fg: #7fe0ab; --ok: #4fcf8c; --danger: #ef8a80; --warn: #e3c07b; }
+.v9-top { height: 46px; flex: 0 0 46px; display: flex; align-items: center; gap: 12px; padding: 0 16px;
+  border-bottom: 1px solid #23272b; background: #111416; }
+.v9-top .b { display: flex; align-items: center; gap: 8px; font: 500 11px var(--mono); }
+.v9-top .b .ic { width: 14px; height: 14px; color: var(--accent); }
+.v9-top .meta { font: 9.5px var(--mono); color: #6d777d; }
+.v9-top .sp { flex: 1; }
+.v9-top .st { display: flex; align-items: center; gap: 6px; font: 9.5px var(--mono); color: #a7b1b6; white-space: nowrap; }
+.v9-top .st .dot { width: 5px; height: 5px; }
+.v9-body { flex: 1; display: flex; min-height: 0; }
+.v9-side { width: 268px; flex: 0 0 268px; border-right: 1px solid #23272b; background: #101315;
+  display: flex; flex-direction: column; }
+.v9-side .sh { padding: 11px 12px 8px; font: 9px var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  color: #5d676d; display: flex; align-items: center; gap: 6px; }
+.v9-side .sh .n { margin-left: auto; }
+.v9-side .body { flex: 1; overflow: auto; }
+.i9 { padding: 7px 12px; border-left: 2px solid transparent; cursor: pointer; }
+.i9:hover { background: #15191c; }
+.i9.on { background: #17201b; border-left-color: var(--accent); }
+.i9 .l1 { display: flex; align-items: center; gap: 6px; font: 10.5px var(--mono); color: #c5ced3; }
+.i9 .l1 .d { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.i9 .l1 .d.dirty { background: var(--warn); }
+.i9 .l1 .d.broken { background: var(--danger); }
+.i9 .l1 .d.unpublished { background: #d8b25a; }
+.i9 .l1 .v { margin-left: auto; font: 9px var(--mono); color: #5d676d; }
+.i9 .l2 { font: 9px var(--mono); color: #6d777d; margin-top: 2px; display: flex; gap: 6px; }
+.v9-code { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.v9-code .bh { height: 34px; flex: 0 0 34px; display: flex; align-items: center; gap: 2px;
+  padding: 0 10px; border-bottom: 1px solid #23272b; background: #111416; }
+.v9-code .bh .f { height: 24px; padding: 0 9px; font: 9.5px var(--mono); color: #6d777d; display: flex;
+  align-items: center; gap: 6px; border-bottom: 1px solid transparent; }
+.v9-code .bh .f.on { color: #d7dcdf; border-bottom-color: var(--accent); }
+.v9-code .bh .sp { flex: 1; }
+.v9-code .code { border: 0; border-radius: 0; flex: 1; overflow: auto; background: #0e1012; }
+.v9-code .cl .tx { color: #c9d1d6; }
+.v9-code .cl .ln { color: #4a545a; }
+.v9-code .cl.add { background: rgba(54,201,122,.09); }
+.v9-code .cl.del { background: rgba(239,138,128,.09); }
+.v9-code .cl.add .ln { color: #4f9e6f; }
+.v9-code .cl.del .ln { color: #a06d67; }
+.v9-code .cl .tx .k { color: #c678dd; }
+.v9-code .cl .tx .s { color: #98c379; }
+.v9-code .cl .tx .c { color: #5d676d; }
+.v9-code .cl .tx .n { color: #d19a66; }
+.v9-code .cl .tx .f { color: #61afef; }
+.v9-code .cl .tx .m { color: #e5c07b; }
+.v9-console { width: 372px; flex: 0 0 372px; border-left: 1px solid #23272b; background: #101315;
+  display: flex; flex-direction: column; }
+.v9-console .ch { height: 32px; flex: 0 0 32px; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; border-bottom: 1px solid #23272b; font: 9px var(--mono); letter-spacing: .12em;
+  text-transform: uppercase; color: #5d676d; }
+.v9-console .ch .sp { flex: 1; }
+.v9-console .log { flex: 1; overflow: auto; padding: 10px 12px; font: 9.5px/1.85 var(--mono); color: #a7b1b6; }
+.v9-console .log .ln { display: flex; gap: 7px; }
+.v9-console .log .tm { color: #4f595f; flex: 0 0 46px; }
+.v9-console .log .ok { color: #6fd39a; }
+.v9-console .log .warn { color: #e3c07b; }
+.v9-console .log .err { color: #ef8a80; }
+.v9-console .log .dim { color: #5d676d; }
+.v9-console .pub9 { padding: 11px 12px; border-top: 1px solid #23272b; }
+.v9-console .pub9 .steps9 { margin-bottom: 9px; }
+.s9 { display: flex; align-items: center; gap: 7px; padding: 2.5px 0; font: 9.5px var(--mono); color: #8b959b; }
+.s9 .n { width: 14px; color: #4f595f; }
+.s9 .ic { width: 10px; height: 10px; margin-left: auto; color: var(--accent); }
+.s9 .ic.wait { color: #4f595f; }
+.v9-console .pub9 .btn { width: 100%; justify-content: center; height: 30px; background: #1d3a28;
+  border-color: #2c5a3c; color: #8fe3b3; }
+.v9-console .pub9 .btn:hover { background: #234830; }
+
+/* ══ 10 · 活动流 ══════════════════════════════════════════ */
+.v10 { flex: 1; min-width: 0; display: flex; }
+.v10-side { width: 212px; flex: 0 0 212px; background: var(--panel2); border-right: 1px solid var(--line);
+  padding-top: 10px; display: flex; flex-direction: column; }
+.v10-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+.v10-main .mh { padding: 16px 20px 10px; border-bottom: 1px solid var(--line-soft); }
+.v10-main .mh .r { display: flex; align-items: center; gap: 9px; }
+.v10-main .mh h1 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.v10-main .mh .s { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+.v10-main .mh .sp { flex: 1; }
+.v10-main .body { flex: 1; overflow: auto; padding: 0 20px 20px; }
+.day10 { display: flex; align-items: center; gap: 9px; padding: 15px 0 7px; }
+.day10 .t { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; }
+.day10 .ln { flex: 1; height: 1px; background: var(--line-soft); }
+.day10 .n { font: 9.5px var(--mono); color: var(--faint); }
+.ent10 { display: flex; gap: 11px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+.ent10:hover { background: #fcfcfc; }
+.ent10.on { background: #fbfefc; }
+.ent10 .tile { width: 32px; height: 32px; font-size: 11px; }
+.ent10 .b { flex: 1; min-width: 0; }
+.ent10 .l1 { display: flex; align-items: center; gap: 7px; }
+.ent10 .nm { font: 500 11.5px var(--mono); }
+.ent10 .ver { font: 9.5px var(--mono); color: var(--faint); }
+.ent10 .l1 .sp { flex: 1; }
+.ent10 .sum { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+.ent10 .l3 { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.ent10 .l3 .p { font: 9.5px var(--mono); color: var(--faint); }
+.v10-detail { width: 396px; flex: 0 0 396px; border-left: 1px solid var(--line); background: var(--panel2);
+  overflow: auto; }
+.v10-detail .dh { padding: 16px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+.v10-detail .dh .r { display: flex; align-items: center; gap: 9px; }
+.v10-detail .tile { width: 36px; height: 36px; font-size: 13px; }
+.v10-detail .dh h2 { font: 600 15px var(--mono); }
+.v10-detail .dh .meta { font-size: 9.5px; color: var(--faint); margin-top: 3px; }
+.v10-detail .blk { padding: 13px 18px; border-bottom: 1px solid var(--line-soft); }
+.v10-detail h4 { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; margin-bottom: 8px; }
+.v10-detail .p { font-size: 11px; color: var(--ink2); line-height: 1.7; }
+.v10-detail .acts { padding: 13px 18px; display: flex; gap: 7px; flex-wrap: wrap; }
+.tl10 { position: relative; padding-left: 14px; }
+.tl10:before { content: ""; position: absolute; left: 3px; top: 4px; bottom: 4px; width: 1px;
+  background: var(--line); }
+.tl10 .h { position: relative; padding: 4px 0 8px; }
+.tl10 .h:before { content: ""; position: absolute; left: -14px; top: 9px; width: 7px; height: 7px;
+  border-radius: 50%; background: #fff; border: 1.5px solid var(--line-strong); }
+.tl10 .h.now:before { border-color: var(--ok); background: var(--ok); }
+.tl10 .h .v { font: 10px var(--mono); color: var(--ink2); display: flex; gap: 7px; }
+.tl10 .h .v .t { color: var(--faint); margin-left: auto; }
+.tl10 .h .m { font-size: 9.5px; color: var(--faint); margin-top: 2px; }
+
+/* 状态条 / toast 等小件 */
+.toast { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); background: #2b2f32;
+  color: #fff; font-size: 11px; padding: 7px 12px; border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  z-index: 50; display: flex; align-items: center; gap: 8px; }
+.toast .dot { width: 5px; height: 5px; flex: 0 0 5px; background: var(--accent); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M9 7h7M9 10h5"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4.1 13.3a1 1 0 0 0 .8 1.7H11l-1 7 8.9-11.3a1 1 0 0 0-.8-1.7H12Z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m5 8 4 4-4 4M13 16h6"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9a5 5 0 0 1-5 5H9"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6Z"/><path d="M14 2v4h4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 12 8-12 8Z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-arrow-r" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="m3 12 9-9 9 9-9 9Z"/><circle cx="12" cy="8" r="1"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h10M18 18h2"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></symbol>
+</svg>
+
+<aside class="picker">
+  <h1>触发器 · 视图 1 · 10 套</h1>
+  <div class="sub">只做「触发器（项目）」这一层：清单 / 类别 / 详情 / 代码 / 保存 / 发布 / 归档。每套都按全功能落，数据是真实 + 演示扩展。</div>
+  <div class="plist" id="plist">
+    <button data-go="1"><b>01</b><span>卡片网格 + 详情浮层</span></button>
+    <button data-go="2"><b>02</b><span>三栏常驻 + 代码抽屉</span></button>
+    <button data-go="3"><b>03</b><span>代码优先（IDE）</span></button>
+    <button data-go="4"><b>04</b><span>发布工作台（git）</span></button>
+    <button data-go="5"><b>05</b><span>运维表格 + 抽屉</span></button>
+    <button data-go="6"><b>06</b><span>类别与归档</span></button>
+    <button data-go="7"><b>07</b><span>新建向导</span></button>
+    <button data-go="8"><b>08</b><span>Inspector</span></button>
+    <button data-go="9"><b>09</b><span>终端 / 控制台（暗）</span></button>
+    <button data-go="10"><b>10</b><span>活动流 + 发布历史</span></button>
+  </div>
+  <div class="pnote" id="pnote"></div>
+  <div class="pfoot">
+    窗口 1280×800（标题栏省略）<br>
+    rail 60px · 触发器入口 = Bolt<br>
+    数据：n8qkkj `/v1/triggers` + 演示状态
+  </div>
+</aside>
+
+<main class="stage">
+  <div class="scaler" id="scaler">
+
+    <!-- ══════════════ 01 · 卡片 + 详情浮层 ══════════════ -->
+    <div class="app on" data-v="1">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v1">
+        <header class="v1-top">
+          <div class="brand">
+            <div class="mark"><svg class="ic"><use href="#i-bolt"/></svg></div>
+            <div><h1>trigger</h1><p>Nous-Trigger · main · 8517477</p></div>
+          </div>
+          <div class="row" style="margin-left:14px">
+            <span class="chip mono">12 个触发器</span>
+          </div>
+          <div class="grow"></div>
+          <button class="sync-chip" data-state="wait"><span class="dot"></span>2 个有改动</button>
+          <button class="btn ghost sm"><svg class="ic"><use href="#i-refresh"/></svg>重扫</button>
+          <button class="btn pri sm"><svg class="ic"><use href="#i-plus"/></svg>新建触发器</button>
+        </header>
+
+        <div class="v1-body">
+          <aside class="v1-rail">
+            <div class="rh"><h3>类别</h3><span class="n">12</span></div>
+            <div class="frow on">全部<span class="n">12</span></div>
+            <div class="frow">未分类<span class="n">0</span></div>
+            <div class="frow"><span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>日常<span class="n">3</span></div>
+            <div class="frow ind">摘要<span class="n">1</span></div>
+            <div class="frow ind zero">复盘<span class="n">0</span></div>
+            <div class="frow"><span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>工程<span class="n">5</span></div>
+            <div class="frow ind">发布<span class="n">1</span></div>
+            <div class="frow ind">评审<span class="n">2</span></div>
+            <div class="frow ind">CI<span class="n">1</span></div>
+            <div class="frow ind">巡检<span class="n">1</span></div>
+            <div class="frow"><span class="tw"></span>提醒<span class="n">1</span></div>
+            <div class="frow"><span class="tw"></span>系统<span class="n">2</span></div>
+            <div class="frow"><span class="tw"></span>时间<span class="n">1</span></div>
+            <div class="frow gap"><span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-r"/></svg></span>已归档<span class="n">6</span></div>
+            <div class="foot">/opt/Nous-Trigger<br>index.mjs 扫出来的</div>
+          </aside>
+
+          <main class="v1-main">
+            <div class="v1-filters">
+              <button class="fbtn on">全部<span class="n">12</span></button>
+              <button class="fbtn"><span class="dot"></span>已发布<span class="n">7</span></button>
+              <button class="fbtn"><span class="dot" style="background:var(--warn)"></span>有改动<span class="n">2</span></button>
+              <button class="fbtn"><span class="dot" style="background:#d8b25a"></span>未发布<span class="n">2</span></button>
+              <button class="fbtn"><span class="dot bad"></span>清单坏了<span class="n">1</span></button>
+            </div>
+            <div class="v1-tools">
+              <div class="search"><svg class="ic"><use href="#i-search"/></svg>搜名字 / 说明 / 类别</div>
+              <span class="count">按最近改动</span>
+              <div class="grow"></div>
+              <button class="btn ghost sm"><svg class="ic"><use href="#i-sliders"/></svg>排序</button>
+            </div>
+            <div class="v1-grid scroll">
+              <div class="v1-card" data-state="dirty">
+                <div class="ch"><div class="tile" style="background:hsl(28 42% 40%)">D</div><div><div class="nm">daily-digest</div><div class="ver">v0.3.1</div></div></div>
+                <div class="sum">每天第一条会话时，按日历和昨天的日志起一条摘要</div>
+                <div class="tags"><span class="chip">日常</span><span class="chip">日常 / 摘要</span></div>
+                <div class="cf"><span class="params">2 参数</span><span class="sp"></span><span class="badge dirty"><span class="dot warn"></span>2 个文件</span></div>
+              </div>
+              <div class="v1-card" data-state="ok">
+                <div class="ch"><div class="tile" style="background:hsl(200 42% 38%)">S</div><div><div class="nm">single-shot</div><div class="ver">v0.1.0</div></div></div>
+                <div class="sum">指定的那一分钟里发起一次 —— 过时不补，跑过不再跑</div>
+                <div class="tags"><span class="chip">时间</span><span class="chip">时间 / 一次</span></div>
+                <div class="cf"><span class="params">1 参数</span><span class="sp"></span><span class="badge ok"><span class="dot"></span>已发布</span></div>
+              </div>
+              <div class="v1-card" data-state="unpublished">
+                <div class="ch"><div class="tile" style="background:hsl(150 38% 36%)">C</div><div><div class="nm">ci-watch</div><div class="ver">v0.4.2</div></div></div>
+                <div class="sum">盯着的分支绿了或者红了，起一条「去看一眼」的会话</div>
+                <div class="tags"><span class="chip">工程</span><span class="chip">工程 / CI</span></div>
+                <div class="cf"><span class="params">2 参数</span><span class="sp"></span><span class="badge unpublished"><span class="dot" style="background:#d8b25a"></span>未发布</span></div>
+              </div>
+              <div class="v1-card" data-state="broken">
+                <div class="ch"><div class="tile" style="background:hsl(0 40% 42%)">D</div><div><div class="nm">disk-guard</div><div class="ver">v0.2.0</div></div></div>
+                <div class="sum">磁盘用到阈值的那个小时，起一条清理 / 扩容的会话</div>
+                <div class="tags"><span class="chip">系统</span><span class="chip">系统 / 磁盘</span></div>
+                <div class="cf"><span class="params">2 参数</span><span class="sp"></span><span class="badge broken"><span class="dot bad"></span>清单坏了</span></div>
+              </div>
+              <div class="v1-card" data-state="ok">
+                <div class="ch"><div class="tile" style="background:hsl(250 38% 44%)">P</div><div><div class="nm">pr-review</div><div class="ver">v1.2.0</div></div></div>
+                <div class="sum">有新的 review 请求时，先读 diff 再起一条评审会话</div>
+                <div class="tags"><span class="chip">工程</span><span class="chip">工程 / 评审</span></div>
+                <div class="cf"><span class="params">3 参数</span><span class="sp"></span><span class="badge ok"><span class="dot"></span>已发布</span></div>
+              </div>
+              <div class="v1-card" data-state="dirty">
+                <div class="ch"><div class="tile" style="background:hsl(330 36% 42%)">R</div><div><div class="nm">release-notes</div><div class="ver">v0.5.0</div></div></div>
+                <div class="sum">版本打上 tag 之后，把两个 tag 之间的提交写成一份人话</div>
+                <div class="tags"><span class="chip">工程</span><span class="chip">工程 / 发布</span></div>
+                <div class="cf"><span class="params">2 参数</span><span class="sp"></span><span class="badge dirty"><span class="dot warn"></span>1 个文件</span></div>
+              </div>
+              <div class="v1-card" data-state="ok">
+                <div class="ch"><div class="tile" style="background:hsl(180 34% 36%)">I</div><div><div class="nm">inbox-triage</div><div class="ver">v0.1.3</div></div></div>
+                <div class="sum">收件箱里出现没读过的条目时，起一条分类 / 丢弃的会话</div>
+                <div class="tags"><span class="chip">提醒</span><span class="chip">提醒 / 收件箱</span></div>
+                <div class="cf"><span class="params">1 参数</span><span class="sp"></span><span class="badge ok"><span class="dot"></span>已发布</span></div>
+              </div>
+              <div class="v1-card" data-state="ok">
+                <div class="ch"><div class="tile" style="background:hsl(210 40% 44%)">W</div><div><div class="nm">weather-brief</div><div class="ver">v0.1.0</div></div></div>
+                <div class="sum">早上七点，把当天的天气压成三句话</div>
+                <div class="tags"><span class="chip">日常</span><span class="chip">日常 / 天气</span></div>
+                <div class="cf"><span class="params">1 参数</span><span class="sp"></span><span class="badge ok"><span class="dot"></span>已发布</span></div>
+              </div>
+              <div class="v1-card" data-state="unpublished">
+                <div class="ch"><div class="tile" style="background:hsl(90 32% 36%)">L</div><div><div class="nm">link-checker</div><div class="ver">v0.0.9</div></div></div>
+                <div class="sum">每周一跑一遍外链，有 404 就起一条修的会话</div>
+                <div class="tags"><span class="chip">工程</span><span class="chip">工程 / 巡检</span></div>
+                <div class="cf"><span class="params">1 参数</span><span class="sp"></span><span class="badge unpublished"><span class="dot" style="background:#d8b25a"></span>未发布</span></div>
+              </div>
+            </div>
+          </main>
+        </div>
+
+        <div class="scrim"></div>
+        <aside class="sheet v1-detail">
+          <div class="d-head">
+            <div class="r">
+              <div class="tile" style="background:hsl(28 42% 40%)">D</div>
+              <div style="flex:1">
+                <h2>daily-digest</h2>
+                <div class="meta">v0.3.1 · 日常 / 摘要 · Rust 独立项目</div>
+              </div>
+              <span class="badge dirty"><span class="dot warn"></span>有改动</span>
+              <button class="btn ghost sm"><svg class="ic"><use href="#i-x"/></svg></button>
+            </div>
+            <div class="sum">每天第一条会话时，按日历和昨天的日志起一条摘要 —— 没有日志就跳过，不硬凑。</div>
+            <div class="acts">
+              <button class="btn sm"><svg class="ic"><use href="#i-code"/></svg>代码 ›</button>
+              <button class="btn sm"><svg class="ic"><use href="#i-tag"/></svg>改类别</button>
+              <div class="grow"></div>
+              <button class="btn sm danger"><svg class="ic"><use href="#i-archive"/></svg>归档</button>
+            </div>
+          </div>
+
+          <div class="d-sec">
+            <h4>类别<span class="n">2</span><span class="sp"></span><span style="font:9px var(--mono);color:var(--faint)">8 秒内同步</span></h4>
+            <div class="chips-edit" style="border:0;padding:0;min-height:20px">
+              <span class="chip">日常 <span style="margin-left:5px;color:var(--faint)">×</span></span>
+              <span class="chip">日常 / 摘要 <span style="margin-left:5px;color:var(--faint)">×</span></span>
+              <button class="addc">＋ 添加</button>
+            </div>
+          </div>
+
+          <div class="d-sec">
+            <h4>清单 · nous.json</h4>
+            <div class="d-row"><span class="k">版本</span><span class="v">0.3.1</span></div>
+            <div class="d-row"><span class="k">产物名</span><span class="v">daily-digest</span></div>
+            <div class="d-row"><span class="k">目录</span><span class="v">daily-digest/</span></div>
+            <div class="d-row"><span class="k">语言</span><span class="v plain">Rust · 独立项目</span></div>
+          </div>
+
+          <div class="d-sec">
+            <h4>参数<span class="n">2</span><span class="sp"></span><span style="font:9px var(--mono);color:var(--faint)">装配时填</span></h4>
+            <div class="pcard">
+              <div class="l1"><span class="nm">at</span><span class="ty">epoch</span><span class="chip warn" style="height:16px;font-size:9px">必填</span><span class="sp"></span><span style="font-size:9.5px;color:var(--faint)">每天几点</span></div>
+              <div class="help">UTC 秒，但页面上用本地时间挑。落在这一分钟里才起。</div>
+            </div>
+            <div class="pcard">
+              <div class="l1"><span class="nm">tone</span><span class="ty">select</span><span class="sp"></span><span style="font-size:9.5px;color:var(--faint)">简洁 / 详细 / 只列结论</span></div>
+              <div class="help">用哪种语气写这条摘要。选项写在触发器自己的声明里。</div>
+            </div>
+          </div>
+
+          <div class="d-sec">
+            <h4>仓库</h4>
+            <div class="d-row"><span class="k">发布</span><span class="v">已进 HEAD</span></div>
+            <div class="d-row"><span class="k">改动</span><span class="v" style="color:var(--warn)">2 个文件没提交：nous.json、src/main.rs</span></div>
+            <div class="d-row"><span class="k">同步</span><span class="v plain">8 秒内自动推词表 / 清单；代码要手动发布</span></div>
+          </div>
+
+          <div class="d-sec">
+            <h4>发布前检查</h4>
+            <div class="d-row"><span class="k">cargo check</span><span class="v" style="color:var(--faint)">未跑</span></div>
+            <div class="d-row"><span class="k">index.json</span><span class="v" style="color:var(--faint)">待重扫</span></div>
+            <div class="d-row"><span class="k">产物</span><span class="v" style="color:var(--faint)">target/debug/daily-digest 未更新</span></div>
+          </div>
+
+          <div class="d-foot">
+            <svg class="ic" style="width:12px;height:12px"><use href="#i-folder"/></svg>
+            /opt/Nous-Trigger/daily-digest
+            <span class="sp"></span>
+            <span class="kbd">⌘S</span>
+            <span class="kbd">Alt+D</span>
+          </div>
+        </aside>
+
+        <div class="menu" style="left:520px;top:352px">
+          <div class="mi"><svg class="ic"><use href="#i-code"/></svg>看代码<span class="hint">main.rs</span></div>
+          <div class="mi"><svg class="ic"><use href="#i-tag"/></svg>改类别<span class="hint">2 个</span></div>
+          <div class="mi"><svg class="ic"><use href="#i-copy"/></svg>复制信息<span class="hint">给 AI</span></div>
+          <div class="msep"></div>
+          <div class="mi danger"><svg class="ic"><use href="#i-archive"/></svg>归档<span class="hint">并推送</span></div>
+        </div>
+
+              </div>
+    </div>
+
+    <!-- ══════════════ 02 · 三栏常驻 + 代码抽屉 ══════════════ -->
+    <div class="app" data-v="2">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v2">
+        <header class="v2-top">
+          <div class="crumb">Nous-Trigger <span style="color:var(--faint)">/</span> <b>触发器</b></div>
+          <span class="repo">main · 8517477 · 干净</span>
+          <div class="grow"></div>
+          <button class="sync-chip" data-state="wait" style="height:24px;white-space:nowrap"><span class="dot"></span>2 个有改动</button>
+          <button class="btn ghost sm"><svg class="ic"><use href="#i-refresh"/></svg></button>
+          <button class="btn pri sm"><svg class="ic"><use href="#i-plus"/></svg>新建</button>
+        </header>
+        <div class="v2-body">
+          <aside class="v2-cats">
+            <div class="frow on">全部<span class="n">12</span></div>
+            <div class="frow">未分类<span class="n">0</span></div>
+            <div class="frow"><span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>日常<span class="n">3</span></div>
+            <div class="frow ind">摘要<span class="n">1</span></div>
+            <div class="frow ind zero">复盘<span class="n">0</span></div>
+            <div class="frow"><span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>工程<span class="n">5</span></div>
+            <div class="frow ind">发布<span class="n">1</span></div>
+            <div class="frow ind">评审<span class="n">2</span></div>
+            <div class="frow ind">CI<span class="n">1</span></div>
+            <div class="frow ind">巡检<span class="n">1</span></div>
+            <div class="frow"><span class="tw"></span>提醒<span class="n">1</span></div>
+            <div class="frow"><span class="tw"></span>系统<span class="n">2</span></div>
+            <div class="frow"><span class="tw"></span>时间<span class="n">1</span></div>
+            <div class="frow gap"><span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-r"/></svg></span>已归档<span class="n">6</span></div>
+            <div style="margin-top:auto;padding:10px 14px;border-top:1px solid var(--line-soft);font:9.5px var(--mono);color:var(--faint);line-height:1.8">
+              /opt/Nous-Trigger<br>HEAD 8517477
+            </div>
+          </aside>
+
+          <div class="v2-list">
+            <div class="lh">
+              <div class="r1"><span class="t">全部</span><span class="n">12</span></div>
+              <div class="r2">
+                <span class="chip mono" style="height:17px;font-size:9px">已发布 7</span>
+                <span class="chip warn" style="height:17px;font-size:9px">改动 2</span>
+                <span class="chip" style="height:17px;font-size:9px">未发布 2</span>
+                <span class="chip danger" style="height:17px;font-size:9px">坏 1</span>
+              </div>
+            </div>
+            <div class="lrow2 on">
+              <div class="tile" style="background:hsl(28 42% 40%)">D</div>
+              <div class="b">
+                <div class="nm">daily-digest <span class="ver">v0.3.1</span><span class="badge dirty" style="height:15px;font-size:8.5px;margin-left:auto"><span class="dot warn"></span>改动</span></div>
+                <div class="sum">每天第一条会话时，按日历和昨天的日志起一条摘要</div>
+                <div class="meta"><span>日常/摘要</span><span>2 参数</span><span style="color:var(--warn)">2 文件</span></div>
+              </div>
+            </div>
+            <div class="lrow2">
+              <div class="tile" style="background:hsl(200 42% 38%)">S</div>
+              <div class="b">
+                <div class="nm">single-shot <span class="ver">v0.1.0</span><span class="badge ok" style="height:15px;font-size:8.5px;margin-left:auto"><span class="dot"></span>已发布</span></div>
+                <div class="sum">指定的那一分钟里发起一次 —— 过时不补，跑过不再跑</div>
+                <div class="meta"><span>时间/一次</span><span>1 参数</span></div>
+              </div>
+            </div>
+            <div class="lrow2">
+              <div class="tile" style="background:hsl(150 38% 36%)">C</div>
+              <div class="b">
+                <div class="nm">ci-watch <span class="ver">v0.4.2</span><span class="badge unpublished" style="height:15px;font-size:8.5px;margin-left:auto"><span class="dot" style="background:#d8b25a"></span>未发布</span></div>
+                <div class="sum">盯着的分支绿了或者红了，起一条「去看一眼」的会话</div>
+                <div class="meta"><span>工程/CI</span><span>2 参数</span></div>
+              </div>
+            </div>
+            <div class="lrow2">
+              <div class="tile" style="background:hsl(0 40% 42%)">d</div>
+              <div class="b">
+                <div class="nm">disk-guard <span class="ver">v0.2.0</span><span class="badge broken" style="height:15px;font-size:8.5px;margin-left:auto"><span class="dot bad"></span>坏</span></div>
+                <div class="sum">磁盘用到阈值的那个小时，起一条清理 / 扩容的会话</div>
+                <div class="meta"><span>系统/磁盘</span><span>2 参数</span><span style="color:var(--danger)">清单 name 与目录不符</span></div>
+              </div>
+            </div>
+            <div class="lrow2">
+              <div class="tile" style="background:hsl(250 38% 44%)">P</div>
+              <div class="b">
+                <div class="nm">pr-review <span class="ver">v1.2.0</span><span class="badge ok" style="height:15px;font-size:8.5px;margin-left:auto"><span class="dot"></span>已发布</span></div>
+                <div class="sum">有新的 review 请求时，先读 diff 再起一条评审会话</div>
+                <div class="meta"><span>工程/评审</span><span>3 参数</span></div>
+              </div>
+            </div>
+            <div class="lrow2">
+              <div class="tile" style="background:hsl(330 36% 42%)">R</div>
+              <div class="b">
+                <div class="nm">release-notes <span class="ver">v0.5.0</span><span class="badge dirty" style="height:15px;font-size:8.5px;margin-left:auto"><span class="dot warn"></span>改动</span></div>
+                <div class="sum">版本打上 tag 之后，把两个 tag 之间的提交写成一份人话</div>
+                <div class="meta"><span>工程/发布</span><span>2 参数</span><span style="color:var(--warn)">1 文件</span></div>
+              </div>
+            </div>
+            <div class="lrow2">
+              <div class="tile" style="background:hsl(180 34% 36%)">I</div>
+              <div class="b">
+                <div class="nm">inbox-triage <span class="ver">v0.1.3</span><span class="badge ok" style="height:15px;font-size:8.5px;margin-left:auto"><span class="dot"></span>已发布</span></div>
+                <div class="sum">收件箱里出现没读过的条目时，起一条分类 / 丢弃的会话</div>
+                <div class="meta"><span>提醒/收件箱</span><span>1 参数</span></div>
+              </div>
+            </div>
+            <div class="lrow2">
+              <div class="tile" style="background:hsl(210 40% 44%)">W</div>
+              <div class="b">
+                <div class="nm">weather-brief <span class="ver">v0.1.0</span><span class="badge ok" style="height:15px;font-size:8.5px;margin-left:auto"><span class="dot"></span>已发布</span></div>
+                <div class="sum">早上七点，把当天的天气压成三句话</div>
+                <div class="meta"><span>日常/天气</span><span>1 参数</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="v2-detail">
+            <div class="dh">
+              <div class="r">
+                <div class="tile" style="background:hsl(28 42% 40%)">D</div>
+                <div style="flex:1">
+                  <h2>daily-digest</h2>
+                  <div class="meta">v0.3.1 · 日常 / 摘要 · 产物 daily-digest</div>
+                </div>
+                <span class="badge dirty"><span class="dot warn"></span>2 个文件有改动</span>
+                <button class="btn sm"><svg class="ic"><use href="#i-code"/></svg>代码</button>
+                <button class="btn ghost sm"><svg class="ic"><use href="#i-more"/></svg></button>
+              </div>
+            </div>
+            <div class="body">
+              <div class="v2-grid">
+                <div class="v2-sec">
+                  <h4>摘要</h4>
+                  <div class="p">每天第一条会话时，按日历和昨天的日志起一条摘要 —— 没有日志就跳过，不硬凑。</div>
+                </div>
+                <div class="v2-sec">
+                  <h4>类别</h4>
+                  <div class="row" style="flex-wrap:wrap;gap:4px"><span class="chip">日常</span><span class="chip">日常 / 摘要</span><span class="chip line" style="color:var(--faint)">＋</span></div>
+                </div>
+                <div class="v2-sec">
+                  <h4>清单</h4>
+                  <div class="d-row"><span class="k">版本</span><span class="v">0.3.1</span></div>
+                  <div class="d-row"><span class="k">产物名</span><span class="v">daily-digest</span></div>
+                  <div class="d-row"><span class="k">目录</span><span class="v">daily-digest/</span></div>
+                </div>
+                <div class="v2-sec">
+                  <h4>仓库</h4>
+                  <div class="d-row"><span class="k">发布</span><span class="v">已进 HEAD</span></div>
+                  <div class="d-row"><span class="k">改动</span><span class="v" style="color:var(--warn)">2 个文件</span></div>
+                </div>
+              </div>
+              <div class="v2-sec">
+                <h4>参数 · 2 · 装配时填</h4>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                  <div class="pcard"><div class="l1"><span class="nm">at</span><span class="ty">epoch</span><span class="chip warn" style="height:16px;font-size:9px">必填</span><span class="sp"></span><span style="font-size:9.5px;color:var(--faint)">每天几点</span></div><div class="help">UTC 秒，页面上用本地时间挑。落在这一分钟里才起。</div></div>
+                  <div class="pcard"><div class="l1"><span class="nm">tone</span><span class="ty">select</span><span class="sp"></span><span style="font-size:9.5px;color:var(--faint)">简洁 / 详细 / 只列结论</span></div><div class="help">用哪种语气写摘要。选项写在触发器自己的声明里。</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer v2-drawer">
+          <div class="dh">
+            <svg class="ic" style="width:13px;height:13px;color:var(--muted)"><use href="#i-code"/></svg>
+            <span class="nm">daily-digest / src/main.rs</span>
+            <span class="chip mono" style="height:17px;font-size:9px">与 HEAD 比 · +6 −2</span>
+            <span class="sp"></span>
+            <span class="row" style="gap:5px;font-size:9.5px;color:var(--warn);white-space:nowrap"><span class="dot warn" style="width:5px;height:5px"></span>待发布 2</span>
+            <button class="btn sm">保存 <span class="kbd" style="margin-left:2px">⌘S</span></button>
+            <button class="btn pri sm"><svg class="ic"><use href="#i-upload"/></svg>发布</button>
+            <button class="btn ghost sm"><svg class="ic"><use href="#i-external"/></svg>开个会话</button>
+            <button class="btn ghost sm"><svg class="ic"><use href="#i-x"/></svg></button>
+          </div>
+          <div class="body">
+            <div class="v2-files">
+              <div class="f on"><svg class="ic" style="width:11px;height:11px"><use href="#i-file"/></svg>nous.json<span class="sz">0.6 KB</span></div>
+              <div class="f"><svg class="ic" style="width:11px;height:11px"><use href="#i-file"/></svg>src/main.rs<span class="sz">3.1 KB</span></div>
+              <div class="f"><svg class="ic" style="width:11px;height:11px"><use href="#i-file"/></svg>Cargo.toml<span class="sz">164 B</span></div>
+              <div class="f"><svg class="ic" style="width:11px;height:11px"><use href="#i-file"/></svg>README.md<span class="sz">1.2 KB</span></div>
+            </div>
+            <div class="v2-code">
+              <div class="bar"><span class="path">nous.json</span><span class="sp"></span><span class="delta"><span class="p">+2</span><span class="m">−0</span></span><span class="kbd">Alt+D</span></div>
+              <div class="code scroll">
+                <div class="cl"><span class="ln">1</span><span class="tx">{</span></div>
+                <div class="cl"><span class="ln">2</span><span class="tx">  <span class="s">"name"</span>: <span class="s">"daily-digest"</span>,</span></div>
+                <div class="cl"><span class="ln">3</span><span class="tx">  <span class="s">"version"</span>: <span class="s">"0.3.1"</span>,</span></div>
+                <div class="cl"><span class="ln">4</span><span class="tx">  <span class="s">"summary"</span>: <span class="s">"每天第一条会话时，按日历和昨天的日志起一条摘要"</span>,</span></div>
+                <div class="cl"><span class="ln">5</span><span class="tx">  <span class="s">"category"</span>: [<span class="s">"日常"</span>, <span class="s">"日常/摘要"</span>],</span></div>
+                <div class="cl"><span class="ln">6</span><span class="tx">  <span class="s">"params"</span>: [</span></div>
+                <div class="cl"><span class="ln">7</span><span class="tx">    { <span class="s">"name"</span>: <span class="s">"at"</span>, <span class="s">"type"</span>: <span class="s">"epoch"</span>, <span class="s">"label"</span>: <span class="s">"每天几点"</span>, <span class="s">"required"</span>: <span class="n">true</span> },</span></div>
+                <div class="cl add"><span class="ln">8</span><span class="tx">    { <span class="s">"name"</span>: <span class="s">"tone"</span>, <span class="s">"type"</span>: <span class="s">"select"</span>, <span class="s">"label"</span>: <span class="s">"语气"</span>,</span></div>
+                <div class="cl add"><span class="ln">9</span><span class="tx">      <span class="s">"options"</span>: [<span class="s">"简洁"</span>, <span class="s">"详细"</span>, <span class="s">"只列结论"</span>] }</span></div>
+                <div class="cl"><span class="ln">10</span><span class="tx">  ],</span></div>
+                <div class="cl"><span class="ln">11</span><span class="tx">  <span class="s">"binary"</span>: <span class="s">"daily-digest"</span></span></div>
+                <div class="cl"><span class="ln">12</span><span class="tx">}</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ 03 · 代码优先（IDE）══════════════ -->
+    <div class="app" data-v="3">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v3">
+        <header class="v3-top">
+          <span class="brand" style="gap:7px"><svg class="ic" style="width:15px;height:15px;color:var(--ink2)"><use href="#i-bolt"/></svg><b style="font-size:12px">trigger</b></span>
+          <span style="color:var(--line)">|</span>
+          <button class="tab2">清单</button>
+          <button class="tab2 on">代码</button>
+          <button class="tab2">发布</button>
+          <div class="grow"></div>
+          <span class="chip mono" style="height:19px">main · 8517477</span>
+          <span class="row" style="gap:5px;font-size:10px;color:var(--warn);white-space:nowrap"><span class="dot warn" style="width:5px;height:5px"></span>2 改动</span>
+          <button class="btn ghost sm"><svg class="ic"><use href="#i-refresh"/></svg></button>
+        </header>
+        <div class="v3-body">
+          <aside class="v3-side">
+            <div class="sh">
+              <div class="r"><span class="t">触发器</span><span class="n">12</span></div>
+              <div class="search" style="height:26px;min-width:0"><svg class="ic"><use href="#i-search"/></svg>搜名字 / 类别</div>
+            </div>
+            <div style="padding:2px 0 5px">
+              <div class="frow3 on">全部<span class="n">12</span></div>
+              <div class="frow3">未分类<span class="n">0</span></div>
+              <div class="frow3">日常<span class="n">3</span></div>
+              <div class="frow3">工程<span class="n">5</span></div>
+              <div class="frow3">提醒<span class="n">1</span></div>
+              <div class="frow3">系统<span class="n">2</span></div>
+              <div class="frow3">时间<span class="n">1</span></div>
+              <div class="frow3">已归档<span class="n">6</span></div>
+            </div>
+            <div class="v3-list">
+              <div class="trow3 on"><div class="nm"><span class="d dirty"></span>daily-digest<span style="margin-left:auto;font:9px var(--mono);color:var(--warn)">M2</span></div><div class="sub"><span>v0.3.1</span><span>日常/摘要</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d"></span>single-shot</div><div class="sub"><span>v0.1.0</span><span>时间/一次</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d unpublished"></span>ci-watch</div><div class="sub"><span>v0.4.2</span><span>工程/CI</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d broken"></span>disk-guard</div><div class="sub"><span>v0.2.0</span><span>系统/磁盘</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d"></span>pr-review</div><div class="sub"><span>v1.2.0</span><span>工程/评审</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d dirty"></span>release-notes<span style="margin-left:auto;font:9px var(--mono);color:var(--warn)">M1</span></div><div class="sub"><span>v0.5.0</span><span>工程/发布</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d"></span>inbox-triage</div><div class="sub"><span>v0.1.3</span><span>提醒/收件箱</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d"></span>weather-brief</div><div class="sub"><span>v0.1.0</span><span>日常/天气</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d"></span>stale-prs</div><div class="sub"><span>v0.2.4</span><span>工程/评审</span></div></div>
+              <div class="trow3"><div class="nm"><span class="d"></span>nightly-backup</div><div class="sub"><span>v0.1.2</span><span>系统/备份</span></div></div>
+            </div>
+          </aside>
+
+          <div class="v3-editor">
+            <div class="eh">
+              <div class="ftab"><svg class="ic" style="width:11px;height:11px"><use href="#i-file"/></svg>nous.json</div>
+              <div class="ftab on"><svg class="ic" style="width:11px;height:11px"><use href="#i-file"/></svg>src/main.rs<span class="x">●</span></div>
+              <div class="ftab"><svg class="ic" style="width:11px;height:11px"><use href="#i-file"/></svg>Cargo.toml</div>
+            </div>
+            <div class="ebar">
+              <span class="path">daily-digest / src/main.rs</span>
+              <span class="delta"><span class="p">+6</span><span class="m">−2</span></span>
+              <span class="sp"></span>
+              <div class="seg"><button class="on">编辑</button><button>差异</button></div>
+              <button class="btn ghost sm" style="font-size:10px;color:var(--warn)">已保存 · 待发布</button>
+            </div>
+            <div class="code scroll">
+              <div class="cl"><span class="ln">1</span><span class="tx"><span class="c">//! daily-digest —— 每天第一条会话时，按日历和昨天的日志起一条摘要。</span></span></div>
+              <div class="cl"><span class="ln">2</span><span class="tx"><span class="c">//!</span></span></div>
+              <div class="cl"><span class="ln">3</span><span class="tx"><span class="c">//! 契约：stdin 一行 JSON，stdout 一行 JSON，退出码 0 = 正常。</span></span></div>
+              <div class="cl"><span class="ln">4</span><span class="tx"><span class="k">use</span> serde_json::{json, Value};</span></div>
+              <div class="cl"><span class="ln">5</span><span class="tx"><span class="k">use</span> std::io::{self, Read};</span></div>
+              <div class="cl"><span class="ln">6</span><span class="tx"></span></div>
+              <div class="cl"><span class="ln">7</span><span class="tx"><span class="k">const</span> WINDOW: i64 = <span class="n">60</span>;</span></div>
+              <div class="cl"><span class="ln">8</span><span class="tx"></span></div>
+              <div class="cl"><span class="ln">9</span><span class="tx"><span class="k">fn</span> <span class="f">read_params</span>() -&gt; Value {</span></div>
+              <div class="cl"><span class="ln">10</span><span class="tx">    <span class="k">let mut</span> raw = String::new();</span></div>
+              <div class="cl"><span class="ln">11</span><span class="tx">    io::stdin().read_to_string(&amp;<span class="k">mut</span> raw).expect(<span class="s">"读 stdin"</span>);</span></div>
+              <div class="cl"><span class="ln">12</span><span class="tx">    serde_json::from_str(&amp;raw).expect(<span class="s">"stdin 不是 JSON"</span>)</span></div>
+              <div class="cl"><span class="ln">13</span><span class="tx">}</span></div>
+              <div class="cl"><span class="ln">14</span><span class="tx"></span></div>
+              <div class="cl"><span class="ln">15</span><span class="tx"><span class="k">fn</span> <span class="f">main</span>() {</span></div>
+              <div class="cl"><span class="ln">16</span><span class="tx">    <span class="k">let</span> params = read_params();</span></div>
+              <div class="cl"><span class="ln">17</span><span class="tx">    <span class="k">let</span> at = params.param(<span class="s">"at"</span>).i64().unwrap_or(<span class="n">7</span> * <span class="n">3600</span>);</span></div>
+              <div class="cl"><span class="ln">18</span><span class="tx">    <span class="k">let</span> logs = read_logs_yesterday();</span></div>
+              <div class="cl add"><span class="ln">19</span><span class="tx">    <span class="k">if</span> logs.is_empty() {</span></div>
+              <div class="cl add"><span class="ln">20</span><span class="tx">        <span class="k">return</span> println!(<span class="s">r#"{{"fire":false,"reason":"昨天没日志"}}"#</span>);</span></div>
+              <div class="cl add"><span class="ln">21</span><span class="tx">    }</span></div>
+              <div class="cl del"><span class="ln">22</span><span class="tx">    <span class="k">let</span> prompt = format!(<span class="s">"读昨天日志，写摘要"</span>);</span></div>
+              <div class="cl add"><span class="ln">22</span><span class="tx">    <span class="k">let</span> tone = params.param(<span class="s">"tone"</span>).str().unwrap_or(<span class="s">"简洁"</span>);</span></div>
+              <div class="cl add"><span class="ln">23</span><span class="tx">    <span class="k">let</span> prompt = build_prompt(&amp;logs, tone);</span></div>
+              <div class="cl"><span class="ln">24</span><span class="tx">    <span class="k">let</span> fire = now() &gt;= at &amp;&amp; now() &lt; at + WINDOW;</span></div>
+              <div class="cl"><span class="ln">25</span><span class="tx">    println!(<span class="s">r#"{{"fire":{},"reason":"{}","data":{{"prompt":"{}"}}}}"#</span>, fire, <span class="s">""</span>, prompt);</span></div>
+              <div class="cl"><span class="ln">26</span><span class="tx">}</span></div>
+              <div class="cl"><span class="ln">27</span><span class="tx"></span></div>
+              <div class="cl"><span class="ln">28</span><span class="tx"><span class="c">#[cfg(test)]</span></span></div>
+              <div class="cl"><span class="ln">29</span><span class="tx"><span class="k">mod</span> tests { <span class="c">/* 5 个纯函数用例 */</span> }</span></div>
+            </div>
+            <div class="efoot">
+              <span>Rust · UTF-8 · LF</span><span>·</span><span>29 行 · 3.1 KB</span>
+              <span class="sp"></span>
+              <span>第 19 行，第 9 列</span><span>·</span><span class="kbd">⌘S</span> 保存<span class="kbd">Alt+D</span> 差异
+            </div>
+          </div>
+
+          <aside class="v3-pub scroll">
+            <div class="ph">
+              <h3>发布 daily-digest</h3>
+              <div class="s">保存只落盘；发布才 check → build → index → commit → push。</div>
+            </div>
+            <div class="blk">
+              <h4>流水线<span class="sp"></span><span style="font:9px var(--mono);color:var(--faint)">只发这一个</span></h4>
+              <div class="step3"><span class="no">01</span><div class="b"><div class="t">cargo check</div><div class="d">通过 · 1.24s</div></div><span class="st">通过</span></div>
+              <div class="step3"><span class="no">02</span><div class="b"><div class="t">cargo build</div><div class="d">通过 · 2.83s → target/debug/daily-digest</div></div><span class="st">通过</span></div>
+              <div class="step3"><span class="no">03</span><div class="b"><div class="t">node index.mjs</div><div class="d">12 triggers · 0 problems</div></div><span class="st">通过</span></div>
+              <div class="step3"><span class="no">04</span><div class="b"><div class="t">commit</div><div class="d">daily-digest/ + index.json</div></div><span class="st wait">待做</span></div>
+              <div class="step3"><span class="no">05</span><div class="b"><div class="t">push</div><div class="d">origin/main</div></div><span class="st wait">待做</span></div>
+              <div style="font-size:9.5px;color:var(--faint);margin-top:8px;line-height:1.7">别人的脏文件一个都不带：只 add <span class="mono">daily-digest/</span> 和 <span class="mono">index.json</span>。</div>
+            </div>
+            <div class="blk">
+              <h4>参数声明<span class="sp"></span><span style="font:9px var(--mono);color:var(--faint)">2</span></h4>
+              <div class="pcard"><div class="l1"><span class="nm">at</span><span class="ty">epoch</span><span class="chip warn" style="height:16px;font-size:9px">必填</span></div><div class="help">每天几点 · UTC 秒，页面上用本地时间挑</div></div>
+              <div class="pcard"><div class="l1"><span class="nm">tone</span><span class="ty">select</span></div><div class="help">简洁 / 详细 / 只列结论</div></div>
+            </div>
+            <div class="blk">
+              <h4>编译器输出</h4>
+              <div class="out">
+<span class="dim">$ cargo check --quiet --target-dir daily-digest/target</span>
+   <span class="g">Finished</span> `dev` profile [unoptimized + debuginfo] target(s) in <span class="y">1.24s</span>
+<span class="dim">$ cargo build --quiet --target-dir daily-digest/target</span>
+   <span class="g">Finished</span> `dev` profile [unoptimized + debuginfo] target(s) in <span class="y">2.83s</span>
+<span class="dim">$ node index.mjs</span>
+   <span class="g">index.json</span> · 12 triggers · <span class="g">0 problems</span>
+              </div>
+            </div>
+            <div class="blk">
+              <h4>仓库</h4>
+              <div class="d-row"><span class="k">HEAD</span><span class="v">8517477 · main</span></div>
+              <div class="d-row"><span class="k">改动</span><span class="v" style="color:var(--warn)">nous.json、src/main.rs</span></div>
+              <div class="d-row"><span class="k">产物</span><span class="v">target/debug/daily-digest</span></div>
+            </div>
+            <div style="padding:14px 18px">
+              <button class="btn pri" style="width:100%;justify-content:center;height:32px"><svg class="ic"><use href="#i-upload"/></svg>发布 daily-digest</button>
+              <div style="font-size:9px;color:var(--faint);margin-top:7px;line-height:1.6">失败就停在第 1 步，不会提交半成品；push 失败会保留本地提交，再点一次即可。</div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ 04 · 发布工作台（git）══════════════ -->
+    <div class="app" data-v="4">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v4">
+        <div class="v4-strip">
+          <div class="i"><span class="k">repo</span><span class="v">Nous-Trigger</span></div>
+          <div class="i"><span class="k">branch</span><span class="v">main</span></div>
+          <div class="i"><span class="k">HEAD</span><span class="v">8517477</span></div>
+          <div class="i"><span class="k">ahead</span><span class="v warn">2</span></div>
+          <div class="i"><span class="k">behind</span><span class="v">0</span></div>
+          <div class="i"><span class="k">dirty</span><span class="v warn">7 files</span></div>
+          <div class="i"><span class="k">remote</span><span class="v">origin</span></div>
+          <div class="sp"></div>
+          <div class="i"><span class="k">未发布</span><span class="v warn">2</span></div>
+          <div class="i"><span class="k">坏清单</span><span class="v bad">1</span></div>
+          <button class="btn ghost sm" style="color:#c9d1d4;border-color:#3a4145"><svg class="ic"><use href="#i-refresh"/></svg>重扫</button>
+        </div>
+        <div class="v4-body">
+          <aside class="v4-files">
+            <div class="fh">
+              <div class="t">待提交的改动<span class="n">7</span></div>
+              <div class="s">只勾了 daily-digest。发布只带它和 index.json。</div>
+            </div>
+            <div class="body">
+              <div class="grp4">daily-digest<span class="badge dirty" style="height:15px;font-size:8px"><span class="dot warn"></span>2</span></div>
+              <div class="fr4 on"><span class="box">✓</span>nous.json<span class="st p">+2</span></div>
+              <div class="fr4 on"><span class="box">✓</span>src/main.rs<span class="st p">+6</span><span class="st m">−2</span></div>
+              <div class="grp4">release-notes<span class="badge dirty" style="height:15px;font-size:8px"><span class="dot warn"></span>1</span></div>
+              <div class="fr4"><span class="box"></span>nous.json<span class="st p">+1</span></div>
+              <div class="grp4">词表 / 索引</div>
+              <div class="fr4"><span class="box"></span>index.json<span class="st p">+4</span><span class="st m">−1</span></div>
+              <div class="fr4"><span class="box"></span>categories.json<span class="st p">+2</span></div>
+              <div class="grp4">其它</div>
+              <div class="fr4"><span class="box"></span>disk-guard/nous.json<span class="st m">−3</span></div>
+              <div class="fr4" style="color:var(--faint)"><span class="box"></span>target/…（忽略）</div>
+            </div>
+          </aside>
+
+          <div class="v4-diff">
+            <div class="dh">
+              <svg class="ic" style="width:12px;height:12px;color:var(--muted)"><use href="#i-file"/></svg>
+              <span class="nm">daily-digest / src/main.rs</span>
+              <span class="chip mono" style="height:16px;font-size:8.5px">与 HEAD 比</span>
+              <span class="sp"></span>
+              <span class="delta"><span class="p">+6</span><span class="m">−2</span></span>
+              <button class="btn ghost sm" style="font-size:10px">展开上下文</button>
+            </div>
+            <div class="code scroll">
+              <div class="cl"><span class="ln">15</span><span class="tx"><span class="k">fn</span> <span class="f">main</span>() {</span></div>
+              <div class="cl"><span class="ln">16</span><span class="tx">    <span class="k">let</span> params = read_params();</span></div>
+              <div class="cl"><span class="ln">17</span><span class="tx">    <span class="k">let</span> at = params.param(<span class="s">"at"</span>).i64().unwrap_or(<span class="n">7</span> * <span class="n">3600</span>);</span></div>
+              <div class="cl"><span class="ln">18</span><span class="tx">    <span class="k">let</span> logs = read_logs_yesterday();</span></div>
+              <div class="cl add"><span class="ln">19</span><span class="tx">    <span class="k">if</span> logs.is_empty() {</span></div>
+              <div class="cl add"><span class="ln">20</span><span class="tx">        <span class="k">return</span> println!(<span class="s">r#"{{"fire":false,"reason":"昨天没日志"}}"#</span>);</span></div>
+              <div class="cl add"><span class="ln">21</span><span class="tx">    }</span></div>
+              <div class="cl del"><span class="ln">22</span><span class="tx">    <span class="k">let</span> prompt = format!(<span class="s">"读昨天日志，写摘要"</span>);</span></div>
+              <div class="cl add"><span class="ln">22</span><span class="tx">    <span class="k">let</span> tone = params.param(<span class="s">"tone"</span>).str().unwrap_or(<span class="s">"简洁"</span>);</span></div>
+              <div class="cl add"><span class="ln">23</span><span class="tx">    <span class="k">let</span> prompt = build_prompt(&amp;logs, tone);</span></div>
+              <div class="cl"><span class="ln">24</span><span class="tx">    <span class="k">let</span> fire = now() &gt;= at &amp;&amp; now() &lt; at + WINDOW;</span></div>
+              <div class="cl"><span class="ln">25</span><span class="tx">    println!(<span class="s">r#"{{"fire":{},"reason":"{}","data":{{"prompt":"{}"}}}}"#</span>, fire, <span class="s">""</span>, prompt);</span></div>
+              <div class="cl"><span class="ln">26</span><span class="tx">}</span></div>
+              <div class="cl"><span class="ln">27</span><span class="tx"></span></div>
+              <div class="cl"><span class="ln">28</span><span class="tx"><span class="c">#[cfg(test)]</span></span></div>
+              <div class="cl"><span class="ln">29</span><span class="tx"><span class="k">mod</span> tests { <span class="c">/* 5 个纯函数用例 */</span> }</span></div>
+            </div>
+            <div class="dfoot">
+              <span class="mono">@@ -18,7 +18,9 @@</span>
+              <span style="flex:1"></span>
+              <span>统一 diff · 3 行上下文</span>
+              <span>·</span>
+              <span class="kbd">j</span><span class="kbd">k</span> 上下
+            </div>
+          </div>
+
+          <aside class="v4-check">
+            <div class="ch">
+              <h3>发布检查</h3>
+              <div class="s">勾了哪些文件就发哪些 —— 但闸门是整条流水线。</div>
+            </div>
+            <div class="blk">
+              <h4>闸门</h4>
+              <div class="ck4"><svg class="ic"><use href="#i-check"/></svg><div class="b"><div class="t" style="font-size:10.5px">nous.json 形状</div><div class="d">必填四项 + name 与目录一致</div></div><span class="v">通过</span></div>
+              <div class="ck4"><svg class="ic"><use href="#i-check"/></svg><div class="b"><div class="t" style="font-size:10.5px">参数声明</div><div class="d">at: epoch、tone: select(options)</div></div><span class="v">通过</span></div>
+              <div class="ck4"><svg class="ic"><use href="#i-check"/></svg><div class="b"><div class="t" style="font-size:10.5px">cargo check</div><div class="d">1.24s · 0 warnings</div></div><span class="v">通过</span></div>
+              <div class="ck4"><svg class="ic"><use href="#i-check"/></svg><div class="b"><div class="t" style="font-size:10.5px">cargo build</div><div class="d">2.83s → target/debug/daily-digest</div></div><span class="v">通过</span></div>
+              <div class="ck4"><svg class="ic"><use href="#i-check"/></svg><div class="b"><div class="t" style="font-size:10.5px">index.mjs</div><div class="d">12 triggers · 0 problems</div></div><span class="v">通过</span></div>
+              <div class="ck4"><svg class="ic wait"><use href="#i-clock"/></svg><div class="b"><div class="t" style="font-size:10.5px">commit + push</div><div class="d">等上面都过了才动</div></div><span class="v">待</span></div>
+            </div>
+            <div class="blk">
+              <h4>这次会提交</h4>
+              <div class="skip6">daily-digest/nous.json<br>daily-digest/src/main.rs<br>index.json</div>
+              <div class="skip6"><span class="w">不会带</span>：release-notes/nous.json、categories.json、disk-guard/nous.json</div>
+            </div>
+            <div class="blk">
+              <h4>产物</h4>
+              <div class="d-row"><span class="k">二进制</span><span class="v">target/debug/daily-digest</span></div>
+              <div class="d-row"><span class="k">大小</span><span class="v">2.4 MB</span></div>
+              <div class="d-row"><span class="k">调度器</span><span class="v">跑的就是这个文件</span></div>
+            </div>
+            <div class="pub">
+              <button class="btn pri"><svg class="ic"><use href="#i-git"/></svg>发布 · 1 个触发器</button>
+            </div>
+            <div class="v4-note">只 add <span class="mono">daily-digest/</span> 和 <span class="mono">index.json</span>。push 被拒（远端有新提交）时本地提交保留，拉一下再点。</div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ 05 · 运维表格 + 抽屉 ══════════════ -->
+    <div class="app" data-v="5">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v5">
+        <div class="v5-strip">
+          <div class="i"><span class="dot"></span><span>同步正常</span></div>
+          <div class="i"><span class="k">HEAD</span><span class="v">8517477</span></div>
+          <div class="i"><span class="k">ahead</span><span class="v">0</span></div>
+          <div class="i"><span class="k">dirty</span><span class="v">0</span></div>
+          <div class="i"><span class="k">未发布</span><span class="v">2</span></div>
+          <div class="i"><span class="k">坏清单</span><span class="v bad">1</span></div>
+          <div class="i"><span class="k">词表</span><span class="v">14 类别</span></div>
+          <div class="sp"></div>
+          <div class="i"><span class="k">/opt/Nous-Trigger</span></div>
+          <button class="btn ghost sm" style="color:#c9d1d4;border-color:#3a4145"><svg class="ic"><use href="#i-refresh"/></svg>重扫</button>
+        </div>
+        <div class="v5-head">
+          <div class="r1">
+            <h1>触发器</h1>
+            <span class="cnt">12 可用 · 6 已归档</span>
+            <span class="sp"></span>
+            <button class="btn sm"><svg class="ic"><use href="#i-terminal"/></svg>index.mjs --check</button>
+            <button class="btn pri sm"><svg class="ic"><use href="#i-plus"/></svg>新建</button>
+          </div>
+          <div class="tools">
+            <div class="search"><svg class="ic"><use href="#i-search"/></svg>名字 / 说明 / 类别 / 参数名</div>
+            <div class="row" style="gap:4px">
+              <button class="fbtn on">全部 12</button>
+              <button class="fbtn"><span class="dot" style="background:var(--warn)"></span>有改动 2</button>
+              <button class="fbtn"><span class="dot" style="background:#d8b25a"></span>未发布 2</button>
+              <button class="fbtn"><span class="dot bad"></span>坏 1</button>
+            </div>
+            <span class="grow"></span>
+            <button class="btn ghost sm"><svg class="ic"><use href="#i-grid"/></svg>卡片</button>
+            <button class="btn ghost sm" style="background:var(--surface);color:var(--ink)"><svg class="ic"><use href="#i-list"/></svg>表格</button>
+            <button class="btn ghost sm"><svg class="ic"><use href="#i-download"/></svg>导出</button>
+          </div>
+        </div>
+        <div class="v5-tablewrap">
+          <table class="t5">
+            <thead><tr>
+              <th style="width:168px">NAME</th><th style="width:60px">VERSION</th><th style="width:118px">CATEGORY</th>
+              <th style="width:54px" class="r">PARAMS</th><th style="width:76px">DIRTY</th><th style="width:98px">STATE</th>
+              <th style="width:58px">TRACKED</th><th class="r">UPDATED</th>
+            </tr></thead>
+            <tbody>
+              <tr class="on">
+                <td><span class="nm">daily-digest</span></td><td class="m">0.3.1</td><td class="cat">日常 / 摘要</td>
+                <td class="m r">2</td><td class="dirty">2 files</td>
+                <td><span class="badge dirty"><span class="dot warn"></span>有改动</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-15 19:08</td>
+              </tr>
+              <tr>
+                <td><span class="nm">single-shot</span></td><td class="m">0.1.0</td><td class="cat">时间 / 一次</td>
+                <td class="m r">1</td><td class="dirty none">—</td>
+                <td><span class="badge ok"><span class="dot"></span>已发布</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-15 18:40</td>
+              </tr>
+              <tr>
+                <td><span class="nm">ci-watch</span></td><td class="m">0.4.2</td><td class="cat">工程 / CI</td>
+                <td class="m r">2</td><td class="dirty none">—</td>
+                <td><span class="badge unpublished"><span class="dot" style="background:#d8b25a"></span>未发布</span></td>
+                <td class="m" style="color:var(--faint)">—</td><td class="m r" style="color:var(--faint)">11-15 17:22</td>
+              </tr>
+              <tr>
+                <td><span class="nm">disk-guard</span></td><td class="m">0.2.0</td><td class="cat">系统 / 磁盘</td>
+                <td class="m r">2</td><td class="dirty none">—</td>
+                <td><span class="badge broken"><span class="dot bad"></span>清单坏了</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-14 09:31</td>
+              </tr>
+              <tr>
+                <td><span class="nm">pr-review</span></td><td class="m">1.2.0</td><td class="cat">工程 / 评审</td>
+                <td class="m r">3</td><td class="dirty none">—</td>
+                <td><span class="badge ok"><span class="dot"></span>已发布</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-13 16:12</td>
+              </tr>
+              <tr>
+                <td><span class="nm">release-notes</span></td><td class="m">0.5.0</td><td class="cat">工程 / 发布</td>
+                <td class="m r">2</td><td class="dirty">1 file</td>
+                <td><span class="badge dirty"><span class="dot warn"></span>有改动</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-12 11:03</td>
+              </tr>
+              <tr>
+                <td><span class="nm">inbox-triage</span></td><td class="m">0.1.3</td><td class="cat">提醒 / 收件箱</td>
+                <td class="m r">1</td><td class="dirty none">—</td>
+                <td><span class="badge ok"><span class="dot"></span>已发布</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-11 08:20</td>
+              </tr>
+              <tr>
+                <td><span class="nm">weather-brief</span></td><td class="m">0.1.0</td><td class="cat">日常 / 天气</td>
+                <td class="m r">1</td><td class="dirty none">—</td>
+                <td><span class="badge ok"><span class="dot"></span>已发布</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-09 07:45</td>
+              </tr>
+              <tr>
+                <td><span class="nm">stale-prs</span></td><td class="m">0.2.4</td><td class="cat">工程 / 评审</td>
+                <td class="m r">1</td><td class="dirty none">—</td>
+                <td><span class="badge ok"><span class="dot"></span>已发布</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-08 14:10</td>
+              </tr>
+              <tr>
+                <td><span class="nm">nightly-backup</span></td><td class="m">0.1.2</td><td class="cat">系统 / 备份</td>
+                <td class="m r">1</td><td class="dirty none">—</td>
+                <td><span class="badge ok"><span class="dot"></span>已发布</span></td>
+                <td class="m" style="color:var(--ok)">✓</td><td class="m r" style="color:var(--faint)">11-07 02:30</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="margin-top:14px;display:flex;align-items:center;gap:10px;font:10px var(--mono);color:var(--faint)">
+            <span>10 / 12</span><span>·</span><span>按最近改动倒序</span>
+            <span style="flex:1"></span><span class="kbd">j</span><span class="kbd">k</span> 移动<span class="kbd">Enter</span> 详情
+          </div>
+        </div>
+
+        <aside class="sheet v5-drawer">
+          <div class="dh">
+            <div class="r">
+              <div class="tile" style="background:hsl(28 42% 40%)">D</div>
+              <div style="flex:1"><h2>daily-digest</h2><div class="meta">v0.3.1 · daily-digest/ · 产物 daily-digest</div></div>
+              <span class="badge dirty"><span class="dot warn"></span>2 个文件</span>
+              <button class="btn ghost sm"><svg class="ic"><use href="#i-x"/></svg></button>
+            </div>
+          </div>
+          <div class="blk"><h4>摘要</h4><div class="p">每天第一条会话时，按日历和昨天的日志起一条摘要 —— 没有日志就跳过，不硬凑。</div></div>
+          <div class="blk">
+            <h4>类别</h4>
+            <div class="row" style="flex-wrap:wrap;gap:4px"><span class="chip">日常</span><span class="chip">日常 / 摘要</span><span class="chip line" style="color:var(--faint)">＋</span></div>
+          </div>
+          <div class="blk">
+            <h4>参数 · 2</h4>
+            <div class="pcard"><div class="l1"><span class="nm">at</span><span class="ty">epoch</span><span class="chip warn" style="height:16px;font-size:9px">必填</span><span class="sp"></span><span style="font-size:9.5px;color:var(--faint)">每天几点</span></div><div class="help">UTC 秒；页面上用本地时间挑。</div></div>
+            <div class="pcard"><div class="l1"><span class="nm">tone</span><span class="ty">select</span><span class="sp"></span><span style="font-size:9.5px;color:var(--faint)">简洁 / 详细 / 只列结论</span></div></div>
+          </div>
+          <div class="blk">
+            <h4>仓库</h4>
+            <div class="d-row"><span class="k">状态</span><span class="v">已进 HEAD</span></div>
+            <div class="d-row"><span class="k">改动</span><span class="v" style="color:var(--warn)">nous.json、src/main.rs</span></div>
+            <div class="d-row"><span class="k">同步</span><span class="v plain">清单 8 秒内自动推；代码要发布</span></div>
+          </div>
+          <div class="blk">
+            <h4>发布检查</h4>
+            <div class="d-row"><span class="k">cargo check</span><span class="v" style="color:var(--faint)">未跑</span></div>
+            <div class="d-row"><span class="k">cargo build</span><span class="v" style="color:var(--faint)">产物未更新</span></div>
+            <div class="d-row"><span class="k">index</span><span class="v" style="color:var(--faint)">待重扫</span></div>
+          </div>
+          <div class="acts">
+            <button class="btn sm"><svg class="ic"><use href="#i-code"/></svg>代码 ›</button>
+            <button class="btn sm pri"><svg class="ic"><use href="#i-upload"/></svg>发布</button>
+            <div class="grow"></div>
+            <button class="btn sm danger"><svg class="ic"><use href="#i-archive"/></svg>归档</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- ══════════════ 06 · 类别与归档 ══════════════ -->
+    <div class="app" data-v="6">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v6">
+        <aside class="v6-cats">
+          <div class="hd">
+            <div class="r"><h2>类别</h2><span class="n">14</span></div>
+            <div class="s">左栏只管类别。状态在顶栏那条筛选条里。</div>
+          </div>
+          <div class="body">
+            <div class="crow6">全部<span class="n">12</span></div>
+            <div class="crow6">未分类<span class="n">0</span></div>
+            <div class="crow6"><span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>日常<span class="n">3</span><span class="more">⋯</span></div>
+            <div class="crow6" style="padding-left:30px">摘要<span class="n">1</span></div>
+            <div class="crow6" style="padding-left:30px;color:var(--faint)">复盘<span class="n">0</span></div>
+            <div class="crow6 on"><span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>工程<span class="n">5</span><span class="more">⋯</span></div>
+            <div class="crow6" style="padding-left:30px">发布<span class="n">1</span></div>
+            <div class="crow6" style="padding-left:30px">评审<span class="n">2</span></div>
+            <div class="crow6" style="padding-left:30px">CI<span class="n">1</span></div>
+            <div class="crow6" style="padding-left:30px">巡检<span class="n">1</span></div>
+            <div class="crow6"><span class="tw"></span>提醒<span class="n">1</span><span class="more">⋯</span></div>
+            <div class="crow6"><span class="tw"></span>系统<span class="n">2</span><span class="more">⋯</span></div>
+            <div class="crow6"><span class="tw"></span>时间<span class="n">1</span><span class="more">⋯</span></div>
+            <div class="crow6" style="margin-top:8px;border-top:1px solid var(--line-soft);padding-top:8px">
+              <span class="tw"><svg class="ic" style="width:9px;height:9px"><use href="#i-chev-d"/></svg></span>已归档<span class="n">6</span>
+            </div>
+            <div class="crow6" style="padding-left:30px">morning-review<span class="n">v0.1.0</span></div>
+            <div class="crow6" style="padding-left:30px">issue-watch<span class="n">v0.2.0</span></div>
+            <div class="crow6" style="padding-left:30px">dep-alert<span class="n">v0.1.0</span></div>
+            <div class="crow6" style="padding-left:30px">old-probe<span class="n">v0.0.3</span></div>
+            <div class="crow6" style="padding-left:30px">rss-digest<span class="n">v0.1.1</span></div>
+            <div class="crow6" style="padding-left:30px">tweet-watch<span class="n">v0.2.0</span></div>
+          </div>
+          <div class="newcat"><input class="in" placeholder="＋ 新建类别（可写 父/子）"></div>
+        </aside>
+
+        <main class="v6-main">
+          <div class="mh">
+            <div class="r">
+              <h1>归档</h1>
+              <span class="cnt">6 个 · 在 .archive/</span>
+              <span class="sp"></span>
+              <div class="search" style="height:26px;min-width:180px"><svg class="ic"><use href="#i-search"/></svg>搜归档</div>
+              <button class="btn ghost sm"><svg class="ic"><use href="#i-refresh"/></svg>重扫</button>
+            </div>
+          </div>
+          <div class="body">
+            <div class="arch6">
+              <div class="arow">
+                <div class="tile" style="background:hsl(28 40% 38%)">M</div>
+                <div class="b"><div class="nm">morning-review <span class="ver">v0.1.0</span></div>
+                  <div class="sum">每天第一条会话时，按昨天的日志起一条复盘</div>
+                  <div class="mt"><span>日常 / 复盘</span><span>归档于 2026-11-07</span><span>0 参数</span></div></div>
+                <div class="acts"><button class="btn sm">恢复</button><button class="btn sm danger">彻底删除</button></div>
+              </div>
+              <div class="arow">
+                <div class="tile" style="background:hsl(150 34% 34%)">I</div>
+                <div class="b"><div class="nm">issue-watch <span class="ver">v0.2.0</span></div>
+                  <div class="sum">盯着的 issue 有新评论时，起一条「先看评论再说话」的会话</div>
+                  <div class="mt"><span>提醒 / 外部</span><span>归档于 2026-11-07</span><span>1 参数</span></div></div>
+                <div class="acts"><button class="btn sm">恢复</button><button class="btn sm danger">彻底删除</button></div>
+              </div>
+              <div class="arow">
+                <div class="tile" style="background:hsl(330 34% 40%)">D</div>
+                <div class="b"><div class="nm">dep-alert <span class="ver">v0.1.0</span></div>
+                  <div class="sum">依赖审计里出现高危项时，起一条修（或者判定不用修）的会话</div>
+                  <div class="mt"><span>工程 / 发布</span><span>归档于 2026-11-07</span><span>0 参数</span></div></div>
+                <div class="acts"><button class="btn sm">恢复</button><button class="btn sm danger">彻底删除</button></div>
+              </div>
+              <div class="arow">
+                <div class="tile" style="background:hsl(200 34% 38%)">O</div>
+                <div class="b"><div class="nm">old-probe <span class="ver">v0.0.3</span></div>
+                  <div class="sum">早期用来验调度链路的探针，只会 println false</div>
+                  <div class="mt"><span>时间 / 一次</span><span>归档于 2026-10-21</span><span>0 参数</span></div></div>
+                <div class="acts"><button class="btn sm">恢复</button><button class="btn sm danger">彻底删除</button></div>
+              </div>
+              <div class="arow">
+                <div class="tile" style="background:hsl(90 30% 34%)">R</div>
+                <div class="b"><div class="nm">rss-digest <span class="ver">v0.1.1</span></div>
+                  <div class="sum">订阅源有更新时，把新条目压成一份摘要</div>
+                  <div class="mt"><span>日常 / 摘要</span><span>归档于 2026-10-02</span><span>2 参数</span></div></div>
+                <div class="acts"><button class="btn sm">恢复</button><button class="btn sm danger">彻底删除</button></div>
+              </div>
+              <div class="arow">
+                <div class="tile" style="background:hsl(250 32% 42%)">T</div>
+                <div class="b"><div class="nm">tweet-watch <span class="ver">v0.2.0</span></div>
+                  <div class="sum">关注的人发了新内容，起一条「值得回吗」的会话</div>
+                  <div class="mt"><span>提醒 / 外部</span><span>归档于 2026-09-18</span><span>1 参数</span></div></div>
+                <div class="acts"><button class="btn sm">恢复</button><button class="btn sm danger">彻底删除</button></div>
+              </div>
+            </div>
+            <div style="font-size:10px;color:var(--faint);margin-top:10px;line-height:1.7">
+              归档 = 整个项目目录移到 <span class="mono">.archive/</span> 并 commit + push，备份还在仓库里。彻底删除才会真删。
+            </div>
+          </div>
+        </main>
+
+        <aside class="v6-side">
+          <div class="sh">
+            <div class="k">类别 · 工程</div>
+            <h2>工程</h2>
+            <div class="s">5 个触发器 · 4 个子类别 · 词表里还有 0 个空类别</div>
+          </div>
+          <div class="blk">
+            <h4>这个类别下</h4>
+            <div class="p" style="line-height:2">发布 <span class="mono" style="color:var(--faint)">release-notes</span><br>评审 <span class="mono" style="color:var(--faint)">pr-review、stale-prs</span><br>CI <span class="mono" style="color:var(--faint)">ci-watch</span><br>巡检 <span class="mono" style="color:var(--faint)">link-checker</span></div>
+          </div>
+          <div class="blk">
+            <h4>改名的代价</h4>
+            <div class="p">会写 5 个 <span class="mono">nous.json</span> + 词表，并重扫 index。8 秒后自动提交并推送。</div>
+            <div class="skip6">工程 → 工程 <span class="w">（例子）</span><br>5 个文件 · 5 个触发器的类别</div>
+          </div>
+          <div class="blk">
+            <h4>删除的代价</h4>
+            <div class="p">从这 5 个触发器上摘掉「工程 / …」，连同 4 个子类别。空类别也一起删。</div>
+            <div class="row" style="margin-top:9px;gap:6px"><button class="btn sm">改名</button><button class="btn sm danger">删除类别</button></div>
+          </div>
+          <div class="blk">
+            <h4>同步</h4>
+            <div class="row" style="font-size:10.5px;gap:6px;color:var(--warn)"><span class="dot warn" style="width:5px;height:5px"></span>待推送 · 9 秒前改的</div>
+            <div class="skip6" style="margin-top:7px"><span class="w">M</span> categories.json<br><span class="w">M</span> release-notes/nous.json</div>
+          </div>
+          <div class="foot"><button class="btn sm" style="width:100%;justify-content:center"><svg class="ic"><use href="#i-refresh"/></svg>立即同步词表</button></div>
+        </aside>
+
+        <div class="scrim6"></div>
+        <div class="confirm">
+          <h2>彻底删除 old-probe？</h2>
+          <div class="hint">连仓库里的 <span class="mono">.archive/old-probe/</span> 备份一起删掉，并提交 + 推送。之后只能靠 git 历史找回来。</div>
+          <label class="lb">手输名字 <code>old-probe</code> 确认<input class="in" placeholder="old-probe"></label>
+          <div class="acts"><button class="btn">取消</button><button class="btn danger" disabled>彻底删除</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ 07 · 新建向导 ══════════════ -->
+    <div class="app" data-v="7">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v7">
+        <header class="v7-top">
+          <button class="btn ghost sm back"><svg class="ic"><use href="#i-chev-r" style="transform:rotate(180deg)"/></svg>取消</button>
+          <div class="steps">
+            <div class="step7 done"><span class="n">✓</span><span class="t">身份</span><span class="line"></span></div>
+            <div class="step7 on"><span class="n">02</span><span class="t">参数声明</span><span class="line"></span></div>
+            <div class="step7"><span class="n">03</span><span class="t">骨架预览</span><span class="line"></span></div>
+            <div class="step7"><span class="n">04</span><span class="t">建</span></div>
+          </div>
+          <span class="chip" style="height:19px">建完是未发布</span>
+        </header>
+        <div class="v7-body">
+          <div class="v7-form scroll">
+            <h2>这个触发器要人填什么</h2>
+            <div class="sub">参数是「装配时填什么」，不是控件清单。可用的 type：epoch / number / string / text / boolean / select。</div>
+
+            <div class="fld">
+              <div class="lb">参数 · 2 <span class="h">顺序就是装配表单的顺序</span></div>
+              <div class="par7">
+                <div class="r1"><span class="nm">at</span><span class="ty">epoch</span><span class="chip warn" style="height:16px;font-size:9px">必填</span><span class="sp"></span><span class="btn ghost sm" style="height:20px;padding:0 5px"><svg class="ic"><use href="#i-trash"/></svg></span></div>
+                <div class="grid2">
+                  <input class="in" value="at" placeholder="name">
+                  <input class="in" value="每天几点" placeholder="label">
+                  <select class="in" style="height:26px"><option>epoch</option></select>
+                  <input class="in" value="true" placeholder="required">
+                </div>
+                <textarea class="help7">UTC 秒，但页面上用本地时间挑。落在这一分钟里才起。</textarea>
+              </div>
+              <div class="par7">
+                <div class="r1"><span class="nm">tone</span><span class="ty">select</span><span class="sp"></span><span class="btn ghost sm" style="height:20px;padding:0 5px"><svg class="ic"><use href="#i-trash"/></svg></span></div>
+                <div class="grid2">
+                  <input class="in" value="tone" placeholder="name">
+                  <input class="in" value="语气" placeholder="label">
+                  <select class="in" style="height:26px"><option>select</option></select>
+                  <input class="in" value="false" placeholder="required">
+                </div>
+                <textarea class="help7">选项：简洁 / 详细 / 只列结论。这个触发器自己声明，装配页照它画下拉。</textarea>
+              </div>
+              <button class="addp"><svg class="ic" style="width:12px;height:12px"><use href="#i-plus"/></svg>添加参数</button>
+            </div>
+
+            <div class="fld">
+              <div class="lb">身份 <span class="h">目录名 = name = 产物名，建完改不了</span></div>
+              <input class="in mono" value="morning-review" readonly style="background:var(--panel2);color:var(--muted)">
+              <div class="ok"><svg class="ic"><use href="#i-check"/></svg>名字可用 · 目录还不存在</div>
+            </div>
+            <div class="fld">
+              <div class="lb">一句话说明 <span class="h">卡片上就靠它认人</span></div>
+              <input class="in" value="每天第一条会话时，按昨天的日志起一条复盘">
+            </div>
+            <div class="fld">
+              <div class="lb">类别 <span class="h">可空 = 未分类；写个不存在的名字就顺手建了</span></div>
+              <input class="in" value="日常/复盘">
+              <div class="hint">词表里已有：日常、日常/摘要、工程、工程/发布、工程/评审、工程/CI…</div>
+            </div>
+            <div class="fld">
+              <div class="lb">会创建</div>
+              <div class="tree" style="border:1px solid var(--line);border-radius:7px;padding:9px 11px;font:10px/1.9 var(--mono);color:var(--muted)">
+                <b style="color:var(--ink2)">morning-review/</b><br>
+                ├── Cargo.toml<br>├── nous.json<br>└── src/main.rs
+              </div>
+              <div class="hint">骨架是一个能编过的程序；建完不提交，先在本机，满意了再发布。</div>
+            </div>
+          </div>
+
+          <div class="v7-preview">
+            <div class="ph">
+              <div class="r"><h3>生成的清单</h3><span class="chip mono" style="height:16px;font-size:8.5px">·new-morning-review</span></div>
+              <div class="s">参数一改，这里跟着变。三份文件都能先看。</div>
+            </div>
+            <div class="tabs"><button class="on">nous.json</button><button>src/main.rs</button><button>Cargo.toml</button></div>
+            <div class="code scroll">
+              <div class="cl"><span class="ln">1</span><span class="tx">{</span></div>
+              <div class="cl"><span class="ln">2</span><span class="tx">  <span class="s">"name"</span>: <span class="s">"morning-review"</span>,</span></div>
+              <div class="cl"><span class="ln">3</span><span class="tx">  <span class="s">"version"</span>: <span class="s">"0.1.0"</span>,</span></div>
+              <div class="cl"><span class="ln">4</span><span class="tx">  <span class="s">"summary"</span>: <span class="s">"每天第一条会话时，按昨天的日志起一条复盘"</span>,</span></div>
+              <div class="cl"><span class="ln">5</span><span class="tx">  <span class="s">"category"</span>: [<span class="s">"日常/复盘"</span>],</span></div>
+              <div class="cl"><span class="ln">6</span><span class="tx">  <span class="s">"binary"</span>: <span class="s">"morning-review"</span>,</span></div>
+              <div class="cl"><span class="ln">7</span><span class="tx">  <span class="s">"params"</span>: [</span></div>
+              <div class="cl"><span class="ln">8</span><span class="tx">    {</span></div>
+              <div class="cl"><span class="ln">9</span><span class="tx">      <span class="s">"name"</span>: <span class="s">"at"</span>,</span></div>
+              <div class="cl"><span class="ln">10</span><span class="tx">      <span class="s">"type"</span>: <span class="s">"epoch"</span>,</span></div>
+              <div class="cl"><span class="ln">11</span><span class="tx">      <span class="s">"label"</span>: <span class="s">"每天几点"</span>,</span></div>
+              <div class="cl"><span class="ln">12</span><span class="tx">      <span class="s">"required"</span>: <span class="n">true</span>,</span></div>
+              <div class="cl"><span class="ln">13</span><span class="tx">      <span class="s">"help"</span>: <span class="s">"UTC 秒，但页面上用本地时间挑。落在这一分钟里才起。"</span></span></div>
+              <div class="cl"><span class="ln">14</span><span class="tx">    },</span></div>
+              <div class="cl"><span class="ln">15</span><span class="tx">    {</span></div>
+              <div class="cl"><span class="ln">16</span><span class="tx">      <span class="s">"name"</span>: <span class="s">"tone"</span>,</span></div>
+              <div class="cl"><span class="ln">17</span><span class="tx">      <span class="s">"type"</span>: <span class="s">"select"</span>,</span></div>
+              <div class="cl"><span class="ln">18</span><span class="tx">      <span class="s">"label"</span>: <span class="s">"语气"</span>,</span></div>
+              <div class="cl"><span class="ln">19</span><span class="tx">      <span class="s">"options"</span>: [<span class="s">"简洁"</span>, <span class="s">"详细"</span>, <span class="s">"只列结论"</span>]</span></div>
+              <div class="cl"><span class="ln">20</span><span class="tx">    }</span></div>
+              <div class="cl"><span class="ln">21</span><span class="tx">  ]</span></div>
+              <div class="cl"><span class="ln">22</span><span class="tx">}</span></div>
+            </div>
+            <div class="warn7"><svg class="ic"><use href="#i-alert"/></svg><span>建完是「未发布」：HEAD 里没有它，换台机器看不到。点发布才会 check + build + index + commit + push。</span></div>
+          </div>
+        </div>
+        <div class="v7-foot">
+          <span class="state">2 个参数 · 校验通过 · 目标 /opt/Nous-Trigger/morning-review</span>
+          <span class="grow"></span>
+          <button class="btn">上一步</button>
+          <button class="btn pri">下一步：看骨架</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ 08 · Inspector ══════════════ -->
+    <div class="app" data-v="8">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v8">
+        <aside class="v8-side">
+          <div class="hd">
+            <div class="seg8"><button class="on">触发器 12</button><button>归档 6</button></div>
+          </div>
+          <div class="swrap"><div class="search" style="height:26px"><svg class="ic"><use href="#i-search"/></svg>搜名字 / 类别 / 参数</div></div>
+          <div class="list8">
+            <div class="i8 on">
+              <div class="tile" style="background:hsl(28 42% 40%)">D</div>
+              <div class="b"><div class="nm">daily-digest<span class="d dirty"></span></div><div class="mt">v0.3.1 · 2 文件 · 日常/摘要</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(200 42% 38%)">S</div>
+              <div class="b"><div class="nm">single-shot<span class="d"></span></div><div class="mt">v0.1.0 · 时间/一次</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(150 38% 36%)">C</div>
+              <div class="b"><div class="nm">ci-watch<span class="d unpublished"></span></div><div class="mt">v0.4.2 · 未发布 · 工程/CI</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(0 40% 42%)">d</div>
+              <div class="b"><div class="nm">disk-guard<span class="d broken"></span></div><div class="mt">v0.2.0 · 清单坏了 · 系统/磁盘</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(250 38% 44%)">P</div>
+              <div class="b"><div class="nm">pr-review<span class="d"></span></div><div class="mt">v1.2.0 · 工程/评审</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(330 36% 42%)">R</div>
+              <div class="b"><div class="nm">release-notes<span class="d dirty"></span></div><div class="mt">v0.5.0 · 1 文件 · 工程/发布</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(180 34% 36%)">I</div>
+              <div class="b"><div class="nm">inbox-triage<span class="d"></span></div><div class="mt">v0.1.3 · 提醒/收件箱</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(210 40% 44%)">W</div>
+              <div class="b"><div class="nm">weather-brief<span class="d"></span></div><div class="mt">v0.1.0 · 日常/天气</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(30 30% 38%)">S</div>
+              <div class="b"><div class="nm">stale-prs<span class="d"></span></div><div class="mt">v0.2.4 · 工程/评审</div></div>
+            </div>
+            <div class="i8">
+              <div class="tile" style="background:hsl(160 30% 32%)">N</div>
+              <div class="b"><div class="nm">nightly-backup<span class="d"></span></div><div class="mt">v0.1.2 · 系统/备份</div></div>
+            </div>
+          </div>
+          <div class="foot"><span class="dot"></span>已连接 · /v1/triggers<span style="flex:1"></span>19:08</div>
+        </aside>
+
+        <main class="v8-main scroll">
+          <div class="crumb">触发器 <svg class="ic" style="width:10px;height:10px"><use href="#i-chev-r"/></svg> daily-digest</div>
+          <div class="mh">
+            <div class="tile" style="background:hsl(28 42% 40%)">D</div>
+            <div><h1>daily-digest</h1><div class="meta">v0.3.1 · Rust 独立项目 · 日常 / 摘要</div></div>
+            <div class="sp"></div>
+            <span class="badge dirty"><span class="dot warn"></span>有改动</span>
+            <button class="btn sm"><svg class="ic"><use href="#i-code"/></svg>代码</button>
+            <button class="btn ghost sm"><svg class="ic"><use href="#i-more"/></svg></button>
+          </div>
+          <div class="v8-props">
+            <div class="k">版本</div><div class="v"><span class="mono">0.3.1</span></div>
+            <div class="k">产物名</div><div class="v"><span class="mono">daily-digest</span></div>
+            <div class="k">目录</div><div class="v"><span class="mono" style="color:var(--muted)">/opt/Nous-Trigger/daily-digest</span></div>
+            <div class="k">类别</div><div class="v">日常 <span style="color:var(--faint)">·</span> 日常 / 摘要</div>
+            <div class="k">状态</div><div class="v"><span class="dot warn"></span>已发布 · 2 个文件未提交</div>
+            <div class="k">摘要</div><div class="v" style="font-size:10.5px;color:var(--muted)">每天第一条会话时，按日历和昨天的日志起一条摘要 —— 没有日志就跳过，不硬凑。</div>
+          </div>
+
+          <div class="v8-sec">
+            <div class="sh8"><h3>参数</h3><span class="n">2</span><span class="sp"></span><button class="btn ghost sm" style="font-size:10px"><svg class="ic"><use href="#i-plus"/></svg>添加</button></div>
+            <div class="p8"><div class="l"><div class="nm">at</div><div class="ty">epoch · 必填</div></div><div class="h">每天几点 · UTC 秒，页面上用本地时间挑。落在这一分钟里才起。</div></div>
+            <div class="p8"><div class="l"><div class="nm">tone</div><div class="ty">select</div></div><div class="h">语气 · 简洁 / 详细 / 只列结论。选项写在触发器自己的声明里。</div></div>
+          </div>
+
+          <div class="v8-sec">
+            <div class="sh8"><h3>发布历史</h3><span class="n">4</span><span class="sp"></span><span style="font:9px var(--mono);color:var(--faint)">main</span></div>
+            <div class="hist8"><span class="v">v0.3.1</span><span class="b">加 tone 参数；昨天没日志时直接不 fire</span><span class="t">今天 19:08 · 未发布</span></div>
+            <div class="hist8"><span class="v">v0.3.0</span><span class="b">摘要改成按日历 + 日志拼，不再扫会话记录</span><span class="t">11-02 · 8f3a1c2</span></div>
+            <div class="hist8"><span class="v">v0.2.2</span><span class="b">修：周末不该跑，但周六 07:00 还是起来了</span><span class="t">10-19 · 4d2e9b1</span></div>
+            <div class="hist8"><span class="v">v0.2.1</span><span class="b">状态文件换到 NOUS_STATE_DIR</span><span class="t">10-11 · 1c7a5f0</span></div>
+          </div>
+
+          <div class="v8-sec">
+            <div class="sh8"><h3>发布检查</h3><span class="sp"></span><button class="btn sm pri" style="font-size:10px"><svg class="ic"><use href="#i-upload"/></svg>发布</button></div>
+            <div class="row" style="gap:20px;flex-wrap:wrap;padding-top:6px;font-size:10.5px">
+              <span class="row" style="gap:6px;white-space:nowrap"><span class="dot warn" style="width:5px;height:5px"></span>cargo check 未跑</span>
+              <span class="row" style="gap:6px;white-space:nowrap"><span class="dot off" style="width:5px;height:5px"></span>build 未跑</span>
+              <span class="row" style="gap:6px;white-space:nowrap"><span class="dot off" style="width:5px;height:5px"></span>index 待重扫</span>
+            </div>
+          </div>
+        </main>
+
+        <aside class="v8-code">
+          <div class="ch">
+            <svg class="ic" style="width:12px;height:12px;color:var(--muted)"><use href="#i-code"/></svg>
+            <span class="nm">daily-digest</span>
+            <span class="sp"></span>
+            <span class="delta"><span class="p">+6</span><span class="m">−2</span></span>
+            <button class="btn ghost sm"><svg class="ic"><use href="#i-x"/></svg></button>
+          </div>
+          <div class="tabs8"><button class="on">nous.json</button><button>src/main.rs</button><button>Cargo.toml</button><button style="color:var(--faint)">差异</button></div>
+          <div class="code scroll">
+            <div class="cl"><span class="ln">1</span><span class="tx">{</span></div>
+            <div class="cl"><span class="ln">2</span><span class="tx">  <span class="s">"name"</span>: <span class="s">"daily-digest"</span>,</span></div>
+            <div class="cl"><span class="ln">3</span><span class="tx">  <span class="s">"version"</span>: <span class="s">"0.3.1"</span>,</span></div>
+            <div class="cl"><span class="ln">4</span><span class="tx">  <span class="s">"summary"</span>: <span class="s">"每天第一条会话时，按日历和昨天的日志起一条摘要"</span>,</span></div>
+            <div class="cl"><span class="ln">5</span><span class="tx">  <span class="s">"category"</span>: [<span class="s">"日常"</span>, <span class="s">"日常/摘要"</span>],</span></div>
+            <div class="cl"><span class="ln">6</span><span class="tx">  <span class="s">"params"</span>: [</span></div>
+            <div class="cl"><span class="ln">7</span><span class="tx">    { <span class="s">"name"</span>: <span class="s">"at"</span>, <span class="s">"type"</span>: <span class="s">"epoch"</span>, <span class="s">"label"</span>: <span class="s">"每天几点"</span>, <span class="s">"required"</span>: <span class="n">true</span> },</span></div>
+            <div class="cl add"><span class="ln">8</span><span class="tx">    { <span class="s">"name"</span>: <span class="s">"tone"</span>, <span class="s">"type"</span>: <span class="s">"select"</span>, <span class="s">"label"</span>: <span class="s">"语气"</span>,</span></div>
+            <div class="cl add"><span class="ln">9</span><span class="tx">      <span class="s">"options"</span>: [<span class="s">"简洁"</span>, <span class="s">"详细"</span>, <span class="s">"只列结论"</span>] }</span></div>
+            <div class="cl"><span class="ln">10</span><span class="tx">  ],</span></div>
+            <div class="cl"><span class="ln">11</span><span class="tx">  <span class="s">"binary"</span>: <span class="s">"daily-digest"</span></span></div>
+            <div class="cl"><span class="ln">12</span><span class="tx">}</span></div>
+          </div>
+          <div class="cf"><span>已保存 · 待发布</span><span class="sp"></span><span class="kbd">⌘S</span><span class="kbd">Alt+D</span></div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- ══════════════ 09 · 终端 / 控制台（暗色）══════════════ -->
+    <div class="app" data-v="9">
+      <aside class="rail" style="background:#0a0c0d">
+        <button class="rbtn" title="聊天" style="color:#5d676d"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板" style="color:#5d676d"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器" style="color:#36c97a"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多" style="color:#5d676d"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v9">
+        <header class="v9-top">
+          <div class="b"><svg class="ic"><use href="#i-bolt"/></svg>trigger</div>
+          <span class="meta">/opt/Nous-Trigger · main · 8517477</span>
+          <div class="sp"></div>
+          <div class="st"><span class="dot" style="background:#e3c07b"></span>推送中…</div>
+          <div class="st"><span style="color:#4f595f">ahead</span><span style="color:#e3c07b">1</span></div>
+          <div class="st"><span style="color:#4f595f">dirty</span>2</div>
+          <button class="btn ghost sm" style="color:#a7b1b6;border-color:#2a3034"><svg class="ic"><use href="#i-terminal"/></svg>index.mjs --check</button>
+        </header>
+        <div class="v9-body">
+          <aside class="v9-side">
+            <div class="sh">triggers<span class="n">12</span></div>
+            <div class="body">
+              <div class="i9 on"><div class="l1"><span class="d dirty"></span>daily-digest<span class="v">0.3.1</span></div><div class="l2"><span>日常/摘要</span><span style="color:var(--warn)">M2</span></div></div>
+              <div class="i9"><div class="l1"><span class="d"></span>single-shot<span class="v">0.1.0</span></div><div class="l2"><span>时间/一次</span></div></div>
+              <div class="i9"><div class="l1"><span class="d unpublished"></span>ci-watch<span class="v">0.4.2</span></div><div class="l2"><span>工程/CI</span><span style="color:#d8b25a">未发布</span></div></div>
+              <div class="i9"><div class="l1"><span class="d broken"></span>disk-guard<span class="v">0.2.0</span></div><div class="l2"><span>系统/磁盘</span><span style="color:var(--danger)">name 不符</span></div></div>
+              <div class="i9"><div class="l1"><span class="d"></span>pr-review<span class="v">1.2.0</span></div><div class="l2"><span>工程/评审</span></div></div>
+              <div class="i9"><div class="l1"><span class="d dirty"></span>release-notes<span class="v">0.5.0</span></div><div class="l2"><span>工程/发布</span><span style="color:var(--warn)">M1</span></div></div>
+              <div class="i9"><div class="l1"><span class="d"></span>inbox-triage<span class="v">0.1.3</span></div><div class="l2"><span>提醒/收件箱</span></div></div>
+              <div class="i9"><div class="l1"><span class="d"></span>weather-brief<span class="v">0.1.0</span></div><div class="l2"><span>日常/天气</span></div></div>
+              <div class="i9"><div class="l1"><span class="d"></span>stale-prs<span class="v">0.2.4</span></div><div class="l2"><span>工程/评审</span></div></div>
+              <div class="i9"><div class="l1"><span class="d"></span>nightly-backup<span class="v">0.1.2</span></div><div class="l2"><span>系统/备份</span></div></div>
+              <div class="i9"><div class="l1"><span class="d unpublished"></span>link-checker<span class="v">0.0.9</span></div><div class="l2"><span>工程/巡检</span><span style="color:#d8b25a">未发布</span></div></div>
+            </div>
+          </aside>
+
+          <div class="v9-code">
+            <div class="bh">
+              <div class="f">nous.json</div>
+              <div class="f on">src/main.rs <span style="color:#e3c07b">●</span></div>
+              <div class="f">Cargo.toml</div>
+              <div class="f">README.md</div>
+              <div class="sp"></div>
+              <span style="font:9px var(--mono);color:#6d777d">diff · +6 −2</span>
+            </div>
+            <div class="code scroll">
+              <div class="cl"><span class="ln">15</span><span class="tx"><span class="k">fn</span> <span class="f">main</span>() {</span></div>
+              <div class="cl"><span class="ln">16</span><span class="tx">    <span class="k">let</span> params = read_params();</span></div>
+              <div class="cl"><span class="ln">17</span><span class="tx">    <span class="k">let</span> at = params.param(<span class="s">"at"</span>).i64().unwrap_or(<span class="n">7</span> * <span class="n">3600</span>);</span></div>
+              <div class="cl"><span class="ln">18</span><span class="tx">    <span class="k">let</span> logs = read_logs_yesterday();</span></div>
+              <div class="cl add"><span class="ln">19</span><span class="tx">    <span class="k">if</span> logs.is_empty() {</span></div>
+              <div class="cl add"><span class="ln">20</span><span class="tx">        <span class="k">return</span> println!(<span class="s">r#"{{"fire":false,"reason":"昨天没日志"}}"#</span>);</span></div>
+              <div class="cl add"><span class="ln">21</span><span class="tx">    }</span></div>
+              <div class="cl del"><span class="ln">22</span><span class="tx">    <span class="k">let</span> prompt = format!(<span class="s">"读昨天日志，写摘要"</span>);</span></div>
+              <div class="cl add"><span class="ln">22</span><span class="tx">    <span class="k">let</span> tone = params.param(<span class="s">"tone"</span>).str().unwrap_or(<span class="s">"简洁"</span>);</span></div>
+              <div class="cl add"><span class="ln">23</span><span class="tx">    <span class="k">let</span> prompt = build_prompt(&amp;logs, tone);</span></div>
+              <div class="cl"><span class="ln">24</span><span class="tx">    <span class="k">let</span> fire = now() &gt;= at &amp;&amp; now() &lt; at + WINDOW;</span></div>
+              <div class="cl"><span class="ln">25</span><span class="tx">    println!(<span class="s">r#"{{"fire":{},"reason":"{}","data":{{"prompt":"{}"}}}}"#</span>, fire, <span class="s">""</span>, prompt);</span></div>
+              <div class="cl"><span class="ln">26</span><span class="tx">}</span></div>
+              <div class="cl"><span class="ln">27</span><span class="tx"></span></div>
+              <div class="cl"><span class="ln">28</span><span class="tx"><span class="c">#[cfg(test)]</span></span></div>
+              <div class="cl"><span class="ln">29</span><span class="tx"><span class="k">mod</span> tests { <span class="c">/* 5 个纯函数用例 */</span> }</span></div>
+            </div>
+          </div>
+
+          <aside class="v9-console">
+            <div class="ch">publish · daily-digest<span class="sp"></span><span style="color:#4f595f">⌘S 保存</span></div>
+            <div class="log">
+              <div class="ln"><span class="tm">19:08:02</span><span class="dim">$</span> cargo check --quiet</div>
+              <div class="ln"><span class="tm">19:08:04</span><span class="ok">Finished</span> dev profile in 1.24s</div>
+              <div class="ln"><span class="tm">19:08:04</span><span class="dim">$</span> cargo build --quiet</div>
+              <div class="ln"><span class="tm">19:08:07</span><span class="ok">Finished</span> dev profile in 2.83s</div>
+              <div class="ln"><span class="tm">19:08:07</span><span class="dim">$</span> node index.mjs</div>
+              <div class="ln"><span class="tm">19:08:07</span><span class="ok">index.json</span> · 12 triggers · 0 problems</div>
+              <div class="ln"><span class="tm">19:08:07</span><span class="dim">$</span> git add -A -- daily-digest/ index.json</div>
+              <div class="ln"><span class="tm">19:08:07</span><span class="dim">$</span> git commit -m "trigger(daily-digest): v0.3.1"</div>
+              <div class="ln"><span class="tm">19:08:07</span><span class="ok">[main 8f3a1c2]</span> trigger(daily-digest): v0.3.1</div>
+              <div class="ln"><span class="tm">19:08:07</span><span class="dim">  4 files changed, 38 insertions(+), 6 deletions(-)</span></div>
+              <div class="ln"><span class="tm">19:08:07</span><span class="dim">$</span> git push</div>
+              <div class="ln"><span class="tm">19:08:08</span><span class="warn">To github.com:JoeWest9966/Nous-Trigger.git</span></div>
+              <div class="ln"><span class="tm">19:08:08</span><span class="dim">   8517477..8f3a1c2  main -&gt; main</span></div>
+              <div class="ln"><span class="tm">19:08:08</span><span class="ok">✓ pushed</span> <span class="dim">· 只带了这一个触发器</span></div>
+            </div>
+            <div class="pub9">
+              <div class="steps9">
+                <div class="s9"><span class="n">01</span>cargo check<span class="ic"><svg class="ic" style="width:10px;height:10px"><use href="#i-check"/></svg></span></div>
+                <div class="s9"><span class="n">02</span>cargo build<span class="ic"><svg class="ic" style="width:10px;height:10px"><use href="#i-check"/></svg></span></div>
+                <div class="s9"><span class="n">03</span>node index.mjs<span class="ic"><svg class="ic" style="width:10px;height:10px"><use href="#i-check"/></svg></span></div>
+                <div class="s9"><span class="n">04</span>commit<span class="ic"><svg class="ic" style="width:10px;height:10px"><use href="#i-check"/></svg></span></div>
+                <div class="s9"><span class="n">05</span>push<span class="ic"><svg class="ic" style="width:10px;height:10px"><use href="#i-check"/></svg></span></div>
+              </div>
+              <button class="btn"><svg class="ic"><use href="#i-upload"/></svg>再发布一次（无改动）</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ 10 · 活动流 + 发布历史 ══════════════ -->
+    <div class="app" data-v="10">
+      <aside class="rail">
+        <button class="rbtn" title="聊天"><svg class="ic"><use href="#i-chat"/></svg></button>
+        <button class="rbtn" title="模板"><svg class="ic"><use href="#i-book"/></svg></button>
+        <button class="rbtn on" title="触发器"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <div class="rsp"></div>
+        <button class="rbtn" title="更多"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </aside>
+      <div class="v10">
+        <aside class="v10-side">
+          <div style="padding:0 14px 8px"><div class="kicker" style="color:var(--faint)">活动</div></div>
+          <div class="frow on">全部<span class="n">12</span></div>
+          <div class="frow"><span class="dot warn" style="width:5px;height:5px;margin-right:2px"></span>有改动<span class="n">2</span></div>
+          <div class="frow"><span class="dot" style="width:5px;height:5px;background:#d8b25a;margin-right:2px"></span>未发布<span class="n">2</span></div>
+          <div class="frow"><span class="dot bad" style="width:5px;height:5px;margin-right:2px"></span>清单坏了<span class="n">1</span></div>
+          <div class="frow" style="margin-top:8px;border-top:1px solid var(--line-soft);padding-top:8px">已归档<span class="n">6</span></div>
+          <div style="padding:10px 14px 5px;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">类别</div>
+          <div class="frow">日常<span class="n">3</span></div>
+          <div class="frow">工程<span class="n">5</span></div>
+          <div class="frow">提醒<span class="n">1</span></div>
+          <div class="frow">系统<span class="n">2</span></div>
+          <div class="frow">时间<span class="n">1</span></div>
+          <div style="margin-top:auto;padding:10px 14px;border-top:1px solid var(--line-soft);font:9.5px/1.8 var(--mono);color:var(--faint)">
+            远端有新提交<br><span style="color:var(--warn)">origin/main +3</span>
+          </div>
+        </aside>
+
+        <main class="v10-main">
+          <div class="mh">
+            <div class="r">
+              <h1>活动</h1>
+              <span class="s">按最近改动排 · 12 个触发器</span>
+              <span class="sp"></span>
+              <div class="search" style="height:26px;min-width:180px"><svg class="ic"><use href="#i-search"/></svg>搜名字 / 说明</div>
+              <button class="btn pri sm"><svg class="ic"><use href="#i-plus"/></svg>新建</button>
+            </div>
+          </div>
+          <div class="body scroll">
+            <div class="day10"><span class="t">今天</span><span class="ln"></span><span class="n">3</span></div>
+            <div class="ent10 on">
+              <div class="tile" style="background:hsl(28 42% 40%)">D</div>
+              <div class="b">
+                <div class="l1"><span class="nm">daily-digest</span><span class="ver">v0.3.1</span><span class="badge dirty" style="height:15px;font-size:8.5px"><span class="dot warn"></span>有改动</span><span class="sp"></span><span class="chip mono" style="height:16px;font-size:8.5px">2 文件</span></div>
+                <div class="sum">加 tone 参数；昨天没日志时直接不 fire —— 不再硬凑一条空摘要。</div>
+                <div class="l3"><span class="chip" style="height:16px;font-size:8.5px">日常 / 摘要</span><span class="chip mono" style="height:16px;font-size:8.5px">2 参数</span><span class="p">19:08 改了 src/main.rs</span></div>
+              </div>
+            </div>
+            <div class="ent10">
+              <div class="tile" style="background:hsl(330 36% 42%)">R</div>
+              <div class="b">
+                <div class="l1"><span class="nm">release-notes</span><span class="ver">v0.5.0</span><span class="badge dirty" style="height:15px;font-size:8.5px"><span class="dot warn"></span>有改动</span><span class="sp"></span><span class="chip mono" style="height:16px;font-size:8.5px">1 文件</span></div>
+                <div class="sum">改了两个 tag 之间的提交过滤：不再把 merge commit 写进人话。</div>
+                <div class="l3"><span class="chip" style="height:16px;font-size:8.5px">工程 / 发布</span><span class="chip mono" style="height:16px;font-size:8.5px">2 参数</span><span class="p">18:42 改了 nous.json</span></div>
+              </div>
+            </div>
+            <div class="ent10">
+              <div class="tile" style="background:hsl(150 38% 36%)">C</div>
+              <div class="b">
+                <div class="l1"><span class="nm">ci-watch</span><span class="ver">v0.4.2</span><span class="badge unpublished" style="height:15px;font-size:8.5px"><span class="dot" style="background:#d8b25a"></span>未发布</span><span class="sp"></span><span class="chip mono" style="height:16px;font-size:8.5px">新建</span></div>
+                <div class="sum">盯着的分支绿了或者红了，起一条「去看一眼」的会话。</div>
+                <div class="l3"><span class="chip" style="height:16px;font-size:8.5px">工程 / CI</span><span class="chip mono" style="height:16px;font-size:8.5px">2 参数</span><span class="p">17:22 建在本机</span></div>
+              </div>
+            </div>
+
+            <div class="day10"><span class="t">11-13</span><span class="ln"></span><span class="n">2</span></div>
+            <div class="ent10">
+              <div class="tile" style="background:hsl(250 38% 44%)">P</div>
+              <div class="b">
+                <div class="l1"><span class="nm">pr-review</span><span class="ver">v1.2.0</span><span class="badge ok" style="height:15px;font-size:8.5px"><span class="dot"></span>已发布</span><span class="sp"></span><span class="chip mono" style="height:16px;font-size:8.5px">8f3a1c2</span></div>
+                <div class="sum">有新的 review 请求时，先读 diff 再起一条评审会话。</div>
+                <div class="l3"><span class="chip" style="height:16px;font-size:8.5px">工程 / 评审</span><span class="chip mono" style="height:16px;font-size:8.5px">3 参数</span><span class="p">11-13 16:12 发布</span></div>
+              </div>
+            </div>
+            <div class="ent10">
+              <div class="tile" style="background:hsl(200 42% 38%)">S</div>
+              <div class="b">
+                <div class="l1"><span class="nm">single-shot</span><span class="ver">v0.1.0</span><span class="badge ok" style="height:15px;font-size:8.5px"><span class="dot"></span>已发布</span><span class="sp"></span><span class="chip mono" style="height:16px;font-size:8.5px">4d2e9b1</span></div>
+                <div class="sum">指定的那一分钟里发起一次 —— 过时不补，跑过不再跑。</div>
+                <div class="l3"><span class="chip" style="height:16px;font-size:8.5px">时间 / 一次</span><span class="chip mono" style="height:16px;font-size:8.5px">1 参数</span><span class="p">11-09 12:02 发布</span></div>
+              </div>
+            </div>
+
+            <div class="day10"><span class="t">更早</span><span class="ln"></span><span class="n">7</span></div>
+            <div class="ent10" style="opacity:.72">
+              <div class="tile" style="background:hsl(180 34% 36%)">I</div>
+              <div class="b"><div class="l1"><span class="nm">inbox-triage</span><span class="ver">v0.1.3</span><span class="badge ok" style="height:15px;font-size:8.5px"><span class="dot"></span>已发布</span></div><div class="sum">收件箱里出现没读过的条目时，起一条分类 / 丢弃的会话。</div><div class="l3"><span class="chip" style="height:16px;font-size:8.5px">提醒 / 收件箱</span><span class="p">11-11 08:20</span></div></div>
+            </div>
+            <div class="ent10" style="opacity:.72">
+              <div class="tile" style="background:hsl(210 40% 44%)">W</div>
+              <div class="b"><div class="l1"><span class="nm">weather-brief</span><span class="ver">v0.1.0</span><span class="badge ok" style="height:15px;font-size:8.5px"><span class="dot"></span>已发布</span></div><div class="sum">早上七点，把当天的天气压成三句话。</div><div class="l3"><span class="chip" style="height:16px;font-size:8.5px">日常 / 天气</span><span class="p">11-09 07:45</span></div></div>
+            </div>
+          </div>
+        </main>
+
+        <aside class="v10-detail scroll">
+          <div class="dh">
+            <div class="r">
+              <div class="tile" style="background:hsl(28 42% 40%)">D</div>
+              <div style="flex:1"><h2>daily-digest</h2><div class="meta">v0.3.1 · 2 个文件有改动 · 未发布</div></div>
+              <button class="btn ghost sm"><svg class="ic"><use href="#i-more"/></svg></button>
+            </div>
+          </div>
+          <div class="blk"><h4>摘要</h4><div class="p">每天第一条会话时，按日历和昨天的日志起一条摘要 —— 没有日志就跳过，不硬凑。</div></div>
+          <div class="blk">
+            <h4>现在</h4>
+            <div class="row" style="font-size:10.5px;gap:6px;color:var(--warn)"><span class="dot warn" style="width:5px;height:5px"></span>2 个文件改了，还没发布</div>
+            <div class="skip6" style="margin-top:7px"><span class="w">M</span> nous.json <span class="w">+2</span><br><span class="w">M</span> src/main.rs <span class="w">+6 −2</span><br><span style="color:var(--faint)">M</span> index.json <span style="color:var(--faint)">待重扫</span></div>
+          </div>
+          <div class="blk">
+            <h4>发布历史</h4>
+            <div class="tl10">
+              <div class="h now"><div class="v"><span>v0.3.1</span><span class="t">未发布</span></div><div class="m">加 tone 参数；没日志时不 fire</div></div>
+              <div class="h"><div class="v"><span>v0.3.0</span><span class="t">11-02</span></div><div class="m">按日历 + 日志拼摘要 · 8f3a1c2</div></div>
+              <div class="h"><div class="v"><span>v0.2.2</span><span class="t">10-19</span></div><div class="m">修：周六 07:00 不该跑 · 4d2e9b1</div></div>
+              <div class="h"><div class="v"><span>v0.2.1</span><span class="t">10-11</span></div><div class="m">状态文件换到 NOUS_STATE_DIR · 1c7a5f0</div></div>
+            </div>
+          </div>
+          <div class="blk">
+            <h4>参数</h4>
+            <div class="p8"><div class="l"><div class="nm">at</div><div class="ty">epoch · 必填</div></div><div class="h">每天几点，页面上用本地时间挑</div></div>
+            <div class="p8" style="border-bottom:0"><div class="l"><div class="nm">tone</div><div class="ty">select</div></div><div class="h">简洁 / 详细 / 只列结论</div></div>
+          </div>
+          <div class="acts">
+            <button class="btn sm"><svg class="ic"><use href="#i-code"/></svg>代码</button>
+            <button class="btn sm pri"><svg class="ic"><use href="#i-upload"/></svg>发布</button>
+            <button class="btn sm"><svg class="ic"><use href="#i-archive"/></svg>归档</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+const NOTES = {
+  1: ["卡片网格 + 详情浮层", "照 n8qkkj 网页的结构重画：顶栏仓库 + 同步 chip、左栏类别、状态筛选、卡片网格、右滑详情、右键菜单、同步 popover。功能最齐，也最像「原来的那一页」。<br><em>代价</em>：详情是浮层，代码要再开一层抽屉。"],
+  2: ["三栏常驻 + 代码抽屉", "类别 / 列表 / 详情同屏，不靠浮层；代码抽屉从底部盖上来，保存和发布都在抽屉里。<br><em>代价</em>：详情只剩 700px 宽，参数和仓库要竖着排。"],
+  3: ["代码优先（IDE）", "中间是编辑器：文件 tab、行号、编辑/差异、+N −N；右边是发布流水线、参数声明、编译器输出。最贴近「改 Rust」这件事。<br><em>代价</em>：列表被压到 232px，长名字会截。"],
+  4: ["发布工作台（git 视角）", "按 git 的语义排：改动文件按触发器分组、勾选、unified diff、五道闸门、只发这一个的说明。<br><em>代价</em>：不发布的时候这一页没用。"],
+  5: ["运维表格 + 抽屉", "12 个触发器一屏，NAME / VERSION / CATEGORY / PARAMS / DIRTY / STATE / TRACKED / UPDATED 全在列上；点行出抽屉。<br><em>代价</em>：没有卡片色砖，认人靠名字。"],
+  6: ["类别与归档", "把平时藏在左栏的两件事摊开：类别树（含零计数、右键改名 / 删除、8 秒同步）和归档区（恢复 / 彻底删除 + 手输名字）。<br><em>代价</em>：看不到代码和参数，得回到列表。"],
+  7: ["新建向导", "身份 → 参数声明 → 骨架预览 → 建。参数是逐行编辑的，右边实时生成 nous.json / main.rs / Cargo.toml 和目录树。<br><em>代价</em>：一次只干一件事，不能边建边看别的。"],
+  8: ["Inspector", "左列表 + 属性面板 + 常驻代码：版本 / 产物 / 目录 / 类别 / 状态 / 发布历史 / 参数，全用细线和状态点，最像 Linear。<br><em>代价</em>：属性一多就要滚，代码只剩 366px。"],
+  9: ["终端 / 控制台（暗色）", "暗色 + 等宽：左边 mono 列表，中间 diff，右边发布日志和五步流水线。给「我天天改触发器」的人。<br><em>代价</em>：暗色是另一套皮，要和默认皮一起维护。"],
+  10: ["活动流 + 发布历史", "按最近改动分天排，每条触发器一行宽卡；右边是选中项的发布历史时间线（v0.3.1 未发布 / v0.3.0 / v0.2.2）。<br><em>代价</em>：一屏只能看 6 条左右，找老的要滚。"]
+};
+
+const scaler = document.getElementById('scaler');
+const apps = [...document.querySelectorAll('.app')];
+const btns = [...document.querySelectorAll('#plist button')];
+const note = document.getElementById('pnote');
+
+function show(v, push) {
+  v = String(v);
+  if (!NOTES[v]) v = '1';
+  apps.forEach(a => a.classList.toggle('on', a.dataset.v === v));
+  btns.forEach(b => b.classList.toggle('on', b.dataset.go === v));
+  note.innerHTML = '<b>' + NOTES[v][0] + '</b>' + NOTES[v][1];
+  if (push !== false) history.replaceState(null, '', '#' + v);
+}
+
+function fit() {
+  const stage = document.querySelector('.stage');
+  const s = Math.max(0.4, Math.min(1, (stage.clientWidth - 44) / 1280, (stage.clientHeight - 44) / 800));
+  scaler.style.width = (1280 * s) + 'px';
+  scaler.style.height = (800 * s) + 'px';
+  apps.forEach(a => { a.style.transform = 'scale(' + s + ')'; });
+}
+
+btns.forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
+window.addEventListener('resize', fit);
+window.addEventListener('hashchange', () => show(location.hash.slice(1), false));
+show(location.hash.slice(1) || '1', false);
+fit();
+</script>
+</body>
+</html>
