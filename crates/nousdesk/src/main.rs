@@ -35,6 +35,9 @@ mod preview;
 mod preset_menu;
 mod recent;
 mod rename_box;
+mod resources;
+#[cfg(test)]
+mod resources_tests;
 mod search;
 mod session_nav;
 mod settings;
