@@ -139,6 +139,13 @@ pub struct TriggerFileMeta {
     pub size: u64,
     #[serde(default)]
     pub kind: String,
+    /// 相对 HEAD 改过没有。老引擎不认这几个字段 → 全 false，界面照旧显示清单。
+    #[serde(default)]
+    pub changed: bool,
+    #[serde(default)]
+    pub added: i64,
+    #[serde(default)]
+    pub removed: i64,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
