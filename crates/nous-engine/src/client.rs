@@ -11,8 +11,8 @@ use url::Url;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
-    Dirs, Entries, Forked, Machines, Models, NewPreset, PresetFile, PresetOp, PresetValidation,
-    Presets, Prompts, ReadReceipt,
+    Dirs, Entries, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile, PresetOp,
+    PresetValidation, Presets, Prompts, ReadReceipt,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
@@ -358,6 +358,27 @@ impl EngineClient {
             .http
             .get(self.url(&format!("v1/presets/{section}/file"))?)
             .query(&[("name", name), ("path", path)])
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 这一段仓里有什么没提交的（编辑器 diff 那一栏的目录）。
+    pub async fn pending(&self, section: &str) -> Result<Pending, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/presets/{section}/pending"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 一个文件的 `before` / `after` 全文（`path` 相对段目录，`asd/preset.json`）。
+    pub async fn pending_diff(&self, section: &str, path: &str) -> Result<FileDiff, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/presets/{section}/pending/diff"))?)
+            .query(&[("path", path)])
             .send()
             .await?;
         self.json(resp).await

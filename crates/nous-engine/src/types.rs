@@ -292,6 +292,90 @@ pub struct Presets {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// `GET /v1/presets/<段>/pending`。仓状态 + **待提交单元**（一条预设一个 unit）。
+///
+/// `units[].files[].added/removed` 是引擎已经数好的行数 —— 客户端不自己数。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pending {
+    pub head: Option<String>,
+    #[serde(default)]
+    pub dirty: bool,
+    #[serde(default)]
+    pub ahead: u32,
+    #[serde(default)]
+    pub behind: u32,
+    pub remote: Option<String>,
+    #[serde(default)]
+    pub units: Vec<PendingUnit>,
+    /// 还没推上去的提交（形状没在 UI 用过，先原样收着）。
+    #[serde(default)]
+    pub ahead_commits: Vec<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl Pending {
+    /// 某条预设的待提交单元（编辑器只关心自己那一条）。
+    pub fn unit(&self, key: &str) -> Option<&PendingUnit> {
+        self.units.iter().find(|u| u.key == key)
+    }
+}
+
+/// 一条预设的待提交改动。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingUnit {
+    /// 单元键 = 预设目录名。
+    pub key: String,
+    pub kind: Option<String>,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub tracked: bool,
+    #[serde(default)]
+    pub files: Vec<PendingFile>,
+    #[serde(default)]
+    pub added: u32,
+    #[serde(default)]
+    pub removed: u32,
+    #[serde(default)]
+    pub code: bool,
+    #[serde(default)]
+    pub has_deleted: bool,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// 单元里的一个文件。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingFile {
+    /// 相对**段目录**的路径，`asd/preset.json` 这种。
+    pub path: String,
+    /// `M` 改 / `A` 新 / `D` 删。
+    pub status: String,
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub added: u32,
+    #[serde(default)]
+    pub removed: u32,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/presets/<段>/pending/diff?path=`。两份**全文**，`null` = 那边没有这个文件。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiff {
+    pub path: String,
+    pub before: Option<String>,
+    pub after: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 /// `GET /v1/presets/<段>/file?name=&path=` —— 一个文件的原文 + 乐观锁。
 ///
 /// `etag` 是写回时的 `base`：撞了就是 409，用户得先重读（别丢输入）。
