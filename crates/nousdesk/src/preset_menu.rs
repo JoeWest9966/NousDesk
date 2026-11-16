@@ -54,6 +54,8 @@ pub enum PresetMenuAction {
     Edit { name: String },
     /// 复制成新的：读源模板的原文改个名字再落一份（连 `PRESET.md` 一起）。
     Copy { name: String },
+    /// 导出成一个文件（清单原文 + 说明，一个 json）。给备份 / 分享用，不改仓里任何东西。
+    Export { name: String },
     ChangeCategory { name: String },
     CopyDir { dir: String },
     Reload,
@@ -68,6 +70,7 @@ pub enum PresetMenuEntry {
     ChangeCategory,
     Edit,
     Copy,
+    Export,
     CopyDir,
     Reload,
     Archive,
@@ -88,6 +91,7 @@ pub fn lines() -> Vec<MenuLine> {
         MenuLine::Item(PresetMenuEntry::ChangeCategory),
         MenuLine::Item(PresetMenuEntry::Edit),
         MenuLine::Item(PresetMenuEntry::Copy),
+        MenuLine::Item(PresetMenuEntry::Export),
         MenuLine::Separator,
         MenuLine::Item(PresetMenuEntry::CopyDir),
         MenuLine::Item(PresetMenuEntry::Reload),
@@ -104,6 +108,7 @@ pub fn label(entry: PresetMenuEntry) -> &'static str {
         PresetMenuEntry::ChangeCategory => "改类别…",
         PresetMenuEntry::Edit => "编辑",
         PresetMenuEntry::Copy => "复制成新的…",
+        PresetMenuEntry::Export => "导出到文件…",
         PresetMenuEntry::CopyDir => "复制目录路径",
         PresetMenuEntry::Reload => "重扫这一段",
         PresetMenuEntry::Archive => "归档…",
@@ -116,6 +121,7 @@ pub fn hint(entry: PresetMenuEntry) -> Option<&'static str> {
     match entry {
         PresetMenuEntry::Purge => Some(PURGE_HINT),
         PresetMenuEntry::Copy => Some("连说明一起"),
+        PresetMenuEntry::Export => Some("json + 说明"),
         _ => None,
     }
 }
@@ -142,6 +148,7 @@ pub fn entry_action(
         PresetMenuEntry::ChangeCategory => PresetMenuAction::ChangeCategory { name: name() },
         PresetMenuEntry::Edit => PresetMenuAction::Edit { name: name() },
         PresetMenuEntry::Copy => PresetMenuAction::Copy { name: name() },
+        PresetMenuEntry::Export => PresetMenuAction::Export { name: name() },
         PresetMenuEntry::CopyDir => PresetMenuAction::CopyDir {
             dir: target.dir.clone(),
         },
@@ -247,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_is_the_nine_lines_from_the_demo() {
+    fn menu_is_the_ten_lines_from_the_demo() {
         assert_eq!(
             lines(),
             vec![
@@ -255,6 +262,7 @@ mod tests {
                 MenuLine::Item(PresetMenuEntry::ChangeCategory),
                 MenuLine::Item(PresetMenuEntry::Edit),
                 MenuLine::Item(PresetMenuEntry::Copy),
+                MenuLine::Item(PresetMenuEntry::Export),
                 MenuLine::Separator,
                 MenuLine::Item(PresetMenuEntry::CopyDir),
                 MenuLine::Item(PresetMenuEntry::Reload),

@@ -12,7 +12,8 @@ use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
     Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
-    PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt, Triggers,
+    PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt, Renamed,
+    Triggers,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
@@ -231,6 +232,24 @@ impl EngineClient {
         let resp = self
             .http
             .post(self.url(&format!("v1/sessions/{id}/abort"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 改会话名字：`POST v1/sessions/:id/rename {name}`，回 `{id, name}`。
+    ///
+    /// 名字是**引擎说了算**的（它 trim、拒空）：回包里的 `name` 才是生效值，
+    /// 调用方拿它覆盖本地，别把请求值直接写上去。
+    pub async fn rename(&self, id: i64, name: &str) -> Result<Renamed, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            name: &'a str,
+        }
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/sessions/{id}/rename"))?)
+            .json(&Body { name })
             .send()
             .await?;
         self.json(resp).await
