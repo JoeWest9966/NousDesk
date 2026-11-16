@@ -610,6 +610,26 @@ pub struct RenamedPreset {
     pub commit: serde_json::Value,
 }
 
+/// `POST /v1/presets/<段>/order` 的入参：**完整顺序**（界面上拖完那一下的全量），
+/// 不是「谁挪到谁前面」—— 一次落盘一次提交，服务端不用重放一串移动。
+#[derive(Debug, Clone, Serialize)]
+pub struct ReorderPreset {
+    pub order: Vec<String>,
+}
+
+/// `POST /v1/presets/<段>/order` 的回包。`order` 是**盘上真正存下来的那份**（服务端会把
+/// 已经不存在的名字滤掉），客户端拿它覆盖本地的乐观顺序。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderedPreset {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub order: Vec<String>,
+    #[serde(default)]
+    pub pushed: Option<bool>,
+}
+
 /// `POST /v1/presets/<段>/categories` 的回包。引擎顺手把新的名册 / 词表带回来 ——
 /// 客户端**别自己拼**（改名会连带改预设上的挂载，本地猜必错）。
 #[derive(Debug, Clone, Deserialize)]

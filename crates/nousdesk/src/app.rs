@@ -419,6 +419,10 @@ pub struct Desktop {
     pub(crate) preset_import: Option<crate::templates::ImportDraft>,
     /// 模板重命名弹层。`Some` = 开着。
     pub(crate) preset_rename: Option<crate::templates::RenameDraft>,
+    /// 此刻鼠标停在哪一条模板上（排序箭头只在悬停那行露出来）。
+    pub(crate) preset_hover: Option<String>,
+    /// 拖拽中悬停到哪一条上（落点线画在它上面）。
+    pub(crate) preset_drop: Option<String>,
     /// 窄窗下 Template 页的类别抽屉开着没有（宽窗常驻，不用这个）。
     pub(crate) cat_drawer: bool,
     /// Template 页在看**归档区**（列表栏换成归档列表）。
@@ -972,6 +976,8 @@ impl Desktop {
             cat_dialog: None,
             preset_import: None,
             preset_rename: None,
+            preset_hover: None,
+            preset_drop: None,
             preset_closed: std::collections::HashSet::new(),
             creating: None,
             picked_preset: None,

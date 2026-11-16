@@ -210,6 +210,36 @@ pub(crate) struct ImportDraft {
     pub err: Option<String>,
 }
 
+/// 拖着走的那一条。只带名字 —— 落点靠「哪一行收到 drop」判断，不靠坐标，
+/// 这样窗口缩放、行高变化都不会算错。
+#[derive(Clone)]
+pub(crate) struct DragPreset {
+    pub name: String,
+}
+
+/// 拖影：一条跟着鼠标的「正在搬这一行」。**不是那行本身** —— 原来那行留在原地，
+/// 人一眼能看出「从哪儿搬」。
+pub(crate) struct DragGhost {
+    name: String,
+}
+
+impl Render for DragGhost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let t = t();
+        div()
+            .px(t.d(10.))
+            .py(t.d(5.))
+            .rounded(t.r(6.))
+            .bg(rgb(t.p.panel))
+            .border(t.d(1.))
+            .border_color(rgb(t.p.accent))
+            .shadow_lg()
+            .text_size(t.fs(12.))
+            .text_color(rgb(t.p.text))
+            .child(self.name.clone())
+    }
+}
+
 /// 「重命名」弹层。名字就是目录名，所以改它等于搬家 —— 引擎连引用一起改，
 /// 这里只要一个新名字。
 pub(crate) struct RenameDraft {
@@ -295,6 +325,22 @@ pub(crate) fn sanitize_file_name(name: &str) -> String {
     } else {
         s
     }
+}
+
+/// 把 `from` 挪到 `to` **占它的位置**：往下拖 = 落到目标后面，往上拖 = 落到目标前面。
+///
+/// 纯函数，单独测 —— 排序是最容易差一格的地方，而这种错在界面上看着「就是不太对」，
+/// 说不清是哪一步错的。
+pub(crate) fn reorder_move(order: &[String], from: &str, to: &str) -> Option<Vec<String>> {
+    if from == to {
+        return None;
+    }
+    let fi = order.iter().position(|n| n == from)?;
+    let ti = order.iter().position(|n| n == to)?;
+    let mut next = order.to_vec();
+    let moved = next.remove(fi);
+    next.insert(ti.min(next.len()), moved);
+    Some(next)
 }
 
 /// 过滤一条模板：名字 / 摘要 / 类别，任一包含就算命中（不分大小写）。
@@ -1271,6 +1317,115 @@ impl Desktop {
                     }
                 }
                 cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 当前这一段的完整顺序（**不过滤**的，含所有类别）。发排序表用它 —— 拖的是全量。
+    pub(crate) fn current_order(&self) -> Vec<String> {
+        self.sections
+            .get(self.section)
+            .and_then(|s| s.data.as_ref())
+            .map(|d| d.presets.iter().map(|p| p.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// 就地把列表按 `order` 排好。表里没有的留在后面、保持原相对顺序（稳定排序）。
+    ///
+    /// 这是**乐观更新**：引擎那边一次写盘 + 提交，远端连不上时要等几十秒 —— UI 不能等。
+    fn apply_order_now(&mut self, order: &[String]) {
+        let Some(data) = self
+            .sections
+            .get_mut(self.section)
+            .and_then(|s| s.data.as_mut())
+        else {
+            return;
+        };
+        let at: std::collections::HashMap<&str, usize> =
+            order.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+        data.presets
+            .sort_by_key(|p| at.get(p.name.as_str()).copied().unwrap_or(usize::MAX));
+    }
+
+    /// 上移 / 下移一格。`delta` 是 `-1` / `+1`。
+    ///
+    /// 拖拽的兜底：Wayland 上拖不进别的窗口、触控板手抖、或者干脆不知道能拖 ——
+    /// 都得有条路能排。
+    pub(crate) fn move_preset(&mut self, name: &str, delta: isize, cx: &mut Context<Self>) {
+        let order = self.current_order();
+        let Some(pos) = order.iter().position(|n| n == name) else {
+            return;
+        };
+        let to = pos as isize + delta;
+        if to < 0 || to >= order.len() as isize {
+            return;
+        }
+        // 上移/下移就是「和邻居换」，复用同一套搬家逻辑（`drop_on` 也走它）。
+        let target = order[to as usize].clone();
+        match reorder_move(&order, name, &target) {
+            Some(next) => self.commit_order(next, cx),
+            None => cx.notify(),
+        }
+    }
+
+    /// 拖到某一行上：**占它的位置**。往下拖 = 落到目标后面，往上拖 = 落到目标前面
+    /// （`remove` 之后再 `insert(ti)` 天然就是这个语义，不用额外判方向）。
+    pub(crate) fn drop_on(&mut self, from: &str, to: &str, cx: &mut Context<Self>) {
+        self.preset_drop = None;
+        match reorder_move(&self.current_order(), from, to) {
+            Some(next) => self.commit_order(next, cx),
+            None => cx.notify(),
+        }
+    }
+
+    /// 落一次顺序：本地先排好给人看，后台再发。
+    pub(crate) fn commit_order(&mut self, order: Vec<String>, cx: &mut Context<Self>) {
+        if order.is_empty() {
+            return;
+        }
+        self.apply_order_now(&order);
+        cx.notify();
+
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
+            return;
+        };
+        let section_id = SECTIONS[self.section].0;
+        let sec_idx = self.section;
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            let result = match &handle {
+                Some(h) => {
+                    let engine = engine.clone();
+                    let order = order.clone();
+                    h.spawn(async move { engine.reorder_presets(section_id, order).await })
+                        .await
+                        .ok()
+                }
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| match result {
+                Some(Ok(done)) => {
+                    // 盘上那份才是真相（服务端会滤掉已删除的名字）。空表就别拿它盖本地。
+                    if !done.order.is_empty() {
+                        this.apply_order_now(&done.order);
+                    }
+                    if done.pushed == Some(false) {
+                        this.notify(
+                            "顺序已存下，但没推上去（远端连不上）",
+                            crate::app::NoticeKind::Error,
+                            cx,
+                        );
+                    }
+                    cx.notify();
+                }
+                Some(Err(e)) => {
+                    this.notify(format!("顺序没存下：{e}"), crate::app::NoticeKind::Error, cx);
+                    // 回滚到真相 —— 本地那次乐观排序是猜的。
+                    this.load_section(sec_idx, true, cx);
+                }
+                None => {}
             });
         })
         .detach();
@@ -3423,6 +3578,8 @@ impl Desktop {
         let pick_name = p.name.clone();
         let creating = self.creating.as_deref() == Some(p.name.as_str());
         let picked = self.picked_preset.as_deref() == Some(p.name.as_str());
+        let hovered = self.preset_hover.as_deref() == Some(p.name.as_str());
+        let drop_target = self.preset_drop.as_deref() == Some(p.name.as_str());
         let cat = self.preset_cat.clone().unwrap_or_default();
 
         // 状态：判据全是引擎算好的，客户端只挑颜色和形状（描边 pill，见 demo 组 ③ 方案 2）。
@@ -3449,7 +3606,51 @@ impl Desktop {
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.pick_preset(pick_name.clone(), cx);
             }))
+            // 拖拽排序：拖起来的是一条「名字」，落到哪行就占那行的位置。
+            .on_drag(
+                DragPreset {
+                    name: p.name.clone(),
+                },
+                |value, _offset, _window, cx| {
+                    cx.new(|_| DragGhost {
+                        name: value.name.clone(),
+                    })
+                },
+            )
+            .on_drag_move(cx.listener({
+                let over_name = p.name.clone();
+                move |this: &mut Self,
+                      _ev: &DragMoveEvent<DragPreset>,
+                      _: &mut Window,
+                      cx: &mut Context<Self>| {
+                    if this.preset_drop.as_deref() != Some(over_name.as_str()) {
+                        this.preset_drop = Some(over_name.clone());
+                        cx.notify();
+                    }
+                }
+            }))
+            .on_drop(cx.listener({
+                let drop_name = p.name.clone();
+                move |this: &mut Self,
+                      dragged: &DragPreset,
+                      _: &mut Window,
+                      cx: &mut Context<Self>| {
+                    this.drop_on(&dragged.name, &drop_name, cx);
+                }
+            }))
             .hover(|h| h.bg(rgb(t().p.line_soft)))
+            .on_hover(cx.listener({
+                let hover_name = p.name.clone();
+                move |this: &mut Self, hovered: &bool, _: &mut Window, cx: &mut Context<Self>| {
+                    let now = hovered.then(|| hover_name.clone());
+                    if this.preset_hover != now {
+                        this.preset_hover = now;
+                        cx.notify();
+                    }
+                }
+            }))
+            // 落点线：拖拽时悬停到哪一行，就在那行顶上画一条 —— 松手会插到那儿。
+            .when(drop_target, |el| el.border_t(t().d(2.)).border_color(rgb(t().p.accent)))
             .when(creating, |el| el.bg(rgb(t().p.accent_soft)))
             .when(picked, |el| el.bg(rgb(t().p.accent_soft)))
             // 选中的那一行左侧一条竖线：颜色之外还得有个不用辨认形状的信号。
@@ -3513,6 +3714,58 @@ impl Desktop {
                     .child(self.chips(p, &cat))
                     .children(status.map(|(text, color)| status_pill(text, color))),
             )
+            // 排序：悬停那行露两个箭头（透明占位，不跳行）。拖拽的兜底 —— 触控板手抖、
+            // 或者根本不知道这行能拖的时候，总得有条路能排。
+            .child({
+                let up_name = p.name.clone();
+                let down_name = p.name.clone();
+                div()
+                    .flex_none()
+                    .flex()
+                    .flex_col()
+                    .gap(t().d(1.))
+                    .opacity(if hovered { 1.0 } else { 0.0 })
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("up-{}", p.name).into()))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(t().d(13.))
+                            .rounded(t().r(3.))
+                            .cursor_pointer()
+                            .text_color(rgb(muted()))
+                            .hover(|h| h.bg(rgb(t().p.line)).text_color(rgb(t().p.text)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.move_preset(&up_name, -1, cx);
+                            }))
+                            .child(
+                                Icon::new(IconName::ChevronUp)
+                                    .with_size(Size::Size(t().d(11.))),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("down-{}", p.name).into()))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(t().d(13.))
+                            .rounded(t().r(3.))
+                            .cursor_pointer()
+                            .text_color(rgb(muted()))
+                            .hover(|h| h.bg(rgb(t().p.line)).text_color(rgb(t().p.text)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.move_preset(&down_name, 1, cx);
+                            }))
+                            .child(
+                                Icon::new(IconName::ChevronDown)
+                                    .with_size(Size::Size(t().d(11.))),
+                            ),
+                    )
+            })
             // 行尾：能开的行给一个「开一条新对话」的圆按钮。
             // 行体只负责选中 —— 两个动作分开，多一次辨认，少一堆误触。
             .when(ok, |el| {
@@ -3812,8 +4065,25 @@ mod tests {
     // `app.rs` 里的测试也是只挑要用的东西，同一个原因。
     use super::{
         EXPORT_ENVELOPE, Preset, UNCATEGORIZED, export_doc, facet_tree, import_doc, in_category,
-        keep_category, matches_query, sanitize_file_name,
+        keep_category, matches_query, reorder_move, sanitize_file_name,
     };
+
+    /// 拖拽搬家：往下拖占目标的位置 = 落到它后面；往上拖 = 落到它前面。
+    /// 差一格是这种代码最典型的错，所以四种情况都钉住。
+    #[test]
+    fn reorder_move_takes_the_target_slot() {
+        let order: Vec<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
+        let at = |v: Option<Vec<String>>| v.unwrap().join(",");
+
+        assert_eq!(at(reorder_move(&order, "a", "d")), "b,c,d,a");
+        assert_eq!(at(reorder_move(&order, "d", "a")), "d,a,b,c");
+        assert_eq!(at(reorder_move(&order, "a", "b")), "b,a,c,d");
+        assert_eq!(at(reorder_move(&order, "b", "a")), "b,a,c,d");
+        assert_eq!(at(reorder_move(&order, "c", "b")), "a,c,b,d");
+        // 同一条 / 不在表里 → 不动（返回 None，调用方就别发请求了）。
+        assert!(reorder_move(&order, "a", "a").is_none());
+        assert!(reorder_move(&order, "ghost", "a").is_none());
+    }
 
     /// 导出成什么样：信封 + 清单 + 说明。`section` / `name` 留着，人打开文件能看懂。
     #[test]
