@@ -133,6 +133,8 @@ pub(crate) struct Confirm {
     pub open: bool,
     pub name: String,
     pub input: Entity<InputState>,
+    /// `true` = 这次是「彻底删除」（不可逆），文案和按钮都要换一套。
+    pub purge: bool,
 }
 
 pub(crate) struct State {
@@ -154,6 +156,8 @@ pub(crate) struct State {
     pub cat_menu: Option<CatMenu>,
     pub cat_form: Option<CatForm>,
     pub cat_del: Option<String>,
+    /// 「已归档」里点开的那一条（右侧详情）。
+    pub archived_detail: Option<String>,
     pub commit: Commit,
     pub conflict: Option<String>,
     pub scroll: ScrollHandle,
@@ -209,12 +213,14 @@ impl State {
                 open: false,
                 name: String::new(),
                 input: confirm_input,
+                purge: false,
             },
             busy: None,
             menu: None,
             cat_menu: None,
             cat_form: None,
             cat_del: None,
+            archived_detail: None,
             commit: Commit::default(),
             conflict: None,
             scroll: ScrollHandle::new(),
@@ -826,6 +832,11 @@ impl Desktop {
     ) -> bool {
         let _ = window;
         if key == "escape" {
+            if self.triggers.archived_detail.is_some() {
+                self.triggers.archived_detail = None;
+                cx.notify();
+                return true;
+            }
             if self.triggers.cat_form.is_some() || self.triggers.cat_del.is_some() {
                 self.triggers.cat_form = None;
                 self.triggers.cat_del = None;
@@ -1513,9 +1524,19 @@ impl Desktop {
             .into_any_element()
     }
 
+    /// 彻底删除要多走一步：这是唯一一个「连备份都没了」的动作。
+    fn ask_purge(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.triggers.confirm.name = name.to_string();
+        self.triggers.confirm.open = true;
+        self.triggers.confirm.purge = true;
+        self.triggers.confirm.input.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
     fn ask_archive(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.triggers.confirm.name = name.to_string();
         self.triggers.confirm.open = true;
+        self.triggers.confirm.purge = false;
         self.triggers.confirm.input.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }
@@ -1890,6 +1911,11 @@ impl Desktop {
         }
         if layer == Layer::Wizard {
             root = root.child(self.trigger_wizard(cx));
+        }
+        if self.triggers.archived_detail.is_some() {
+            root = root
+                .child(self.trigger_scrim(cx))
+                .child(self.trigger_archived_detail(cx));
         }
         if self.triggers.confirm.open {
             root = root
@@ -2868,8 +2894,273 @@ impl Desktop {
                             .border_color(rgb(t().p.danger_soft))
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.danger_soft)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.ask_purge(&purge.clone(), window, cx);
+                            }))
+                            .child(
+                                div()
+                                    .text_size(t().fs(11.))
+                                    .text_color(rgb(t().p.danger))
+                                    .child("彻底删除"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("tview-{name}").into()))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(t().d(24.))
+                            .rounded(t().r(5.))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener({
+                                let open = row.name.clone();
+                                move |this, _: &ClickEvent, _, cx| {
+                                    this.triggers.archived_detail = Some(open.clone());
+                                    cx.notify();
+                                }
+                            }))
+                            .child(
+                                Icon::new(IconName::ChevronRight)
+                                    .size(t().d(13.))
+                                    .text_color(rgb(t().p.muted)),
+                            ),
+                    ),
+            )
+            .child(div().w(t().d(0.)).child(name))
+            .into_any_element()
+    }
+
+    /// 「已归档」点开的那一条：元信息 + 两个动作。
+    ///
+    /// 归档区是唯一一个「东西已经不在了」的地方，所以这一屏的用处不是看代码
+    /// （代码还在仓库的 .archive/ 里，要看直接开文件），而是**删之前确认删的是哪个**。
+    fn trigger_archived_detail(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(name) = self.triggers.archived_detail.clone() else {
+            return div().into_any_element();
+        };
+        let row = self
+            .triggers
+            .data
+            .as_ref()
+            .and_then(|d| d.archived.iter().find(|a| a.name == name))
+            .cloned();
+        // 现在正有一份同名的在用 → 恢复会撞车，得先说明。
+        let live = self
+            .triggers
+            .data
+            .as_ref()
+            .map(|d| d.triggers.iter().any(|t| t.name == name))
+            .unwrap_or(false);
+        let restore = name.clone();
+        let purge = name.clone();
+        let close = name.clone();
+
+        div()
+            .absolute()
+            .top(t().d(56.))
+            .right_0()
+            .bottom_0()
+            .w(t().d(392.))
+            .flex()
+            .flex_col()
+            .bg(rgb(t().p.panel_alt))
+            .border_l(t().d(1.))
+            .border_color(rgb(t().p.line))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(9.))
+                    .p(t().d(16.))
+                    .border_b(t().d(1.))
+                    .border_color(rgb(t().p.line_soft))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(t().d(30.))
+                            .rounded(t().r(8.))
+                            .bg(rgb(t().p.disabled))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.panel))
+                            .child(name.chars().next().unwrap_or('?').to_uppercase().to_string()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .child(
+                                div()
+                                    .text_size(t().fs(12.5))
+                                    .text_color(rgb(t().p.text))
+                                    .child(name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(t().fs(9.5))
+                                    .text_color(rgb(t().p.muted))
+                                    .child(format!(
+                                        "已归档 · v{}",
+                                        row.as_ref()
+                                            .and_then(|r| r.version.clone())
+                                            .unwrap_or_default()
+                                    )),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("tarch-close")
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(t().d(24.))
+                            .rounded(t().r(5.))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.purge_trigger(&purge.clone(), cx);
+                                let _ = &close;
+                                this.triggers.archived_detail = None;
+                                cx.notify();
+                            }))
+                            .child(Icon::new(IconName::Close).size(t().d(12.)).text_color(rgb(t().p.muted))),
+                    ),
+            )
+            .child(
+                div()
+                    .id("tarch-scroll")
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .overflow_y_scroll()
+                    .p(t().d(16.))
+                    .flex()
+                    .flex_col()
+                    .gap(t().d(12.))
+                    .child(
+                        div()
+                            .text_size(t().fs(10.5))
+                            .line_height(t().d(16.))
+                            .text_color(rgb(t().p.text_2))
+                            .child(
+                                row.as_ref()
+                                    .and_then(|r| r.summary.clone())
+                                    .unwrap_or_else(|| "（没写说明）".to_string()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(t().d(5.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap(t().d(6.))
+                                    .children((row.as_ref().map(|r| r.category.clone()).unwrap_or_default()).into_iter().map(|c| {
+                                        div()
+                                            .px(t().d(5.))
+                                            .h(t().d(18.))
+                                            .flex()
+                                            .items_center()
+                                            .rounded(t().r(4.))
+                                            .bg(rgb(t().p.surface))
+                                            .text_size(t().fs(9.5))
+                                            .text_color(rgb(t().p.text_2))
+                                            .child(c)
+                                            .into_any_element()
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_size(t().fs(9.5))
+                                    .text_color(rgb(t().p.muted))
+                                    .child(format!(
+                                        "归档于 {}",
+                                        row.as_ref()
+                                            .and_then(|r| r.at.clone())
+                                            .unwrap_or_else(|| "—".to_string())
+                                    )),
+                            ),
+                    )
+                    .when(live, |el| {
+                        el.child(
+                            div()
+                                .p(t().d(9.))
+                                .rounded(t().r(5.))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.warn))
+                                .text_size(t().fs(10.))
+                                .line_height(t().d(15.))
+                                .text_color(rgb(t().p.warn))
+                                .child(format!(
+                                    "现在仓库里已经有一份同名「{name}」在用 —— 恢复会撞车，先处理掉在用的那份。"
+                                )),
+                        )
+                    })
+                    .child(
+                        div()
+                            .p(t().d(9.))
+                            .rounded(t().r(5.))
+                            .bg(rgb(t().p.surface))
+                            .text_size(t().fs(9.5))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.muted))
+                            .child("恢复 = 把它从 .archive/ 搬回仓库根、重扫索引、提交 + 推送。彻底删除 = 连备份一起删，找不回来。"),
+                    ),
+            )
+            .child(
+                div()
+                    .p(t().d(16.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(t().p.line_soft))
+                    .flex()
+                    .flex_row()
+                    .gap(t().d(8.))
+                    .child(
+                        div()
+                            .id("tarch-restore")
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .flex_1()
+                            .h(t().d(30.))
+                            .rounded(t().r(6.))
+                            .bg(if live { rgb(t().p.disabled) } else { rgb(t().p.accent) })
+                            .cursor_pointer()
+                            .when(!live, |el| {
+                                el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.triggers.archived_detail = None;
+                                    this.restore_trigger(&restore.clone(), cx);
+                                }))
+                            })
+                            .child(
+                                div()
+                                    .text_size(t().fs(11.))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .child(if live { "同名占用，先处理" } else { "恢复" }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("tarch-purge")
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .h(t().d(30.))
+                            .px(t().d(12.))
+                            .rounded(t().r(6.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.danger_soft))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.danger_soft)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.ask_purge(&purge.clone(), window, cx);
                             }))
                             .child(
                                 div()
@@ -2879,7 +3170,6 @@ impl Desktop {
                             ),
                     ),
             )
-            .child(div().w(t().d(0.)).child(name))
             .into_any_element()
     }
 
@@ -4691,6 +4981,7 @@ impl Desktop {
 
     fn trigger_confirm(&self, cx: &mut Context<Self>) -> AnyElement {
         let name = self.triggers.confirm.name.clone();
+        let purge = self.triggers.confirm.purge;
         let matches = self.triggers.confirm.input.read(cx).value().trim() == name;
         div()
             .absolute()
@@ -4716,14 +5007,26 @@ impl Desktop {
                         div()
                             .text_size(t().fs(14.))
                             .text_color(rgb(t().p.text))
-                            .child(format!("归档 {name}？")),
+                            .child(if purge {
+                                format!("彻底删除 {name}？")
+                            } else {
+                                format!("归档 {name}？")
+                            }),
                     )
                     .child(
                         div()
                             .mt(t().d(7.))
                             .text_size(t().fs(10.5))
                             .text_color(rgb(t().p.muted))
-                            .child(format!("整个项目目录会移到 .archive/{name}/ 并提交 + 推送。GitHub 上不再有它，但备份还在仓库里，随时能恢复。")),
+                            .child(if purge {
+                                format!(
+                                    "它会从 .archive/{name}/ 里删掉并提交 + 推送 —— 这是唯一一种连备份都不留的操作，删了就找不回来了。只是不想看见它的话，用「归档」就够。"
+                                )
+                            } else {
+                                format!(
+                                    "整个项目目录会移到 .archive/{name}/ 并提交 + 推送。GitHub 上不再有它，但备份还在仓库里，随时能恢复。"
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -4782,14 +5085,21 @@ impl Desktop {
                                         if this.triggers.confirm.input.read(cx).value().trim()
                                             == this.triggers.confirm.name
                                         {
-                                            this.confirm_archive(cx);
+                                            if this.triggers.confirm.purge {
+                                                let n = this.triggers.confirm.name.clone();
+                                                this.triggers.confirm.open = false;
+                                                this.triggers.archived_detail = None;
+                                                this.purge_trigger(&n, cx);
+                                            } else {
+                                                this.confirm_archive(cx);
+                                            }
                                         }
                                     }))
                                     .child(
                                         div()
                                             .text_size(t().fs(11.))
                                             .text_color(rgb(t().p.on_accent))
-                                            .child("归档并推送"),
+                                            .child(if purge { "确认删除" } else { "归档并推送" }),
                                     ),
                             ),
                     ),
