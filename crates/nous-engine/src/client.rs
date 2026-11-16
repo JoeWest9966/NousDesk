@@ -11,7 +11,8 @@ use url::Url;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
-    Dirs, Entries, Forked, Machines, Models, NewPreset, PresetOp, Presets, Prompts, ReadReceipt,
+    Dirs, Entries, Forked, Machines, Models, NewPreset, PresetFile, PresetOp, PresetValidation,
+    Presets, Prompts, ReadReceipt,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
@@ -120,10 +121,20 @@ impl EngineClient {
     ///
     /// 浏览发生在**引擎进程**里，这边只收发路径字符串 —— 以后引擎跑在远程机器上，
     /// 这一页列的就是那台机器的目录。
-    pub async fn dirs(&self, path: Option<&str>) -> Result<Dirs, EngineError> {
+    /// 列目录。`path` 空 = 起点（引擎的 START_DIRS）；`machine` 空 = 引擎那台机器本身。
+    ///
+    /// `?machine=` 是远端机器的目录 —— 不给它就是 qrd3wh 那台。
+    pub async fn dirs(
+        &self,
+        path: Option<&str>,
+        machine: Option<&str>,
+    ) -> Result<Dirs, EngineError> {
         let mut url = self.url("v1/fs/dirs")?;
         if let Some(path) = path.filter(|p| !p.is_empty()) {
             url.query_pairs_mut().append_pair("path", path);
+        }
+        if let Some(machine) = machine.filter(|m| !m.is_empty()) {
+            url.query_pairs_mut().append_pair("machine", machine);
         }
         let resp = self.http.get(url).send().await?;
         self.json(resp).await
@@ -331,6 +342,81 @@ impl EngineClient {
             .http
             .post(self.url(&format!("v1/presets/{section}/{}", op.path()))?)
             .json(&Body { name })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 读一个文件的原文（带 `etag`，写回时当 `base`）。
+    pub async fn preset_file(
+        &self,
+        section: &str,
+        name: &str,
+        path: &str,
+    ) -> Result<PresetFile, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/presets/{section}/file"))?)
+            .query(&[("name", name), ("path", path)])
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 写回一个文件。`base` 是刚读到（或刚写回）的 `etag` —— 撞了就 409，不覆盖别人的改动。
+    pub async fn put_preset_file(
+        &self,
+        section: &str,
+        name: &str,
+        path: &str,
+        text: &str,
+        base: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            name: &'a str,
+            path: &'a str,
+            text: &'a str,
+            base: &'a str,
+        }
+        let resp = self
+            .http
+            .put(self.url(&format!("v1/presets/{section}/file"))?)
+            .json(&Body { name, path, text, base })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 只读校验：形状闸 + 引用闸，回 `errors[] / warnings[] / resolved`。
+    pub async fn validate_preset(
+        &self,
+        section: &str,
+        name: &str,
+    ) -> Result<PresetValidation, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/presets/{section}/validate"))?)
+            .query(&[("name", name)])
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 发布：形状闸 → 重扫 → commit → push。失败一个字节都不动。
+    pub async fn publish_preset(
+        &self,
+        section: &str,
+        message: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            message: &'a str,
+        }
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/publish"))?)
+            .json(&Body { message })
             .send()
             .await?;
         self.json(resp).await

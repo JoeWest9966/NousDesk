@@ -16,9 +16,6 @@ fn t() -> crate::theme::Skin {
     crate::theme::cur()
 }
 
-/// 「编辑」这一版的副标题。写清为什么点了没用，而不是灰在那儿让人猜。
-pub const EDIT_UNAVAILABLE_HINT: &str = "编辑器在下一刀";
-
 /// 「彻底删掉」的副标题。归档可还原，这一项不可逆 —— 副标题就要说出来。
 pub const PURGE_HINT: &str = "不可逆";
 
@@ -53,6 +50,8 @@ impl PresetTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PresetMenuAction {
     Open { name: String },
+    /// 打开编辑器（C1 工作台）。
+    Edit { name: String },
     ChangeCategory { name: String },
     CopyDir { dir: String },
     Reload,
@@ -110,7 +109,6 @@ pub fn label(entry: PresetMenuEntry) -> &'static str {
 /// 行尾的灰色副标题。没副标题就不挂那一格。
 pub fn hint(entry: PresetMenuEntry) -> Option<&'static str> {
     match entry {
-        PresetMenuEntry::Edit => Some(EDIT_UNAVAILABLE_HINT),
         PresetMenuEntry::Purge => Some(PURGE_HINT),
         _ => None,
     }
@@ -122,7 +120,6 @@ pub fn hint(entry: PresetMenuEntry) -> Option<&'static str> {
 /// （那一段的启用动作还没定端点，别在客户端发明一个）。
 pub fn entry_enabled(entry: PresetMenuEntry, can_open: bool) -> bool {
     match entry {
-        PresetMenuEntry::Edit => false,
         PresetMenuEntry::Open => can_open,
         _ => true,
     }
@@ -137,7 +134,7 @@ pub fn entry_action(
     Some(match entry {
         PresetMenuEntry::Open => PresetMenuAction::Open { name: name() },
         PresetMenuEntry::ChangeCategory => PresetMenuAction::ChangeCategory { name: name() },
-        PresetMenuEntry::Edit => return None,
+        PresetMenuEntry::Edit => PresetMenuAction::Edit { name: name() },
         PresetMenuEntry::CopyDir => PresetMenuAction::CopyDir {
             dir: target.dir.clone(),
         },
@@ -183,25 +180,9 @@ where
     let enabled = entry_enabled(entry, can_open);
 
     let Some(action) = entry_action(entry, target) else {
-        // `Edit`：灰着，但**说出来**为什么 —— 一个没解释的灰条等于「坏了的按钮」。
-        return PopupMenuItem::element(move |_window, _cx| {
-            div()
-                .flex()
-                .w_full()
-                .items_center()
-                .justify_between()
-                .gap(t().d(12.))
-                .child(div().text_color(rgb(t().p.disabled)).child(text))
-                .child(
-                    div()
-                        .flex_none()
-                        .text_size(t().fs(11.))
-                        .text_color(rgb(t().p.faint))
-                        .child(hint(entry).unwrap_or_default()),
-                )
-                .into_any_element()
-        })
-        .disabled(true);
+        // 现在每一项都有动作；真走到这儿说明模型和渲染对不上，画成不可点而不是悄悄少一项。
+        debug_assert!(false, "{entry:?} 没有动作，不该走 item_for");
+        return PopupMenuItem::label(text);
     };
 
     let handler = move |_: &ClickEvent, _: &mut Window, cx: &mut App| on_pick(action.clone(), cx);
@@ -238,8 +219,8 @@ where
 mod tests {
     // 别写 `use super::*;` —— 会把 `gpui_kit::*` 带进来，`#[test]` 展开时撞 recursion limit。
     use super::{
-        EDIT_UNAVAILABLE_HINT, MenuLine, PURGE_HINT, PresetMenuAction, PresetMenuEntry,
-        PresetTarget, entry_action, entry_enabled, hint, label, lines,
+        MenuLine, PURGE_HINT, PresetMenuAction, PresetMenuEntry, PresetTarget, entry_action,
+        entry_enabled, hint, label, lines,
     };
 
     fn target() -> PresetTarget {
@@ -285,16 +266,16 @@ mod tests {
         assert_eq!(label(PresetMenuEntry::Purge), "彻底删掉…");
     }
 
-    /// 「编辑」灰着但要写清原因；「彻底删掉」可点但要标明不可逆。
+    /// 「彻底删掉」可点但要标明不可逆；「编辑」不再灰着（编辑器已经接上了）。
     #[test]
-    fn edit_is_disabled_with_a_reason_and_purge_says_it_is_irreversible() {
-        assert!(!entry_enabled(PresetMenuEntry::Edit, true));
-        assert_eq!(hint(PresetMenuEntry::Edit), Some(EDIT_UNAVAILABLE_HINT));
-        assert_eq!(EDIT_UNAVAILABLE_HINT, "编辑器在下一刀");
-
+    fn purge_says_it_is_irreversible_and_edit_is_enabled() {
         assert!(entry_enabled(PresetMenuEntry::Purge, true));
         assert_eq!(hint(PresetMenuEntry::Purge), Some(PURGE_HINT));
         assert_eq!(PURGE_HINT, "不可逆");
+
+        assert!(entry_enabled(PresetMenuEntry::Edit, true));
+        assert!(entry_enabled(PresetMenuEntry::Edit, false));
+        assert_eq!(hint(PresetMenuEntry::Edit), None);
     }
 
     /// 终极模板段开不了会话：「开一条新对话」变灰，但**不许从菜单里消失**
@@ -305,7 +286,7 @@ mod tests {
         assert!(!entry_enabled(PresetMenuEntry::Open, false));
         assert!(entry_enabled(PresetMenuEntry::Open, true));
         for e in entries() {
-            if e != PresetMenuEntry::Open && e != PresetMenuEntry::Edit {
+            if e != PresetMenuEntry::Open {
                 assert!(
                     entry_enabled(e, false),
                     "{e:?} 不该因为开不了会话而变灰"
@@ -353,8 +334,14 @@ mod tests {
         );
     }
 
+    /// 「编辑」现在真有动作（打开 C1 工作台），不再是个占位。
     #[test]
-    fn edit_has_no_action_because_it_is_a_placeholder() {
-        assert_eq!(entry_action(PresetMenuEntry::Edit, &target()), None);
+    fn edit_opens_the_editor() {
+        assert_eq!(
+            entry_action(PresetMenuEntry::Edit, &target()),
+            Some(PresetMenuAction::Edit {
+                name: "deep-dive".into()
+            })
+        );
     }
 }

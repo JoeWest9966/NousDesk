@@ -286,6 +286,10 @@ pub struct Desktop {
     pub(crate) preset_confirm: crate::preset_confirm::PresetConfirm,
     /// Template 页：改类别弹层。`Some` = 开着。
     pub(crate) cat_edit: Option<crate::templates::CatEditDraft>,
+    /// Template 页的编辑器（C1 工作台）。`open == false` 时整块不画。
+    pub(crate) editor: crate::editor::EditorState,
+    /// 启动时（`NOUS_DESKTOP_OPEN=editor`）等列表回来就自动开编辑器，只为验界面。
+    pub(crate) auto_editor: bool,
     /// Template 页：正在跑的生命周期动作（归档 / 还原 / 彻底删）的一句话。
     ///
     /// 引擎那边要 commit + push，实测**几分钟**量级；这期间列表上必须常驻一行
@@ -444,6 +448,16 @@ impl Desktop {
                     // 都走 `stop_propagation`，不让 Esc 再落到下面去关别的面板。
                     let closed = weak
                         .update(app, |this, cx| {
+                            // 编辑器是最上面一层：Esc 先关它（有改动时 close 自己会拦一次）。
+                            if this.editor.open {
+                                this.close_editor(false, cx);
+                                return true;
+                            }
+                            if this.editor.text_edit.is_some() {
+                                this.editor.text_edit = None;
+                                cx.notify();
+                                return true;
+                            }
                             if this.preset_confirm.is_open() {
                                 this.preset_confirm.on_esc();
                                 cx.notify();
@@ -582,6 +596,8 @@ impl Desktop {
             input,
             menu_open: open_at_start == "menu",
             settings_open: open_at_start == "settings",
+            // `NOUS_DESKTOP_OPEN=editor`：列表一拉回来就打开第一条的编辑器（验编辑器用）。
+            auto_editor: open_at_start == "editor",
             settings_tab: crate::settings::SettingsTab::Connection,
             theme_name: crate::theme::ThemeName::load(),
             settings_msg: None,
@@ -591,6 +607,7 @@ impl Desktop {
             preset_confirm: crate::preset_confirm::PresetConfirm::new(),
             cat_edit: None,
             preset_busy: None,
+            editor: crate::editor::EditorState::new(),
             notice: NoticeState::default(),
             conn,
             host_input,
@@ -1272,7 +1289,7 @@ impl Desktop {
                 return;
             };
             let got = h
-                .spawn(async move { engine.dirs(want.as_deref()).await })
+                .spawn(async move { engine.dirs(want.as_deref(), None).await })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 match got {
@@ -3935,7 +3952,7 @@ impl Render for Desktop {
         // 设置 / 归档库是**整页**：连 Template 的类别树和列表一起让位。
         // 只顶替最右一格的话，1280 下它们只剩 676，640 下只剩 36 —— 输入框里
         // 连一句完整的话都看不见（坑.md 57 是同一类问题，那条只修了滚动条）。
-        let page_open = self.settings_open || self.archive_open;
+        let page_open = self.settings_open || self.archive_open || self.editor.open;
 
         let main_col: AnyElement = if page_open {
             div().into_any_element()
@@ -4033,7 +4050,11 @@ impl Render for Desktop {
                         .flex_1()
                         .min_w(t().d(0.))
                         .overflow_hidden()
-                        .child(right)
+                        .child(if self.editor.open {
+                            self.render_editor(cx)
+                        } else {
+                            right
+                        })
                 }),
             );
 
@@ -4056,6 +4077,9 @@ impl Render for Desktop {
             // Template 页：改类别 / 归档·彻底删的确认（最上面两层）
             .children(self.cat_edit_overlay(cx))
             .children(self.preset_confirm_overlay(cx))
+            // 编辑器：文本字段输入 / 发布
+            .children(self.text_edit_overlay(cx))
+            .children(self.publish_overlay(cx))
             // 轻提示：最后一层，永远看得见。
             .children(self.render_notice());
 

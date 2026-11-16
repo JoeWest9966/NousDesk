@@ -292,6 +292,37 @@ pub struct Presets {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// `GET /v1/presets/<段>/file?name=&path=` —— 一个文件的原文 + 乐观锁。
+///
+/// `etag` 是写回时的 `base`：撞了就是 409，用户得先重读（别丢输入）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct PresetFile {
+    pub name: String,
+    pub path: String,
+    pub text: String,
+    pub etag: String,
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+/// `GET|POST /v1/presets/<段>/validate` 的回包。
+///
+/// `errors` / `warnings` 的形状由引擎定（可能是字符串，也可能是 `{path, message}`），
+/// 所以这里只当作 `Value` 收着，UI 层自己挑一句话显示 —— 不在这层猜形状。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PresetValidation {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub errors: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub warnings: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub resolved: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
 /// 一条预设的生命周期动作。三个都是 `POST /v1/presets/<段>/<op>`，体是 `{name}`。
 ///
 /// 语义差别（`wire.md` / 面板文案）：归档**可还原**（移到 `archives/`），彻底删**不可逆**
@@ -658,6 +689,10 @@ pub struct MachineIp {
 pub struct Dirs {
     /// 请求时没给 `path` 就为空串（= 起点）。
     pub path: Option<String>,
+    /// 上一级。引擎在 `/` 时不给这个键。**自己算 `rsplit('/')` 会算错根**，
+    /// 所以照抄它。
+    #[serde(default)]
+    pub parent: Option<String>,
     #[serde(default)]
     pub dirs: Vec<DirEntry>,
     #[serde(flatten)]

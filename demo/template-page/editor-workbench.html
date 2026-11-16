@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>模板编辑器 · 组合工作台</title>
+<style>
+@font-face{font-family:Inter;src:url(fonts/inter-400.woff2) format("woff2");font-weight:400}
+@font-face{font-family:Inter;src:url(fonts/inter-500.woff2) format("woff2");font-weight:500}
+@font-face{font-family:Inter;src:url(fonts/inter-600.woff2) format("woff2");font-weight:600}
+@font-face{font-family:JBMono;src:url(fonts/jetbrainsmono-400.woff2) format("woff2")}
+@font-face{font-family:Manrope;src:url(fonts/manrope-500.woff2) format("woff2")}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#141416;display:flex;flex-direction:column;align-items:center;font-family:Inter,system-ui,sans-serif;overflow:hidden}
+
+/* ── 工具条 ── */
+.chrome{width:100%;flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 14px;
+  background:#1c1c1f;border-bottom:1px solid #2a2a2e;color:#8b8b93;font-size:12px}
+.chrome b{font-weight:500;color:#5f5f68;font-size:10.5px;letter-spacing:.08em;white-space:nowrap}
+.grp{display:flex;gap:3px;flex-wrap:wrap}
+.grp button{font:inherit;font-size:11.5px;color:#8b8b93;background:transparent;border:1px solid transparent;
+  padding:5px 9px;border-radius:5px;cursor:pointer;white-space:nowrap}
+.grp button:hover{background:#26262a;color:#c8c8d0}
+.grp button.on{background:#e8e8ee;color:#141416;font-weight:500}
+.tg button{border-color:#2f2f34;color:#7c7c86}
+.tg button.on{background:#1d3b2a;border-color:#2e6b47;color:#7fd0a3}
+.vl{width:1px;height:16px;background:#2a2a2e}
+.hint{color:#5f5f68;font-size:10.5px;font-family:JBMono,monospace;white-space:nowrap}
+
+.stage{flex:1;display:flex;align-items:center;justify-content:center;padding:12px;overflow:hidden;min-height:0}
+.app{position:relative;width:1220px;max-width:100%;height:100%;display:flex;flex-direction:column;
+  overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:var(--fs);
+  box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.footnote{width:100%;flex:none;display:flex;align-items:center;gap:12px;padding:9px 16px;
+  background:#1c1c1f;border-top:1px solid #2a2a2e;color:#8a8a94;font-size:11.5px;line-height:1.5}
+.footnote b{color:#e8e8ee;font-weight:500;white-space:nowrap}
+.footnote em{font-style:normal;color:#6f7078}
+
+/* ── 皮肤 ── */
+.app[data-skin="default"]{--bg:#ededed;--panel:#fff;--panel2:#fafafa;--ink:#1a1a1a;--ink2:#333;--ink3:#8b8b8b;--ink4:#aaa;
+  --line:#e2e2e2;--line2:#ececec;--accent:#07c160;--accent-ink:#fff;--accent-soft:#e8f7ee;--ok:#07c160;--warn:#b06d00;--bad:#d32f2f;
+  --add:#e6f7ee;--del:#fdeaea;--r:6px;--fs:13px;--row:34px;--font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;--scrim:#0000002a}
+.app[data-skin="industrial"]{--bg:#f4f2ee;--panel:#fbfaf7;--panel2:#f0ede8;--ink:#14150f;--ink2:#3d3c35;--ink3:#6b6a63;--ink4:#9a9890;
+  --line:#14150f;--line2:#d8d4cc;--accent:#1d6b46;--accent-ink:#f4f2ee;--accent-soft:#e6ebe6;--ok:#1d6b46;--warn:#96700a;--bad:#a8281c;
+  --add:#e3ebe4;--del:#f2e2e0;--r:0px;--fs:12px;--row:34px;--font:Manrope,Inter,system-ui,sans-serif;--mono:JBMono,monospace;--scrim:#0000002e}
+.app[data-skin="mono"]{--bg:#000;--panel:#000;--panel2:#0a0a0a;--ink:#fff;--ink2:#a8a8a8;--ink3:#6b6b6b;--ink4:#4a4a4a;
+  --line:#fff;--line2:#2a2a2e;--accent:#fff;--accent-ink:#000;--accent-soft:#1a1a1a;--ok:#fff;--warn:#fff;--bad:#ff4d4d;
+  --add:#12200f;--del:#241010;--r:0px;--fs:12.5px;--row:36px;--font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;--scrim:#00000066}
+.app[data-skin="paper"]{--bg:#fbfbfa;--panel:#fff;--panel2:#f5f5f3;--ink:#171a1c;--ink2:#62686d;--ink3:#9298a0;--ink4:#b9bec3;
+  --line:#e6e6e3;--line2:#efefec;--accent:#171a1c;--accent-ink:#fff;--accent-soft:#f0f0ee;--ok:#2c8a5e;--warn:#a9761d;--bad:#c4362b;
+  --add:#eef6f1;--del:#fbeeec;--r:3px;--fs:12.5px;--row:34px;--font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;--scrim:#00000026}
+.app[data-skin="amber"]{--bg:#0d0c0a;--panel:#12110e;--panel2:#17150f;--ink:#f0e9dc;--ink2:#a89e8c;--ink3:#6f6656;--ink4:#504a3e;
+  --line:#251f18;--line2:#1c1712;--accent:#e8a33d;--accent-ink:#14110c;--accent-soft:#2a2113;--ok:#7fb489;--warn:#e8a33d;--bad:#d8705f;
+  --add:#14180f;--del:#1e1210;--r:3px;--fs:12.5px;--row:34px;--font:Inter,system-ui,sans-serif;--mono:JBMono,monospace;--scrim:#00000066}
+
+/* ── 骨架 ── */
+.topline{display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:1px solid var(--line2);flex:none;min-height:46px}
+.topline h1{font-size:14px;font-weight:600;white-space:nowrap}
+.topline .sec{font-family:var(--mono);font-size:10.5px;color:var(--ink4)}
+.body{flex:1;display:flex;min-height:0}
+.nav{width:212px;flex:none;background:var(--panel2);border-right:1px solid var(--line2);display:flex;flex-direction:column;min-height:0}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.insp{width:352px;flex:none;background:var(--panel2);border-left:1px solid var(--line2);display:flex;flex-direction:column;min-height:0}
+.statusbar{display:flex;align-items:center;gap:10px;padding:7px 14px;border-top:1px solid var(--line2);
+  flex:none;background:var(--panel);font-size:10.5px;color:var(--ink3);min-height:34px}
+.scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}
+.scroll::-webkit-scrollbar{width:8px}
+.scroll::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+
+.hd{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:1px solid var(--line2);flex:none;
+  font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)}
+.hd .n{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:0;text-transform:none}
+
+.btn{font:inherit;font-size:11.5px;padding:5px 11px;border-radius:var(--r);border:1px solid var(--line2);
+  background:var(--panel);color:var(--ink2);cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.btn:hover{color:var(--ink);border-color:var(--ink4)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:500}
+.btn.sm{font-size:10.5px;padding:3px 8px}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink3)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+
+.chip{display:inline-flex;align-items:center;gap:5px;height:19px;padding:0 8px;border-radius:10px;
+  border:1px solid currentColor;font-size:10px;white-space:nowrap}
+.chip.w{color:var(--warn)}.chip.b{color:var(--bad)}.chip.g{color:var(--ok)}.chip.m{color:var(--ink4)}
+.chip .dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+
+/* 导航 */
+.navgroup{padding:5px 8px}
+.navitem{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:var(--r);cursor:pointer;
+  font-size:12px;color:var(--ink2)}
+.navitem:hover{background:var(--panel)}
+.navitem.on{background:var(--panel);color:var(--ink);font-weight:500}
+.navitem .ic{width:13px;text-align:center;color:var(--ink4);font-size:11px}
+.navitem .badge{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--ink4)}
+.navitem .badge.b{color:var(--bad)}
+.navitem .badge.w{color:var(--warn)}
+.navsep{height:1px;background:var(--line2);margin:6px 10px}
+
+/* 字段 */
+.grphead{padding:12px 16px 6px;display:flex;align-items:center;gap:8px}
+.grphead .t{font-size:11px;font-weight:600;letter-spacing:.02em}
+.grphead .hint2{margin-left:auto;font-size:10px;color:var(--ink4)}
+.fld{display:flex;align-items:center;gap:10px;padding:7px 16px;min-height:calc(var(--row) + 6px)}
+.fld:hover{background:var(--panel2)}
+.fld .lab{width:104px;flex:none;font-size:11.5px;color:var(--ink3);display:flex;align-items:center;gap:5px}
+.fld .lab .src{font-size:9px;color:var(--ink4);border:1px solid var(--line2);border-radius:2px;padding:0 3px;line-height:1.5}
+.fld .lab .src.ov{color:var(--accent);border-color:var(--accent)}
+.fld .ctl{flex:1;min-width:0;display:flex;align-items:center;gap:6px}
+.fld .reset{opacity:0;font-size:10px;color:var(--ink4);cursor:pointer;white-space:nowrap}
+.fld:hover .reset{opacity:1}
+.fld.err{background:var(--del);box-shadow:inset 2px 0 0 var(--bad)}
+.fld.changed .lab .k2{color:var(--ink)}
+
+.vsel{display:inline-flex;align-items:center;gap:7px;max-width:100%;font-size:11.5px;
+  border:1px solid var(--line2);border-radius:var(--r);padding:4px 9px;background:var(--panel);cursor:pointer}
+.vsel .c{color:var(--ink4);font-size:9px}
+.vsel span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vtxt{border-bottom:1px dashed var(--ink4);font-family:var(--mono);font-size:11.5px;padding-bottom:1px}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden;background:var(--panel)}
+.seg span{padding:3px 10px;font-size:11px;color:var(--ink3);cursor:pointer;white-space:nowrap}
+.seg span.on{background:var(--accent);color:var(--accent-ink)}
+.seg span+span{border-left:1px solid var(--line2)}
+.sw{width:30px;height:17px;border-radius:9px;background:var(--accent);position:relative;cursor:pointer;flex:none}
+.sw i{position:absolute;top:2px;right:2px;width:13px;height:13px;border-radius:50%;background:var(--accent-ink)}
+.sw.off{background:var(--line2)}
+.sw.off i{right:auto;left:2px;background:var(--panel)}
+.slide{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.slide .track{flex:1;height:2px;background:var(--line2);position:relative;border-radius:1px}
+.slide .track i{position:absolute;left:0;top:0;bottom:0;width:62%;background:var(--accent);border-radius:1px}
+.slide .track b{position:absolute;left:62%;top:-4px;width:10px;height:10px;margin-left:-5px;border-radius:50%;
+  background:var(--panel);border:1.5px solid var(--accent)}
+.slide .num{font-family:var(--mono);font-size:10.5px;color:var(--ink3);width:24px;text-align:right}
+.tag{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px;border-radius:3px;
+  background:var(--panel2);border:1px solid var(--line2);font-size:10px;color:var(--ink2);white-space:nowrap}
+.tag .x{color:var(--ink4);cursor:pointer;font-size:9px}
+.tag.bad{border-color:var(--bad);color:var(--bad);background:transparent}
+.tag.add{border-style:dashed;color:var(--ink4);background:transparent;cursor:pointer}
+
+/* 检查器 */
+.tabs{display:flex;gap:1px;border-bottom:1px solid var(--line2);flex:none;background:var(--panel)}
+.tabs span{padding:8px 11px;font-size:11px;color:var(--ink3);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs span.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+.tabs .n{font-family:var(--mono);font-size:9.5px;color:var(--ink4);margin-left:3px}
+.code{font-family:var(--mono);font-size:11px;line-height:1.9;padding:6px 0}
+.code .l{display:flex;gap:9px;padding:0 12px;white-space:pre}
+.code .l .n{width:20px;flex:none;text-align:right;color:var(--ink4);font-size:10px;user-select:none}
+.code .l .t{overflow:hidden}
+.code .k{color:var(--accent)}.code .s{color:var(--ok)}.code .v{color:var(--warn)}
+.code .l.add{background:var(--add)}.code .l.del{background:var(--del)}.code .l.err{background:var(--del);box-shadow:inset 2px 0 0 var(--bad)}
+.code .l.hl{background:var(--panel)}
+
+.kvrow{display:flex;gap:9px;padding:6px 12px;font-size:11px;border-bottom:1px solid var(--line2)}
+.kvrow .k{width:86px;flex:none;color:var(--ink4)}
+.kvrow .v{flex:1;min-width:0;font-family:var(--mono);font-size:10.5px;color:var(--ink2);word-break:break-all}
+
+.issue{display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line2);font-size:11px;cursor:pointer}
+.issue:hover{background:var(--panel)}
+.issue .ic{width:12px;flex:none;text-align:center}
+.issue.b .ic{color:var(--bad)}.issue.w .ic{color:var(--warn)}
+.issue .txt{flex:1;min-width:0;line-height:1.5}
+.issue .where{font-family:var(--mono);font-size:9.5px;color:var(--ink4)}
+
+.change{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line2);font-size:11px}
+.change .f{font-family:var(--mono);font-size:10px;color:var(--ink3);width:112px;flex:none;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.change .d{flex:1;min-width:0;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.change .d em{font-style:normal;color:var(--ink4);text-decoration:line-through}
+.change .undo{font-size:10px;color:var(--ink4);cursor:pointer;white-space:nowrap}
+.change .undo:hover{color:var(--accent)}
+
+.hist{display:flex;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line2);font-size:10.5px}
+.hist .h{font-family:var(--mono);color:var(--ink4);width:52px;flex:none}
+.hist .m{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink2)}
+
+/* 向导 */
+.steps{display:flex;align-items:center;gap:7px;padding:12px 18px;border-bottom:1px solid var(--line2);flex:none}
+.stepdot{width:19px;height:19px;border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;
+  justify-content:center;font-size:10px;color:var(--ink4);flex:none}
+.stepdot.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.stepdot.done{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.steph{width:20px;height:1px;background:var(--line2)}
+
+/* 大字 */
+.hero{padding:26px 34px}
+.hero .eb{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink4)}
+.hero .big{font-size:25px;font-weight:300;letter-spacing:-.01em;margin-top:4px}
+.hero .sub{font-size:11px;color:var(--ink3);margin-top:5px}
+.hero .blk{margin-top:26px}
+
+/* 表格 */
+table.tb{width:100%;border-collapse:collapse;font-size:11.5px}
+table.tb th{text-align:left;padding:7px 14px;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink4);border-bottom:1px solid var(--line2);font-weight:500}
+table.tb td{padding:7px 14px;border-bottom:1px solid var(--line2)}
+table.tb tr:hover td{background:var(--panel2)}
+table.tb td:first-child{color:var(--ink3);width:120px}
+table.tb td .mono{font-family:var(--mono);font-size:10.5px}
+
+/* 命令面板 */
+.palette{position:absolute;left:50%;top:74px;transform:translateX(-50%);width:540px;background:var(--panel);
+  border:1px solid var(--line);box-shadow:0 26px 70px rgba(0,0,0,.4);z-index:9;overflow:hidden}
+.palette .q{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line2);font-size:12.5px}
+.palette .q .ph{color:var(--ink4)}
+.palette .q kbd{margin-left:auto;font:10px var(--mono);border:1px solid var(--line2);border-radius:3px;padding:1px 5px;color:var(--ink4)}
+.palette .it{display:flex;align-items:center;gap:9px;padding:7px 14px;font-size:11.5px;cursor:pointer}
+.palette .it .k{width:104px;flex:none;color:var(--ink3);font-size:10.5px}
+.palette .it .v{flex:1;min-width:0;font-family:var(--mono);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.palette .it.on{background:var(--accent-soft)}
+.palette .it .go{color:var(--ink4);font-size:10px}
+
+.dlg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:452px;background:var(--panel);
+  border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.45);z-index:9;padding:20px 22px}
+.dlg h3{font-size:13.5px;font-weight:600}
+.dlg p{font-size:11px;color:var(--ink3);line-height:1.7;margin-top:6px}
+.dlg .box{margin-top:12px;border:1px solid var(--line2);border-radius:var(--r);padding:8px 10px;
+  font-family:var(--mono);font-size:11px;background:var(--panel2)}
+.dlg .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:8}
+.banner{display:flex;align-items:center;gap:8px;padding:7px 14px;background:var(--del);
+  border-bottom:1px solid var(--line2);font-size:11px;color:var(--bad);flex:none}
+</style>
+</head>
+<body>
+
+<div class="chrome">
+  <b>组合</b><div class="grp" id="ls"></div>
+  <span class="vl"></span>
+  <b>面板</b><div class="grp tg" id="tg"></div>
+  <span class="vl"></span>
+  <b>皮肤</b><div class="grp" id="sk"></div>
+  <span style="flex:1"></span>
+  <span class="hint" id="keys">← → 组合 · Q J D E 开关 · 1–5 皮肤</span>
+</div>
+
+<div class="stage"><div class="app" data-skin="industrial" id="app"></div></div>
+<div class="footnote" id="fn"></div>
+
+<script>
+/* ══════════ 数据 ══════════ */
+const NAME = "deep-dive";
+const SECTION = "Session-Template";
+
+const GROUPS = [
+  { id: "model", label: "模型", icon: "◈" },
+  { id: "ctx", label: "上下文", icon: "▤" },
+  { id: "ext", label: "扩展", icon: "◇" },
+  { id: "perm", label: "权限", icon: "⚿" },
+  { id: "run", label: "运行", icon: "▶" },
+];
+
+/* 每个字段：来源 default（跟设备）/ override（这条自己钉的） */
+const FIELDS = [
+  { id: "vendor", g: "model", label: "供应商", type: "select", v: "volc-ark", src: "default" },
+  { id: "model", g: "model", label: "模型", type: "select", v: "deepseek-v4-flash-260425", src: "override", changed: "low→" },
+  { id: "thinking", g: "model", label: "思考档位", type: "seg", v: "medium", opts: ["low", "medium", "high"], src: "override", changed: true },
+  { id: "temp", g: "model", label: "温度", type: "slider", v: "0.7", pct: 62, src: "default" },
+  { id: "skills", g: "ctx", label: "技能", type: "seg", v: "挑几个", opts: ["跟随默认", "都不要", "挑几个"], src: "override" },
+  { id: "skill_list", g: "ctx", label: "已选", type: "chips", v: ["smart-ass"], bad: ["smart-ass"], src: "override" },
+  { id: "prompt", g: "ctx", label: "会话模板", type: "select", v: "session-template/deep-dive", src: "override" },
+  { id: "ext_list", g: "ext", label: "扩展", type: "chips", v: [], src: "default" },
+  { id: "perm", g: "perm", label: "权限档", type: "seg", v: "默认", opts: ["严格", "默认", "宽松"], src: "default" },
+  { id: "readonly", g: "perm", label: "只读", type: "switch", v: true, src: "override" },
+  { id: "workdir", g: "run", label: "工作目录", type: "text", v: "~/work", src: "override", changed: true },
+  { id: "machine", g: "run", label: "机器", type: "select", v: "j1900 · 在线", src: "default" },
+];
+
+const CHANGES = [
+  { f: "model.thinking", from: "low", to: "medium" },
+  { f: "model.model", from: "ds-v4-lite", to: "ds-v4-flash" },
+  { f: "workdir", from: "~/scratch", to: "~/work" },
+];
+
+const ISSUES = [
+  { kind: "b", txt: "技能 smart-ass 已经不在引擎清单里", where: "skills.list[0]" },
+  { kind: "w", txt: "只读开着，但工作目录仍写死了路径", where: "workdir" },
+  { kind: "w", txt: "这条模板从来没发布过", where: "HEAD" },
+];
+
+const HISTORY = [
+  { h: "d44888e", m: "恢复 deep-dive" },
+  { h: "6210f2a", m: "从归档恢复 asd" },
+  { h: "c760d63", m: "归档 deep-dive" },
+  { h: "9e4ccd1", m: "调整思考档位" },
+  { h: "a17b3f0", m: "初建模板" },
+];
+
+const JSON_SRC = [
+  "{",
+  `  "v": 1,`,
+  `  "name": "${NAME}",`,
+  `  "model": {`,
+  `    "vendor": "volc-ark",`,
+  `    "model": "deepseek-v4-flash-260425",`,
+  `    "thinking": "medium",`,
+  `    "temperature": 0.7`,
+  `  },`,
+  `  "skills": { "mode": "pick", "list": ["smart-ass"] },`,
+  `  "prompt": "session-template/deep-dive",`,
+  `  "extensions": [],`,
+  `  "permissions": "default",`,
+  `  "readonly": true,`,
+  `  "workdir": "~/work",`,
+  `  "machine": "j1900"`,
+  "}",
+];
+
+/* ══════════ 组合 ══════════ */
+const COMBOS = [
+  {
+    id: "c1", name: "C1 工作台",
+    nav: true, insp: true, inspTabs: ["json", "eff", "issues", "changes"],
+    on: { json: true, diff: false, eff: false, dense: false },
+    form: "group", navSel: "model",
+    note: "三块各就各位：左分组、中表单、右检查器（JSON/生效值/问题/改动四个 tab）。默认推荐，改一条模板的全流程一屏走完。",
+  },
+  {
+    id: "c2", name: "C2 专注",
+    nav: false, insp: false, inspTabs: ["json", "diff", "eff", "issues"],
+    on: { json: false, diff: false, eff: false, dense: false },
+    form: "single", navSel: "ctx", narrow: true,
+    note: "只剩中间一栏，760 宽居中。检查器全部收进状态栏（Ctrl+J / Ctrl+D 随时拉开），适合改值不想被分栏干扰。",
+  },
+  {
+    id: "c3", name: "C3 审阅",
+    nav: true, insp: true, inspTabs: ["json", "eff", "issues", "changes"], diffMain: true,
+    on: { json: true, diff: false, eff: true, dense: false },
+    form: "group", navSel: "changes",
+    note: "主区直接是 diff，左边导航切到「改动 / 问题 / 历史」。改完先审，再决定发不发。",
+  },
+  {
+    id: "c4", name: "C4 向导",
+    nav: false, insp: true, inspTabs: ["json", "eff", "issues"],
+    on: { json: true, diff: false, eff: true, dense: false },
+    form: "steps", navSel: "model",
+    note: "一步一组，5 步走完，底部上一步/下一步。右边常驻「生效值 + 问题」，边填边看见后果。",
+  },
+  {
+    id: "c5", name: "C5 全开",
+    nav: true, insp: true, inspTabs: ["json", "diff", "eff", "issues", "changes"], wideInsp: true,
+    on: { json: true, diff: true, eff: true, dense: false },
+    form: "table", navSel: "ext",
+    note: "表格形态 + 五 tab 检查器全开。信息密度最高，扫一眼能看完全部字段和全部状态；窄窗会挤。",
+  },
+  {
+    id: "c6", name: "C6 大字",
+    nav: false, insp: false, inspTabs: ["json", "eff", "issues"],
+    on: { json: false, diff: false, eff: false, dense: false },
+    form: "hero", navSel: "run",
+    note: "结论导向：一个值一行大字，高级项折叠在底部。给「我只想看它现在到底怎么跑」的场景。",
+  },
+];
+
+const TOGGLES = [
+  { id: "json", name: "JSON" },
+  { id: "diff", name: "diff" },
+  { id: "eff", name: "生效值" },
+  { id: "dense", name: "紧凑" },
+];
+
+const SKINS = [["default", "默认绿"], ["industrial", "工业"], ["mono", "单色"], ["paper", "纸"], ["amber", "琥珀"]];
+
+/* ══════════ 状态 ══════════ */
+const S = { combo: "c1", tabs: {}, on: { json: true, diff: false, eff: true, dense: false }, skin: "industrial" };
+const combo = () => COMBOS.find(c => c.id === S.combo);
+
+/* ══════════ 小件 ══════════ */
+// 圆点用字符而不是 span：flex 里那 5px 的点在 mono 皮上会和文字叠在一起。
+const chip = (t, cls = "m", dot = false) =>
+  `<span class="chip ${cls}">${dot ? "● " : ""}${t}</span>`;
+
+const ctl = f => {
+  switch (f.type) {
+    case "select":
+      return `<span class="vsel"><span>${f.v}</span><span class="c">▾</span></span>`;
+    case "text":
+      return `<span class="vtxt">${f.v}</span>`;
+    case "seg":
+      return `<span class="seg">${f.opts.map(o => `<span class="${o === f.v ? "on" : ""}">${o}</span>`).join("")}</span>`;
+    case "switch":
+      return `<span class="sw ${f.v ? "" : "off"}"><i></i></span>`;
+    case "slider":
+      return `<span class="slide"><span class="track"><i style="width:${f.pct}%"></i><b style="left:${f.pct}%"></b></span><span class="num">${f.v}</span></span>`;
+    case "chips": {
+      const bad = f.bad || [];
+      const items = f.v.map(t =>
+        `<span class="tag${bad.includes(t) ? " bad" : ""}">${t}${bad.includes(t) ? " ⚠" : ""}<span class="x">✕</span></span>`).join("");
+      return items + `<span class="tag add">＋ 添加</span>`;
+    }
+    default: return "";
+  }
+};
+
+const fld = f => `<div class="fld${f.changed ? " changed" : ""}${f.id === "skill_list" ? " err" : ""}">
+  <span class="lab"><span class="k2">${f.label}</span>
+    <span class="src${f.src === "override" ? " ov" : ""}">${f.src === "override" ? "改" : "默认"}</span></span>
+  <span class="ctl">${ctl(f)}</span>
+  <span class="reset">↺ 重置</span>
+</div>`;
+
+const groupHead = (g, n) => `<div class="grphead">
+  <span class="t">${GROUPS.find(x => x.id === g).label}</span>
+  <span class="hint2">${n} 项</span></div>`;
+
+/* 表单四种形态 */
+function formBody() {
+  const c = combo();
+  if (c.form === "steps") {
+    const g = GROUPS[1];
+    return `<div class="steps">
+      ${GROUPS.map((x, i) => `
+        ${i ? '<span class="steph"></span>' : ""}
+        <span class="stepdot ${i === 1 ? "on" : i < 1 ? "done" : ""}">${i < 1 ? "✓" : i + 1}</span>
+        <span style="font-size:11px;color:${i === 1 ? "var(--ink)" : "var(--ink3)"}">${x.label}</span>`).join("")}
+    </div>
+    <div class="scroll" style="padding:20px 0">
+      <div style="width:560px;max-width:calc(100% - 40px);margin:0 auto">
+        <div style="font-size:15px;font-weight:500">第 2 步 · ${g.label}</div>
+        <div style="font-size:11px;color:var(--ink3);margin:5px 0 14px">技能跟不跟默认、钉不钉模板。留空就是都不用。</div>
+        ${FIELDS.filter(f => f.g === g.id).map(fld).join("")}
+      </div>
+    </div>
+    <div class="statusbar" style="justify-content:space-between">
+      <span>第 2 / 5 步</span>
+      <span style="display:flex;gap:8px"><span class="btn sm">上一步</span><span class="btn pri sm">下一步</span></span>
+    </div>`;
+  }
+  if (c.form === "hero") {
+    return `<div class="scroll"><div class="hero" style="max-width:760px;margin:0 auto">
+      <div class="eb">model</div>
+      <div class="big">deepseek-v4-flash</div>
+      <div class="sub"><span class="mono">volc-ark</span> · 思考 medium · 温度 0.7</div>
+      <div class="blk"><div class="eb">context</div>
+        <div class="big" style="font-size:19px;margin-top:4px">挑几个 + smart-ass</div>
+        <div class="sub">模板钉住 <span class="mono">session-template/deep-dive</span></div></div>
+      <div class="blk"><div class="eb">runtime</div>
+        <div class="big" style="font-size:19px;margin-top:4px">~/work · j1900</div>
+        <div class="sub">只读 · 默认权限</div></div>
+      <div class="blk" style="border-top:1px solid var(--line2);padding-top:12px">
+        <div class="row" style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink3)">
+          <span>高级项（扩展 / 权限细项 / 机器）</span><span class="btn ghost sm">展开 ▾</span></div>
+      </div>
+    </div></div>`;
+  }
+  if (c.form === "table") {
+    return `<div class="scroll">
+      <table class="tb"><thead><tr><th>字段</th><th>值</th><th style="width:56px">来源</th><th style="width:40px"></th></tr></thead>
+      <tbody>${FIELDS.map(f => `<tr>
+        <td>${f.label}</td>
+        <td><span class="mono">${Array.isArray(f.v) ? (f.v.join(", ") || "—") : (typeof f.v === "boolean" ? (f.v ? "是" : "否") : f.v)}</span></td>
+        <td><span class="src${f.src === "override" ? " ov" : ""}" style="font-size:9px;border:1px solid var(--line2);border-radius:2px;padding:0 3px;color:var(--ink4)">${f.src === "override" ? "改" : "默认"}</span></td>
+        <td style="color:var(--ink4);text-align:right">›</td></tr>`).join("")}</tbody></table>
+    </div>`;
+  }
+  if (c.form === "single") {
+    const g = GROUPS.find(x => x.id === c.navSel) || GROUPS[0];
+    return `<div style="max-width:720px;width:100%;margin:0 auto;padding:10px 16px 0;flex:none;
+        display:flex;gap:4px;flex-wrap:wrap">
+        ${GROUPS.map(x => `<span class="${x.id === g.id ? "btn pri sm" : "btn sm"}">${x.label}</span>`).join("")}
+      </div>
+      <div class="scroll"><div style="max-width:720px;margin:0 auto;padding:8px 0">
+      ${groupHead(g.id, FIELDS.filter(f => f.g === g.id).length)}
+      ${FIELDS.filter(f => f.g === g.id).map(fld).join("")}
+    </div></div>`;
+  }
+  return `<div class="scroll" style="padding-bottom:8px">
+    ${GROUPS.map(g => {
+      const fs = FIELDS.filter(f => f.g === g.id);
+      return groupHead(g.id, fs.length) + fs.map(fld).join("");
+    }).join("")}
+  </div>`;
+}
+
+/* 主区：表单 or diff */
+function mainBody() {
+  const c = combo();
+  if (c.diffMain) {
+    return `<div class="scroll"><div class="code" style="font-size:11.5px;line-height:2">
+      ${JSON_SRC.map((t, i) => {
+        const n = i + 1;
+        const cls = n === 6 ? " add" : n === 7 ? " del" : "";
+        return `<div class="l${cls}"><span class="n">${n}</span><span class="t">${t}</span></div>`;
+      }).join("")}
+    </div></div>`;
+  }
+  return formBody();
+}
+
+/* 检查器 */
+function inspTabs() {
+  const c = combo();
+  const tabs = c.inspTabs.filter(t => {
+    if (t === "json") return S.on.json;
+    if (t === "diff") return S.on.diff;
+    if (t === "eff") return S.on.eff;
+    return true;
+  });
+  return tabs;
+}
+
+function inspBody() {
+  const tabs = inspTabs();
+  const cur = S.tabs[S.combo] && tabs.includes(S.tabs[S.combo]) ? S.tabs[S.combo] : tabs[0];
+  if (!cur) return `<div style="padding:14px;font-size:11px;color:var(--ink4)">面板都关了 —— 按 J / D / E 打开。</div>`;
+  const panel = () => {
+    if (cur === "json")
+      return `<div class="scroll"><div class="code">${JSON_SRC.map((t, i) =>
+        `<div class="l"><span class="n">${i + 1}</span><span class="t">${t}</span></div>`).join("")}</div></div>`;
+    if (cur === "diff")
+      return `<div class="scroll">
+        <div class="hd">待提交<span class="n">1 个文件 · +1 -1</span></div>
+        <div class="code">
+          <div class="l"><span class="n"> </span><span class="t">spec.json</span></div>
+          <div class="l del"><span class="n">−</span><span class="t">"thinking": "low"</span></div>
+          <div class="l add"><span class="n">+</span><span class="t">"thinking": "medium"</span></div>
+        </div>
+        <div class="hd" style="margin-top:6px">未进仓<span class="n">0</span></div>
+      </div>`;
+    if (cur === "eff")
+      return `<div class="scroll">
+        <div class="hd">解析后的生效值<span class="n">引擎给</span></div>
+        ${[["模型", "deepseek-v4-flash-260425"], ["思考", "medium"], ["温度", "0.7"],
+           ["技能", "默认 5 + smart-ass"], ["模板", "session-template/deep-dive"],
+           ["只读", "true"], ["目录", "~/work"], ["机器", "j1900"]].map(([k, v]) =>
+          `<div class="kvrow"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("")}
+        <div class="hd" style="margin-top:6px">缺失的引用<span class="n">1</span></div>
+        <div class="issue b"><span class="ic">✕</span><span class="txt">技能 smart-ass 找不到</span></div>
+      </div>`;
+    if (cur === "issues")
+      return `<div class="scroll">
+        <div class="hd">问题<span class="n">1 错 · 2 警</span></div>
+        ${ISSUES.map(i => `<div class="issue ${i.kind}">
+          <span class="ic">${i.kind === "b" ? "✕" : "!"}</span>
+          <span class="txt">${i.txt}<div class="where">${i.where}</div></span></div>`).join("")}
+        <div style="padding:10px 12px;font-size:10px;color:var(--ink4);line-height:1.7">
+          点一条跳到对应字段。判据全在引擎，这里只显示它的原话。</div>
+      </div>`;
+    return `<div class="scroll">
+      <div class="hd">本次改动<span class="n">${CHANGES.length} 处</span></div>
+      ${CHANGES.map(c => `<div class="change">
+        <span class="f">${c.f}</span>
+        <span class="d"><em>${c.from}</em> → ${c.to}</span>
+        <span class="undo">撤销</span></div>`).join("")}
+      <div class="hd" style="margin-top:6px">最近提交<span class="n">5</span></div>
+      ${HISTORY.map(h => `<div class="hist"><span class="h">${h.h}</span><span class="m">${h.m}</span></div>`).join("")}
+    </div>`;
+  };
+  return `<div class="tabs">${tabs.map(t =>
+    `<span class="${t === cur ? "on" : ""}">${{ json: "JSON", diff: "diff", eff: "生效值", issues: "问题", changes: "改动" }[t]}${
+      t === "issues" ? '<span class="n">3</span>' : t === "changes" ? '<span class="n">3</span>' : ""}</span>`).join("")}</div>
+    ${panel()}`;
+}
+
+/* 导航 */
+function navBody() {
+  const c = combo();
+  const items = [
+    ...GROUPS.map(g => ({ id: g.id, label: g.label, icon: GROUPS.find(x => x.id === g.id).icon,
+      badge: String(FIELDS.filter(f => f.g === g.id).length) })),
+  ];
+  return `<div class="hd">分组<span class="n">5</span></div>
+    <div class="navgroup">${items.map(i =>
+      `<div class="navitem${i.id === c.navSel ? " on" : ""}"><span class="ic">${i.icon}</span>${i.label}<span class="badge">${i.badge}</span></div>`).join("")}</div>
+    <div class="navsep"></div>
+    <div class="hd">状态<span class="n">3</span></div>
+    <div class="navgroup">
+      <div class="navitem${c.navSel === "changes" ? " on" : ""}"><span class="ic">✎</span>待提交<span class="badge w">3</span></div>
+      <div class="navitem"><span class="ic">!</span>问题<span class="badge b">3</span></div>
+      <div class="navitem"><span class="ic">⟲</span>历史<span class="badge">5</span></div>
+    </div>
+    <div style="flex:1"></div>
+    <div class="navgroup" style="padding-bottom:8px">
+      <div class="navitem"><span class="ic">▸</span>命令面板<span class="badge">Ctrl+K</span></div>
+    </div>`;
+}
+
+/* ══════════ 渲染 ══════════ */
+const app = document.getElementById("app");
+const ls = document.getElementById("ls"), sk = document.getElementById("sk"), tg = document.getElementById("tg"), fn = document.getElementById("fn");
+
+ls.innerHTML = COMBOS.map(c => `<button data-c="${c.id}" title="${c.note}">${c.name}</button>`).join("");
+tg.innerHTML = TOGGLES.map(t => `<button data-t="${t.id}">${t.name}</button>`).join("");
+sk.innerHTML = SKINS.map(([k, n]) => `<button data-s="${k}">${n}</button>`).join("");
+
+function render() {
+  const c = combo();
+  app.dataset.skin = S.skin;
+  app.style.setProperty("--row", S.on.dense ? "26px" : "34px");
+
+  const showNav = c.nav;
+  const anyPanel = S.on.json || S.on.diff || S.on.eff;
+  // 组合本来不给检查器（C2 / C6），但用户手动开了某个面板 —— 就要看得见。
+  const showInsp = c.insp || (!c.insp && anyPanel);
+
+  app.innerHTML = `
+    <div class="topline">
+      <h1>${NAME}</h1>
+      <span class="sec">${SECTION}</span>
+      ${chip("未提交 3 处", "w", true)}
+      ${chip("1 错", "b")}
+      <span style="flex:1"></span>
+      <span class="btn ghost sm">⋯</span>
+      <span class="btn sm">保存 <span style="color:var(--ink4);font-family:var(--mono);font-size:9.5px">Ctrl+S</span></span>
+      <span class="btn pri sm">发布…</span>
+    </div>
+    <div class="body">
+      ${showNav ? `<div class="nav">${navBody()}</div>` : ""}
+      <div class="main">
+        ${c.diffMain ? `<div class="tabs"><span>表单</span><span class="on">diff</span><span style="flex:1"></span>
+          <span style="padding:8px 12px;font-size:10px;color:var(--ink4)">spec.json · +1 -1</span></div>` : ""}
+        ${mainBody()}
+      </div>
+      ${showInsp ? `<div class="insp" style="${c.wideInsp ? "width:392px" : ""}">${inspBody()}</div>` : ""}
+    </div>
+    <div class="statusbar">
+      <span>${SECTION} / ${NAME}</span>
+      <span style="color:var(--ink4)">·</span>
+      <span>未提交 3 处</span>
+      <span style="color:var(--ink4)">·</span>
+      <span style="color:var(--bad)">1 错</span>
+      <span style="flex:1"></span>
+      ${showInsp || c.diffMain ? "" : `<span>Ctrl+J JSON</span><span style="color:var(--ink4)">·</span><span>Ctrl+D diff</span><span style="color:var(--ink4)">·</span>`}
+      <span>Ctrl+K 命令</span>
+      <span style="color:var(--ink4)">·</span>
+      <span>保存 = 落盘，发布 = commit + push</span>
+    </div>`;
+
+  [...ls.children].forEach(b => b.classList.toggle("on", b.dataset.c === S.combo));
+  [...sk.children].forEach(b => b.classList.toggle("on", b.dataset.s === S.skin));
+  [...tg.children].forEach(b => {
+    const on = S.on[b.dataset.t];
+    b.classList.toggle("on", !!on);
+  });
+  fn.innerHTML = `<b>${c.name}</b><span>${c.note}</span><em>面板：${
+    ["json", "diff", "eff"].filter(k => S.on[k]).map(k => ({ json: "JSON", diff: "diff", eff: "生效值" })[k]).join(" / ") || "全关"
+  }${S.on.dense ? " · 紧凑" : ""}</em>`;
+  document.title = `模板编辑器 · ${c.name} · ${(SKINS.find(x => x[0] === S.skin) || [])[1]}`;
+}
+
+ls.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  S.combo = b.dataset.c;
+  Object.assign(S.on, combo().on || {});   // 组合自带一份面板搭配，套上之后随便改
+  S.tabs = {};
+  render();
+});
+tg.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const k = b.dataset.t;
+  if (k === "dense") S.on.dense = !S.on.dense; else S.on[k] = !S.on[k];
+  render();
+});
+sk.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; S.skin = b.dataset.s; render(); });
+
+document.addEventListener("keydown", e => {
+  const n = COMBOS.length, i = COMBOS.findIndex(c => c.id === S.combo);
+  if (e.key === "ArrowRight") { S.combo = COMBOS[(i + 1) % n].id; render(); }
+  if (e.key === "ArrowLeft") { S.combo = COMBOS[(i - 1 + n) % n].id; render(); }
+  const k = e.key.toLowerCase();
+  if (k === "j") { S.on.json = !S.on.json; render(); }
+  if (k === "d") { S.on.diff = !S.on.diff; render(); }
+  if (k === "e") { S.on.eff = !S.on.eff; render(); }
+  if (k === "q") { S.on.dense = !S.on.dense; render(); }
+  const d = parseInt(e.key);
+  if (d >= 1 && d <= 5) { S.skin = SKINS[d - 1][0]; render(); }
+});
+
+/* hash: #组合,皮肤,面板位掩码 */
+const H = (location.hash.replace("#", "") || "").split(",");
+if (H[0] && COMBOS.some(c => c.id === H[0])) { S.combo = H[0]; Object.assign(S.on, combo().on || {}); }
+if (H[1] && SKINS.some(x => x[0] === H[1])) S.skin = H[1];
+render();
+</script>
+</body>
+</html>
