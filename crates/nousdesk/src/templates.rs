@@ -131,15 +131,9 @@ impl Section {
     }
 }
 
-/// 类别树的一行。**顺序就是引擎给的顺序**（父在子前），客户端不重排。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CatNode {
-    pub path: String,
-    pub label: String,
-    pub depth: usize,
-    pub count: usize,
-    pub has_children: bool,
-}
+/// 类别树那一行在 `category.rs` —— 触发器和模板共用一个，别再各写一份。
+/// **顺序就是引擎给的顺序**（父在子前），客户端不重排。
+pub(crate) use crate::category::{CatNode, ancestors, is_under};
 
 /// 「新建一条」的表单草稿。`Desktop::new_preset` 是 `Some` 时右栏被它占着。
 ///
@@ -3931,27 +3925,6 @@ impl Desktop {
 // ── 纯函数（能单测的都在这儿） ─────────────────────────────
 
 /// `写作/周报` → `["写作", "写作/周报"]`（含自己）。
-pub(crate) fn ancestors(path: &str) -> Vec<String> {
-    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    (1..=parts.len()).map(|n| parts[..n].join("/")).collect()
-}
-
-/// `a` 是不是 `root` 或它的后代。
-pub(crate) fn is_under(value: &str, root: &str) -> bool {
-    value == root || value.starts_with(&format!("{root}/"))
-}
-
-fn depth_of(path: &str) -> usize {
-    path.split('/')
-        .filter(|s| !s.is_empty())
-        .count()
-        .saturating_sub(1)
-}
-
-fn last_seg(path: &str) -> String {
-    path.rsplit('/').next().unwrap_or(path).to_string()
-}
-
 /// 扁平类别表 → 缩进树（带计数）。
 ///
 /// **顺序跟着引擎走**：`categories` 已经是「父在子前、逐段 zh-CN」排好的，这里只补缺（预设上挂着、
@@ -3960,51 +3933,8 @@ fn last_seg(path: &str) -> String {
 /// 计数含后代、**同一条预设按路径去重**：一条预设同时挂 `工程` 和 `工程/审查`，`工程` 只算它一次。
 /// 零计数的类别保留（词表里有、还没挂东西）—— 建了看不见比灰着更糟。
 pub(crate) fn facet_tree(categories: &[String], presets: &[Preset]) -> Vec<CatNode> {
-    let mut order: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = Default::default();
-    for c in categories {
-        for a in ancestors(c) {
-            if seen.insert(a.clone()) {
-                order.push(a);
-            }
-        }
-    }
-    let mut extra: Vec<String> = Vec::new();
-    for p in presets {
-        for c in &p.category {
-            for a in ancestors(c) {
-                if !seen.contains(&a) && !extra.contains(&a) {
-                    extra.push(a);
-                }
-            }
-        }
-    }
-    extra.sort_by(|a, b| depth_of(a).cmp(&depth_of(b)).then_with(|| a.cmp(b)));
-    order.extend(extra);
-
-    let mut counts: std::collections::HashMap<String, usize> = Default::default();
-    for p in presets {
-        let mut mine: std::collections::HashSet<String> = Default::default();
-        for c in &p.category {
-            for a in ancestors(c) {
-                mine.insert(a);
-            }
-        }
-        for a in mine {
-            *counts.entry(a).or_default() += 1;
-        }
-    }
-
-    order
-        .iter()
-        .map(|path| CatNode {
-            path: path.clone(),
-            label: last_seg(path),
-            depth: depth_of(path),
-            count: counts.get(path).copied().unwrap_or(0),
-            has_children: order.iter().any(|o| o != path && is_under(o, path)),
-        })
-        .collect()
+    // 树和计数在 `category.rs`（触发器那边同一套）。这里只剩「模板的类别长在哪」。
+    crate::category::build_tree(categories, presets.iter().map(|p| p.category.as_slice()))
 }
 
 /// 切段时那个类别能不能留：新段的树里有同一个路径（或它就是未分类）就留，否则回「全部」。
