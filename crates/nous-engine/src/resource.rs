@@ -1,0 +1,250 @@
+//! 三个资源仓（技能 / 提示词 / 扩展）共用的文件读写形状。
+//!
+//! 为什么单独一个模块而不是塞进 `types.rs`：`types.rs` 是 `/v1/*` 的 **GET** 回包
+//! （技能名册、提示词私库、扩展清单），这里放的是**写入面** —— 读写单个文件、新建。
+//! 两者变化的节奏不一样：名册随引擎版本动，写入面随「仓库里的文件怎么摆」动。
+//!
+//! 端点照 qrd3wh 源码：
+//! - `GET /v1/{kind}/files?name=`          → `{ name, files: [{ path, size }] }`
+//! - `GET /v1/{kind}/file?name=&path=`     → `{ name, path, text, etag }`
+//! - `PUT /v1/{kind}/file`                 `{ name, path, text, base? }`
+//! - `POST /v1/{kind}/create`              每个仓一套必填项（见下面三个 `New*`）
+//!
+//! `etag` 是写回时的 `base`：撞了就是 409，用户得先重读 —— 别拿它当缓存键，
+//! 它的唯一用途就是「我这版是基于哪一版改的」。
+
+use std::collections::HashMap;
+
+/// 文件列表里的一行。`size` 引擎给了就用，没给（比如目录占位）就空着。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ResourceFileEntry {
+    pub path: String,
+    #[serde(default)]
+    pub size: Option<u64>,
+    /// 引擎以后加字段不能让这边编译不过（`deny_unknown_fields` 是禁区）。
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/{kind}/files` 的回包。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ResourceFiles {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub files: Vec<ResourceFileEntry>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl ResourceFiles {
+    /// 主文件排在最前面（正文优先），清单类文件垫后 —— 打开编辑器先看内容，不是先看元数据。
+    pub fn ordered(&self) -> Vec<&ResourceFileEntry> {
+        let mut out: Vec<&ResourceFileEntry> = self.files.iter().collect();
+        out.sort_by_key(|f| {
+            let is_meta = f.path.ends_with("nous.json") || f.path.ends_with(".gitkeep");
+            (is_meta, f.path.clone())
+        });
+        out
+    }
+}
+
+/// `GET /v1/{kind}/file` 的回包：正文 + 并发闸。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ResourceFile {
+    #[serde(default)]
+    pub name: String,
+    pub path: String,
+    pub text: String,
+    /// 写回时当 `base`；引擎认的是「你改的是不是这一版」。
+    #[serde(default)]
+    pub etag: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// 新建技能：`description` 必填，落在 `SKILL.md` 的 frontmatter 里。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NewSkill {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub category: Vec<String>,
+}
+
+/// 新建提示词：`summary` 必填，落在 `nous.json`；`PROMPT.md` 是纯正文（没有 frontmatter）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NewPrompt {
+    pub name: String,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub category: Vec<String>,
+    /// 可省：不给就落一个 `# <name>` 的标题（标题也会进提示词）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+}
+
+/// 新建扩展：说明必填（≤ 200），核心三条 `nous` / `skills` / `prompts` 引擎会 403。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NewExtension {
+    pub name: String,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub category: Vec<String>,
+}
+
+/// `PUT /v1/{kind}/file` 的 body。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SaveFile<'a> {
+    pub name: &'a str,
+    pub path: &'a str,
+    pub text: &'a str,
+    /// 省掉就是「照着磁盘上那版硬写」（引擎允许，但会盖掉别人的改动）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base: Option<&'a str>,
+}
+
+/// 三个仓的标识。**白名单**：拼错的仓名在发 HTTP 之前就挡掉，
+/// 不然调用点会拼出一个引擎不认识的地址还假装成功。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Repo {
+    Skills,
+    Prompts,
+    Extensions,
+}
+
+impl Repo {
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Skills => "v1/skills",
+            Self::Prompts => "v1/prompts",
+            Self::Extensions => "v1/extensions",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Skills => "技能",
+            Self::Prompts => "提示词",
+            Self::Extensions => "扩展",
+        }
+    }
+
+    pub fn all() -> [Self; 3] {
+        [Self::Skills, Self::Prompts, Self::Extensions]
+    }
+}
+
+/// 把 `"skills"` / `"prompts"` / `"extensions"` 认成 `Repo`。
+impl std::str::FromStr for Repo {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "skills" => Ok(Self::Skills),
+            "prompts" => Ok(Self::Prompts),
+            "extensions" => Ok(Self::Extensions),
+            _ => Err(()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 活样本：`GET /v1/skills/files?name=code-review`（2026-11-16 实测）。
+    const FILES: &str = r#"{"name":"code-review","files":[{"path":"nous.json","size":112},{"path":"SKILL.md","size":413}]}"#;
+
+    /// 活样本：`GET /v1/skills/file?name=code-review&path=SKILL.md`。
+    const FILE: &str = r#"{"name":"code-review","path":"SKILL.md","text":"---\nname: code-review\n---\n","etag":"a2adba91"}"#;
+
+    #[test]
+    fn parse_files_and_put_body_on_top() {
+        let f: ResourceFiles = serde_json::from_str(FILES).unwrap();
+        assert_eq!(f.name, "code-review");
+        assert_eq!(f.files.len(), 2);
+        // 正文优先：SKILL.md 排在 nous.json 前面
+        let ordered = f.ordered();
+        assert_eq!(ordered[0].path, "SKILL.md");
+        assert_eq!(ordered[1].path, "nous.json");
+        assert_eq!(ordered[1].size, Some(112));
+    }
+
+    #[test]
+    fn parse_file_keeps_text_and_etag() {
+        let f: ResourceFile = serde_json::from_str(FILE).unwrap();
+        assert_eq!(f.path, "SKILL.md");
+        assert!(f.text.starts_with("---"));
+        assert_eq!(f.etag, "a2adba91");
+    }
+
+    /// 引擎将来加字段，这边不许编译不过、也不许丢字段。
+    #[test]
+    fn unknown_fields_pass_through() {
+        let f: ResourceFile =
+            serde_json::from_str(r#"{"path":"a.md","text":"x","etag":"e","kind":"markdown","mtime":1}"#)
+                .unwrap();
+        assert_eq!(f.extra["kind"], "markdown");
+        assert_eq!(f.extra["mtime"], 1);
+        let l: ResourceFiles = serde_json::from_str(r#"{"files":[{"path":"a","size":1,"mode":"755"}]}"#).unwrap();
+        assert_eq!(l.files[0].extra["mode"], "755");
+    }
+
+    /// 新建 body 的形状：空的 category 不发、body 省掉就不发这个键。
+    #[test]
+    fn new_bodies_skip_empty_fields() {
+        let s = serde_json::to_value(NewSkill {
+            name: "demo".into(),
+            description: "d".into(),
+            category: vec![],
+        })
+        .unwrap();
+        assert_eq!(s, serde_json::json!({"name":"demo","description":"d"}));
+
+        let p = serde_json::to_value(NewPrompt {
+            name: "demo".into(),
+            summary: "s".into(),
+            category: vec!["工程".into()],
+            body: None,
+        })
+        .unwrap();
+        assert_eq!(p, serde_json::json!({"name":"demo","summary":"s","category":["工程"]}));
+
+        let e = serde_json::to_value(NewExtension {
+            name: "demo".into(),
+            summary: "s".into(),
+            category: vec![],
+        })
+        .unwrap();
+        assert_eq!(e, serde_json::json!({"name":"demo","summary":"s"}));
+    }
+
+    #[test]
+    fn save_body_omits_base_when_absent() {
+        let with = serde_json::to_value(SaveFile {
+            name: "d",
+            path: "SKILL.md",
+            text: "x",
+            base: Some("etag1"),
+        })
+        .unwrap();
+        assert_eq!(with["base"], "etag1");
+        let without = serde_json::to_value(SaveFile {
+            name: "d",
+            path: "SKILL.md",
+            text: "x",
+            base: None,
+        })
+        .unwrap();
+        assert!(without.get("base").is_none());
+    }
+
+    #[test]
+    fn repo_paths_and_from_str() {
+        assert_eq!(Repo::Skills.path(), "v1/skills");
+        assert_eq!(Repo::Extensions.path(), "v1/extensions");
+        assert_eq!("prompts".parse::<Repo>(), Ok(Repo::Prompts));
+        assert!("prompt".parse::<Repo>().is_err());
+    }
+}
