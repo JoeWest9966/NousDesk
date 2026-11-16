@@ -505,9 +505,9 @@ body {
   <div class="plist" id="plist"></div>
   <div class="pnote" id="pnote"></div>
   <div class="skinbar"><span>段</span>
-    <button data-seg="a" class="on" title="药丸：名字 + 条数">A</button>
-    <button data-seg="b" title="药丸 + 脏点">B</button>
-    <button data-seg="c" title="图标 + 名字 + 条数">C</button>
+    <button data-seg="a" title="对照：只有名字 + 条数">A</button>
+    <button data-seg="b" class="on" title="定：药丸 + 脏点（琥珀=有改动，红=有加载失败）">B · 定</button>
+    <button data-seg="c" title="对照：图标 + 名字 + 条数">C</button>
   </div>
   <div class="skinbar"><span>皮</span>
     <button data-skin="default" class="on">默认</button>
@@ -1634,7 +1634,7 @@ const SCREENS = [
 
 const S = {
   screen: (location.hash || '').replace('#', ''),
-  segStyle: 'a',
+  segStyle: 'b',
   skin: 'default',
   tab: 'skills',
   cat: {},
