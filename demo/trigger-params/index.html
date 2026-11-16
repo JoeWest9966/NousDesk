@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>触发器 · 参数声明编辑器（三方案）</title>
+<style>
+@font-face{font-family:Inter;src:url(fonts/inter-400.woff2) format("woff2");font-weight:400}
+@font-face{font-family:JBMono;src:url(fonts/jetbrainsmono-400.woff2) format("woff2");font-weight:400}
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --panel:#16181c; --alt:#1b1e23; --surface:#22262c; --hover:#262b32;
+  --line:#2b3037; --line-soft:#23272d; --overlay:#1d2126;
+  --text:#e6e8ea; --text2:#b3b8be; --muted:#767d86;
+  --accent:#8fdca8; --accent-soft:#1e3328; --accent-fg:#8fdca8; --on-accent:#0d1712;
+  --warn:#e0c07a; --warn-soft:#2e2718; --danger:#e08a8a; --danger-soft:#31201f;
+  --r:9px;
+}
+body{background:#0e1013;color:var(--text);font-family:Inter,system-ui,sans-serif;
+     font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;padding:28px 32px 80px}
+h1{font-size:15px;font-weight:400;letter-spacing:.01em}
+.sub{color:var(--muted);font-size:11px;margin-top:4px;max-width:760px;line-height:1.6}
+.tabs{display:flex;gap:6px;margin:22px 0 0}
+.tab{padding:7px 13px;border-radius:7px;border:1px solid var(--line);color:var(--text2);
+     font-size:11.5px;cursor:pointer;background:transparent}
+.tab:hover{background:var(--hover)}
+.tab.on{background:var(--surface);border-color:#3a4149;color:var(--text)}
+.panel{margin-top:16px;width:760px;background:var(--panel);border:1px solid var(--line);
+       border-radius:var(--r);overflow:hidden}
+.panel-head{padding:14px 18px;border-bottom:1px solid var(--line-soft);display:flex;
+            align-items:baseline;gap:10px}
+.panel-head .t{font-size:12.5px}
+.panel-head .n{color:var(--muted);font-size:10px;margin-left:auto}
+.why{padding:0 18px 12px;color:var(--muted);font-size:10.5px;line-height:1.65;
+     border-bottom:1px solid var(--line-soft)}
+.body{padding:16px 18px}
+.foot{padding:14px 18px;border-top:1px solid var(--line-soft);display:flex;gap:8px;
+      align-items:center;background:var(--alt)}
+.btn{padding:0 12px;height:28px;display:inline-flex;align-items:center;justify-content:center;
+     border-radius:6px;font-size:10.5px;cursor:pointer;border:1px solid var(--line);color:var(--text2)}
+.btn:hover{background:var(--hover)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.dash{border-style:dashed;color:var(--muted)}
+.grow{flex:1}
+
+/* ---------- 共用输入 ---------- */
+input[type=text],select,textarea{background:var(--surface);border:1px solid var(--line);
+  color:var(--text);font-family:Inter;font-size:11px;border-radius:5px;height:26px;padding:0 8px;
+  outline:none;width:100%}
+input[type=text]:focus,select:focus,textarea:focus{border-color:#455058}
+textarea{height:auto;padding:6px 8px;line-height:1.5;resize:vertical}
+select{appearance:none;cursor:pointer}
+.mono{font-family:JBMono;font-size:10.5px}
+.lbl{color:var(--muted);font-size:9.5px;letter-spacing:.02em;margin-bottom:4px;display:block}
+.chk{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text2);cursor:pointer}
+.dot{width:6px;height:6px;border-radius:3px;background:var(--accent);display:inline-block}
+.badge{padding:1px 5px;border-radius:4px;background:var(--surface);color:var(--text2);
+       font-size:9.5px;font-family:JBMono}
+.badge.ep{background:var(--accent-soft);color:var(--accent-fg)}
+.badge.sel{background:var(--warn-soft);color:var(--warn)}
+.badge.req{background:var(--danger-soft);color:var(--danger)}
+.x{width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;
+   color:var(--muted);cursor:pointer;font-size:12px;flex:none}
+.x:hover{background:var(--danger-soft);color:var(--danger)}
+
+/* ---------- A 表格 ---------- */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-weight:400;color:var(--muted);font-size:9.5px;padding:0 6px 7px;
+   border-bottom:1px solid var(--line-soft)}
+td{padding:5px 6px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tr:hover td{background:#191c21}
+td.name{width:150px}td.type{width:104px}td.req{width:56px}td.opt{width:34px}
+.opts{margin-top:5px;display:flex;gap:4px;flex-wrap:wrap}
+.chip{padding:2px 6px;border-radius:4px;background:var(--surface);font-size:9.5px;color:var(--text2);
+      font-family:JBMono}
+details summary{cursor:pointer;color:var(--muted);font-size:9.5px;list-style:none;outline:none}
+details summary::-webkit-details-marker{display:none}
+details[open] summary{color:var(--accent-fg)}
+
+/* ---------- B 卡片 ---------- */
+.cards{display:flex;flex-direction:column;gap:9px}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--alt);padding:11px 12px}
+.card-top{display:flex;align-items:center;gap:7px;margin-bottom:9px}
+.card-top input{height:24px;max-width:170px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.grid .wide{grid-column:1/-1}
+
+/* ---------- C 主从 ---------- */
+.split{display:flex;gap:0;border:1px solid var(--line);border-radius:7px;overflow:hidden;
+       height:266px}
+.list{width:186px;flex:none;border-right:1px solid var(--line);background:var(--alt);
+      display:flex;flex-direction:column}
+.li{padding:8px 10px;border-bottom:1px solid var(--line-soft);cursor:pointer;display:flex;
+    align-items:center;gap:6px}
+.li:hover{background:var(--hover)}
+.li.on{background:var(--surface);box-shadow:inset 2px 0 0 var(--accent)}
+.li .nm{font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .add{margin-top:auto;padding:9px 10px;color:var(--muted);font-size:10.5px;cursor:pointer;
+         border-top:1px solid var(--line-soft)}
+.li .add:hover{color:var(--accent-fg);background:var(--hover)}
+.det{flex:1;padding:14px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.det .hd{display:flex;align-items:center;gap:7px;margin-bottom:2px}
+.det .hd .t{font-size:11.5px}
+.hint{color:var(--muted);font-size:9.5px;line-height:1.6}
+
+/* ---------- 预览 ---------- */
+pre.out{margin-top:16px;width:760px;background:#0b0d10;border:1px solid var(--line);
+        border-radius:var(--r);padding:14px 16px;font-family:JBMono;font-size:10.5px;
+        color:#b9c2cc;line-height:1.65;overflow:auto;max-height:320px}
+pre.out .k{color:#8fdca8}pre.out .s{color:#d8c98f}pre.out .p{color:#767d86}
+.clean{color:var(--muted);font-size:10.5px;padding:6px 0}
+</style>
+</head>
+<body>
+
+<h1>触发器 · 参数声明编辑器</h1>
+<div class="sub">
+  向导第 2 步现在是「每行一个参数：<span class="mono">name|type|label|required|options</span>」，
+  而且那几行是写死的样例，改不了。三个方案都是把这一步换成能真编辑的：
+  三种排法共用同一份数据，切 tab 数据不丢，底下那段 <span class="mono">params</span> 是实时生成的 ——
+  填完就长这样，不用猜。
+</div>
+
+<div class="tabs">
+  <div class="tab on" data-tab="a">A · 表格行</div>
+  <div class="tab" data-tab="b">B · 卡片堆叠</div>
+  <div class="tab" data-tab="c">C · 主从（左列表 + 右详情）</div>
+</div>
+
+<!-- A -->
+<div class="panel" data-panel="a">
+  <div class="panel-head"><span class="t">参数声明</span><span class="n" id="cntA"></span></div>
+  <div class="why">
+    最省地方。参数少（1–3 个）时一眼看完，类型和必填都在同一行。
+    缺点是 help 和 select 的选项要折叠进去，参数一多就得来回展开。
+  </div>
+  <div class="body" id="bodyA"></div>
+  <div class="foot">
+    <div class="btn dash" data-add>＋ 加一个参数</div>
+    <div class="grow"></div>
+    <div class="btn">上一步</div>
+    <div class="btn pri">下一步 · 骨架预览</div>
+  </div>
+</div>
+
+<!-- B -->
+<div class="panel" data-panel="b" style="display:none">
+  <div class="panel-head"><span class="t">参数声明</span><span class="n" id="cntB"></span></div>
+  <div class="why">
+    每个参数一张卡，字段全摆在外面 —— 填的时候不用展开任何东西。
+    代价是卡片一多就要滚动，而且大部分参数用不到 help / 默认值这些格子。
+  </div>
+  <div class="body" id="bodyB"></div>
+  <div class="foot">
+    <div class="btn dash" data-add>＋ 加一个参数</div>
+    <div class="grow"></div>
+    <div class="btn">上一步</div>
+    <div class="btn pri">下一步 · 骨架预览</div>
+  </div>
+</div>
+
+<!-- C -->
+<div class="panel" data-panel="c" style="display:none">
+  <div class="panel-head"><span class="t">参数声明</span><span class="n" id="cntC"></span></div>
+  <div class="why">
+    跟这个页面其他地方一个路数：左边是清单，右边是选中那一个的全部字段。
+    参数多的时候不用滚一长条，也不会为了改一个 help 把整屏撑开。
+  </div>
+  <div class="body" id="bodyC"></div>
+  <div class="foot">
+    <div class="grow"></div>
+    <div class="btn">上一步</div>
+    <div class="btn pri">下一步 · 骨架预览</div>
+  </div>
+</div>
+
+<pre class="out" id="out"></pre>
+
+<script>
+const TYPES = ["epoch","number","string","text","boolean","select"];
+const TYPE_HINT = {
+  epoch:"UTC 秒；页面上按本地时间挑",
+  number:"整数或小数",
+  string:"单行文本",
+  text:"多行文本",
+  boolean:"是 / 否",
+  select:"从固定几项里选"
+};
+
+let params = [
+  {name:"epoch", type:"epoch", label:"什么时候", required:true, help:"精确到分钟：落在这一分钟里就发起一次。页面上用本地时间挑，存进去是 UTC 秒。", options:[], def:""},
+  {name:"threshold", type:"number", label:"高危项阈值", required:false, help:"", options:[], def:"1"},
+  {name:"channel", type:"select", label:"发到哪", required:true, help:"", options:["会话","邮件","都发"], def:""}
+];
+let sel = 0;
+
+const el = (h) => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstElementChild; };
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function json() {
+  const list = params.filter(p => p.name.trim()).map(p => {
+    const o = { name:p.name.trim(), type:p.type };
+    if (p.label.trim()) o.label = p.label.trim();
+    o.required = !!p.required;
+    if (p.type === "select" && p.options.length) o.options = p.options;
+    if (p.def !== "") o.default = p.type === "boolean" ? p.def === "true" : (p.type === "number" ? Number(p.def) : p.def);
+    if (p.help.trim()) o.help = p.help.trim();
+    return o;
+  });
+  return JSON.stringify(list, null, 2);
+}
+
+function paintOut() {
+  const raw = json();
+  const html = raw
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/"([^"]+)":/g, '<span class="k">"$1"</span><span class="p">:</span>')
+    .replace(/: "([^"]*)"/g, ': <span class="s">"$1"</span>');
+  document.getElementById("out").innerHTML =
+    (params.filter(p=>p.name.trim()).length ? "" : '<span class="clean">还没有参数 —— 建出来的触发器不会有 params 字段。</span>')
+    + html;
+  document.getElementById("cntA").textContent = document.getElementById("cntB").textContent =
+  document.getElementById("cntC").textContent = params.length + " 个参数";
+}
+
+function typeBadge(t) {
+  const cls = t === "epoch" ? "ep" : t === "select" ? "sel" : "";
+  return `<span class="badge ${cls}">${t}</span>`;
+}
+
+/* 类型变了，options / default 跟着收拾 */
+function setType(i, v) {
+  params[i].type = v;
+  if (v !== "select") params[i].options = [];
+  if (v === "boolean" && params[i].def === "") params[i].def = "false";
+  if (v !== "boolean" && ["true","false"].includes(params[i].def)) params[i].def = "";
+  render();
+}
+
+/* ---------- A ---------- */
+function renderA() {
+  const rows = params.map((p, i) => `
+    <tr data-i="${i}">
+      <td class="name"><input type="text" data-f="name" value="${esc(p.name)}" placeholder="参数名"></td>
+      <td class="type"><select data-f="type">${TYPES.map(t=>`<option ${t===p.type?"selected":""}>${t}</option>`).join("")}</select></td>
+      <td class="req"><label class="chk"><input type="checkbox" data-f="required" ${p.required?"checked":""}>必填</label></td>
+      <td>
+        <input type="text" data-f="label" value="${esc(p.label)}" placeholder="给人看的标签">
+        ${p.type==="select" ? `<div class="opts">${p.options.map(o=>`<span class="chip">${esc(o)}</span>`).join("")}
+          <span class="chip" style="color:var(--muted)">+ 选项</span></div>` : ""}
+        <details ${p.help?"":"open"}>
+          <summary>${p.help ? "说明 / 默认值（已填）" : "说明 / 默认值"}</summary>
+          <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px">
+            <input type="text" data-f="help" value="${esc(p.help)}" placeholder="什么时候用这个参数（会显示在参数卡上）">
+            <input type="text" data-f="def" value="${esc(p.def)}" placeholder="默认值（可空）">
+          </div>
+        </details>
+      </td>
+      <td class="opt"><div class="x" data-del="${i}">✕</div></td>
+    </tr>`).join("");
+  document.getElementById("bodyA").innerHTML = params.length ? `
+    <table><thead><tr><th>参数名</th><th>类型</th><th>必填</th><th>标签 / 说明</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>` :
+    `<div class="clean">还没有参数。空着也能建 —— 触发器就是收不到参数。</div>`;
+}
+
+/* ---------- B ---------- */
+function renderB() {
+  const cards = params.map((p, i) => `
+    <div class="card" data-i="${i}">
+      <div class="card-top">
+        <input type="text" data-f="name" value="${esc(p.name)}" placeholder="参数名">
+        ${typeBadge(p.type)}
+        <div class="grow"></div>
+        <div class="x" data-del="${i}">✕</div>
+      </div>
+      <div class="grid">
+        <div><span class="lbl">类型</span><select data-f="type">${TYPES.map(t=>`<option ${t===p.type?"selected":""}>${t}</option>`).join("")}</select></div>
+        <div><span class="lbl">标签</span><input type="text" data-f="label" value="${esc(p.label)}" placeholder="给人看的名字"></div>
+        ${p.type==="select" ? `<div class="wide"><span class="lbl">选项（逗号分隔）</span>
+          <input type="text" data-f="options" value="${esc(p.options.join(", "))}" placeholder="会话, 邮件, 都发"></div>` : ""}
+        <div class="wide"><span class="lbl">说明</span>
+          <textarea data-f="help" rows="2" placeholder="什么时候用这个参数">${esc(p.help)}</textarea></div>
+        <div><span class="lbl">默认值</span><input type="text" data-f="def" value="${esc(p.def)}" placeholder="可空"></div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:3px">
+          <label class="chk"><input type="checkbox" data-f="required" ${p.required?"checked":""}>必填</label>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:7px">${TYPE_HINT[p.type]}</div>
+    </div>`).join("");
+  document.getElementById("bodyB").innerHTML = params.length
+    ? `<div class="cards">${cards}</div>`
+    : `<div class="clean">还没有参数。</div>`;
+}
+
+/* ---------- C ---------- */
+function renderC() {
+  if (sel >= params.length) sel = Math.max(0, params.length - 1);
+  const list = params.map((p, i) => `
+    <div class="li ${i===sel?"on":""}" data-sel="${i}">
+      <span class="dot" style="background:${p.required?"var(--danger)":"var(--line)"}"></span>
+      <span class="nm">${esc(p.name) || '<span style="color:var(--muted)">未命名</span>'}</span>
+      ${typeBadge(p.type)}
+    </div>`).join("");
+  const p = params[sel];
+  const det = p ? `
+    <div class="hd"><span class="t mono">${esc(p.name)||"未命名"}</span>${typeBadge(p.type)}
+      <div class="grow"></div><div class="x" data-del="${sel}">✕</div></div>
+    <div><span class="lbl">参数名（写进 nous.json 的 name）</span>
+      <input type="text" data-f="name" value="${esc(p.name)}" placeholder="epoch"></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:9px">
+      <div><span class="lbl">类型</span><select data-f="type">${TYPES.map(t=>`<option ${t===p.type?"selected":""}>${t}</option>`).join("")}</select></div>
+      <div><span class="lbl">必填</span><label class="chk" style="height:26px"><input type="checkbox" data-f="required" ${p.required?"checked":""}>不给就报错</label></div>
+    </div>
+    <div><span class="lbl">标签</span><input type="text" data-f="label" value="${esc(p.label)}" placeholder="什么时候"></div>
+    ${p.type==="select" ? `<div><span class="lbl">选项（逗号分隔）</span>
+      <input type="text" data-f="options" value="${esc(p.options.join(", "))}"></div>` : ""}
+    <div><span class="lbl">说明</span><textarea data-f="help" rows="2">${esc(p.help)}</textarea></div>
+    <div><span class="lbl">默认值</span><input type="text" data-f="def" value="${esc(p.def)}" placeholder="可空"></div>
+    <div class="hint">${TYPE_HINT[p.type]}</div>` :
+    `<div class="clean">左边还没有参数。</div>`;
+  document.getElementById("bodyC").innerHTML = `
+    <div class="split">
+      <div class="list">${list}<div class="add" data-add>＋ 加一个参数</div></div>
+      <div class="det">${det}</div>
+    </div>`;
+}
+
+function render() { renderA(); renderB(); renderC(); paintOut(); }
+
+/* ---------- 事件（三套共用） ---------- */
+function field(host, ev) {
+  const f = ev.target.dataset.f;
+  if (!f) return;
+  const i = Number(ev.target.closest("[data-i]").dataset.i);
+  const p = params[i];
+  if (ev.target.type === "checkbox") p[f] = ev.target.checked;
+  else if (f === "options") p.options = ev.target.value.split(",").map(s=>s.trim()).filter(Boolean);
+  else if (f === "type") { setType(i, ev.target.value); return; }
+  else p[f] = ev.target.value;
+  // 输入过程中只更新预览，不重渲染（不然焦点会跳）
+  paintOut();
+}
+["bodyA","bodyB","bodyC"].forEach(id => {
+  const host = document.getElementById(id);
+  host.addEventListener("input", e => field(host, e));
+  host.addEventListener("change", e => field(host, e));
+  host.addEventListener("click", e => {
+    const del = e.target.closest("[data-del]");
+    if (del) { params.splice(Number(del.dataset.del),1); render(); return; }
+    const pick = e.target.closest("[data-sel]");
+    if (pick) { sel = Number(pick.dataset.sel); renderC(); return; }
+    if (e.target.closest("[data-add]")) {
+      params.push({name:"", type:"string", label:"", required:false, help:"", options:[], def:""});
+      sel = params.length - 1;
+      render();
+    }
+  });
+});
+
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+  document.querySelectorAll("[data-panel]").forEach(p =>
+    p.style.display = p.dataset.panel === t.dataset.tab ? "" : "none");
+});
+
+render();
+// 截图 / 分享用：`#b` 直接落在某个方案上
+const want = location.hash.replace("#", "");
+if (["a","b","c"].includes(want)) {
+  document.querySelector(`.tab[data-tab="${want}"]`).click();
+}
+</script>
+</body>
+</html>

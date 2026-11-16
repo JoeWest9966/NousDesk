@@ -88,11 +88,26 @@ pub(crate) struct CodeState {
     pub editing: bool,
 }
 
+/// 向导第 2 步的一个参数。文本字段用 `InputState`（中文输入法要正常），
+/// 类型从闭集里挑、必填是个布尔，所以不用输入框。
+pub(crate) struct ParamDraft {
+    pub name: Entity<InputState>,
+    pub label: Entity<InputState>,
+    pub help: Entity<InputState>,
+    pub default: Entity<InputState>,
+    pub options: Entity<InputState>,
+    pub kind: String,
+    pub required: bool,
+}
+
 pub(crate) struct Wizard {
     pub step: u8,
     pub name: Entity<InputState>,
     pub summary: Entity<InputState>,
     pub category: Entity<InputState>,
+    /// 第 2 步「参数声明」的主从编辑：左列表 + 右详情。
+    pub params: Vec<ParamDraft>,
+    pub param_sel: usize,
     pub busy: bool,
     pub err: Option<String>,
 }
@@ -157,6 +172,8 @@ pub(crate) struct State {
     pub cat_del: Option<String>,
     /// 「已归档」里点开的那一条（右侧详情）。
     pub archived_detail: Option<String>,
+    /// 有没保存的改动时，用户想切过去的那个文件（等一句确认）。
+    pub pending_path: Option<String>,
     pub commit: Commit,
     pub conflict: Option<String>,
     pub scroll: ScrollHandle,
@@ -205,6 +222,8 @@ impl State {
                 name,
                 summary,
                 category,
+                params: vec![],
+                param_sel: 0,
                 busy: false,
                 err: None,
             },
@@ -220,6 +239,7 @@ impl State {
             cat_form: None,
             cat_del: None,
             archived_detail: None,
+            pending_path: None,
             commit: Commit::default(),
             conflict: None,
             scroll: ScrollHandle::new(),
@@ -397,6 +417,7 @@ impl Desktop {
         self.triggers.code.base.clear();
         self.triggers.code.preflight = false;
         self.triggers.code.diff_open.clear();
+        self.triggers.pending_path = None;
         self.triggers.layer = Layer::Code;
         cx.notify();
         let Some(client) = self.triggers.client.clone() else { return };
@@ -434,6 +455,15 @@ impl Desktop {
         cx: &mut Context<Self>,
     ) {
         let Some(client) = self.triggers.client.clone() else { return };
+        // 编辑框里有没保存的东西、而且不是同一个文件 —— 切过去就没了，先问一句。
+        let unsaved = self.triggers.code.editing
+            && self.triggers.code.path.as_deref() != Some(path)
+            && self.triggers.code.text.read(cx).value() != self.triggers.code.base;
+        if unsaved {
+            self.triggers.pending_path = Some(path.to_string());
+            cx.notify();
+            return;
+        }
         let name = name.to_string();
         let path = path.to_string();
         self.triggers.code.path = Some(path.clone());
@@ -1668,6 +1698,9 @@ impl Desktop {
     fn open_wizard(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.triggers.wizard.step = 1;
         self.triggers.wizard.err = None;
+        // 每次都是一张白纸 —— 不会再预置 `at|epoch|…` 那种样例。
+        self.triggers.wizard.params.clear();
+        self.triggers.wizard.param_sel = 0;
         self.triggers.layer = Layer::Wizard;
         cx.notify();
     }
@@ -1675,6 +1708,53 @@ impl Desktop {
     fn wizard_step(&mut self, step: u8, cx: &mut Context<Self>) {
         self.triggers.wizard.step = step.clamp(1, 3);
         self.triggers.wizard.err = None;
+        cx.notify();
+    }
+
+    // ── 向导第 2 步：参数声明（左列表 + 右详情）──────────
+
+    fn wizard_param_add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut input = |ph: &'static str| cx.new(|cx| InputState::new(window, cx).placeholder(ph));
+        self.triggers.wizard.params.push(ParamDraft {
+            name: input("参数名"),
+            label: input("给人看的标签"),
+            help: input("什么时候用这个参数"),
+            default: input("默认值（可空）"),
+            options: input("选项，逗号分隔"),
+            kind: "string".to_string(),
+            required: false,
+        });
+        self.triggers.wizard.param_sel = self.triggers.wizard.params.len() - 1;
+        cx.notify();
+    }
+
+    fn wizard_param_del(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if idx < self.triggers.wizard.params.len() {
+            self.triggers.wizard.params.remove(idx);
+        }
+        let len = self.triggers.wizard.params.len();
+        if self.triggers.wizard.param_sel >= len && len > 0 {
+            self.triggers.wizard.param_sel = len - 1;
+        }
+        cx.notify();
+    }
+
+    fn wizard_param_select(&mut self, idx: usize, cx: &mut Context<Self>) {
+        self.triggers.wizard.param_sel = idx;
+        cx.notify();
+    }
+
+    fn wizard_param_set_kind(&mut self, idx: usize, kind: &'static str, cx: &mut Context<Self>) {
+        if let Some(d) = self.triggers.wizard.params.get_mut(idx) {
+            d.kind = kind.to_string();
+        }
+        cx.notify();
+    }
+
+    fn wizard_param_toggle_required(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if let Some(d) = self.triggers.wizard.params.get_mut(idx) {
+            d.required = !d.required;
+        }
         cx.notify();
     }
 
@@ -1698,7 +1778,7 @@ impl Desktop {
             cx.notify();
             return;
         }
-        let params_raw = self.wizard_params_text();
+        let params = params_json(&self.triggers.wizard.params, cx);
         self.triggers.wizard.busy = true;
         self.triggers.wizard.err = None;
         cx.notify();
@@ -1737,7 +1817,6 @@ impl Desktop {
                 return;
             }
             // 2. 有参数就写回 nous.json（建接口只收 name/summary/category）
-            let params = parse_params(&params_raw);
             if !params.is_empty() {
                 let read = {
                     let c = client.clone();
@@ -1779,34 +1858,69 @@ impl Desktop {
     }
 }
 
-/// 向导里那几行 `name|type|label|required|options` → 触发器的 params 声明。
-fn parse_params(raw: &str) -> Vec<serde_json::Value> {
-    let mut out = vec![];
-    for line in raw.lines() {
-        let parts: Vec<&str> = line.split('|').map(str::trim).collect();
-        if parts.len() < 2 || parts[0].is_empty() {
-            continue;
-        }
-        let name = parts[0];
-        let kind = parts[1];
-        let label = parts.get(2).filter(|s| !s.is_empty()).copied().unwrap_or(name);
-        let required = parts.get(3).map(|s| *s == "true").unwrap_or(false);
-        let options: Vec<&str> = parts
-            .get(4)
-            .map(|s| s.split(',').map(str::trim).filter(|s| !s.is_empty()).collect())
-            .unwrap_or_default();
-        let mut param = serde_json::json!({
-            "name": name,
-            "type": kind,
-            "label": label,
-            "required": required,
-        });
-        if kind == "select" && !options.is_empty() {
-            param["options"] = serde_json::json!(options);
-        }
-        out.push(param);
+/// 类型的闭集 —— 跟 n8qkkj 的校验逐字一致，不让人手打错。
+pub(crate) const PARAM_KINDS: [&str; 6] = ["epoch", "number", "string", "text", "boolean", "select"];
+
+/// 一条草稿 → `nous.json` 里的 params 项。空名字直接丢掉（等于没这条）。
+fn param_json(d: &ParamDraft, cx: &Context<Desktop>) -> Option<serde_json::Value> {
+    let name = d.name.read(cx).value().trim().to_string();
+    if name.is_empty() {
+        return None;
     }
-    out
+    let label = d.label.read(cx).value().trim().to_string();
+    let help = d.help.read(cx).value().trim().to_string();
+    let def = d.default.read(cx).value().trim().to_string();
+    let mut obj = serde_json::json!({
+        "name": name,
+        "type": d.kind,
+        "required": d.required,
+    });
+    if !label.is_empty() {
+        obj["label"] = serde_json::Value::String(label);
+    }
+    if !help.is_empty() {
+        obj["help"] = serde_json::Value::String(help);
+    }
+    if !def.is_empty() {
+        obj["default"] = match d.kind.as_str() {
+            "number" => def.parse::<f64>().map(serde_json::Value::from).unwrap_or_else(|_| serde_json::Value::String(def.clone())),
+            "boolean" => serde_json::Value::Bool(def == "true"),
+            _ => serde_json::Value::String(def),
+        };
+    }
+    if d.kind == "select" {
+        let options: Vec<String> = d
+            .options
+            .read(cx)
+            .value()
+            .split([',', '，'])
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if !options.is_empty() {
+            obj["options"] = serde_json::json!(options);
+        }
+    }
+    Some(obj)
+}
+
+fn params_json<'a>(
+    drafts: &'a [ParamDraft],
+    cx: &'a Context<Desktop>,
+) -> Vec<serde_json::Value> {
+    drafts.iter().filter_map(|d| param_json(d, cx)).collect()
+}
+
+#[cfg(test)]
+mod param_tests {
+    use super::PARAM_KINDS;
+
+    #[test]
+    fn kinds_match_engine_closed_set() {
+        // 客户端这张表写错一个，建出来的触发器就被引擎 422 拒掉 —— 钉住它。
+        assert_eq!(PARAM_KINDS, ["epoch", "number", "string", "text", "boolean", "select"]);
+    }
 }
 
 // ── 渲染 ───────────────────────────────────────────────────────────────────
@@ -1858,6 +1972,9 @@ impl Desktop {
         }
         if layer == Layer::Wizard {
             root = root.child(self.trigger_wizard(cx));
+        }
+        if self.triggers.pending_path.is_some() {
+            root = root.child(self.trigger_pending_overlay(cx));
         }
         if self.triggers.archived_detail.is_some() {
             root = root
@@ -3101,6 +3218,120 @@ impl Desktop {
                                     .text_size(t().fs(11.))
                                     .text_color(rgb(t().p.danger))
                                     .child("彻底删除"),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 「这个文件改了还没保存，真要切走？」
+    ///
+    /// 只在编辑态且有未保存内容时出现。不是模态对话框 —— 它只挡这一下切换，
+    /// 因为丢的是**当前屏幕上的文本**，别的什么都没动。
+    fn trigger_pending_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(next) = self.triggers.pending_path.clone() else {
+            return div().into_any_element();
+        };
+        let current = self.triggers.code.path.clone().unwrap_or_default();
+        let name = self.triggers.code.name.clone().unwrap_or_default();
+        div()
+            .absolute()
+            .top(t().d(56.))
+            .left(t().d(214.))
+            .right_0()
+            .bottom_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(t().p.scrim))
+            .child(
+                div()
+                    .w(t().d(400.))
+                    .p(t().d(18.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .text_size(t().fs(13.))
+                            .text_color(rgb(t().p.text))
+                            .child(format!("{current} 有没保存的改动")),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(6.))
+                            .text_size(t().fs(10.))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.muted))
+                            .child(format!("切到 {next} 会把编辑框里的内容换掉，改动就没了（磁盘上还是旧的那版）。")),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(14.))
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .child(
+                                div()
+                                    .id("tp-save-first")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.accent))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                        this.triggers.pending_path = None;
+                                        this.save_trigger_file(false, window, cx);
+                                    }))
+                                    .child("先保存"),
+                            )
+                            .child(
+                                div()
+                                    .id("tp-discard")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.danger_soft))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.danger))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.danger_soft)))
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                        this.triggers.pending_path = None;
+                                        this.open_trigger_file(&name.clone(), &next.clone(), window, cx);
+                                    }))
+                                    .child("放弃改动"),
+                            )
+                            .child(
+                                div()
+                                    .id("tp-stay")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.triggers.pending_path = None;
+                                        cx.notify();
+                                    }))
+                                    .child("留在这"),
                             ),
                     ),
             )
@@ -4564,35 +4795,7 @@ impl Desktop {
                 .child(wizard_field("一句话说明", "卡片上就靠它认人", div().h(t().d(31.)).child(Input::new(&self.triggers.wizard.summary)).into_any_element()))
                 .child(wizard_field("类别", "可空 = 未分类；写个不存在的名字就顺手建了", div().h(t().d(31.)).child(Input::new(&self.triggers.wizard.category)).into_any_element()))
                 .into_any_element(),
-            2 => div()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .text_size(t().fs(16.))
-                        .text_color(rgb(t().p.text))
-                        .child("这个触发器要人填什么"),
-                )
-                .child(
-                    div()
-                        .mt(t().d(5.))
-                        .text_size(t().fs(11.))
-                        .text_color(rgb(t().p.muted))
-                        .child("每行一个参数：name|type|label|required|options。type 只用 epoch / number / string / text / boolean / select。"),
-                )
-                .child(
-                    div()
-                        .mt(t().d(16.))
-                        .child(code_block(&self.wizard_params_text())),
-                )
-                .child(
-                    div()
-                        .mt(t().d(8.))
-                        .text_size(t().fs(10.))
-                        .text_color(rgb(t().p.muted))
-                        .child("建完会写进 nous.json 的 params；写坏了可以在代码层改。"),
-                )
-                .into_any_element(),
+            2 => self.wizard_params_step(cx),
             _ => div()
                 .flex()
                 .flex_col()
@@ -4863,8 +5066,298 @@ impl Desktop {
     }
 
     /// 向导里那两行参数（演示版固定）。建的时候原样写进 nous.json。
-    fn wizard_params_text(&self) -> String {
-        "at|epoch|每天几点|true\ntone|select|语气|false|简洁,详细,只列结论".to_string()
+    /// 第 2 步：左边参数清单，右边是选中那条的全部字段（demo 方案 C）。
+    fn wizard_params_step(&self, cx: &mut Context<Self>) -> AnyElement {
+        let drafts = &self.triggers.wizard.params;
+        let sel = self.triggers.wizard.param_sel.min(drafts.len().saturating_sub(1));
+
+        // 左列：一个一行，必填给个红点，类型用徽章色区分。
+        let mut rows: Vec<AnyElement> = vec![];
+        for (i, d) in drafts.iter().enumerate() {
+            let name = d.name.read(cx).value().trim().to_string();
+            let on = i == sel;
+            let ep = d.kind == "epoch";
+            let sel_kind = d.kind == "select";
+            rows.push(
+                div()
+                    .id(ElementId::Name(format!("wp-row-{i}").into()))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(6.))
+                    .h(t().d(27.))
+                    .px(t().d(9.))
+                    .cursor_pointer()
+                    .when(on, |el| el.bg(rgb(t().p.surface)).border_l(t().d(2.)).border_color(rgb(t().p.accent)))
+                    .hover(|h| h.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.wizard_param_select(i, cx);
+                    }))
+                    .child(
+                        div()
+                            .size(t().d(5.))
+                            .rounded(t().r(3.))
+                            .flex_none()
+                            .bg(rgb(if d.required { t().p.danger } else { t().p.line })),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(if name.is_empty() { t().p.muted } else { t().p.text_2 }))
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .child(if name.is_empty() { "未命名".to_string() } else { name }),
+                    )
+                    .child(
+                        div()
+                            .px(t().d(4.))
+                            .h(t().d(15.))
+                            .flex()
+                            .items_center()
+                            .rounded(t().r(3.))
+                            .bg(rgb(if ep {
+                                t().p.accent_soft
+                            } else if sel_kind {
+                                t().p.warn_soft
+                            } else {
+                                t().p.surface
+                            }))
+                            .text_size(t().fs(8.5))
+                            .text_color(rgb(if ep {
+                                t().p.accent_fg
+                            } else if sel_kind {
+                                t().p.warn
+                            } else {
+                                t().p.muted
+                            }))
+                            .child(d.kind.clone()),
+                    )
+                    .into_any_element(),
+            );
+        }
+        rows.push(
+            div()
+                .id("wp-add")
+                .flex()
+                .items_center()
+                .h(t().d(28.))
+                .px(t().d(9.))
+                .mt(t().d(2.))
+                .border_t(t().d(1.))
+                .border_color(rgb(t().p.line_soft))
+                .text_size(t().fs(10.))
+                .text_color(rgb(t().p.muted))
+                .cursor_pointer()
+                .hover(|h| h.bg(rgb(t().p.hover)).text_color(rgb(t().p.accent_fg)))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.wizard_param_add(window, cx);
+                }))
+                .child("＋ 加一个参数")
+                .into_any_element(),
+        );
+
+        // 右列：选中参数的全字段。
+        let detail: AnyElement = if let Some(d) = drafts.get(sel) {
+            let kind_tabs: Vec<AnyElement> = PARAM_KINDS
+                .iter()
+                .map(|k| {
+                    let kstatic: &'static str = k;
+                    let on = d.kind == *k;
+                    div()
+                        .id(ElementId::Name(format!("wp-kind-{k}").into()))
+                        .px(t().d(7.))
+                        .h(t().d(22.))
+                        .flex()
+                        .items_center()
+                        .rounded(t().r(4.))
+                        .bg(rgb(if on { t().p.accent } else { t().p.surface }))
+                        .text_size(t().fs(9.5))
+                        .text_color(rgb(if on { t().p.on_accent } else { t().p.text_2 }))
+                        .cursor_pointer()
+                        .hover(|h| h.bg(rgb(if on { t().p.accent } else { t().p.hover })))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.wizard_param_set_kind(sel, kstatic, cx);
+                        }))
+                        .child(*k)
+                        .into_any_element()
+                })
+                .collect();
+            let kind_hint = match d.kind.as_str() {
+                "epoch" => "UTC 秒；页面上按本地时间挑",
+                "number" => "整数或小数",
+                "string" => "单行文本",
+                "text" => "多行文本",
+                "boolean" => "是 / 否",
+                "select" => "从固定几项里选，下面填选项",
+                _ => "",
+            };
+            div()
+                .flex()
+                .flex_col()
+                .gap(t().d(9.))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(t().d(7.))
+                        .child(
+                            div()
+                                .text_size(t().fs(11.5))
+                                .text_color(rgb(t().p.text))
+                                .child("参数字段"),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            div()
+                                .id("wp-del")
+                                .size(t().d(21.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(t().r(4.))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.muted))
+                                .cursor_pointer()
+                                .hover(|h| h.bg(rgb(t().p.danger_soft)).text_color(rgb(t().p.danger)))
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.wizard_param_del(sel, cx);
+                                }))
+                                .child("✕"),
+                        ),
+                )
+                .child(wizard_field("参数名", "写进 nous.json 的 name", div().h(t().d(28.)).child(Input::new(&d.name)).into_any_element()))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(t().d(5.))
+                        .child(
+                            div()
+                                .text_size(t().fs(10.5))
+                                .text_color(rgb(t().p.text_2))
+                                .child("类型"),
+                        )
+                        .child(div().flex().flex_row().flex_wrap().gap(t().d(5.)).children(kind_tabs))
+                        .child(
+                            div()
+                                .text_size(t().fs(9.5))
+                                .text_color(rgb(t().p.muted))
+                                .child(kind_hint.to_string()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(t().d(7.))
+                        .h(t().d(24.))
+                        .child(
+                            div()
+                                .id("wp-required")
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .size(t().d(15.))
+                                .rounded(t().r(3.))
+                                .border(t().d(1.))
+                                .border_color(rgb(if d.required { t().p.accent } else { t().p.line }))
+                                .bg(rgb(if d.required { t().p.accent } else { t().p.surface }))
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.wizard_param_toggle_required(sel, cx);
+                                }))
+                                .when(d.required, |el| {
+                                    el.child(Icon::new(IconName::Check).size(t().d(10.)).text_color(rgb(t().p.on_accent)))
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_size(t().fs(10.5))
+                                .text_color(rgb(t().p.text_2))
+                                .child("必填 · 不给就报错"),
+                        ),
+                )
+                .child(wizard_field("标签", "卡片上给人看的名字", div().h(t().d(28.)).child(Input::new(&d.label)).into_any_element()))
+                .when(d.kind == "select", |el| {
+                    el.child(wizard_field("选项", "逗号分隔；只有 select 用得上", div().h(t().d(28.)).child(Input::new(&d.options)).into_any_element()))
+                })
+                .child(wizard_field("说明", "会显示在参数卡上", div().h(t().d(28.)).child(Input::new(&d.help)).into_any_element()))
+                .child(wizard_field("默认值", "可空；number 填数字，boolean 填 true / false", div().h(t().d(28.)).child(Input::new(&d.default)).into_any_element()))
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .text_size(t().fs(10.5))
+                .text_color(rgb(t().p.muted))
+                .child("左边还没有参数 —— 空着也能建，收不到参数就是了。")
+                .into_any_element()
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_baseline()
+                    .gap(t().d(8.))
+                    .child(
+                        div()
+                            .text_size(t().fs(16.))
+                            .text_color(rgb(t().p.text))
+                            .child("这个触发器要人填什么"),
+                    )
+                    .child(
+                        div()
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.muted))
+                            .child("左边选一个，右边改它的字段"),
+                    ),
+            )
+            .child(
+                div()
+                    .mt(t().d(12.))
+                    .flex()
+                    .flex_row()
+                    .h(t().d(310.))
+                    .min_h(t().d(310.))
+                    .rounded(t().r(7.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .id("wp-list-scroll")
+                            .w(t().d(196.))
+                            .flex_none()
+                            .flex_1()
+                            .min_h(t().d(0.))
+                            .overflow_y_scroll()
+                            .bg(rgb(t().p.panel_alt))
+                            .border_r(t().d(1.))
+                            .border_color(rgb(t().p.line))
+                            .children(rows),
+                    )
+                    .child(
+                        div()
+                            .id("wp-detail-scroll")
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .min_h(t().d(0.))
+                            .overflow_y_scroll()
+                            .p(t().d(14.))
+                            .child(detail),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn wizard_preview(&self, cx: &mut Context<Self>) -> String {
@@ -4877,7 +5370,6 @@ impl Desktop {
             if v.is_empty() { "每天第一条会话时，按昨天的日志起一条复盘".to_string() } else { v }
         };
         let category = self.triggers.wizard.category.read(cx).value().trim().to_string();
-        let params = self.wizard_params_text();
         let mut lines = vec![
             "{".to_string(),
             format!("  \"name\": \"{name}\","),
@@ -4887,7 +5379,7 @@ impl Desktop {
             format!("  \"binary\": \"{name}\","),
             "  \"params\": [".to_string(),
         ];
-        let parsed = parse_params(&params);
+        let parsed = params_json(&self.triggers.wizard.params, cx);
         for (i, p) in parsed.iter().enumerate() {
             let comma = if i + 1 == parsed.len() { "" } else { "," };
             lines.push(format!("    {}{comma}", p));
