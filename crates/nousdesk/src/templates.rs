@@ -1422,48 +1422,71 @@ impl Desktop {
         if order.is_empty() {
             return;
         }
+        // 本地先排好 —— 人拖着的那一下就生效，不等引擎。
         self.apply_order_now(&order);
         cx.notify();
 
+        // **同一时刻只许一个请求在飞。** 拖三下就发三个请求，它们并发到服务端时
+        // 谁先落盘不定（服务端是串行的，但队首是谁看运气），最后那次未必最后写进去，
+        // 人就会看见「拖完是对的、刷新一下变回去了」。飞着的时候只记**最新**那一次。
+        if self.preset_order_flying.is_some() {
+            self.preset_order_next = Some(order);
+            return;
+        }
+        self.send_order(order, cx);
+    }
+
+    /// 真正发出去那一次。回来之后再看看队里有没有更晚的一次。
+    fn send_order(&mut self, order: Vec<String>, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
             return;
         };
-        let section_id = SECTIONS[self.section].0;
+        self.preset_order_flying = Some(order.clone());
+        let section_id = SECTIONS[self.section].0.to_string();
         let sec_idx = self.section;
         cx.spawn(async move |this, cx| {
-            let handle = crate::TOKIO.get().cloned();
-            let result = match &handle {
-                Some(h) => {
-                    let engine = engine.clone();
-                    let order = order.clone();
-                    h.spawn(async move { engine.reorder_presets(section_id, order).await })
-                        .await
-                        .ok()
-                }
-                _ => None,
+            let result = match crate::TOKIO.get().cloned() {
+                Some(h) => h
+                    .spawn(async move { engine.reorder_presets(&section_id, order).await })
+                    .await
+                    .ok(),
+                None => None,
             };
-            let _ = this.update(cx, |this, cx| match result {
-                Some(Ok(done)) => {
-                    // 盘上那份才是真相（服务端会滤掉已删除的名字）。空表就别拿它盖本地。
-                    if !done.order.is_empty() {
-                        this.apply_order_now(&done.order);
-                    }
-                    if done.pushed == Some(false) {
-                        this.notify(
-                            "顺序已存下，但没推上去（远端连不上）",
-                            crate::app::NoticeKind::Error,
-                            cx,
-                        );
-                    }
-                    cx.notify();
+            let _ = this.update(cx, |this, cx| {
+                this.preset_order_flying = None;
+                // 排队里还有更晚的一次：直接发它。别拿这次的回包盖回本地 ——
+                // 它已经过时了，盖回去就成了「越拖越回去」。
+                if let Some(next) = this.preset_order_next.take() {
+                    this.send_order(next, cx);
+                    return;
                 }
-                Some(Err(e)) => {
-                    this.notify(format!("顺序没存下：{e}"), crate::app::NoticeKind::Error, cx);
-                    // 回滚到真相 —— 本地那次乐观排序是猜的。
-                    this.load_section(sec_idx, true, cx);
+                // 等回包的这段时间人可能已经切到另一段了 —— 别把 A 段的顺序盖到 B 段上。
+                if this.section != sec_idx {
+                    return;
                 }
-                None => {}
+                match result {
+                    Some(Ok(done)) => {
+                        // 盘上那份才是真相（服务端会滤掉已删除的名字）。空表别盖本地。
+                        if !done.order.is_empty() {
+                            this.apply_order_now(&done.order);
+                        }
+                        if done.pushed == Some(false) {
+                            this.notify(
+                                "顺序已存下，但没推上去（远端连不上）",
+                                crate::app::NoticeKind::Error,
+                                cx,
+                            );
+                        }
+                        cx.notify();
+                    }
+                    Some(Err(e)) => {
+                        this.notify(format!("顺序没存下：{e}"), crate::app::NoticeKind::Error, cx);
+                        // 回滚到真相 —— 本地那次乐观排序是猜的。
+                        this.load_section(sec_idx, true, cx);
+                    }
+                    None => {}
+                }
             });
         })
         .detach();
@@ -3649,6 +3672,8 @@ impl Desktop {
             // 开会话挪到行尾那个圆按钮上 —— 微信里点联系人是看资料，不是发消息。
             .id(ElementId::Name(format!("preset-{}", p.name).into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                // 拖到列表外松手会留下一条落点线（没有 drop 可收），点一下就该消。
+                this.preset_drop = None;
                 this.pick_preset(pick_name.clone(), cx);
             }))
             // 拖拽排序：拖起来的是一条「名字」，落到哪行就占那行的位置。
