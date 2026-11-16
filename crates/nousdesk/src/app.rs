@@ -616,6 +616,33 @@ impl Desktop {
                         app.stop_propagation();
                         return;
                     }
+                    // 页面 / 列表层：`≡` 菜单 → 设置页 → 分支视图。
+                    //
+                    // 按「谁的浮层更大谁先」排：菜单是压在左栏底部的一块，设置页是换掉右栏、
+                    // 分支视图是换掉左栏，所以菜单在最前。三者都有别的出口（点外 / 返回按钮 /
+                    // 再点一次那个按钮），Esc 只是补齐第三条 —— 缺 Esc 的时候最难受：
+                    // 明明满屏都是自己点开的东西，按 Esc 一点反应都没有。
+                    let closed = weak
+                        .update(app, |this, cx| {
+                            if this.menu_open {
+                                this.close_menu(cx);
+                                return true;
+                            }
+                            if this.settings_open {
+                                this.close_settings(cx);
+                                return true;
+                            }
+                            if this.branches {
+                                this.exit_branches(cx);
+                                return true;
+                            }
+                            false
+                        })
+                        .unwrap_or(false);
+                    if closed {
+                        app.stop_propagation();
+                        return;
+                    }
                     // Template 页：Esc 先收节点说明，再收整张图（两段，不是一步收光）。
                     let closed = weak
                         .update(app, |this, cx| {
