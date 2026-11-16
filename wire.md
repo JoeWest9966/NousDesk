@@ -357,7 +357,7 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
   "thinkingLevel": "off|minimal|low|medium|high|xhigh|max",
   "skills": ["code-review", "…"],     // 可省 = 不挂
   "template": "审查一段改动" | null,   // **总是发**：null 是「明确不要」
-  "extensions": ["…"],                // 可省 = 全开（空数组才是「一个都不要」）
+  "extensions": ["…"],                // **只能加，不能减**：见下面那条 ⚠
   "cwd": "/opt/Nous/content/new1/map",
   "machine": "j1900"                  // 缺省 = 本机
 }
@@ -369,6 +369,16 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 - 201 回来带 `missing` / `missingExtensions` / `missingTemplates`：引擎那边找不到的东西，
   客户端要如实说，别当成功。
 - 建完再 `POST /v1/selection { id }` 把盘上那只眼切过去（切不过去不该把会话判死）。
+
+- ⚠ **`extensions` 只能加，不能减**（2026-11-16 实测，不是推断）：内核
+  `createConversation` 的 `settings.extensions` 无条件带
+  `coding-tools + nous + skills + prompts`，请求里的 `extensions` 只用来**额外 add**。
+  所以 `[]` 不是「一个都不要」而是「就用默认四个」，勾掉核心三条也不生效。
+  只有**勾上非核心扩展**真会生效；`missingExtensions` 会如实点名找不到的 id。
+  **别把空数组当「清空」写进文档或 UI** —— 桌面端 `ExtKind::Core` 那几行能取消勾选是
+  一个「界面说能做、引擎做不到」的假动作，详见 `decisions.md` 那条。
+  反悔点（要真支持减）：改 qrd3wh 的 `settings.extensions`，让它按请求清单来；
+  改完回来把这句话和上面那段 body 注释一起改掉。
 
 - **「复制设置」抄不了扩展**：`GET /v1/sessions` 的每一项里**没有**这条会话生效的扩展清单
   （只有建会话的 201 响应 `CreatedSession.extensions` 才有）。所以复制时只能省掉
