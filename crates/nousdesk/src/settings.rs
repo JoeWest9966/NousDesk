@@ -37,6 +37,8 @@ pub(crate) enum SettingsTab {
     Connection,
     /// 一套皮。现在只有「默认」，卡片由 `theme::ThemeName::ALL` 生成。
     Theme,
+    /// 哪些事该响。走的是 `sound.rs` 的 `Prefs`，落盘在 `sound.toml`。
+    Sound,
     About,
 }
 
@@ -261,6 +263,7 @@ impl Desktop {
         let tabs = [
             (SettingsTab::Connection, "连接"),
             (SettingsTab::Theme, "主题"),
+            (SettingsTab::Sound, "声音"),
             (SettingsTab::About, "关于"),
         ];
         let items: Vec<AnyElement> = tabs
@@ -312,6 +315,7 @@ impl Desktop {
         let body: AnyElement = match self.settings_tab {
             SettingsTab::Connection => self.connection_pane(cx),
             SettingsTab::Theme => self.theme_pane(cx),
+            SettingsTab::Sound => self.sound_pane(cx),
             SettingsTab::About => self.about_pane(),
         };
 
@@ -525,6 +529,135 @@ impl Desktop {
         cx.notify();
     }
 
+    /// 声音页。版面照 `demo/sound-settings` 选中的 **02「两组分块」**：
+    /// **提醒**（你不在看的时候叫你）和**手感**（你正在操作时的回执）是两个浅底卡片。
+    ///
+    /// 两组分开摆不是为了好看 —— 它们的判据本来就不同：提醒要判焦点（前台不响），
+    /// 手感永远响（手刚离开回车）。合成一个开关会让这两种意思糊成一团。
+    fn sound_pane(&self, cx: &mut Context<Self>) -> AnyElement {
+        let t = crate::theme::cur();
+        let p = self.sound;
+
+        let path = crate::sound::Prefs::path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "（拿不到配置目录）".into());
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(t.d(14.))
+            .min_w(t.d(0.))
+            .max_w(t.d(520.))
+            .child(div().text_size(t.fs(15.)).child("声音"))
+            .child(div().text_size(t.fs(11.5)).text_color(rgb(t.p.muted)).child(
+                "屏幕上的事归屏幕，屏幕外的事归这一声。手机端不跟着响 —— 这是桌面自己的偏好。",
+            ))
+            // 总开关：单独一块，它管的是全部
+            .child(sound_card(vec![sound_row(
+                t,
+                "sound-master",
+                "声音提示",
+                "关掉之后一个都不响。未读红点、列表顺序照旧。",
+                // 总开关自己不是一种声音：试听给的是最常用的那一声。
+                crate::sound::Cue::Done,
+                Some(p.master),
+                cx.listener(|this, on: &bool, _w, cx| {
+                    let mut next = this.sound;
+                    next.master = *on;
+                    this.set_sound(next, cx);
+                }),
+            )]))
+            .child(sound_section_label(t, "提醒 · 你没在看的时候"))
+            .child(sound_card(vec![
+                sound_row(
+                    t,
+                    "sound-done",
+                    "一轮生成完成",
+                    "会话跑完了，而窗口不在前台。",
+                    crate::sound::Cue::Done,
+                    Some(p.done),
+                    cx.listener(|this, on: &bool, _w, cx| {
+                        let mut next = this.sound;
+                        next.set(crate::sound::Cue::Done, *on);
+                        this.set_sound(next, cx);
+                    }),
+                ),
+                sound_row(
+                    t,
+                    "sound-error",
+                    "生成出错",
+                    "模型报错、工具失败、引擎断线 —— 不用分开，都算「白等了」。",
+                    crate::sound::Cue::Error,
+                    Some(p.error),
+                    cx.listener(|this, on: &bool, _w, cx| {
+                        let mut next = this.sound;
+                        next.set(crate::sound::Cue::Error, *on);
+                        this.set_sound(next, cx);
+                    }),
+                ),
+                // 这一行照 demo 留着，但**不画开关**：引擎没有「等你拍板」这个信号，
+                // 摆一个点得动的开关等于骗人。有信号了再把它换成 `sound_row`。
+                sound_row_pending(
+                    t,
+                    "轮到你拍板",
+                    "工具等你批准、问题等你回答。引擎现在没有这个信号 —— 不是没做，是没数据。",
+                ),
+            ]))
+            .child(sound_section_label(t, "手感 · 你在操作的时候"))
+            .child(sound_card(vec![
+                sound_row(
+                    t,
+                    "sound-send",
+                    "发送一条消息",
+                    "很短的一声，和气泡出现同时。",
+                    crate::sound::Cue::Send,
+                    Some(p.send),
+                    cx.listener(|this, on: &bool, _w, cx| {
+                        let mut next = this.sound;
+                        next.set(crate::sound::Cue::Send, *on);
+                        this.set_sound(next, cx);
+                    }),
+                ),
+                sound_row(
+                    t,
+                    "sound-stop",
+                    "停止生成",
+                    "一声往下落的「落定」。默认关 —— 停止是少做事，不需要回执。",
+                    crate::sound::Cue::Stop,
+                    Some(p.stop),
+                    cx.listener(|this, on: &bool, _w, cx| {
+                        let mut next = this.sound;
+                        next.set(crate::sound::Cue::Stop, *on);
+                        this.set_sound(next, cx);
+                    }),
+                ),
+            ]))
+            .child(sound_note(t))
+            .children(self.message_view(t))
+            .child(
+                div()
+                    .text_size(t.fs(10.5))
+                    .text_color(rgb(t.p.faint))
+                    .child(format!("声音存在 {path}，不写进 desktop.toml。")),
+            )
+            .into_any_element()
+    }
+
+    /// 改一份声音偏好：**先落盘，成功了才改内存**。
+    ///
+    /// 和 `pick_theme` 一个规矩：写不进去就报错、开关弹回原位 —— 装成功重启又跳回去，
+    /// 比不改更让人恼火。
+    pub(crate) fn set_sound(&mut self, next: crate::sound::Prefs, cx: &mut Context<Self>) {
+        match next.save() {
+            Ok(_) => {
+                self.sound = next;
+                self.settings_msg = None;
+            }
+            Err(e) => self.settings_msg = Some((format!("声音设置没写进去：{e}"), true)),
+        }
+        cx.notify();
+    }
+
     fn about_pane(&self) -> AnyElement {
         let log_path = dirs::data_local_dir()
             .map(|d| {
@@ -608,6 +741,248 @@ impl Desktop {
 }
 
 // ── 小件 ────────────────────────────────────────────────────
+
+// ── 声音页的小件 ────────────────────────────────────────────
+
+/// 组标签（「提醒 · 你没在看的时候」这种）。10.5px + 淡色 + 一点字距，
+/// 靠字号和留白分区，不靠色块 —— 这是皮里的规矩。
+fn sound_section_label(t: crate::theme::Skin, text: &'static str) -> AnyElement {
+    div()
+        .mt(t.d(6.))
+        .px(t.d(2.))
+        .text_size(t.fs(10.5))
+        .text_color(rgb(t.p.faint))
+        .child(text)
+        .into_any_element()
+}
+
+/// 一组浅底卡片。里面几行由调用方给，行间的发丝线由 `sound_row` 自己画
+/// （最后一行不画 —— 卡片内边距下面紧跟一条线会像「还有内容」）。
+fn sound_card(rows: Vec<AnyElement>) -> AnyElement {
+    let t = t();
+    // 行间的发丝线由这里插，不让每一行自己判断"我是不是最后一行" ——
+    // 那要多一个参数，而且加一行就得改上一行。
+    let mut body: Vec<AnyElement> = Vec::with_capacity(rows.len() * 2);
+    for (i, row) in rows.into_iter().enumerate() {
+        if i > 0 {
+            body.push(
+                div()
+                    .flex_none()
+                    .h(t.d(1.))
+                    .w_full()
+                    .bg(rgb(t.p.line_soft))
+                    .into_any_element(),
+            );
+        }
+        body.push(row);
+    }
+    div()
+        .flex()
+        .flex_col()
+        .px(t.d(12.))
+        .py(t.d(2.))
+        .rounded(t.r(8.))
+        .bg(rgb(t.p.surface))
+        .children(body)
+        .into_any_element()
+}
+
+/// 一行：名字 + 说明 + [试听][开关]。
+///
+/// `checked == None` 表示**引擎还没有这个信号** —— 那时不画开关，只把行压成灰的。
+/// 摆一个点得动的开关等于骗人（`settings.rs` 开头那条规矩）。
+fn sound_row(
+    t: crate::theme::Skin,
+    id: &'static str,
+    name: &'static str,
+    desc: &'static str,
+    cue: crate::sound::Cue,
+    checked: Option<bool>,
+    on_switch: impl Fn(&bool, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(t.d(14.))
+        .py(t.d(9.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(t.d(0.))
+                .child(div().text_size(t.fs(13.)).child(name))
+                .child(
+                    div()
+                        .mt(t.d(2.))
+                        .text_size(t.fs(11.5))
+                        .text_color(rgb(t.p.muted))
+                        .child(desc),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(t.d(10.))
+                .flex_none()
+                .child(try_button(t, id, cue))
+                .child(sound_switch(
+                    t,
+                    id,
+                    checked.unwrap_or(false),
+                    // 点一下 = 取反。"变成什么值"只在这里算一次，调用方那五处
+                    // 全都写的是 `set(cue, *on)`，不用各自记得取反。
+                    move |_ev, w, cx| on_switch(&!checked.unwrap_or(false), w, cx),
+                )),
+        )
+        .into_any_element()
+}
+
+/// 开关。**自己搭，不用组件库的 `Switch`。**
+///
+/// 组件那个取的是 `theme()` 里的 `tokens.primary`，而 `theme.rs` 只推了
+/// `colors.primary`（实测出来是黑的）；它的圆角又直接吃 `theme.radius`，
+/// 换到「单色」这种直角皮上整个控件会退化成两个方块。这个项目的皮本来就是
+/// div 手搭的（`pill` / `nav_toggle` 都是），开关也照这个来：颜色和圆角都从
+/// 当前皮拿，没有第二种真相。
+///
+/// 不做动画：状态变化立刻可见就够（皮的规矩是"短、直、有目的"）。
+fn sound_switch(
+    t: crate::theme::Skin,
+    id: &'static str,
+    on: bool,
+    handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let track_h = t.d(20.);
+    let knob = t.d(16.);
+    div()
+        .id(ElementId::Name(format!("{id}-sw").into()))
+        .on_click(handler)
+        .flex()
+        .items_center()
+        .flex_none()
+        .w(t.d(36.))
+        .h(track_h)
+        .p(t.d(2.))
+        .rounded(t.r(10.))
+        .bg(rgb(if on { t.p.accent } else { t.p.disabled }))
+        .cursor_pointer()
+        .when(on, |el| el.justify_end())
+        .hover(|el| el.opacity(0.85))
+        .child(
+            div()
+                .flex_none()
+                .w(knob)
+                .h(knob)
+                .rounded(t.r(8.))
+                .bg(rgb(t.p.panel)),
+        )
+        .into_any_element()
+}
+
+/// 「引擎还没有这个信号」的那一行：不画开关、不画试听，整行压灰。
+fn sound_row_pending(t: crate::theme::Skin, name: &'static str, desc: &'static str) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(t.d(14.))
+        .py(t.d(9.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(t.d(0.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t.d(8.))
+                        .child(
+                            div()
+                                .text_size(t.fs(13.))
+                                .text_color(rgb(t.p.faint))
+                                .child(name),
+                        )
+                        .child(
+                            div()
+                                .px(t.d(5.))
+                                .py(t.d(1.))
+                                .rounded(t.r(3.))
+                                .border(t.d(1.))
+                                .border_color(rgb(t.p.line))
+                                .text_size(t.fs(10.))
+                                .text_color(rgb(t.p.faint))
+                                .child("待接入"),
+                        ),
+                )
+                .child(
+                    div()
+                        .mt(t.d(2.))
+                        .text_size(t.fs(11.5))
+                        .text_color(rgb(t.p.faint))
+                        .child(desc),
+                ),
+        )
+        .into_any_element()
+}
+
+/// 「试听」。**穿过偏好**：这一行现在是关的也能听 —— 点它的人就是想知道那是什么声。
+fn try_button(t: crate::theme::Skin, id: &'static str, cue: crate::sound::Cue) -> AnyElement {
+    div()
+        .id(ElementId::Name(format!("sound-try-{id}").into()))
+        .on_click(move |_: &ClickEvent, _w, _cx| crate::sound::preview(cue))
+        .flex()
+        .items_center()
+        .gap(t.d(5.))
+        .h(t.d(24.))
+        .px(t.d(9.))
+        .rounded(t.r(5.))
+        .border(t.d(1.))
+        .border_color(rgb(t.p.line_strong))
+        .text_size(t.fs(11.5))
+        .text_color(rgb(t.p.text_2))
+        .hover(move |el| {
+            el.bg(rgb(t.p.accent_soft))
+                .border_color(rgb(t.p.accent))
+                .text_color(rgb(t.p.accent_fg))
+        })
+        .child("试听")
+        .child(Icon::new(IconName::Play).with_size(Size::Size(t.d(10.))))
+        .into_any_element()
+}
+
+/// 页脚那条"这不是开关，是规则"。写死在版面上，不给开关 —— 少一个设置项就是赚。
+fn sound_note(t: crate::theme::Skin) -> AnyElement {
+    div()
+        .flex()
+        .gap(t.d(8.))
+        .pt(t.d(2.))
+        .child(
+            Icon::new(IconName::Info)
+                .size(t.d(13.))
+                .text_color(rgb(t.p.faint)),
+        )
+        .child(
+            div()
+                .flex_1()
+                // 少了这一行，长句不换行、直接顶出卡片右边 —— flex 子项的 min-width
+                // 默认是内容宽，不是零（`settings_pane` 里那些 `min_w(0)` 是同一个坑）。
+                .min_w(t.d(0.))
+                .text_size(t.fs(11.5))
+                .text_color(rgb(t.p.muted))
+                .child(
+                    // 不能写成 `\` 续行：续行只吃掉换行，**后面那行开头的缩进会原样
+                    // 进字符串**，界面上就会看到一大段空白。宁可这一行长着，也别断。
+                    concat!(
+                        "完成和出错只在窗口不在前台时响：你正看着它跑完，视觉反馈就够了。",
+                        "发送和停止是你刚动过手，永远响。同一件事两秒内不重复，音量跟系统走。",
+                    ),
+                ),
+        )
+        .into_any_element()
+}
 
 /// 设置页的按钮。不用 `component::button::Button` —— 它的 variant 会把自定义底色
 /// 压成淡色（实测 `#07c160` 出来是 20% 透明的一层淡绿），而这个项目的皮本来

@@ -131,15 +131,9 @@ impl Section {
     }
 }
 
-/// 类别树的一行。**顺序就是引擎给的顺序**（父在子前），客户端不重排。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CatNode {
-    pub path: String,
-    pub label: String,
-    pub depth: usize,
-    pub count: usize,
-    pub has_children: bool,
-}
+/// 类别树那一行在 `category.rs` —— 触发器和模板共用一个，别再各写一份。
+/// **顺序就是引擎给的顺序**（父在子前），客户端不重排。
+pub(crate) use crate::category::{CatNode, ancestors, is_under};
 
 /// 「新建一条」的表单草稿。`Desktop::new_preset` 是 `Some` 时右栏被它占着。
 ///
@@ -327,6 +321,25 @@ pub(crate) fn sanitize_file_name(name: &str) -> String {
     }
 }
 
+/// 当前视图里**看得见**的那几条（顺序就是引擎给的那份，客户端不重排）。
+///
+/// 渲染和「上移/下移」都必须走它。以前 `move_preset` 自己在全量表里找邻居 ——
+/// 类别视图里按 ↑ 会和一条**不在这个类别里**的模板交换，屏幕上就看着「点了没反应」。
+pub(crate) fn visible_presets<'a>(
+    presets: &'a [Preset],
+    cat: Option<&str>,
+    query: &str,
+) -> Vec<&'a Preset> {
+    if !query.trim().is_empty() {
+        return presets.iter().filter(|p| matches_query(p, query)).collect();
+    }
+    match cat {
+        None => presets.iter().collect(),
+        Some(UNCATEGORIZED) => presets.iter().filter(|p| p.category.is_empty()).collect(),
+        Some(c) => presets.iter().filter(|p| in_category(p, c)).collect(),
+    }
+}
+
 /// 把 `from` 挪到 `to` **占它的位置**：往下拖 = 落到目标后面，往上拖 = 落到目标前面。
 ///
 /// 纯函数，单独测 —— 排序是最容易差一格的地方，而这种错在界面上看着「就是不太对」，
@@ -375,6 +388,7 @@ impl Desktop {
         self.tab = tab;
         if tab == Tab::Templates {
             self.load_all_sections(false, cx);
+            self.load_combos(false, cx);
         }
         if tab == Tab::Triggers {
             self.load_trigger_list(false, cx);
@@ -389,6 +403,7 @@ impl Desktop {
     /// 拉当前段。已拉到且非 force 就不动。
     pub(crate) fn load_presets(&mut self, force: bool, cx: &mut Context<Self>) {
         self.load_section(self.section, force, cx);
+        self.load_combos(false, cx);
     }
 
     /// 两段都拉一遍。段按钮下面要写真实条数，「—」看着像坏了。
@@ -399,6 +414,105 @@ impl Desktop {
         for i in 0..SECTIONS.len() {
             self.load_section(i, force, cx);
         }
+    }
+
+    /// 拉组合清单。开关状态只认引擎的回包（`combos[].enabled`），
+    /// 不读 `preset.json` 自己算 —— 那是 spec §4.3 的硬规矩。
+    pub(crate) fn load_combos(&mut self, force: bool, cx: &mut Context<Self>) {
+        if !force && self.combos.is_some() {
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let got = match crate::TOKIO.get().cloned() {
+                Some(h) => h.spawn(async move { engine.combos().await }).await.ok(),
+                None => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Some(Ok(list)) => this.combos = Some(list.combos),
+                    // 拉不到就留 `None`：详情页会显示「读不到开关状态」，不拿旧值假装真相。
+                    Some(Err(e)) => this.notify(
+                        format!("读组合开关失败：{e}"),
+                        crate::app::NoticeKind::Error,
+                        cx,
+                    ),
+                    None => {}
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 翻一条组合的开关。乐观更新 + 失败回滚；
+    /// 回包里的 `enabled` 是盘上的真相，拿它覆盖（引擎可能顺手改了别的）。
+    pub(crate) fn toggle_combo(&mut self, name: String, cx: &mut Context<Self>) {
+        if self.combo_flying.is_some() {
+            return;
+        }
+        let enabled = self.combos.as_ref().and_then(|v| v.iter().find(|c| c.name == name))
+            .map(|c| c.enabled);
+        // 状态还没拉到就别猜着翻 —— 去重拉一次。
+        let Some(next) = next_combo_enabled(enabled) else {
+            self.load_combos(true, cx);
+            return;
+        };
+        let current = enabled.unwrap();
+        // 本地先翻 —— 点下去立刻看得见。
+        if let Some(c) = self.combos.as_mut().and_then(|v| v.iter_mut().find(|c| c.name == name)) {
+            c.enabled = next;
+        }
+        self.combo_flying = Some(name.clone());
+        cx.notify();
+
+        let Some(engine) = self.engine.clone() else {
+            self.combo_flying = None;
+            return;
+        };
+        let url_name = name.clone();
+        cx.spawn(async move |this, cx| {
+            let got = match crate::TOKIO.get().cloned() {
+                Some(h) => h
+                    .spawn(async move { engine.set_combo_enabled(&url_name, next).await })
+                    .await
+                    .ok(),
+                None => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.combo_flying = None;
+                match got {
+                    Some(Ok(changed)) => {
+                        // 用回包覆盖，别信自己翻的那一下。
+                        if let Some(list) = this.combos.as_mut() {
+                            if let Some(c) = list.iter_mut().find(|c| c.name == changed.combo.name) {
+                                *c = changed.combo;
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        // 回滚到翻之前。
+                        if let Some(c) = this.combos.as_mut().and_then(|v| v.iter_mut().find(|c| c.name == name)) {
+                            c.enabled = current;
+                        }
+                        this.notify(
+                            format!("开关没翻动：{e}"),
+                            crate::app::NoticeKind::Error,
+                            cx,
+                        );
+                    }
+                    None => {
+                        if let Some(c) = this.combos.as_mut().and_then(|v| v.iter_mut().find(|c| c.name == name)) {
+                            c.enabled = current;
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub(crate) fn load_section(&mut self, i: usize, force: bool, cx: &mut Context<Self>) {
@@ -482,6 +596,7 @@ impl Desktop {
             self.preset_cat = keep_category(&self.preset_cat, &tree);
         }
         self.load_section(i, false, cx);
+        self.load_combos(false, cx);
         cx.notify();
     }
 
@@ -1357,16 +1472,31 @@ impl Desktop {
     /// 拖拽的兜底：Wayland 上拖不进别的窗口、触控板手抖、或者干脆不知道能拖 ——
     /// 都得有条路能排。
     pub(crate) fn move_preset(&mut self, name: &str, delta: isize, cx: &mut Context<Self>) {
-        let order = self.current_order();
-        let Some(pos) = order.iter().position(|n| n == name) else {
+        // 邻居要按**屏幕上看得见的**那一列找，不是全量表 —— 类别视图里全量表里
+        // 前一条可能根本不在这个类别，换完了屏幕上一点变化都没有。
+        let query = self.preset_filter.read(cx).value().trim().to_string();
+        let cat = self.preset_cat.clone();
+        let view: Vec<String> = self
+            .sections
+            .get(self.section)
+            .and_then(|s| s.data.as_ref())
+            .map(|d| {
+                visible_presets(&d.presets, cat.as_deref(), &query)
+                    .into_iter()
+                    .map(|p| p.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let Some(pos) = view.iter().position(|n| n == name) else {
             return;
         };
         let to = pos as isize + delta;
-        if to < 0 || to >= order.len() as isize {
+        if to < 0 || to >= view.len() as isize {
             return;
         }
-        // 上移/下移就是「和邻居换」，复用同一套搬家逻辑（`drop_on` 也走它）。
-        let target = order[to as usize].clone();
+        // 上移/下移 = 挪到屏幕上邻居的位置，复用同一套搬家逻辑（`drop_on` 也走它）。
+        let target = view[to as usize].clone();
+        let order = self.current_order();
         match reorder_move(&order, name, &target) {
             Some(next) => self.commit_order(next, cx),
             None => cx.notify(),
@@ -1388,48 +1518,71 @@ impl Desktop {
         if order.is_empty() {
             return;
         }
+        // 本地先排好 —— 人拖着的那一下就生效，不等引擎。
         self.apply_order_now(&order);
         cx.notify();
 
+        // **同一时刻只许一个请求在飞。** 拖三下就发三个请求，它们并发到服务端时
+        // 谁先落盘不定（服务端是串行的，但队首是谁看运气），最后那次未必最后写进去，
+        // 人就会看见「拖完是对的、刷新一下变回去了」。飞着的时候只记**最新**那一次。
+        if self.preset_order_flying.is_some() {
+            self.preset_order_next = Some(order);
+            return;
+        }
+        self.send_order(order, cx);
+    }
+
+    /// 真正发出去那一次。回来之后再看看队里有没有更晚的一次。
+    fn send_order(&mut self, order: Vec<String>, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
             return;
         };
-        let section_id = SECTIONS[self.section].0;
+        self.preset_order_flying = Some(order.clone());
+        let section_id = SECTIONS[self.section].0.to_string();
         let sec_idx = self.section;
         cx.spawn(async move |this, cx| {
-            let handle = crate::TOKIO.get().cloned();
-            let result = match &handle {
-                Some(h) => {
-                    let engine = engine.clone();
-                    let order = order.clone();
-                    h.spawn(async move { engine.reorder_presets(section_id, order).await })
-                        .await
-                        .ok()
-                }
-                _ => None,
+            let result = match crate::TOKIO.get().cloned() {
+                Some(h) => h
+                    .spawn(async move { engine.reorder_presets(&section_id, order).await })
+                    .await
+                    .ok(),
+                None => None,
             };
-            let _ = this.update(cx, |this, cx| match result {
-                Some(Ok(done)) => {
-                    // 盘上那份才是真相（服务端会滤掉已删除的名字）。空表就别拿它盖本地。
-                    if !done.order.is_empty() {
-                        this.apply_order_now(&done.order);
-                    }
-                    if done.pushed == Some(false) {
-                        this.notify(
-                            "顺序已存下，但没推上去（远端连不上）",
-                            crate::app::NoticeKind::Error,
-                            cx,
-                        );
-                    }
-                    cx.notify();
+            let _ = this.update(cx, |this, cx| {
+                this.preset_order_flying = None;
+                // 排队里还有更晚的一次：直接发它。别拿这次的回包盖回本地 ——
+                // 它已经过时了，盖回去就成了「越拖越回去」。
+                if let Some(next) = this.preset_order_next.take() {
+                    this.send_order(next, cx);
+                    return;
                 }
-                Some(Err(e)) => {
-                    this.notify(format!("顺序没存下：{e}"), crate::app::NoticeKind::Error, cx);
-                    // 回滚到真相 —— 本地那次乐观排序是猜的。
-                    this.load_section(sec_idx, true, cx);
+                // 等回包的这段时间人可能已经切到另一段了 —— 别把 A 段的顺序盖到 B 段上。
+                if this.section != sec_idx {
+                    return;
                 }
-                None => {}
+                match result {
+                    Some(Ok(done)) => {
+                        // 盘上那份才是真相（服务端会滤掉已删除的名字）。空表别盖本地。
+                        if !done.order.is_empty() {
+                            this.apply_order_now(&done.order);
+                        }
+                        if done.pushed == Some(false) {
+                            this.notify(
+                                "顺序已存下，但没推上去（远端连不上）",
+                                crate::app::NoticeKind::Error,
+                                cx,
+                            );
+                        }
+                        cx.notify();
+                    }
+                    Some(Err(e)) => {
+                        this.notify(format!("顺序没存下：{e}"), crate::app::NoticeKind::Error, cx);
+                        // 回滚到真相 —— 本地那次乐观排序是猜的。
+                        this.load_section(sec_idx, true, cx);
+                    }
+                    None => {}
+                }
             });
         })
         .detach();
@@ -2904,15 +3057,35 @@ impl Desktop {
             cx,
         ));
 
-        let repo_line = match (&sec.data, &sec.error) {
+        // 仓状态那句话走两个页面共用的 `sync_state` —— 以前这里自己写「仓干净」，
+        // 而 `ahead` / `behind` 根本没进判断：j1900 推不回 GitHub、攒了一堆没推的提交，
+        // 界面照旧说干净（`坑.md 89`）。
+        let unpublished = sec
+            .data
+            .as_ref()
+            .map(|d| d.presets.iter().filter(|p| !p.tracked).count())
+            .unwrap_or(0);
+        let repo_line: (String, u32) = match (&sec.data, &sec.error) {
             (Some(d), _) => match &d.repo {
                 Some(r) => {
                     let head: String = r.head.as_deref().unwrap_or("—").chars().take(7).collect();
-                    if r.dirty {
-                        (format!("● 有未提交的改动 · {head}"), warn())
-                    } else {
-                        (format!("● 仓干净 · {head}"), t().p.ok_fg)
-                    }
+                    let (text, tone) = crate::sync_state::sync_state(
+                        Some(crate::sync_state::SyncFacts::of(
+                            r.ahead.unwrap_or(0),
+                            r.behind.unwrap_or(0),
+                            r.dirty,
+                        )),
+                        // 模板没有逐条的「改过没改过」标记（引擎不回），只有整段脏不脏 ——
+                        // 所以这一格留 0，交给 `repo_dirty` 那支说「仓里有没提交的改动」。
+                        0,
+                        unpublished,
+                    );
+                    let color = match tone {
+                        crate::sync_state::Tone::Ok => t().p.ok_fg,
+                        crate::sync_state::Tone::Warn => warn(),
+                        crate::sync_state::Tone::Idle => muted(),
+                    };
+                    (format!("● {text} · {head}"), color)
                 }
                 None => ("● 仓状态未知".to_string(), muted()),
             },
@@ -3267,20 +3440,7 @@ impl Desktop {
             match &sec.data {
                 None => vec![note("还没数据")],
                 Some(d) => {
-                    let rows: Vec<&Preset> = if searching {
-                        d.presets
-                            .iter()
-                            .filter(|p| matches_query(p, &query))
-                            .collect()
-                    } else {
-                        match &self.preset_cat {
-                            None => d.presets.iter().collect(),
-                            Some(c) if c == UNCATEGORIZED => {
-                                d.presets.iter().filter(|p| p.category.is_empty()).collect()
-                            }
-                            Some(c) => d.presets.iter().filter(|p| in_category(p, c)).collect(),
-                        }
-                    };
+                    let rows = visible_presets(&d.presets, self.preset_cat.as_deref(), &query);
                     if rows.is_empty() {
                         if searching {
                             vec![empty_hint(&format!("「{query}」"), sec.title, 0)]
@@ -3608,6 +3768,8 @@ impl Desktop {
             // 开会话挪到行尾那个圆按钮上 —— 微信里点联系人是看资料，不是发消息。
             .id(ElementId::Name(format!("preset-{}", p.name).into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                // 拖到列表外松手会留下一条落点线（没有 drop 可收），点一下就该消。
+                this.preset_drop = None;
                 this.pick_preset(pick_name.clone(), cx);
             }))
             // 拖拽排序：拖起来的是一条「名字」，落到哪行就占那行的位置。
@@ -3865,27 +4027,6 @@ impl Desktop {
 // ── 纯函数（能单测的都在这儿） ─────────────────────────────
 
 /// `写作/周报` → `["写作", "写作/周报"]`（含自己）。
-pub(crate) fn ancestors(path: &str) -> Vec<String> {
-    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    (1..=parts.len()).map(|n| parts[..n].join("/")).collect()
-}
-
-/// `a` 是不是 `root` 或它的后代。
-pub(crate) fn is_under(value: &str, root: &str) -> bool {
-    value == root || value.starts_with(&format!("{root}/"))
-}
-
-fn depth_of(path: &str) -> usize {
-    path.split('/')
-        .filter(|s| !s.is_empty())
-        .count()
-        .saturating_sub(1)
-}
-
-fn last_seg(path: &str) -> String {
-    path.rsplit('/').next().unwrap_or(path).to_string()
-}
-
 /// 扁平类别表 → 缩进树（带计数）。
 ///
 /// **顺序跟着引擎走**：`categories` 已经是「父在子前、逐段 zh-CN」排好的，这里只补缺（预设上挂着、
@@ -3894,51 +4035,8 @@ fn last_seg(path: &str) -> String {
 /// 计数含后代、**同一条预设按路径去重**：一条预设同时挂 `工程` 和 `工程/审查`，`工程` 只算它一次。
 /// 零计数的类别保留（词表里有、还没挂东西）—— 建了看不见比灰着更糟。
 pub(crate) fn facet_tree(categories: &[String], presets: &[Preset]) -> Vec<CatNode> {
-    let mut order: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = Default::default();
-    for c in categories {
-        for a in ancestors(c) {
-            if seen.insert(a.clone()) {
-                order.push(a);
-            }
-        }
-    }
-    let mut extra: Vec<String> = Vec::new();
-    for p in presets {
-        for c in &p.category {
-            for a in ancestors(c) {
-                if !seen.contains(&a) && !extra.contains(&a) {
-                    extra.push(a);
-                }
-            }
-        }
-    }
-    extra.sort_by(|a, b| depth_of(a).cmp(&depth_of(b)).then_with(|| a.cmp(b)));
-    order.extend(extra);
-
-    let mut counts: std::collections::HashMap<String, usize> = Default::default();
-    for p in presets {
-        let mut mine: std::collections::HashSet<String> = Default::default();
-        for c in &p.category {
-            for a in ancestors(c) {
-                mine.insert(a);
-            }
-        }
-        for a in mine {
-            *counts.entry(a).or_default() += 1;
-        }
-    }
-
-    order
-        .iter()
-        .map(|path| CatNode {
-            path: path.clone(),
-            label: last_seg(path),
-            depth: depth_of(path),
-            count: counts.get(path).copied().unwrap_or(0),
-            has_children: order.iter().any(|o| o != path && is_under(o, path)),
-        })
-        .collect()
+    // 树和计数在 `category.rs`（触发器那边同一套）。这里只剩「模板的类别长在哪」。
+    crate::category::build_tree(categories, presets.iter().map(|p| p.category.as_slice()))
 }
 
 /// 切段时那个类别能不能留：新段的树里有同一个路径（或它就是未分类）就留，否则回「全部」。
@@ -3974,6 +4072,24 @@ fn spec_str(p: &Preset, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 开关按钮的文案。`None` = 引擎还没回 / 这条不在清单里 —— 说「状态未知」，不猜。
+fn combo_label(enabled: Option<bool>, flying: bool) -> &'static str {
+    if flying {
+        "翻动中…"
+    } else {
+        match enabled {
+            Some(true) => "开着",
+            Some(false) => "关掉",
+            None => "状态未知",
+        }
+    }
+}
+
+/// 翻转：只有明确知道当前状态时才翻。未知时返回 `None`（调用方去重拉，不猜着发）。
+fn next_combo_enabled(current: Option<bool>) -> Option<bool> {
+    current.map(|v| !v)
+}
+
 fn pick_note(text: String, color: u32) -> AnyElement {
     div()
         .px(t().d(10.))
@@ -3990,7 +4106,7 @@ fn launchable(p: &Preset) -> bool {
 }
 
 /// `resolved` 里任何一项 `state == "invalid"` 就开不了。
-fn has_invalid(p: &Preset) -> bool {
+pub(crate) fn has_invalid(p: &Preset) -> bool {
     p.resolved
         .as_ref()
         .and_then(|v| v.as_object())
@@ -4069,8 +4185,47 @@ mod tests {
     // `app.rs` 里的测试也是只挑要用的东西，同一个原因。
     use super::{
         EXPORT_ENVELOPE, Preset, UNCATEGORIZED, export_doc, facet_tree, import_doc, in_category,
-        keep_category, matches_query, reorder_move, sanitize_file_name,
+        combo_label, keep_category, matches_query, next_combo_enabled, reorder_move,
+        sanitize_file_name, visible_presets,
     };
+
+    /// 开关文案：未知状态就是未知，不拿「关掉」糊弄（引擎还没回 = 事实未知）。
+    #[test]
+    fn combo_label_never_guesses_unknown() {
+        assert_eq!(combo_label(Some(true), false), "开着");
+        assert_eq!(combo_label(Some(false), false), "关掉");
+        assert_eq!(combo_label(None, false), "状态未知");
+        assert_eq!(combo_label(Some(true), true), "翻动中…");
+    }
+
+    /// 翻转只在知道当前状态时发生 —— 未知时去重拉，绝不猜一个值发出去。
+    #[test]
+    fn next_combo_enabled_does_not_touch_unknown() {
+        assert_eq!(next_combo_enabled(Some(true)), Some(false));
+        assert_eq!(next_combo_enabled(Some(false)), Some(true));
+        assert_eq!(next_combo_enabled(None), None);
+    }
+
+    /// 视图就是「屏幕上那一列」。类别视图里按 ↑ 要动一格**看得见的**，
+    /// 而不是跟一条不在这个类别里的模板换（换完屏幕上没变化 = 点了没反应）。
+    #[test]
+    fn visible_presets_is_what_the_screen_shows() {
+        let all = vec![
+            preset("alpha", &["写作"]),
+            preset("bravo", &["研发"]),
+            preset("charlie", &["写作", "研发"]),
+            preset("delta", &[]),
+        ];
+        let names = |v: Vec<&Preset>| v.into_iter().map(|p| p.name.clone()).collect::<Vec<_>>();
+
+        assert_eq!(names(visible_presets(&all, None, "")), ["alpha", "bravo", "charlie", "delta"]);
+        // 父类别带子类别（`in_category` 的语义），「研发」看得见 bravo 和 charlie。
+        assert_eq!(names(visible_presets(&all, Some("写作"), "")), ["alpha", "charlie"]);
+        assert_eq!(names(visible_presets(&all, Some("研发"), "")), ["bravo", "charlie"]);
+        assert_eq!(names(visible_presets(&all, Some(UNCATEGORIZED), "")), ["delta"]);
+        // 搜索忽略当前类别 —— 找东西的时候不该还要先切类别。
+        assert_eq!(names(visible_presets(&all, Some("写作"), "bra")), ["bravo"]);
+    }
 
     /// 拖拽搬家：往下拖占目标的位置 = 落到它后面；往上拖 = 落到它前面。
     /// 差一格是这种代码最典型的错，所以四种情况都钉住。
@@ -5127,7 +5282,18 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
 
         let open_name = p.name.clone();
         let edit_name = p.name.clone();
-        let can_open = sec.id == SECTIONS[0].0 && launchable(p);
+        let is_ultimate = sec.id == SECTIONS[1].0;
+        let can_open = !is_ultimate && launchable(p);
+        // 开关状态只认引擎回包。没拉到 / 正在翻时不猜、不连点。
+        let combo = if is_ultimate {
+            self.combos.as_ref().and_then(|v| v.iter().find(|c| c.name == p.name))
+        } else {
+            None
+        };
+        let combo_enabled = combo.map(|c| c.enabled);
+        let combo_problem = combo.map(|c| c.problem.clone()).unwrap_or_default();
+        let combo_flying = self.combo_flying.as_deref() == Some(p.name.as_str());
+        let toggle_name = p.name.clone();
 
         shell(
             div()
@@ -5181,6 +5347,45 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
                                 }))
                                 .child("编辑"),
                         )
+                        // 终极模板的组合开关：状态只信引擎，点了走
+                        // POST /v1/combos/:name/enable|disable，回包再覆盖。
+                        .when(is_ultimate, |el| {
+                            let label = combo_label(combo_enabled, combo_flying);
+                            let (bg, fg) = match combo_enabled {
+                                Some(true) => (t().p.accent_soft, t().p.accent_fg),
+                                Some(false) => (t().p.hover, t().p.text_2),
+                                None => (t().p.hover, t().p.muted),
+                            };
+                            el.child(
+                                div()
+                                    .id(ElementId::Name("detail-combo-toggle".into()))
+                                    .flex_none()
+                                    .px(t().d(10.))
+                                    .py(t().d(5.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(bg))
+                                    .text_color(rgb(fg))
+                                    .text_size(t().fs(11.))
+                                    .cursor_pointer()
+                                    .when(!combo_enabled.is_none() && !combo_flying, |el| {
+                                        el.hover(|h| h.bg(rgb(t().p.hover)))
+                                    })
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.toggle_combo(toggle_name.clone(), cx);
+                                    }))
+                                    .child(label),
+                            )
+                            // 跑不动的原因直接摊在这儿 —— 引擎给的原文，不加工。
+                            .when(!combo_problem.is_empty(), |el| {
+                                el.child(
+                                    div()
+                                        .flex_none()
+                                        .text_size(t().fs(10.))
+                                        .text_color(rgb(t().p.danger_fg))
+                                        .child(combo_problem.clone()),
+                                )
+                            })
+                        })
                         .when(can_open, |el| {
                             el.child(
                                 div()

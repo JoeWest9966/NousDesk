@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
-    ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
+    ArchiveGens, CategoriesResult, CategoryOp, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
     Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
     PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt,
     RenamePreset, Renamed, RenamedPreset, ReorderPreset, ReorderedPreset, Triggers,
@@ -599,6 +599,27 @@ impl EngineClient {
             .http
             .post(self.url(&format!("v1/presets/{section}/categories"))?)
             .json(body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 终极模板的组合清单。开着没开、能不能跑都由引擎算好，客户端只显示。
+    pub async fn combos(&self) -> Result<Combos, EngineError> {
+        let resp = self.http.get(self.url("v1/combos")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 启停一条组合。引擎翻 `enabled` 并写回 `ultimate.json`；回包里是**盘上的真相**。
+    pub async fn set_combo_enabled(
+        &self,
+        name: &str,
+        enabled: bool,
+    ) -> Result<ComboChanged, EngineError> {
+        let action = if enabled { "enable" } else { "disable" };
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/combos/{name}/{action}"))?)
             .send()
             .await?;
         self.json(resp).await
