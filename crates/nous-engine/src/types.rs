@@ -288,6 +288,9 @@ pub struct Presets {
     /// 这一段的仓状态。整段拉不到时是 `None`，不是错误。
     #[serde(default)]
     pub repo: Option<PresetsRepo>,
+    /// 归档区里的条目（`<段>/.archive/<名>`）。**归档不删**，还原就是搬回来。
+    #[serde(default)]
+    pub archived: Vec<ArchivedPreset>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -430,6 +433,20 @@ pub struct TriggerParam {
     #[serde(default)]
     pub choices: Vec<String>,
     pub default: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// 归档区里的一条（搬进 `<段>/.archive/<名>` 了，仓里还在）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivedPreset {
+    pub name: String,
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
+    /// 引擎给的归档时间（形状不固定，原样收着）。
+    pub archived_at: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }

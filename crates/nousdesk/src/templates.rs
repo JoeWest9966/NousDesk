@@ -293,6 +293,8 @@ impl Desktop {
 
     /// 选类别（`None` = 全部，`Some("∅")` = 未分类）。
     fn pick_category(&mut self, cat: Option<String>, cx: &mut Context<Self>) {
+        // 点类别 = 回到普通列表（归档视图只有一个口袋，不该和类别树并排）。
+        self.archive_view = false;
         self.preset_cat = cat;
         // 换了类别，右栏那条多半不在视图里了 —— 留着它会显示「这条已经不在列表里」，
         // 像坏了。宁可让它回到空状态。
@@ -1447,6 +1449,51 @@ impl Desktop {
                         self.bar(crate::app::Bar::Tree).1,
                     )),
             )
+            .child({
+                let n = self.sections[self.section]
+                    .data
+                    .as_ref()
+                    .map(|d| d.archived.len())
+                    .unwrap_or(0);
+                let on = self.archive_view;
+                div()
+                    .id("preset-archive-entry")
+                    .mt(t().d(8.))
+                    .pt(t().d(8.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(t().p.line_soft))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .h(t().d(34.))
+                    .px(t().d(14.))
+                    .cursor_pointer()
+                    .when(on, |el| el.bg(rgb(t().p.hover)))
+                    .hover(|h| h.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.archive_view = !this.archive_view;
+                        cx.notify();
+                    }))
+                    .child(
+                        Icon::new(IconName::Archive)
+                            .size(t().d(13.))
+                            .text_color(rgb(t().p.faint)),
+                    )
+                    .child(
+                        div()
+                            .ml(t().d(6.))
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(t().p.text_2))
+                            .child("已归档"),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.faint))
+                            .child(n.to_string()),
+                    )
+            })
             .child(
                 div()
                     .flex()
@@ -1591,7 +1638,14 @@ impl Desktop {
             .map(|d| d.presets.iter().filter(|p| p.category.is_empty()).count())
             .unwrap_or(0);
 
-        let (title, count) = match &self.preset_cat {
+        let (title, count) = if self.archive_view {
+            // 归档视图的标题：别顶着「全部 5 条」在那儿列 1 条归档，人会对不上。
+            (
+                "已归档".to_string(),
+                sec.data.as_ref().map_or(0, |d| d.archived.len()),
+            )
+        } else {
+            match &self.preset_cat {
             None => (
                 "全部".to_string(),
                 sec.data.as_ref().map_or(0, |d| d.presets.len()),
@@ -1603,9 +1657,21 @@ impl Desktop {
                     d.presets.iter().filter(|p| in_category(p, c)).count()
                 }),
             ),
+            }
         };
 
-        let body: Vec<AnyElement> = if sec.loading && sec.data.is_none() {
+        let body: Vec<AnyElement> = if self.archive_view {
+            // 归档区：搬进 `.archive/` 的那些。归档不删文件，所以这儿能还原。
+            match &sec.data {
+                Some(d) if !d.archived.is_empty() => d
+                    .archived
+                    .iter()
+                    .map(|a| self.preset_archived_row(a, cx))
+                    .collect(),
+                Some(_) => vec![note("归档区是空的 —— 归档过的预设会落在这儿，能还原或彻底删。")],
+                None => vec![note("还没数据")],
+            }
+        } else if sec.loading && sec.data.is_none() {
             vec![note("拉模板中…")]
         } else if let Some(e) = &sec.error {
             vec![
@@ -1810,6 +1876,108 @@ impl Desktop {
                         self.bar(crate::app::Bar::Presets).1,
                     )),
             )
+            .into_any_element()
+    }
+
+    /// 归档区的一行：名字 + 摘要，右边「还原」「彻底删」。
+    ///
+    /// 归档只是把目录搬进 `.archive/`，**文件一个都没删**；彻底删才是真的没了，
+    /// 所以那个按钮走两屏确认（和列表里的「彻底删掉…」同一个面板）。
+    fn preset_archived_row(
+        &self,
+        a: &nous_engine::types::ArchivedPreset,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let name = a.name.clone();
+        let busy = self.preset_busy.is_some();
+        let restore_name = name.clone();
+        let purge_name = name.clone();
+        let section = SECTIONS[self.section].0.to_string();
+        div()
+            .id(ElementId::Name(format!("arch-{}", a.name).into()))
+            .flex()
+            .flex_col()
+            .gap(t().d(3.))
+            .px(t().d(14.))
+            .py(t().d(8.))
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
+            .hover(|h| h.bg(rgb(t().p.hover)))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(8.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .truncate()
+                            .text_size(t().fs(12.5))
+                            .font_family("JetBrainsMono")
+                            .text_color(rgb(t().p.text_2))
+                            .child(name.clone()),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("arch-restore-{}", name).into()))
+                            .flex_none()
+                            .px(t().d(8.))
+                            .py(t().d(2.))
+                            .rounded(t().r(5.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.line))
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(if busy { t().p.faint } else { t().p.text_2 }))
+                            .cursor_pointer()
+                            .hover(|h| h.border_color(rgb(t().p.muted)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                if this.preset_busy.is_some() {
+                                    return;
+                                }
+                                this.archive_view = false;
+                                this.run_preset_op(
+                                    nous_engine::types::PresetOp::Restore,
+                                    restore_name.clone(),
+                                    cx,
+                                );
+                            }))
+                            .child("还原"),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("arch-purge-{}", name).into()))
+                            .flex_none()
+                            .px(t().d(8.))
+                            .py(t().d(2.))
+                            .rounded(t().r(5.))
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(if busy { t().p.faint } else { t().p.danger }))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.danger_soft)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                if this.preset_busy.is_some() {
+                                    return;
+                                }
+                                // 彻底删不可逆：走两屏确认，别让人手一滑就没。
+                                this.preset_confirm.request(
+                                    nous_engine::types::PresetOp::Purge,
+                                    section.clone(),
+                                    purge_name.clone(),
+                                );
+                                cx.notify();
+                            }))
+                            .child("彻底删"),
+                    ),
+            )
+            .children((!a.summary.clone().unwrap_or_default().is_empty()).then(|| {
+                div()
+                    .text_size(t().fs(10.5))
+                    .text_color(rgb(t().p.faint))
+                    .truncate()
+                    .child(a.summary.clone().unwrap_or_default())
+            }))
             .into_any_element()
     }
 
