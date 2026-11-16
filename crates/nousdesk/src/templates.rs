@@ -246,7 +246,9 @@ impl Desktop {
                         }
                         this.sections[i].data = Some(p);
                         // 验界面用：数据一到就把第一条的编辑器拉起来。
-                        if this.auto_editor {
+                        // 只在第一段（Session-Template）里挑 —— 终极模板那边可能有空壳，
+                        // 打开会直接撞 404。
+                        if this.auto_editor && i == 0 {
                             this.auto_editor = false;
                             if let Some(first) = this.sections[i]
                                 .data

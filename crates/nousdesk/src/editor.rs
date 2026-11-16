@@ -141,6 +141,34 @@ pub(crate) struct Candidates {
     pub err: Option<String>,
 }
 
+/// 命令面板（Ctrl+K）。一个输入框 + 一列命令，↑↓ 选、回车执行。
+pub(crate) struct Palette {
+    pub input: Entity<InputState>,
+    /// 当前选中第几行（过滤之后的下标）。
+    pub sel: usize,
+}
+
+/// 命令面板里能做的一件事。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Cmd {
+    Group(Group),
+    Tab(EditorTab),
+    Save,
+    Publish,
+    Reload,
+    Validate,
+    Back,
+}
+
+/// 面板里的一行。
+#[derive(Debug, Clone)]
+pub(crate) struct CmdRow {
+    pub label: String,
+    /// 右边那行小字（快捷键 / 说明）。
+    pub hint: String,
+    pub cmd: Cmd,
+}
+
 /// 挑值弹层（字段值点开那个）。
 pub(crate) struct PickerState {
     pub kind: PickKind,
@@ -178,6 +206,8 @@ pub(crate) struct EditorState {
     pub publish_msg: Option<Entity<InputState>>,
     /// 挑值弹层。
     pub picker: Option<PickerState>,
+    /// Ctrl+K 命令面板。
+    pub palette: Option<Palette>,
     /// 仓里这一段有什么没提交（`/pending`）。
     pub pending: Option<nous_engine::types::Pending>,
     /// 当前选中那个文件的 `before` / `after`。
@@ -210,6 +240,7 @@ impl Default for EditorState {
             text_edit: None,
             publish_msg: None,
             picker: None,
+            palette: None,
             pending: None,
             diff: None,
             diff_pick: None,
@@ -569,6 +600,125 @@ impl crate::app::Desktop {
         }
     }
 
+    /// 开命令面板（Ctrl+K）。
+    pub(crate) fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("搜命令：保存 / 发布 / 分组 / 检查器"));
+        cx.subscribe_in(&input, window, |_, _, ev: &InputEvent, _, cx| {
+            if matches!(ev, InputEvent::Change) {
+                // 换了关键字，选中的那条得回到第一行。
+                cx.notify();
+            }
+        });
+        // 面板一开就能打字，不用先点一下输入框。走组件自己的 focus（坑.md 72）。
+        input.update(cx, |st, cx| st.focus(window, cx));
+        self.editor.palette = Some(Palette { input, sel: 0 });
+        cx.notify();
+    }
+
+    /// 面板里现在该列哪些命令（按输入框内容过滤）。
+    pub(crate) fn palette_rows(&self, cx: &Context<Self>) -> Vec<CmdRow> {
+        let q = self
+            .editor
+            .palette
+            .as_ref()
+            .map(|p| p.input.read(cx).value().trim().to_lowercase())
+            .unwrap_or_default();
+        let mut all = vec![
+            CmdRow {
+                label: "保存到盘上".into(),
+                hint: "Ctrl+S · 还没提交".into(),
+                cmd: Cmd::Save,
+            },
+            CmdRow {
+                label: "发布…".into(),
+                hint: "commit + push，会真的动仓库".into(),
+                cmd: Cmd::Publish,
+            },
+            CmdRow {
+                label: "重读盘上那份".into(),
+                hint: "丢掉没保存的改动".into(),
+                cmd: Cmd::Reload,
+            },
+            CmdRow {
+                label: "再校验一次".into(),
+                hint: "走引擎 /validate".into(),
+                cmd: Cmd::Validate,
+            },
+            CmdRow {
+                label: "返回模板列表".into(),
+                hint: "Esc（有改动会拦一次）".into(),
+                cmd: Cmd::Back,
+            },
+        ];
+        for g in Group::ALL {
+            all.push(CmdRow {
+                label: format!("分组 · {}", g.label()),
+                hint: String::new(),
+                cmd: Cmd::Group(g),
+            });
+        }
+        for t in EditorTab::ALL {
+            all.push(CmdRow {
+                label: format!("检查器 · {}", t.label()),
+                hint: String::new(),
+                cmd: Cmd::Tab(t),
+            });
+        }
+        if q.is_empty() {
+            return all;
+        }
+        all.into_iter()
+            .filter(|r| {
+                r.label.to_lowercase().contains(&q) || r.hint.to_lowercase().contains(&q)
+            })
+            .collect()
+    }
+
+    /// ↑ / ↓ 在面板的清单里挪。
+    pub(crate) fn palette_move(&mut self, down: bool, cx: &mut Context<Self>) {
+        let n = self.palette_rows(cx).len();
+        let Some(p) = self.editor.palette.as_mut() else {
+            return;
+        };
+        if n == 0 {
+            p.sel = 0;
+        } else if down {
+            p.sel = (p.sel + 1) % n;
+        } else {
+            p.sel = (p.sel + n - 1) % n;
+        }
+        cx.notify();
+    }
+
+    /// 回车：跑选中的那条。
+    pub(crate) fn palette_run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rows = self.palette_rows(cx);
+        let sel = self.editor.palette.as_ref().map(|p| p.sel).unwrap_or(0);
+        let Some(row) = rows.get(sel).cloned() else {
+            self.editor.palette = None;
+            cx.notify();
+            return;
+        };
+        self.editor.palette = None;
+        match row.cmd {
+            Cmd::Group(g) => self.editor.group = g,
+            Cmd::Tab(t) => {
+                self.editor.tab = t;
+                if t == EditorTab::Diff && self.editor.pending.is_none() {
+                    self.load_pending(cx);
+                }
+            }
+            Cmd::Save => self.save_editor(cx),
+            Cmd::Publish => self.open_publish_dialog(window, cx),
+            Cmd::Reload => self.reload_editor(cx),
+            Cmd::Validate => self.validate_preset(cx),
+            Cmd::Back => {
+                self.close_editor(false, cx);
+            }
+        }
+        cx.notify();
+    }
+
     /// 打开挑值弹层。
     pub(crate) fn open_picker(
         &mut self,
@@ -590,6 +740,8 @@ impl crate::app::Desktop {
                 cx.notify();
             }
         });
+        // 筛选框拿焦点：字段一点开就能打关键字。
+        input.update(cx, |st, cx| st.focus(window, cx));
         self.editor.picker = Some(PickerState { kind, path, multi, filter: input });
         cx.notify();
     }
@@ -2029,6 +2181,119 @@ impl crate::app::Desktop {
     }
 
     /// 文本字段的输入弹层。
+    /// 命令面板（Ctrl+K）：输入框 + 一列命令。
+    pub(crate) fn palette_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let p = self.editor.palette.as_ref()?;
+        let input = p.input.clone();
+        let rows = self.palette_rows(cx);
+        let sel = if rows.is_empty() {
+            0
+        } else {
+            p.sel.min(rows.len() - 1)
+        };
+
+        let mut list = div().flex().flex_col().max_h(t().d(420.)).id("ed-pm-list").overflow_y_scroll();
+        if rows.is_empty() {
+            list = list.child(note("没有匹配的命令。"));
+        }
+        for (i, row) in rows.iter().enumerate() {
+            let on = i == sel;
+            let ix = i;
+            list = list.child(
+                div()
+                    .id(ElementId::Name(format!("ed-pm-{i}").into()))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(10.))
+                    .px(t().d(14.))
+                    .py(t().d(6.))
+                    .cursor_pointer()
+                    .when(on, |el| el.bg(rgb(t().p.selected)))
+                    .hover(|h| h.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        if let Some(p) = this.editor.palette.as_mut() {
+                            p.sel = ix;
+                        }
+                        this.palette_run(window, cx);
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .truncate()
+                            .text_size(t().fs(11.5))
+                            .when(on, |el| el.text_color(rgb(t().p.text)))
+                            .when(!on, |el| el.text_color(rgb(t().p.text_2)))
+                            .child(row.label.clone()),
+                    )
+                    .children((!row.hint.is_empty()).then(|| {
+                        div()
+                            .flex_none()
+                            .text_size(t().fs(9.5))
+                            .text_color(rgb(t().p.faint))
+                            .child(row.hint.clone())
+                    })),
+            );
+        }
+
+        let scrim = div()
+            .id("ed-pm-scrim")
+            .absolute()
+            .inset_0()
+            .bg(rgba(t().p.scrim))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.editor.palette = None;
+                cx.notify();
+            }));
+
+        let dialog = div()
+            .id("ed-pm-dialog")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(t().d(560.))
+                    .rounded(t().r(10.))
+                    .bg(rgb(t().p.panel))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .shadow_lg()
+                    .overflow_hidden()
+                    .child(div().px(t().d(14.)).py(t().d(10.)).child(Input::new(&input)))
+                    .child(div().h(t().d(1.)).bg(rgb(t().p.line_soft)))
+                    .child(list)
+                    .child(div().h(t().d(1.)).bg(rgb(t().p.line_soft)))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(t().d(10.))
+                            .px(t().d(14.))
+                            .py(t().d(7.))
+                            .text_size(t().fs(9.5))
+                            .text_color(rgb(t().p.faint))
+                            .child("上下键选")
+                            .child("回车执行")
+                            .child("Esc 收")
+                            .child(
+                                div()
+                                    .ml_auto()
+                                    .child(format!("{} 条", rows.len())),
+                            ),
+                    ),
+            );
+
+        Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
+    }
+
     /// 挑值弹层：筛选框 + 候选列表（多选时点一下就勾，不关）。
     pub(crate) fn picker_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let p = self.editor.picker.as_ref()?;
