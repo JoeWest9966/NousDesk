@@ -404,6 +404,11 @@ pub struct Desktop {
     pub(crate) live_tools: Vec<crate::live::ToolRun>,
     /// 每个会话的未读条数和水位。引擎按 EntryId 数好的，这边只画。
     pub(crate) unread: Unread,
+    /// 后台心跳上一次看到的未读表。`None` = 还没有基线（刚启动 / 刚换过焦点）。
+    ///
+    /// **它不是第二份未读真相**：界面永远画 `self.unread`（前台轮询落下来的那份）。
+    /// 这一份只回答"比上次多了几个会话"，回答完就没用了。
+    bg_seen: Option<Unread>,
     /// 左栏是不是「分支视图」。默认 false = 全部主线会话。
     pub(crate) branches: bool,
     /// 分支视图的根。进视图时锁住：点分支里的会话只换右侧，列表不跟着塌。
@@ -422,6 +427,12 @@ pub struct Desktop {
     pub(crate) sections: [crate::templates::Section; 2],
     /// 当前选中的段。
     pub(crate) section: usize,
+    /// 终极模板的组合开关清单。**开关状态只信引擎**（`/v1/combos`），
+    /// 不读 `preset.json` 的 `enabled` 自己算 —— spec §4.3 的硬规矩。
+    /// `None` = 还没拉过；`Some(vec![])` 是一条组合也没有（两段共用一份，段无关）。
+    pub(crate) combos: Option<Vec<nous_engine::types::Combo>>,
+    /// 正在翻开关的组合名（防连点：翻到一半再点会发出两条相反的 POST）。
+    pub(crate) combo_flying: Option<String>,
     /// Template 页里选中的类别路径。`None` = 全部；`Some("∅")` = 未分类（不是词表里的类别）。
     pub(crate) preset_cat: Option<String>,
     /// 折叠着的类别路径。**纯内存**：它不是事实，是「我眼下展开到哪」。
@@ -516,6 +527,10 @@ impl Desktop {
             cx.observe_window_activation(window, |this, window, _cx| {
                 // 在后台就别每 3 秒拉一次。
                 this.focused = window.is_window_active();
+                // 焦点一变，后台心跳的基线就作废：
+                // - 切走时作废 → 失焦前就已经跑完的那些不再补响一次；
+                // - 回来时作废 → 你正看着的那堆未读不该再响。
+                this.bg_seen = None;
             }),
             cx.subscribe_in(&input, window, {
                 move |this, _, event: &InputEvent, window, cx| {
@@ -1028,6 +1043,7 @@ impl Desktop {
             open_tools: std::collections::HashSet::new(),
             live_tools: vec![],
             unread: Unread::default(),
+            bg_seen: None,
             branches: false,
             branch_of: None,
             expanded: std::collections::HashSet::new(),
@@ -1040,6 +1056,8 @@ impl Desktop {
             ],
             triggers: crate::triggers::State::new(window, cx),
             section: 0,
+            combos: None,
+            combo_flying: None,
             preset_cat: None,
             preset_filter,
             preset_copy: None,
@@ -1087,6 +1105,8 @@ impl Desktop {
     fn bootstrap(&mut self, cx: &mut Context<Self>) {
         // 轮询是个死循环，只能起一次 —— 所以它留在这儿，不在 connect 里。
         self.start_poll(cx);
+        // 后台那条轻心跳同理：只起一次，跟着窗口活。
+        self.start_attend(cx);
         self.connect(cx);
     }
 
@@ -1275,6 +1295,83 @@ impl Desktop {
             }
         })
         .detach();
+    }
+
+    /// 后台那条**轻心跳**：你不在窗口前的时候，替你盯着"有会话跑完了"。
+    ///
+    /// ## 为什么非得有这么一条
+    ///
+    /// 上面那条 `start_poll` 的门槛是 `focused && !streaming` —— 窗口一失焦，
+    /// 连未读都不拉了。于是"发出去、切去干别的、它跑完了"这件事，客户端**没有任何
+    /// 数据源**，提示音也就无从响。这一条补的只是这个洞，别的什么都不管。
+    ///
+    /// ## 三条约束
+    ///
+    /// - **只拉 `/v1/unread`**（一个平铺 map，几百字节），不拉 `/v1/sessions`。
+    /// - **只在失焦时跑**：前台那条轮询已经在拉了，两条一起跑就是白花 RTT。
+    /// - **失败退避**：连不上就别每 5 秒捶一次，退到 8 秒；回前台立刻复位。
+    ///
+    /// ## 这是临时的
+    ///
+    /// `decisions.md` 2026-11-16 写了反悔点：引擎一有全局事件流
+    /// （`/v1/events` 或 `sessions` 带 `lastActivityAt`），这条心跳**必须删掉**。
+    /// 客户端不该为了响一声去轮询，更不该自己"猜"一轮完成了。
+    fn start_attend(&mut self, cx: &mut Context<Self>) {
+        const BEAT: Duration = Duration::from_secs(5);
+        const BACKOFF: Duration = Duration::from_secs(8);
+
+        cx.spawn(async move |this, cx| {
+            let mut wait = BEAT;
+            loop {
+                Timer::after(wait).await;
+                let go = this
+                    .update(cx, |this, _| !this.focused && this.engine.is_some())
+                    .unwrap_or(false);
+                if !go {
+                    // 回到前台（或还没连上）：前台那条轮询接手，这里歇着。
+                    wait = BEAT;
+                    continue;
+                }
+                let engine = match this.update(cx, |this, _| this.engine.clone()) {
+                    Ok(Some(engine)) => engine,
+                    _ => {
+                        wait = BEAT;
+                        continue;
+                    }
+                };
+                let Some(h) = crate::TOKIO.get().cloned() else {
+                    break;
+                };
+                match h.spawn(async move { engine.unread().await }).await {
+                    Ok(Ok(unread)) => {
+                        wait = BEAT;
+                        let _ = this.update(cx, |this, _| this.attend(unread));
+                    }
+                    // 断了 / 超时：退避。不记每条 —— 人不在电脑前，日志刷屏没用。
+                    _ => wait = BACKOFF,
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// 一次后台心跳拿回来的未读表：只看"比上次多了几个会话"，然后决定响不响。
+    ///
+    /// 只管**完成**。出错不会让未读变多（一轮失败没有新消息），所以后台不响错误音 ——
+    /// 那一声留给前台：你真在看的时候，红条自己会跳出来。
+    fn attend(&mut self, next: Unread) {
+        let prev = self.bg_seen.replace(next.clone());
+        // 第一次睁眼只记基线。切走的那一刻本来就挂着一堆没读的，不该"补响"。
+        let Some(prev) = prev else {
+            return;
+        };
+        // 正在流的那条会话不算：它的"完成"由 SSE 那条路（`drained.done`）响，
+        // 这里再算一次就是两声。
+        let bumped = bumped_sessions(&prev, &next, self.stream_for);
+        if bumped == 0 {
+            return;
+        }
+        crate::sound::chime_background(self.sound, bumped);
     }
 
     /// 定时重读 `/v1/sessions`。聚焦才拉、流式中不拉。
@@ -4601,6 +4698,26 @@ impl Desktop {
     }
 }
 
+/// 比较两次未读表：有几个会话是**新**多出未读的。
+///
+/// `viewing` 是当前正在流的会话 —— 它不算（那条路自己会响，见 `attend`）。
+///
+/// 抽成纯函数是因为这是这一层唯一容易写错的地方：少算一个就不响了，
+/// 多算一个就响两声，两种都只有真机等一轮跑完才会发现。
+fn bumped_sessions(prev: &Unread, next: &Unread, viewing: Option<i64>) -> usize {
+    let viewing = viewing.map(|id| id.to_string());
+    next.0
+        .iter()
+        .filter(|(id, st)| {
+            if viewing.as_deref() == Some(id.as_str()) {
+                return false;
+            }
+            // 表里没有的会话按 0 算 —— 引擎说"覆盖所有会话"，但别在上面押命。
+            st.unread > prev.0.get(*id).map(|s| s.unread).unwrap_or(0)
+        })
+        .count()
+}
+
 /// 顶栏那行「这个会话带什么」：`deepseek-v4-flash · smart-ass · 5 技能 · 只读`。
 ///
 /// 空的部分**不占位** —— 四个 `·` 排成一排比什么都没有还难看。`skills` 只在有选中时
@@ -5169,13 +5286,66 @@ fn nav_child_index(
 #[allow(non_snake_case)]
 mod tests {
     use super::{
-        Bar, ListIndex, NoticeKind, NoticeState, Recent, brief_of, error_notice, nav_child_index,
-        next_selection_after_archive, order_ids, short_cwd, short_model, sort_sessions, when_text,
+        Bar, ListIndex, NoticeKind, NoticeState, Recent, brief_of, bumped_sessions, error_notice,
+        nav_child_index, next_selection_after_archive, order_ids, short_cwd, short_model,
+        sort_sessions, when_text,
     };
     use nous_engine::EngineError;
-    use nous_engine::types::{Entry, Session};
+    use nous_engine::types::{Entry, Session, Unread, UnreadState};
     use serde_json::json;
     use std::collections::HashMap;
+
+    /// 造一张未读表：`&[(会话 id, 未读数)]`。
+    fn unread(pairs: &[(i64, u64)]) -> Unread {
+        Unread(
+            pairs
+                .iter()
+                .map(|(id, n)| {
+                    (
+                        id.to_string(),
+                        UnreadState {
+                            unread: *n,
+                            read_at: None,
+                            extra: HashMap::new(),
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn 后台心跳_未读变多才算跑完() {
+        // 0 → 2：跑完了。
+        assert_eq!(bumped_sessions(&unread(&[(7, 0)]), &unread(&[(7, 2)]), None), 1);
+        // 没变：只是又拉了一次表。
+        assert_eq!(bumped_sessions(&unread(&[(7, 2)]), &unread(&[(7, 2)]), None), 0);
+        // 少了（在别的窗口标了已读）：不是跑完。
+        assert_eq!(bumped_sessions(&unread(&[(7, 2)]), &unread(&[(7, 1)]), None), 0);
+    }
+
+    #[test]
+    fn 后台心跳_一次多了两个会话是两件事() {
+        let prev = unread(&[(7, 0), (9, 3), (11, 1)]);
+        let next = unread(&[(7, 1), (9, 3), (11, 2)]);
+        assert_eq!(bumped_sessions(&prev, &next, None), 2);
+    }
+
+    #[test]
+    fn 后台心跳_正在看的那条不算_别响两声() {
+        // 会话 7 既在流、未读也涨了：这一声归 SSE 那条路（`drained.done`）。
+        let prev = unread(&[(7, 0), (9, 0)]);
+        let next = unread(&[(7, 1), (9, 1)]);
+        assert_eq!(bumped_sessions(&prev, &next, Some(7)), 1);
+        assert_eq!(bumped_sessions(&prev, &next, Some(9)), 1);
+        assert_eq!(bumped_sessions(&prev, &next, Some(-1)), 2);
+    }
+
+    #[test]
+    fn 后台心跳_新出现的会话当成从零涨上来() {
+        // 老表里没这个键（新建的会话），按 0 算 —— 不然启动后新建会话跑完永远不响。
+        assert_eq!(bumped_sessions(&unread(&[]), &unread(&[(21, 1)]), None), 1);
+    }
 
     fn e(id: i64, kind: &str, text: Option<&str>) -> Entry {
         Entry {

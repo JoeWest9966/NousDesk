@@ -388,6 +388,7 @@ impl Desktop {
         self.tab = tab;
         if tab == Tab::Templates {
             self.load_all_sections(false, cx);
+            self.load_combos(false, cx);
         }
         if tab == Tab::Triggers {
             self.load_trigger_list(false, cx);
@@ -406,6 +407,7 @@ impl Desktop {
     /// 拉当前段。已拉到且非 force 就不动。
     pub(crate) fn load_presets(&mut self, force: bool, cx: &mut Context<Self>) {
         self.load_section(self.section, force, cx);
+        self.load_combos(false, cx);
     }
 
     /// 两段都拉一遍。段按钮下面要写真实条数，「—」看着像坏了。
@@ -416,6 +418,105 @@ impl Desktop {
         for i in 0..SECTIONS.len() {
             self.load_section(i, force, cx);
         }
+    }
+
+    /// 拉组合清单。开关状态只认引擎的回包（`combos[].enabled`），
+    /// 不读 `preset.json` 自己算 —— 那是 spec §4.3 的硬规矩。
+    pub(crate) fn load_combos(&mut self, force: bool, cx: &mut Context<Self>) {
+        if !force && self.combos.is_some() {
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let got = match crate::TOKIO.get().cloned() {
+                Some(h) => h.spawn(async move { engine.combos().await }).await.ok(),
+                None => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Some(Ok(list)) => this.combos = Some(list.combos),
+                    // 拉不到就留 `None`：详情页会显示「读不到开关状态」，不拿旧值假装真相。
+                    Some(Err(e)) => this.notify(
+                        format!("读组合开关失败：{e}"),
+                        crate::app::NoticeKind::Error,
+                        cx,
+                    ),
+                    None => {}
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 翻一条组合的开关。乐观更新 + 失败回滚；
+    /// 回包里的 `enabled` 是盘上的真相，拿它覆盖（引擎可能顺手改了别的）。
+    pub(crate) fn toggle_combo(&mut self, name: String, cx: &mut Context<Self>) {
+        if self.combo_flying.is_some() {
+            return;
+        }
+        let enabled = self.combos.as_ref().and_then(|v| v.iter().find(|c| c.name == name))
+            .map(|c| c.enabled);
+        // 状态还没拉到就别猜着翻 —— 去重拉一次。
+        let Some(next) = next_combo_enabled(enabled) else {
+            self.load_combos(true, cx);
+            return;
+        };
+        let current = enabled.unwrap();
+        // 本地先翻 —— 点下去立刻看得见。
+        if let Some(c) = self.combos.as_mut().and_then(|v| v.iter_mut().find(|c| c.name == name)) {
+            c.enabled = next;
+        }
+        self.combo_flying = Some(name.clone());
+        cx.notify();
+
+        let Some(engine) = self.engine.clone() else {
+            self.combo_flying = None;
+            return;
+        };
+        let url_name = name.clone();
+        cx.spawn(async move |this, cx| {
+            let got = match crate::TOKIO.get().cloned() {
+                Some(h) => h
+                    .spawn(async move { engine.set_combo_enabled(&url_name, next).await })
+                    .await
+                    .ok(),
+                None => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.combo_flying = None;
+                match got {
+                    Some(Ok(changed)) => {
+                        // 用回包覆盖，别信自己翻的那一下。
+                        if let Some(list) = this.combos.as_mut() {
+                            if let Some(c) = list.iter_mut().find(|c| c.name == changed.combo.name) {
+                                *c = changed.combo;
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        // 回滚到翻之前。
+                        if let Some(c) = this.combos.as_mut().and_then(|v| v.iter_mut().find(|c| c.name == name)) {
+                            c.enabled = current;
+                        }
+                        this.notify(
+                            format!("开关没翻动：{e}"),
+                            crate::app::NoticeKind::Error,
+                            cx,
+                        );
+                    }
+                    None => {
+                        if let Some(c) = this.combos.as_mut().and_then(|v| v.iter_mut().find(|c| c.name == name)) {
+                            c.enabled = current;
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub(crate) fn load_section(&mut self, i: usize, force: bool, cx: &mut Context<Self>) {
@@ -499,6 +600,7 @@ impl Desktop {
             self.preset_cat = keep_category(&self.preset_cat, &tree);
         }
         self.load_section(i, false, cx);
+        self.load_combos(false, cx);
         cx.notify();
     }
 
@@ -3974,6 +4076,24 @@ fn spec_str(p: &Preset, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 开关按钮的文案。`None` = 引擎还没回 / 这条不在清单里 —— 说「状态未知」，不猜。
+fn combo_label(enabled: Option<bool>, flying: bool) -> &'static str {
+    if flying {
+        "翻动中…"
+    } else {
+        match enabled {
+            Some(true) => "开着",
+            Some(false) => "关掉",
+            None => "状态未知",
+        }
+    }
+}
+
+/// 翻转：只有明确知道当前状态时才翻。未知时返回 `None`（调用方去重拉，不猜着发）。
+fn next_combo_enabled(current: Option<bool>) -> Option<bool> {
+    current.map(|v| !v)
+}
+
 fn pick_note(text: String, color: u32) -> AnyElement {
     div()
         .px(t().d(10.))
@@ -4069,8 +4189,26 @@ mod tests {
     // `app.rs` 里的测试也是只挑要用的东西，同一个原因。
     use super::{
         EXPORT_ENVELOPE, Preset, UNCATEGORIZED, export_doc, facet_tree, import_doc, in_category,
-        keep_category, matches_query, reorder_move, sanitize_file_name, visible_presets,
+        combo_label, keep_category, matches_query, next_combo_enabled, reorder_move,
+        sanitize_file_name, visible_presets,
     };
+
+    /// 开关文案：未知状态就是未知，不拿「关掉」糊弄（引擎还没回 = 事实未知）。
+    #[test]
+    fn combo_label_never_guesses_unknown() {
+        assert_eq!(combo_label(Some(true), false), "开着");
+        assert_eq!(combo_label(Some(false), false), "关掉");
+        assert_eq!(combo_label(None, false), "状态未知");
+        assert_eq!(combo_label(Some(true), true), "翻动中…");
+    }
+
+    /// 翻转只在知道当前状态时发生 —— 未知时去重拉，绝不猜一个值发出去。
+    #[test]
+    fn next_combo_enabled_does_not_touch_unknown() {
+        assert_eq!(next_combo_enabled(Some(true)), Some(false));
+        assert_eq!(next_combo_enabled(Some(false)), Some(true));
+        assert_eq!(next_combo_enabled(None), None);
+    }
 
     /// 视图就是「屏幕上那一列」。类别视图里按 ↑ 要动一格**看得见的**，
     /// 而不是跟一条不在这个类别里的模板换（换完屏幕上没变化 = 点了没反应）。
@@ -5148,7 +5286,18 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
 
         let open_name = p.name.clone();
         let edit_name = p.name.clone();
-        let can_open = sec.id == SECTIONS[0].0 && launchable(p);
+        let is_ultimate = sec.id == SECTIONS[1].0;
+        let can_open = !is_ultimate && launchable(p);
+        // 开关状态只认引擎回包。没拉到 / 正在翻时不猜、不连点。
+        let combo = if is_ultimate {
+            self.combos.as_ref().and_then(|v| v.iter().find(|c| c.name == p.name))
+        } else {
+            None
+        };
+        let combo_enabled = combo.map(|c| c.enabled);
+        let combo_problem = combo.map(|c| c.problem.clone()).unwrap_or_default();
+        let combo_flying = self.combo_flying.as_deref() == Some(p.name.as_str());
+        let toggle_name = p.name.clone();
 
         shell(
             div()
@@ -5202,6 +5351,45 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
                                 }))
                                 .child("编辑"),
                         )
+                        // 终极模板的组合开关：状态只信引擎，点了走
+                        // POST /v1/combos/:name/enable|disable，回包再覆盖。
+                        .when(is_ultimate, |el| {
+                            let label = combo_label(combo_enabled, combo_flying);
+                            let (bg, fg) = match combo_enabled {
+                                Some(true) => (t().p.accent_soft, t().p.accent_fg),
+                                Some(false) => (t().p.hover, t().p.text_2),
+                                None => (t().p.hover, t().p.muted),
+                            };
+                            el.child(
+                                div()
+                                    .id(ElementId::Name("detail-combo-toggle".into()))
+                                    .flex_none()
+                                    .px(t().d(10.))
+                                    .py(t().d(5.))
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(bg))
+                                    .text_color(rgb(fg))
+                                    .text_size(t().fs(11.))
+                                    .cursor_pointer()
+                                    .when(!combo_enabled.is_none() && !combo_flying, |el| {
+                                        el.hover(|h| h.bg(rgb(t().p.hover)))
+                                    })
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.toggle_combo(toggle_name.clone(), cx);
+                                    }))
+                                    .child(label),
+                            )
+                            // 跑不动的原因直接摊在这儿 —— 引擎给的原文，不加工。
+                            .when(!combo_problem.is_empty(), |el| {
+                                el.child(
+                                    div()
+                                        .flex_none()
+                                        .text_size(t().fs(10.))
+                                        .text_color(rgb(t().p.danger_fg))
+                                        .child(combo_problem.clone()),
+                                )
+                            })
+                        })
                         .when(can_open, |el| {
                             el.child(
                                 div()

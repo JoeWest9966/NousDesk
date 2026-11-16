@@ -312,12 +312,21 @@ pub fn md_style() -> TextViewStyle {
     let mut code = StyleRefinement::default();
     code.overflow.x = Some(Overflow::Scroll);
     code.text.white_space = Some(WhiteSpace::Nowrap);
+    // 宽表格在 480 的气泡里放不下时要在块内横向滚，不能把气泡撑宽、
+    // 更不能把列压成一字一行的「竖排」（真撞过：6 列 × 长模型名，行高 100+px）。
+    let mut table = StyleRefinement::default();
+    table.overflow.x = Some(Overflow::Scroll);
+    // 每列保持单行。不然窄气泡里它还是会把「模型名」折成四行、把行高撑到 100px。
+    let mut cell = StyleRefinement::default();
+    cell.text.white_space = Some(WhiteSpace::Nowrap);
     // **不能直接用 `TextViewStyle::default()`** —— 那个是浅色（白底黑字）。
     // 深色皮上整块代码、行内代码会变成白砖，字还看不见（真踩过）。
     // 这里有几项就得从当前皮里拿几项。
     TextViewStyle::default()
         .with_paragraph_gap(rems(0.42))
         .with_code_block(code)
+        .with_table(table)
+        .with_table_cell(cell)
         .with_foreground(rgb(t.p.text).into())
         .with_muted_foreground(rgb(t.p.muted).into())
         .with_link(rgb(t.p.accent).into())
