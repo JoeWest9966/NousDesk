@@ -205,6 +205,46 @@ enum EngineFailure {
     Task(String),
 }
 
+/// 左栏这一帧画出来的「键盘可达顺序」：会话 id 和它在滚动容器里的孩子序号。
+///
+/// 渲染时写、按键时读。为什么不在按键时另算一遍：搜索模式下中间还插了分组标题
+/// （「置顶 · 2」「更早 · 147」），行号≠孩子号，两份逻辑各自维护迟早对不上；
+/// 而每帧重算一份也就 149 个 `i64`。
+#[derive(Default, Debug)]
+struct ListIndex {
+    ids: Vec<i64>,
+    /// 跟 `ids` 一一对应：这一行是滚动容器的第几个孩子（分组标题也占位置）。
+    slots: Vec<usize>,
+}
+
+impl ListIndex {
+    fn push(&mut self, id: i64, slot: usize) {
+        self.ids.push(id);
+        self.slots.push(slot);
+    }
+
+    fn pos(&self, id: i64) -> Option<usize> {
+        self.ids.iter().position(|x| *x == id)
+    }
+
+    /// 从 `current` 往 `delta` 拇一格。到头就停在原地（不绕回），因为列表的
+    /// 首尾有语义（最上面是「最近在聊」），绕回去等于把人吓一跳。
+    /// `current` 不在名单里（选中的那条被搜索过滤掉了）时：向下 → 第一条，向上 → 最后一条。
+    fn step(&self, current: Option<i64>, delta: i32) -> Option<(i64, usize)> {
+        if self.ids.is_empty() {
+            return None;
+        }
+        let last = self.ids.len() - 1;
+        let next = match current.and_then(|id| self.pos(id)) {
+            Some(p) if delta > 0 => (p + 1).min(last),
+            Some(p) => p.saturating_sub(delta.unsigned_abs() as usize),
+            None if delta > 0 => 0,
+            None => last,
+        };
+        Some((self.ids[next], self.slots[next]))
+    }
+}
+
 pub struct Desktop {
     pub(crate) engine: Option<Arc<EngineClient>>,
     pub(crate) sessions: Vec<Session>,
@@ -249,6 +289,11 @@ pub struct Desktop {
     composer_hint: bool,
     /// 本机「最近打开过哪几条」：只喂排序，见 `recent.rs` 的模块注释。
     recent: Recent,
+    /// 键盘是否停在会话列表上（↑↓ 换会话、↵ 回输入框、Esc 回搜索框）。
+    /// 从搜索框按 ↓、或者鼠标点一行都会把它立起来。
+    list_keys: bool,
+    /// 这一帧画出来的行序（供键盘导航用）。`RefCell` 是因为渲染只有 `&self`。
+    list_index: std::cell::RefCell<ListIndex>,
     /// 左栏的搜索框。**单行**的 `InputState`（输入区那个是多行 `TextareaState`）。
     /// 空着 = 不过滤，列表跟没有搜索这回事一样。
     search: Entity<InputState>,
@@ -568,6 +613,15 @@ impl Desktop {
                     app.stop_propagation();
                     return;
                 }
+                // 会话列表的键盘导航（↑↓ / ↵ / Esc）。排在 `/` 面板之后：
+                // 正在敲命令时方向键归命令面板；抽屉开着时这一段自己让路（见 `list_nav_key`）。
+                let handled = weak
+                    .update(app, |this, cx| this.list_nav_key(key, window, cx))
+                    .unwrap_or(false);
+                if handled {
+                    app.stop_propagation();
+                    return;
+                }
                 // 全量历史抽屉：Esc 收起。它比 `/` 面板大一圈，但排在这条链的
                 // **最后面** —— 抽屉里也能打字（`/`），正在敲的命令该先被 Esc 撤掉。
                 // 抽屉本身没有焦点域（正文只是滚动容器），所以只能挂在窗口这一层。
@@ -633,6 +687,8 @@ impl Desktop {
             composer_hint: false,
             search,
             recent: Recent::load(),
+            list_keys: false,
+            list_index: std::cell::RefCell::new(ListIndex::default()),
             slash: crate::slash::Slash::default(),
             skills: None,
             slash_items: vec![],
@@ -956,6 +1012,90 @@ impl Desktop {
     pub(crate) fn choose_session(&mut self, id: i64, cx: &mut Context<Self>) {
         self.board_close(cx);
         self.select_session(id, false, cx);
+    }
+
+    /// 左栏的键盘导航：↑↓ 换会话、↵ 把焦点送回输入框、Esc 回搜索框。
+    ///
+    /// 返回 `true` = 这个键归列表管，调用方要 `stop_propagation`。
+    ///
+    /// 三条门（缺一个就会抢别人的键）：
+    /// - **输入框在打字时让路**：多行输入里 ↑↓ 是移光标，回车是发送。
+    /// - **只看会话这一页，且没有浮层**：设置页 / 模板页 / 归档库 / 编辑器 / ≡ 菜单 /
+    ///   新建盘面 / 全量历史抽屉开着时，方向键都属于人家。
+    /// - 要么键盘已经在列表上（`list_keys`），要么焦点在搜索框（↓ 才把它接过来）。
+    fn list_nav_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.input.read(cx).focus_handle(cx).is_focused(window) {
+            return false;
+        }
+        if self.tab != Tab::Chats
+            || self.cfg_visible()
+            || self.editor.open
+            || self.archive_open
+            || self.settings_open
+            || self.menu_open
+            || self.newchat.open
+            || self.nav.drawer_open
+        {
+            return false;
+        }
+        let search_focus = self.search.read(cx).focus_handle(cx).is_focused(window);
+        if !search_focus && !self.list_keys {
+            return false;
+        }
+        match key {
+            "down" | "up" => {
+                let delta = if key == "down" { 1 } else { -1 };
+                // 搜索框里按 ↑：不动。上面没东西，别把焦点往上拽。
+                if !self.list_keys && delta < 0 {
+                    return false;
+                }
+                // 从搜索框按 ↓ 进列表 = 走到第一条（不是「选中项的下一条」）：
+                // 搜索框在上，往下走就是列表起点。
+                let from = if self.list_keys { self.selected } else { None };
+                let next = self.list_index.borrow().step(from, delta);
+                self.list_keys = true;
+                if let Some((id, slot)) = next {
+                    let changed = self.selected != Some(id);
+                    if changed {
+                        self.select_session(id, false, cx);
+                    }
+                    // 一屏放不下 149 行：选中行要跟着键盘走（跟鼠标点击不同 ——
+                    // 鼠标点的那行本来就在眼前）。滚最小量，居中不管。
+                    self.list_scroll.scroll_to_item(slot);
+                    if !changed {
+                        cx.notify();
+                    }
+                }
+                true
+            }
+            "enter" => {
+                if !self.list_keys {
+                    return false;
+                }
+                // 选中即打开（上面那条），回车只干一件事：把焦点交给输入框，
+                // 接着就能打字。不给回车另加「打开」动作 —— 那会变成要按两次。
+                self.list_keys = false;
+                // 用组件自己的 `focus()`：它顺手把光标闪烁起起来。只 `window.focus()`
+                // 焦点是过去了，但 caret 不闪 —— 看起来像没生效（这一版实锤踩过）。
+                self.input
+                    .update(cx, |state, cx| state.focus(window, cx));
+                cx.notify();
+                true
+            }
+            "escape" => {
+                if !self.list_keys {
+                    return false;
+                }
+                // 回搜索框：整条链路是「搜索 → ↓ 进列表 → ↑↓ 挑 → ↵ 打字 → Esc 回搜索」。
+                // 不清空搜索词 —— 清空是搜索框自己那颗 ✕ 的事。
+                self.list_keys = false;
+                self.search
+                    .update(cx, |state, cx| state.focus(window, cx));
+                cx.notify();
+                true
+            }
+            _ => false,
+        }
     }
 
     /// 记一笔「本机刚打开过这条」，然后落盘。
@@ -2394,6 +2534,7 @@ impl Desktop {
         &self,
         ordered: &[&Session],
         q: &str,
+        index: &mut ListIndex,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         use crate::search::{Group, group_of, hit};
@@ -2431,7 +2572,12 @@ impl Desktop {
                     .child(format!("{} · {}", g.label(), items.len()))
                     .into_any_element(),
             );
-            out.extend(items.iter().map(|s| self.session_row(s, q, cx)));
+            for s in &items {
+                // 分组标题也占一个孩子位，所以按下标要记「这一行是第几个孩子」，
+                // 不能只用它在 `items` 里的位次（键盘导航要用这个换 `scroll_to_item`）。
+                index.push(s.id, out.len());
+                out.push(self.session_row(s, q, cx));
+            }
         }
         if total == 0 {
             out.push(
@@ -2518,15 +2664,23 @@ impl Desktop {
                 .filter(|s| crate::search::hit(s, &q).is_some())
                 .count()
         };
+        let mut index = ListIndex::default();
         let rows: Vec<AnyElement> = if q.is_empty() {
             // 没在搜：老样子。**一行都不动** —— 搜索不能把常态列表的顺序改了。
             ordered
                 .iter()
-                .map(|s| self.session_row(s, &q, cx))
+                .enumerate()
+                .map(|(slot, s)| {
+                    index.push(s.id, slot);
+                    self.session_row(s, &q, cx)
+                })
                 .collect()
         } else {
-            self.search_rows(&ordered, &q, cx)
+            self.search_rows(&ordered, &q, &mut index, cx)
         };
+        // 键盘导航跟着**这一帧真的画出来的东西**走：搜索分组、过滤、排序全已经反映在这里。
+        // 每帧重算一份比在按键时另算一遍便宜得多（149 个 i64），也不会两边漂。
+        *self.list_index.borrow_mut() = index;
         div()
             .flex()
             .flex_col()
@@ -3364,6 +3518,9 @@ impl Desktop {
             .border_color(rgb(t().p.line_strong))
             .id(ElementId::Name(format!("sess-{id}").into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                // 点了一行，键盘也算停在列表上：接着按 ↑↓ 应该继续换会话，
+                // 而不是回到搜索框重新开始。
+                this.list_keys = true;
                 this.choose_session(id, cx);
             }))
             .child(row);
@@ -4098,6 +4255,17 @@ impl Render for Desktop {
                         .flex_1()
                         .min_w(t().d(0.))
                         .overflow_hidden()
+                        // 点右栏（聊天区 / 输入框 / 盘面）就把「键盘停在列表上」放下，
+                        // 否则在聊天区按 ↓ 会偷偷把左边选中项挪走。
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                                if this.list_keys {
+                                    this.list_keys = false;
+                                    cx.notify();
+                                }
+                            }),
+                        )
                         .child(if self.editor.open {
                             self.render_editor(cx)
                         } else {
@@ -4195,7 +4363,7 @@ fn nav_child_index(
 #[allow(non_snake_case)]
 mod tests {
     use super::{
-        Bar, NoticeKind, NoticeState, Recent, error_notice, nav_child_index,
+        Bar, ListIndex, NoticeKind, NoticeState, Recent, error_notice, nav_child_index,
         next_selection_after_archive, order_ids, short_cwd, short_model, sort_sessions, when_text,
     };
     use nous_engine::EngineError;
@@ -4397,6 +4565,29 @@ x
     fn 置顶的排前面_且按置顶顺序() {
         // 原顺序 3,2,1；置顶顺序 1,3（新置顶的在最前）
         assert_eq!(order_ids(&[3, 2, 1], &[1, 3]), vec![1, 3, 2]);
+    }
+
+    /// 键盘导航的「下一行」：到头停住、不在名单里时从两头进。
+    #[test]
+    fn 键盘上下走到头就停() {
+        let mut index = ListIndex::default();
+        for (i, id) in [10, 20, 30].into_iter().enumerate() {
+            index.push(id, i + 1); // 故意跟下标错开一位，模拟搜索模式的分组标题
+        }
+        assert_eq!(index.step(None, 1), Some((10, 1)), "空列表位进 = 第一条");
+        assert_eq!(index.step(None, -1), Some((30, 3)), "往上进 = 最后一条");
+        assert_eq!(index.step(Some(10), 1), Some((20, 2)));
+        assert_eq!(index.step(Some(30), 1), Some((30, 3)), "到底停住，不绕回第一条");
+        assert_eq!(index.step(Some(10), -1), Some((10, 1)), "到顶停住");
+        assert_eq!(index.step(Some(99), 1), Some((10, 1)), "选中的被过滤掉了 → 从头开始");
+        assert_eq!(index.step(Some(20), -1), Some((10, 1)));
+    }
+
+    #[test]
+    fn 空列表怎么按都选不中东西() {
+        let index = ListIndex::default();
+        assert_eq!(index.step(None, 1), None);
+        assert_eq!(index.step(Some(10), -1), None);
     }
 
     #[test]
