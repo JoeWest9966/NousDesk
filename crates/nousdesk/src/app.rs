@@ -364,6 +364,9 @@ pub struct Desktop {
     pub(crate) resources: crate::resources::ResourceState,
     /// 「撕原件」危险确认的状态机（票 #3）。本票只负责把它接到引擎上。
     pub(crate) purge_confirm: crate::archive_confirm::PurgeConfirm,
+    /// 「归档并撕原件」确认框的输入框。和 `rename_input` 同一个套路：
+    /// `Desktop` 持有一份复用，打开时填当前会话名，不每开一次新建 `Entity`。
+    pub(crate) purge_input: Entity<InputState>,
     /// 「重命名会话」弹层（居中对话框）。输入框单独存一个复用 —— 每开一次不新建
     /// `Entity`，焦点也好管。
     pub(crate) rename_box: crate::rename_box::RenameBox,
@@ -499,6 +502,7 @@ impl Desktop {
         });
         // 「重命名会话」那个对话框里的输入框。复用一份，打开时把当前名字塞进去。
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("会话名字"));
+        let purge_input = cx.new(|cx| InputState::new(window, cx).placeholder("输入会话名字"));
 
         // 配置在这里同步读掉：设置页要立刻显示 host / board，不能等 tokio。
         // 读坏了也先拿默认值把窗口支起来，错误交给 connect() 报。
@@ -987,6 +991,7 @@ impl Desktop {
             console: crate::data_console::ConsoleState::new(),
             resources: crate::resources::ResourceState::default(),
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
+            purge_input,
             rename_box: crate::rename_box::RenameBox::new(),
             rename_input, // 上面 `cx.new` 建好的那个
             preset_confirm: crate::preset_confirm::PresetConfirm::new(),
@@ -2700,6 +2705,10 @@ impl Desktop {
     }
 
     /// 危险确认里按了「撕掉原件」：拿到 `(id, name)` 才真的发请求。
+    ///
+    /// 两条路：
+    /// - 右键「归档并撕原件…」：先归档，**归档成功**才接撕（绝不裸删）；
+    /// - 归档库页「撕原件」：已经归档过，直接撕。
     fn confirm_purge(&mut self, cx: &mut Context<Self>) {
         let Some(action) = self.purge_confirm.on_confirm() else {
             cx.notify();
@@ -2708,7 +2717,47 @@ impl Desktop {
         cx.notify();
         // 会话 id 是**数字**（`wire.md`）：确认层存的就是 `i64`，这里不 parse、
         // 也没有「不是数字」的兜底分支（评审 J2）。
-        self.purge_session(action.session_id, cx);
+        if action.chain_archive {
+            self.archive_then_purge(action.session_id, cx);
+        } else {
+            self.purge_session(action.session_id, cx);
+        }
+    }
+
+    /// 右键那一步：先归档，成功后**自动接撕原件**。
+    ///
+    /// 关键在「成功才接」—— 归档要是 409（忙 / 有活分支 / 没复印件），引擎的
+    /// 原文照旧给用户看（`notify_engine_failure`），**绝不继续往下撕**。
+    /// 这一步不是原子的：归档成了、撕万一失败，会话会留在归档库里（可打捞 / 再撕），
+    /// 不是悬空状态 —— 这正是「先归档再撕」比裸删安全的地方。
+    fn archive_then_purge(&mut self, id: i64, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        log::info!("归档并撕原件：#{id}（先归档）");
+        self.run_engine(
+            cx,
+            &format!("归档没成，不撕：{id}"),
+            &format!("归档任务挂了，不撕：{id}"),
+            async move { engine.archive(id).await },
+            // 归档成功 → 立刻接着撕。这里**再调一次 run_engine**，把撕的成功 /
+            // 失败单独报给用户：两步各自有反馈，不会糊成一句"操作完成"。
+            move |this, _done, cx| {
+                this.archive_session_done(id, cx);
+                this.purge_session(id, cx);
+            },
+            Self::notify_engine_failure,
+        );
+    }
+
+    /// 归档成功后共用的收尾：重拉列表 / 刷新归档库 / 绿提示。
+    /// `archive_session` 和 `archive_then_purge` 都用它，别各写一份。
+    fn archive_session_done(&mut self, id: i64, cx: &mut Context<Self>) {
+        self.notify("已归档 · 正在撕原件", NoticeKind::Info, cx);
+        self.reload_sessions(Some(id), cx);
+        if self.archive_open {
+            self.archive_page_load(cx);
+        }
     }
 
     /// 打捞：`POST /v1/archive/:id/restore`。成功后归档库 + 主列表都刷新 ——
@@ -2743,8 +2792,8 @@ impl Desktop {
             A::Refresh => self.archive_page_load(cx),
             A::Restore { id, r#gen } => self.restore_session(*id, r#gen.clone(), cx),
             A::Purge { id, name } => {
-                // 危险动作：先弹 #3 的红框，真删在 `confirm_purge`。
-                self.purge_confirm.request(*id, name.clone());
+                // 归档库页来：已经归档过，只撕（false）。
+                self.purge_confirm.request(*id, name.clone(), false);
                 cx.notify();
             }
         }
@@ -2869,10 +2918,18 @@ impl Desktop {
     }
 
     /// 「撕原件」危险确认，挂在整窗这一层（和菜单 / 配置面板同一层）。
-    fn purge_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn purge_overlay(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.purge_confirm.is_open() {
             return None;
         }
+        // 刚打开：清空输入框、 focuses —— 让用户**亲手打一遍**名字。
+        // 预填原名再让用户点确定，等于没设卡片（手输的意义就是那几下键盘）。
+        if self.purge_confirm.take_fresh() {
+            self.purge_input.update(cx, |input, cx| input.set_value("", window, cx));
+            let handle = self.purge_input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        }
+        let typed = self.purge_input.read(cx).value().to_string();
         let close = Rc::new(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.purge_confirm.on_cancel();
             cx.notify();
@@ -2880,6 +2937,8 @@ impl Desktop {
         let close_handler = close.clone();
         Some(crate::archive_confirm::render_purge_confirm(
             &self.purge_confirm,
+            &self.purge_input,
+            &typed,
             cx.listener(|this, _: &ClickEvent, _, cx| this.confirm_purge(cx)),
             move |ev, window, cx| close_handler(ev, window, cx),
         ))
@@ -4410,9 +4469,9 @@ impl Desktop {
                 self.notify("已复制会话 id", NoticeKind::Info, cx);
             }
             A::Archive { id, name } => self.archive_session(id, &name, cx),
-            A::Purge { id, name } => {
-                // 危险动作一律先过 #3 的红框；真撕在 `confirm_purge`。
-                self.purge_confirm.request(id, name);
+            A::ArchiveAndPurge { id, name } => {
+                // 右键一步到位：先弹红框，确认后先归档、成功再撕（true）。
+                self.purge_confirm.request(id, name, true);
                 cx.notify();
             }
             A::Rename { id } => self.open_rename(id, cx),
@@ -5202,7 +5261,7 @@ impl Render for Desktop {
             // 「重命名会话」（居中对话框）：压在菜单之上、撕原件之下
             .children(self.rename_overlay(window, cx))
             // 「撕原件」确认（盖在菜单之上）
-            .children(self.purge_overlay(cx))
+            .children(self.purge_overlay(window, cx))
             // 窄窗的类别抽屉（比弹层低一层：弹层永远压在它上面）
             .children(self.cat_drawer_overlay(cx))
             // 「新建类别」弹层
