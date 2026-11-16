@@ -33,7 +33,8 @@ use gpui_kit::*;
 
 use nous_engine::EngineError;
 use nous_engine::types::{
-    CreateSession, CreatedSession, Dirs, Machines, Model, Models, Prompt, Prompts, Skill, Skills,
+    CreateSession, CreatedSession, Dirs, Extensions, Machines, Model, Models, Prompt, Prompts, Skill,
+    Skills,
 };
 
 use crate::app::Desktop;
@@ -45,8 +46,46 @@ pub(crate) enum Sheet {
     Model,
     Skills,
     Prompt,
+    Ext,
     Dir,
     Machine,
+}
+
+/// 这个条目属不属于 `path` 这一格 —— **含子类**。
+///
+/// `category` 是精确标签，不是层级继承：`123` 只写了 `工具/搜索`，没写 `工具`。
+/// 不做前缀匹配的话，树上就会「工具 1、搜索 1」，看着像子类比父类还满。
+fn in_cat(cats: &[String], path: &str) -> bool {
+    cats
+        .iter()
+        .any(|c| c == path || c.strip_prefix(path).is_some_and(|r| r.starts_with('/')))
+}
+
+/// 扩展那一行是「什么处境」。决定勾不勾得动、画不画虚线框。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExtKind {
+    /// 装上的普通扩展，可以勾掉。
+    Pickable,
+    /// 核心（`nous` / `skills` / `prompts`）：默认带，能勾掉但提醒别。
+    Core,
+    /// 引擎自带，不在仓库里。
+    Builtin,
+    /// 变体，加载失败了。
+    Broken,
+    /// 已归档。
+    Archived,
+}
+
+impl ExtKind {
+    /// 左树里 `@xxx` 这个 key 对应的那一格。
+    fn tag(self) -> &'static str {
+        match self {
+            ExtKind::Pickable | ExtKind::Core => "installed",
+            ExtKind::Builtin => "builtin",
+            ExtKind::Broken => "broken",
+            ExtKind::Archived => "archived",
+        }
+    }
 }
 
 /// 盘面的状态。**选择是本地草稿**：这一页还没落库，一切都在内存里，
@@ -85,6 +124,13 @@ pub(crate) struct NewChat {
     skill_query: Entity<TextareaState>,
     /// 左树选中的类别路径（`工程/事故` 这种）或 [`NewChat::UNCAT`]；`None` = 全部。
     skill_cat: Option<String>,
+    /// 扩展清单。五类东西混在一份响应里，见 [`nous_engine::types::Extensions`]。
+    exts: Option<Extensions>,
+    ext_query: Entity<TextareaState>,
+    /// 扩展左树选中的那一格：`Some(ExtGrp::…)` 的字符串形式，`None` = 全部。
+    ext_cat: Option<String>,
+    /// 这次会话带哪些扩展。初始 = `loadable`（这台装上且能加载的）。
+    picked_exts: BTreeSet<String>,
 
     pub(crate) sheet: Option<Sheet>,
     sheet_scroll: ScrollHandle,
@@ -108,6 +154,11 @@ impl NewChat {
                 .auto_grow(1, 1)
                 .placeholder("技能名 · 描述 · 类别")
         });
+        let ext_query = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 1)
+                .placeholder("扩展名 · 描述 · 类别")
+        });
         Self {
             open: false,
             focus: cx.focus_handle(),
@@ -130,6 +181,10 @@ impl NewChat {
             dir_input,
             skill_query,
             skill_cat: None,
+            exts: None,
+            ext_query,
+            ext_cat: None,
+            picked_exts: BTreeSet::new(),
             sheet: None,
             sheet_scroll: ScrollHandle::new(),
             creating: false,
@@ -229,10 +284,36 @@ impl NewChat {
             .map(|path| {
                 let label = path.rsplit('/').next().unwrap_or(&path).to_string();
                 let depth = path.matches('/').count();
-                let count = list.iter().filter(|s| s.category.contains(&path)).count();
+                let count = list.iter().filter(|s| in_cat(&s.category, &path)).count();
                 (path, label, depth, count)
             })
             .collect()
+    }
+
+    /// 能勾的扩展：仓库里有、这台也装上了。核心那三条也算（默认带，能勾掉）。
+    fn ext_pickable(&self) -> Vec<String> {
+        let Some(x) = self.exts.as_ref() else {
+            return Vec::new();
+        };
+        x.catalog
+            .iter()
+            .filter(|e| x.installed.contains(&e.name))
+            .map(|e| e.name.clone())
+            .collect()
+    }
+
+    /// 加载失败的变体有几条 —— 卡上那个红点就靠它。
+    fn ext_broken(&self) -> usize {
+        self.exts
+            .as_ref()
+            .map(|x| {
+                x.variants
+                    .values()
+                    .flatten()
+                    .filter(|v| v.load.as_ref().and_then(|l| l.state.as_deref()) == Some("failed"))
+                    .count()
+            })
+            .unwrap_or(0)
     }
 
     fn prompt_list(&self) -> Vec<&Prompt> {
@@ -327,6 +408,12 @@ impl Desktop {
                 .placeholder("技能名 · 描述 · 类别")
         });
         self.newchat.skill_cat = None;
+        self.newchat.ext_query = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 1)
+                .placeholder("扩展名 · 描述 · 类别")
+        });
+        self.newchat.ext_cat = None;
         self.newchat.open = true;
         self.newchat.sheet = None;
         self.newchat.flash = None;
@@ -364,12 +451,13 @@ impl Desktop {
             let handle = crate::TOKIO.get().cloned();
             let Some(h) = handle else { return };
             type Got<T> = Result<T, EngineError>;
-            let (models, skills, prompts, machines, dirs) = h
+            let (models, skills, prompts, machines, dirs, exts) = h
                 .spawn(async move {
                     let models: Got<Models> = engine.models().await;
                     let skills: Got<Skills> = engine.skills().await;
                     let prompts: Got<Prompts> = engine.prompts().await;
                     let machines: Got<Machines> = engine.machines().await;
+                    let exts: Got<Extensions> = engine.extensions().await;
                     // start dirs 只给「map 根」这一条。拿它自己再列一次，
                     // 否则打开弹层只有孤零零一行，看着像坏了。
                     let dirs: Got<Dirs> = match engine.dirs(None, None).await {
@@ -381,11 +469,15 @@ impl Desktop {
                         }
                         other => other,
                     };
-                    (models, skills, prompts, machines, dirs)
+                    (models, skills, prompts, machines, dirs, exts)
                 })
                 .await
                 .unwrap_or_else(|_| {
                     (
+                        Err(EngineError::Engine {
+                            status: 0,
+                            message: "任务没跑完".into(),
+                        }),
                         Err(EngineError::Engine {
                             status: 0,
                             message: "任务没跑完".into(),
@@ -439,6 +531,13 @@ impl Desktop {
                 }
                 if let Ok(mm) = machines {
                     b.machines = Some(mm);
+                }
+                if let Ok(x) = exts {
+                    // 初始勾选 = 这台装上且能加载的。用户改过就不动。
+                    if b.picked_exts.is_empty() {
+                        b.picked_exts = x.loadable.iter().cloned().collect();
+                    }
+                    b.exts = Some(x);
                 }
                 if let Ok(d) = dirs {
                     // 起始目录**同时也是选中值**：不选也是落在那里，与其显示 `—`
@@ -561,6 +660,10 @@ impl Desktop {
                 .then(|| self.newchat.picked_skills.iter().cloned().collect()),
             // **总是发**：`Some(None)` 明确就是「不要模板」。
             template: Some(self.newchat.template.clone()),
+            // 清单读到过就总是发（`[]` 也是「明确一条都不要」），没读到才让它用引擎默认。
+            extensions: self.newchat.exts.as_ref().map(|_| {
+                self.newchat.picked_exts.iter().cloned().collect::<Vec<_>>()
+            }),
             cwd: self.newchat.dir.clone(),
             machine: self.newchat.machine.clone(),
             ..Default::default()
@@ -693,22 +796,7 @@ impl Desktop {
                 |this, _cx| this.newchat.sheet = Some(Sheet::Model),
             ))
             .child(self.board_context(&m, cx))
-            .child(self.board_card(
-                &m,
-                art::Slot::Ext,
-                "board-ext",
-                "EXTENSIONS",
-                "Extensions",
-                "none".into(),
-                "choose ›",
-                true,
-                cx,
-                |this, cx| {
-                    // 数据在 vbe4pt 块里，这一版没有端点 —— 如实说，不假装能选。
-                    this.newchat.flash = Some("扩展来自扩展块（vbe4pt），这一版没接".into());
-                    cx.notify();
-                },
-            ))
+            .child(self.board_ext(&m, cx))
             .child(self.board_card(
                 &m,
                 art::Slot::Perms,
@@ -982,6 +1070,111 @@ impl Desktop {
                     .text_size(m.f(1.15, 8.5, 10.5))
                     .text_color(rgb(art::faint()))
                     .child(tag),
+            )
+            .into_any_element()
+    }
+
+    /// Extensions 那张卡：一行圆点，一条扩展一个。
+    ///
+    /// 数字说不清这张卡 —— 「4/4」看不出里面有没有坏东西，五个点一眼就看得出来。
+    fn board_ext(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let b = &self.newchat;
+        let r = art::node_rect(&m, art::Slot::Ext);
+        let pickable = b.ext_pickable();
+        let picked = pickable
+            .iter()
+            .filter(|n| b.picked_exts.contains(*n))
+            .count();
+        let broken = b.ext_broken();
+        let builtin = b.exts.as_ref().map(|x| x.builtin.len()).unwrap_or(0);
+
+        let dot = |on: bool, hollow: bool| {
+            div()
+                .size(m.s(5.))
+                .rounded_full()
+                .border_1()
+                .border_color(rgb(if on || hollow {
+                    art::accent()
+                } else {
+                    art::border()
+                }))
+                .bg(if on {
+                    rgb(art::accent())
+                } else {
+                    rgba(t().p.transparent)
+                })
+        };
+
+        div()
+            .id(ElementId::Name("board-ext".into()))
+            .absolute()
+            .left(px(r.x))
+            .top(px(r.y))
+            .w(px(r.w))
+            .h(px(r.h))
+            .flex()
+            .flex_col()
+            .gap(m.v(0.25))
+            .px(m.v(1.1))
+            .py(m.v(0.85))
+            .bg(rgb(art::panel()))
+            .border_1()
+            .border_color(rgb(art::border()))
+            .rounded(t().r(10.))
+            .hover(|s| s.border_color(rgb(art::line())))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.newchat.sheet = Some(Sheet::Ext);
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .font_family(art::mono())
+                    .text_size(m.f(1.05, 8., 10.))
+                    .text_color(rgb(art::faint()))
+                    .child("EXTENSIONS"),
+            )
+            .child(
+                div()
+                    .text_size(m.f(1.6, 11., 14.))
+                    .font_weight(FontWeight::BOLD)
+                    .child("Extensions"),
+            )
+            .child(
+                div()
+                    .mt(m.v(0.5))
+                    .flex()
+                    .items_center()
+                    .gap(m.v(0.4))
+                    .children(
+                        pickable
+                            .iter()
+                            .take(7)
+                            .map(|n| dot(b.picked_exts.contains(n), false)),
+                    )
+                    .children((0..builtin.min(2)).map(|_| dot(false, true)))
+                    .children((0..broken.min(2)).map(|_| {
+                        div().size(m.s(5.)).rounded_full().bg(rgb(art::accent()))
+                    }))
+                    .child(
+                        div()
+                            .ml(m.v(0.3))
+                            .font_family(art::mono())
+                            .text_size(m.f(1.15, 8.5, 10.))
+                            .text_color(rgb(art::muted()))
+                            .child(format!("{picked}/{}", pickable.len())),
+                    ),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .text_size(m.f(1.15, 8.5, 10.5))
+                    .text_color(rgb(art::faint()))
+                    .child(if broken > 0 {
+                        format!("{broken} 个加载失败 ›")
+                    } else {
+                        "choose ›".into()
+                    }),
             )
             .into_any_element()
     }
@@ -1404,6 +1597,11 @@ impl Desktop {
                 "单值：这条每轮都带 · 再点一次取消",
                 Some(art::Slot::Context),
             ),
+            Sheet::Ext => (
+                "上下文 · 扩展",
+                "勾的是这次会话带哪些 · 核心那三条去掉就没提示词了",
+                Some(art::Slot::Ext),
+            ),
             Sheet::Dir => ("工作目录", "列的是引擎那台机器上的目录 · 点一层进去", None),
             Sheet::Machine => ("机器", "会话跑在哪台机器上 · 默认本机", None),
         };
@@ -1414,12 +1612,14 @@ impl Desktop {
             Sheet::Dir => art::PopKind::Dir,
             Sheet::Machine => art::PopKind::Machine,
             Sheet::Prompt => art::PopKind::Narrow,
+            Sheet::Ext => art::PopKind::Ext,
         };
         let pop = art::pop_rect(&m, slot, kind);
         let body = match sheet {
             Sheet::Model => self.sheet_model(&m, pop.w, cx),
             Sheet::Skills => self.sheet_skills(&m, cx),
             Sheet::Prompt => self.sheet_prompt(&m, cx),
+            Sheet::Ext => self.sheet_ext(&m, cx),
             Sheet::Dir => self.sheet_dir(&m, cx),
             Sheet::Machine => self.sheet_machine(&m, cx),
         };
@@ -1806,7 +2006,7 @@ impl Desktop {
                     match cat.as_deref() {
                         None => true,
                         Some(NewChat::UNCAT) => s.category.is_empty(),
-                        Some(c) => s.category.iter().any(|x| x == c),
+                        Some(c) => in_cat(&s.category, c),
                     }
                 }
             })
@@ -2025,6 +2225,429 @@ impl Desktop {
                     .border_color(rgb(art::border()))
                     // 左树：搜索时淡出且点不动 —— 它是「常驻状态」，不是「临时状态」。
                     // 竖排档（格宽 < 620）放不下两栏，树整个不画：类别还在每行尾部。
+                    .children((m.layout != art::Layout::Stack).then(|| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_none()
+                            .w(m.s(172.))
+                            .gap(t().d(1.))
+                            .py(m.s(8.))
+                            .border_r(t().d(1.))
+                            .border_color(rgb(art::border()))
+                            .when(searching, |el| el.opacity(0.35))
+                            .children(tree)
+                            .into_any_element()
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .min_h(t().d(0.))
+                            .child(self.sheet_list(m, rows, empty, cx)),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 扩展弹层：**左树（状态在上、类别在下）+ 右列表**，顶上通栏搜索。
+    ///
+    /// 跟技能弹层一个语法，只多一组「状态」：`内置 / 变体 / 已归档` 不是 `category`，
+    /// 是这条扩展现在的处境，所以单独摆在分类上面、用一条线隔开。
+    ///
+    /// 注意勾的是什么：**这次会话带哪些扩展**（`POST /v1/sessions` 的 `extensions`），
+    /// 不是本机装不装 —— 那是 `install` / `uninstall` 的事，属于设置页。
+    fn sheet_ext(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let b = &self.newchat;
+        let Some(x) = b.exts.as_ref() else {
+            return div()
+                .p(m.v(2.))
+                .text_size(m.f(1.4, 10., 12.5))
+                .text_color(rgb(art::muted()))
+                .child(if b.loading {
+                    "正在读扩展清单…"
+                } else {
+                    "没读到扩展清单"
+                })
+                .into_any_element();
+        };
+        let q = b.ext_query.read(cx).value().trim().to_lowercase();
+        let searching = !q.is_empty();
+        let cat = b.ext_cat.clone();
+
+        let n_var: usize = x.variants.values().map(|v| v.len()).sum();
+        let n_all = x.installed.len() + x.builtin.len() + n_var + x.archived.len();
+
+        let mk = |name: String,
+                  ver: String,
+                  desc: String,
+                  secs: String,
+                  tag: String,
+                  kind: ExtKind,
+                  picked: bool|
+         -> AnyElement {
+            let locked = !matches!(kind, ExtKind::Pickable | ExtKind::Core);
+            let mut el = div()
+                .id(ElementId::Name(format!("ext-{name}").into()))
+                .flex()
+                .items_start()
+                .gap(m.v(0.9))
+                .w_full()
+                .px(m.v(0.8))
+                .py(m.v(0.55))
+                .rounded(t().r(6.))
+                .border_1()
+                .border_color(if picked && !locked {
+                    rgb(art::accent())
+                } else {
+                    rgba(t().p.transparent)
+                })
+                .when(picked && !locked, |el| {
+                    el.bg(rgb(art::accent()).opacity(0.14))
+                })
+                .when(locked, |el| el.opacity(0.62))
+                .when(!locked, |el| {
+                    el.hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
+                });
+            if !locked {
+                el = el.on_click({
+                    let name = name.clone();
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        if !this.newchat.picked_exts.remove(&name) {
+                            this.newchat.picked_exts.insert(name.clone());
+                        }
+                        cx.notify();
+                    })
+                });
+            }
+            el.child(
+                div()
+                    .mt(t().d(2.))
+                    .size(m.f(1.1, 10., 14.))
+                    .rounded(t().r(3.))
+                    .border_1()
+                    .border_color(if picked && !locked {
+                        rgb(art::accent())
+                    } else if locked {
+                        rgb(art::line())
+                    } else {
+                        rgb(art::border())
+                    })
+                    // 锁住的画虚线：看得出「这里本来有个开关」。
+                    .when(locked, |el| el.border_dashed())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(m.f(0.85, 8., 11.))
+                    .text_color(rgb(art::accent()))
+                    .child(if picked { "✓" } else { "" }),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(t().d(0.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_baseline()
+                            .gap(m.v(0.5))
+                            .child(
+                                div()
+                                    .font_family(art::mono())
+                                    .text_size(m.f(1.5, 11., 13.5))
+                                    .truncate()
+                                    .child(name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .font_family(art::mono())
+                                    .text_size(m.f(1.05, 8., 9.5))
+                                    .text_color(rgb(art::faint()))
+                                    .child(ver),
+                            ),
+                    )
+                    .children((!desc.is_empty()).then(|| {
+                        div()
+                            .text_size(m.f(1.35, 10., 12.5))
+                            .text_color(rgb(art::muted()))
+                            .truncate()
+                            .child(desc)
+                            .into_any_element()
+                    }))
+                    .children((!secs.is_empty()).then(|| {
+                        div()
+                            .font_family(art::mono())
+                            .text_size(m.f(1.05, 8., 9.5))
+                            .text_color(rgb(art::faint()))
+                            .truncate()
+                            .child(secs)
+                            .into_any_element()
+                    })),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .font_family(art::mono())
+                    .text_size(m.f(1.05, 8., 10.))
+                    .text_color(rgb(if kind == ExtKind::Broken {
+                        art::accent()
+                    } else {
+                        art::faint()
+                    }))
+                    .child(tag),
+            )
+            .into_any_element()
+        };
+
+        let want = |name: &str, summary: Option<&str>, cats: &[String]| -> bool {
+            if searching {
+                return name.to_lowercase().contains(&q)
+                    || summary.unwrap_or("").to_lowercase().contains(&q)
+                    || cats.iter().any(|c| c.to_lowercase().contains(&q));
+            }
+            true
+        };
+        let show = |kind: ExtKind, cats: &[String]| -> bool {
+            if searching {
+                return true;
+            }
+            match cat.as_deref() {
+                None => true,
+                Some(k) => match k.strip_prefix('@') {
+                    Some(t) => t == kind.tag(),
+                    None => in_cat(cats, k),
+                },
+            }
+        };
+
+        let mut rows: Vec<AnyElement> = Vec::new();
+
+        for e in x.catalog.iter().filter(|e| x.installed.contains(&e.name)) {
+            let kind = if e.is_default {
+                ExtKind::Core
+            } else {
+                ExtKind::Pickable
+            };
+            if !show(kind, &e.category) || !want(&e.name, e.summary.as_deref(), &e.category) {
+                continue;
+            }
+            rows.push(mk(
+                e.name.clone(),
+                e.version.clone().unwrap_or_default(),
+                e.summary.clone().unwrap_or_default().replace(['\n', '\r'], " "),
+                e.sections.join(" · "),
+                if e.is_default { "核心" } else { "" }.to_string(),
+                kind,
+                b.picked_exts.contains(&e.name),
+            ));
+        }
+        for name in x.builtin.iter() {
+            if !show(ExtKind::Builtin, &[]) || !want(name, None, &[]) {
+                continue;
+            }
+            rows.push(mk(
+                name.clone(),
+                String::new(),
+                "引擎自带，不在仓库里 · 会话里一直在".into(),
+                String::new(),
+                "内置".into(),
+                ExtKind::Builtin,
+                true,
+            ));
+        }
+        for (family, list) in x.variants.iter() {
+            for v in list {
+                let name = v.key.clone().unwrap_or_else(|| family.clone());
+                let failed = v.load.as_ref().and_then(|l| l.state.as_deref()) == Some("failed");
+                let err = v.load.as_ref().and_then(|l| l.error.clone());
+                if !show(ExtKind::Broken, &[]) || !want(&name, err.as_deref(), &[]) {
+                    continue;
+                }
+                rows.push(mk(
+                    name,
+                    String::new(),
+                    err.or_else(|| v.dir.clone())
+                        .unwrap_or_default()
+                        .replace(['\n', '\r'], " "),
+                    String::new(),
+                    if failed { "加载失败" } else { "变体" }.into(),
+                    if failed {
+                        ExtKind::Broken
+                    } else {
+                        ExtKind::Archived
+                    },
+                    false,
+                ));
+            }
+        }
+        for a in x.archived.iter() {
+            if !show(ExtKind::Archived, &a.category)
+                || !want(&a.name, a.summary.as_deref(), &a.category)
+            {
+                continue;
+            }
+            rows.push(mk(
+                a.name.clone(),
+                a.version.clone().unwrap_or_default(),
+                a.summary.clone().unwrap_or_default().replace(['\n', '\r'], " "),
+                String::new(),
+                a.archived_at
+                    .clone()
+                    .map(|d| d.chars().take(10).collect::<String>())
+                    .unwrap_or_else(|| "已归档".into()),
+                ExtKind::Archived,
+                false,
+            ));
+        }
+
+        let node = |label: &str, count: usize, depth: usize, on: bool, live: bool, id: &str| {
+            div()
+                .id(ElementId::Name(format!("ext-cat-{id}").into()))
+                .flex()
+                .items_center()
+                .gap(m.v(0.45))
+                .pl(m.s(6. + depth as f32 * 13.))
+                .pr(m.s(6.))
+                .py(m.s(3.))
+                .rounded(t().r(5.))
+                .font_family(art::mono())
+                .text_size(m.f(1.15, 8.5, 10.5))
+                .text_color(rgb(if on {
+                    art::fg()
+                } else if live {
+                    art::muted()
+                } else {
+                    art::faint()
+                }))
+                .when(on, |el| {
+                    el.bg(rgb(art::surface())).border_1()
+                        .border_color(rgb(art::border()))
+                })
+                .when(!on && live, |el| {
+                    el.hover(|s| s.bg(rgb(art::surface())).text_color(rgb(art::fg())))
+                })
+                .child(label.to_string())
+                .child(
+                    div()
+                        .ml_auto()
+                        .text_size(m.f(1.0, 8., 9.5))
+                        .text_color(rgb(art::faint()))
+                        .child(count.to_string()),
+                )
+        };
+
+        let mut tree: Vec<AnyElement> = Vec::new();
+        let mut el = node("全部", n_all, 0, !searching && cat.is_none(), true, "all");
+        if !searching {
+            el = el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.newchat.ext_cat = None;
+                cx.notify();
+            }));
+        }
+        tree.push(el.into_any_element());
+
+        for (key, label, count) in [
+            ("@installed", "启用中", x.installed.len()),
+            ("@builtin", "内置", x.builtin.len()),
+            ("@broken", "变体", n_var),
+            ("@archived", "已归档", x.archived.len()),
+        ] {
+            let on = !searching && cat.as_deref() == Some(key);
+            let mut el = node(label, count, 1, on, count > 0, &key[1..]);
+            if !searching {
+                let next = Some(key.to_string());
+                el = el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.ext_cat = next.clone();
+                    cx.notify();
+                }));
+            }
+            tree.push(el.into_any_element());
+        }
+
+        // 分隔线 + 「按类别」：类别是仓库里写死的元数据，跟上面那组「处境」不是一回事。
+        tree.push(
+            div()
+                .h(t().d(1.))
+                .mx(m.s(8.))
+                .my(m.s(6.))
+                .bg(rgb(art::border()))
+                .into_any_element(),
+        );
+        tree.push(
+            div()
+                .px(m.s(8.))
+                .pb(m.s(2.))
+                .font_family(art::mono())
+                .text_size(m.f(0.95, 7.5, 8.5))
+                .text_color(rgb(art::faint()))
+                .child("按类别")
+                .into_any_element(),
+        );
+        for path in x.categories.iter() {
+            let label = path.rsplit('/').next().unwrap_or(path).to_string();
+            let depth = path.matches('/').count();
+            // 父类含子类：`工具` 要把 `工具/搜索` 里的也算上，
+            // 否则会出现「工具 1，但它的子类搜索也 1」这种自相矛盾的树。
+            let count = x.catalog.iter().filter(|e| in_cat(&e.category, path)).count();
+            let on = !searching && cat.as_deref() == Some(path.as_str());
+            let mut el = node(&label, count, depth + 1, on, count > 0, path);
+            if !searching {
+                let next = Some(path.clone());
+                el = el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.ext_cat = next.clone();
+                    cx.notify();
+                }));
+            }
+            tree.push(el.into_any_element());
+        }
+
+        let empty = if searching {
+            "没有名字、描述或类别含这个词的扩展"
+        } else {
+            "这一格没有扩展"
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(t().d(0.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(m.v(0.8))
+                    .mx(m.v(1.3))
+                    .mt(m.v(1.1))
+                    .mb(m.v(0.7))
+                    .px(m.v(0.9))
+                    .py(m.v(0.45))
+                    .rounded(t().r(7.))
+                    .bg(rgb(art::surface()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(art::mono())
+                            .text_size(m.f(1.3, 10., 12.))
+                            .text_color(rgb(art::accent()))
+                            .child("›"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .child(Textarea::new(&b.ext_query).appearance(false).bordered(false)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(art::border()))
                     .children((m.layout != art::Layout::Stack).then(|| {
                         div()
                             .flex()

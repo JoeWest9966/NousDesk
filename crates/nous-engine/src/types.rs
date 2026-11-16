@@ -614,6 +614,107 @@ pub struct Skills {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// `GET /v1/extensions` —— 扩展清单页吃这个。
+///
+/// 这里有**五类不同的东西**，别当成一个数组：
+/// `catalog`（仓库里的）/ `builtin`（引擎自带，只有名字）/ `variants`（本机 checkout）/
+/// `archived`（`.archive/` 里）/ 以及 `installed` + `loadable` 这两个名字清单。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Extensions {
+    #[serde(default)]
+    pub installed: Vec<String>,
+    #[serde(default)]
+    pub loadable: Vec<String>,
+    /// 引擎自带的（`coding-tools`），不在仓库里，也没有 summary。
+    #[serde(default)]
+    pub builtin: Vec<String>,
+    /// 引擎启动路径上硬编码 `import` 的那三条。`uninstall` 会 403。
+    /// **会话级勾选不受这个限制** —— 这里不是卸载，是不带。
+    #[serde(default)]
+    pub defaults: Vec<String>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub protected: Vec<String>,
+    #[serde(default)]
+    pub catalog: Vec<Extension>,
+    #[serde(default)]
+    pub archived: Vec<ArchivedExtension>,
+    /// `{ "123": [{ id, key, dir, branch, installed, load: {state,error} }] }`
+    #[serde(default)]
+    pub variants: HashMap<String, Vec<ExtVariant>>,
+    /// 只用来显示「加载失败」的那几条：`{ "123": {state,error,version} }`。
+    #[serde(default)]
+    pub load: HashMap<String, ExtLoad>,
+    pub repo: Option<serde_json::Value>,
+    pub nameplates: Option<serde_json::Value>,
+    pub local: Option<serde_json::Value>,
+    pub live: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Extension {
+    pub name: String,
+    pub version: Option<String>,
+    pub summary: Option<String>,
+    /// 往系统提示词里塞哪几段。扩展真正的价值就在这儿。
+    #[serde(default)]
+    pub sections: Vec<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
+    /// 仓库里标了 `default` 的（`nous` / `skills` / `prompts`）。
+    #[serde(default, rename = "default")]
+    pub is_default: bool,
+    #[serde(default)]
+    pub tracked: bool,
+    pub file: Option<String>,
+    pub entry: Option<serde_json::Value>,
+    pub needs: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivedExtension {
+    pub name: String,
+    pub version: Option<String>,
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub category: Vec<String>,
+    pub archived_at: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtVariant {
+    pub id: Option<String>,
+    pub key: Option<String>,
+    pub dir: Option<String>,
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub unmerged: u32,
+    #[serde(default)]
+    pub installed: bool,
+    pub load: Option<ExtLoad>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtLoad {
+    pub state: Option<String>,
+    pub error: Option<String>,
+    pub version: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Skill {

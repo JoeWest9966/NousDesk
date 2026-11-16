@@ -447,6 +447,8 @@ pub(crate) enum PopKind {
     Skills,
     /// 模板这类单列：410。
     Narrow,
+    /// 扩展：左树（状态 + 类别）+ 右列表，跟技能一样要 620。
+    Ext,
     /// 目录：命令面板（左列表 + 右预览），600。
     Dir,
     /// 机器：460。
@@ -491,7 +493,7 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
         Some(slot) => {
             let n = node_rect(m, slot);
             let w = match kind {
-                PopKind::Skills => (m.w - 28.).min(620.),
+                PopKind::Skills | PopKind::Ext => (m.w - 28.).min(620.),
                 _ => 410.,
             };
             // 优先放右侧；右边不够（右上角那张卡就是这样）就翻到左边。
@@ -500,10 +502,21 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
             } else {
                 (n.x - gap - w).max(14.)
             };
-            Pop {
-                x,
-                w,
-                anchor: Anchor::Top(n.y),
+            // 竖向：先试「从卡片上沿往下长」；下半部分那两张卡（扩展在左下）
+            // 下面根本不够，就翻到卡片上方、向上长。不然只剩 150px 高。
+            let down = n.y;
+            if down + 320. > m.h - 24. && n.y > 300. {
+                Pop {
+                    x,
+                    w,
+                    anchor: Anchor::Bottom(m.h - n.y + gap),
+                }
+            } else {
+                Pop {
+                    x,
+                    w,
+                    anchor: Anchor::Top(down),
+                }
             }
         }
         None => {

@@ -11,7 +11,8 @@ use url::Url;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
-    Dirs, Entries, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile, PresetOp,
+    Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
+    PresetOp,
     PresetValidation, Presets, Prompts, ReadReceipt,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
@@ -112,6 +113,12 @@ impl EngineClient {
     }
 
     /// 会话能跑在哪几台机器上。`None` = 本机。
+    /// 扩展清单。五类东西混在一份响应里（见 [`Extensions`] 的注释）。
+    pub async fn extensions(&self) -> Result<Extensions, EngineError> {
+        let resp = self.http.get(self.url("v1/extensions")?).send().await?;
+        self.json(resp).await
+    }
+
     pub async fn machines(&self) -> Result<Machines, EngineError> {
         let resp = self.http.get(self.url("v1/machines")?).send().await?;
         self.json(resp).await
