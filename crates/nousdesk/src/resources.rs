@@ -24,6 +24,9 @@
 
 use std::rc::Rc;
 
+use gpui_kit::assets::IconName;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
@@ -134,15 +137,26 @@ pub(crate) struct ResourceState {
     exts: Option<Extensions>,
     /// 三个 tab 各自的类别筛选，切来切去能回到原来那一行。
     cat: [Option<String>; 3],
-    /// 三段各自的搜索词（纯 UI 字符串，不用 `InputState`：第一刀够用，也不跟左栏那个抢焦点）。
-    query: [String; 3],
+    /// 三段各自的搜索框。**各存一份**，切段时词还在（跟 `cat` 同款语义）。
+    /// 用 `InputState`（不是裸 String）才有中文输入法 / 剪贴板 / 一键清空 —— 这些是
+    /// 第一屏体验，跟左栏会话搜索同一套组件。
+    search: [Entity<InputState>; 3],
     selected: Option<Selected>,
     loading: bool,
     error: Option<String>,
 }
 
-impl Default for ResourceState {
-    fn default() -> Self {
+impl ResourceState {
+    /// 三个搜索框的订阅源，交给 `Desktop::new` 收进 `_subs`（只在那里拿得到 window）。
+    pub(crate) fn search_boxes(&self) -> &[Entity<InputState>; 3] {
+        &self.search
+    }
+
+    /// 必须拿到 `window` 才能建 `InputState`，所以不是 `Default`。
+    pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> Self {
+        let mut box_for = |ph: &'static str| {
+            cx.new(|cx| InputState::new(window, cx).placeholder(ph))
+        };
         Self {
             section: Section::default(),
             content: Content::default(),
@@ -150,15 +164,18 @@ impl Default for ResourceState {
             prompts: None,
             exts: None,
             cat: [None, None, None],
-            query: [String::new(), String::new(), String::new()],
+            search: [
+                box_for("搜技能：名字 / 描述"),
+                box_for("搜提示词：名字 / 摘要"),
+                box_for("搜扩展：名字 / 摘要"),
+            ],
             selected: None,
             loading: false,
             error: None,
         }
     }
-}
 
-impl ResourceState {
+
     fn slot(&self) -> usize {
         match self.section {
             Section::Extensions => 2,
@@ -414,15 +431,6 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn resource_query(&mut self, q: String, cx: &mut Context<Self>) {
-        let slot = self.resources.slot();
-        if self.resources.query[slot] == q {
-            return;
-        }
-        self.resources.query[slot] = q;
-        cx.notify();
-    }
-
     pub(crate) fn resource_select(&mut self, sel: Selected, cx: &mut Context<Self>) {
         self.resources.selected = Some(sel);
         cx.notify();
@@ -644,7 +652,8 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     let r = &desk.resources;
     let slot = r.slot();
     let cat = r.cat[slot].as_deref();
-    let q = &r.query[slot];
+    // 搜索词的唯一真相是这个 `InputState`，跟左栏会话搜索一个套路 —— 不再另存一份。
+    let q = r.search[slot].read(cx).value().trim().to_string();
 
     let mut list = div()
         .w(t().d(crate::app::TEMPLATE_LIST_W))
@@ -655,36 +664,32 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         .border_color(rgb(line_color()))
         .bg(rgb(t().p.panel));
 
-    // 搜索框：单行 InputState 本来就挂在 Desktop 上，但那是会话搜索 ——
-    // 第一刀用一个纯文本展示 + 键盘输入太重，先给「搜索：{词}」的提示行，
-    // 真正的输入在第二刀接（跟 `composer` 的工具行一样，先把骨架立住）。
+    // 搜索框：三段各一份，切段时词还在。suffix 写命中数（空词写总数），
+    // 跟左栏会话搜索同一个样式 —— 一行省下来就是列表的 20px。
+    let total = match r.section {
+        Section::Content => match r.content {
+            Content::Skills => r.skills.as_ref().map(|s| s.skills.iter().filter(|x| !x.hidden).count()).unwrap_or(0),
+            Content::Prompts => r.prompts.as_ref().map(|p| p.prompts.len()).unwrap_or(0),
+        },
+        Section::Extensions => r.exts.as_ref().map(|e| e.catalog.len()).unwrap_or(0),
+    };
     list = list.child(
         div()
-            .px(t().d(12.))
-            .pt(t().d(12.))
+            .px(t().d(10.))
+            .pt(t().d(10.))
             .pb(t().d(8.))
-            .flex()
-            .justify_between()
             .child(
-                div()
-                    .text_size(t().fs(12.))
-                    .text_color(rgb(text_color()))
-                    .child(match r.section {
-                        Section::Content => r.content.label(),
-                        Section::Extensions => "扩展",
-                    }),
-            )
-            .child(
-                div()
-                    .text_size(t().fs(11.))
-                    .text_color(rgb(muted()))
-                    .child(format!("{} 条", match r.section {
-                        Section::Content => match r.content {
-                            Content::Skills => r.skills.as_ref().map(|s| s.skills.iter().filter(|x| !x.hidden).count()).unwrap_or(0),
-                            Content::Prompts => r.prompts.as_ref().map(|p| p.prompts.len()).unwrap_or(0),
-                        },
-                        Section::Extensions => r.exts.as_ref().map(|e| e.catalog.len()).unwrap_or(0),
-                    })),
+                Input::new(&r.search[slot])
+                    .small()
+                    .cleanable(true)
+                    .prefix(Icon::new(IconName::Search).text_color(rgb(t().p.faint)).size(t().d(14.)))
+                    .suffix(
+                        div()
+                            .flex_none()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(muted()))
+                            .child(format!("{total}")),
+                    ),
             ),
     );
 
@@ -723,7 +728,7 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                             ));
                         }
                     } else {
-                        for s in visible_skills(skills, cat, q) {
+                        for s in visible_skills(skills, cat, &q) {
                             let bad = !s.loadable();
                             let chip = if bad { "加载失败" } else if s.tracked { "" } else { "未提交" };
                             body = body.child(row_btn(
@@ -744,7 +749,7 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             }
             Content::Prompts => {
                 if let Some(prompts) = r.prompts.as_ref() {
-                    for p in visible_prompts(prompts, cat, q) {
+                    for p in visible_prompts(prompts, cat, &q) {
                         let is_default = prompts.default.as_deref() == Some(p.name.as_str());
                         let chip = if is_default { "默认" } else if p.loadable() { "" } else { "加载失败" };
                         body = body.child(row_btn(
@@ -765,7 +770,7 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         },
         Section::Extensions => {
             if let Some(exts) = r.exts.as_ref() {
-                for row in ext_rows(exts, cat, q) {
+                for row in ext_rows(exts, cat, &q) {
                     body = body.child(row_btn(
                         &row.name,
                         row.summary.as_deref().unwrap_or(""),

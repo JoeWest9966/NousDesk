@@ -505,6 +505,8 @@ impl Desktop {
         });
         // 「重命名会话」那个对话框里的输入框。复用一份，打开时把当前名字塞进去。
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("会话名字"));
+        // 资源页三段各自的搜索框（详见 resources.rs）。
+        let resources = crate::resources::ResourceState::new(window, cx);
 
         // 配置在这里同步读掉：设置页要立刻显示 host / board，不能等 tokio。
         // 读坏了也先拿默认值把窗口支起来，错误交给 connect() 报。
@@ -570,6 +572,22 @@ impl Desktop {
                     if matches!(event, InputEvent::Change) {
                         cx.notify();
                     }
+                }
+            }),
+            // 资源页三段搜索框：纯本地过滤，敲一个字重排一次（不发请求）。
+            cx.subscribe_in(&resources.search_boxes()[0], window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) { cx.notify(); }
+                }
+            }),
+            cx.subscribe_in(&resources.search_boxes()[1], window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) { cx.notify(); }
+                }
+            }),
+            cx.subscribe_in(&resources.search_boxes()[2], window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) { cx.notify(); }
                 }
             }),
             cx.subscribe_in(&rename_input, window, {
@@ -991,7 +1009,7 @@ impl Desktop {
             archive_open: false,
             archive: crate::archive_page::ArchivePageState::new(),
             console: crate::data_console::ConsoleState::new(),
-            resources: crate::resources::ResourceState::default(),
+            resources,
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
             rename_box: crate::rename_box::RenameBox::new(),
             rename_input, // 上面 `cx.new` 建好的那个

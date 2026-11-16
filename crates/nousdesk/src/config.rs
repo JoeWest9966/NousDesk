@@ -134,6 +134,54 @@ impl Config {
     }
 }
 
+/// 验证实例的日志文件名。
+///
+/// 默认 `desktop.log` —— 发布版一个字都不变。**只有**显式设了 `NOUS_INSTANCE`
+/// 才换成 `desktop-<id>.log`（轮转也带 id）。并行开发时每人一个实例、一份日志：
+/// 别的会话按进程名清理不会误杀（那靠二进制改名，见 `坑.md 83`），日志也不会
+/// 几个实例互相追加、查不出哪行是谁写的。
+///
+/// id 只取 `[A-Za-z0-9_-]`，别的字符一律换成 `-`：它要进文件名，别让 env 里的
+/// 空格 / 斜杠 / 点把路径搞坏（`../` 那种更不能进）。空 id 当成没设。
+pub fn log_file_name() -> &'static str {
+    // env 只读一次：日志路径在进程启动时定下来，运行中不该变。
+    // 缓存 &'static str 是为了给 open_log_file 省掉一次分配和生命周期参数。
+    use std::sync::OnceLock;
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| {
+        log_file_name_for(std::env::var("NOUS_INSTANCE").ok().as_deref())
+    })
+    .as_str()
+}
+
+/// 纯函数：给定原始 id，算出日志文件名。单独拎出来是为了能直接测，不碰 env。
+///
+/// id 只取 `[A-Za-z0-9_-]`，别的字符一律换成 `-`：它要进文件名，别让 env 里的
+/// 空格 / 斜杠 / 点把路径搞坏（`../` 那种更不能进）。空 / 没有 → `desktop.log`。
+fn log_file_name_for(raw: Option<&str>) -> String {
+    match raw {
+        Some(id) if !id.is_empty() => {
+            let clean: String = id
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            format!("desktop-{clean}.log")
+        }
+        _ => "desktop.log".to_string(),
+    }
+}
+
+/// 轮转名：`desktop.log` → `desktop.log.1`；`desktop-x.log` → `desktop-x.log.1`。
+pub fn log_rotated_name() -> String {
+    format!("{}.1", log_file_name())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +278,29 @@ mod tests {
             std::env::remove_var("APPDATA");
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn 默认日志名还是_desktop_log() {
+        assert_eq!(super::log_file_name_for(None), "desktop.log");
+        assert_eq!(super::log_file_name_for(Some("")), "desktop.log");
+    }
+
+    #[test]
+    fn 有实例_id_时日志各写各的() {
+        assert_eq!(super::log_file_name_for(Some("a")), "desktop-a.log");
+        assert_eq!(super::log_file_name_for(Some("verify-1")), "desktop-verify-1.log");
+        assert_ne!(
+            super::log_file_name_for(Some("a")),
+            super::log_file_name_for(Some("b"))
+        );
+    }
+
+    #[test]
+    fn 实例_id_里的路径字符全被换成横线() {
+        // `../` 那种不能进文件名，不然实例能把日志写到别的目录去
+        assert_eq!(super::log_file_name_for(Some("../evil")), "desktop----evil.log");
+        assert_eq!(super::log_file_name_for(Some("a/b c")), "desktop-a-b-c.log");
+        assert_eq!(super::log_file_name_for(Some("a.b")), "desktop-a-b.log");
     }
 }
