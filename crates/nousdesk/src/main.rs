@@ -37,6 +37,7 @@ mod rename_box;
 mod search;
 mod session_nav;
 mod settings;
+mod sound;
 mod slash;
 mod templates;
 mod templates_graph;

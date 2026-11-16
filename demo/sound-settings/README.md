@@ -3,6 +3,11 @@
 双击 `preview.html`（单文件，字体已内嵌，205 KB，不需要起 server）。
 `index.html` + `fonts.css` 是改的那份：改完跑 `python3 build-preview.py` 重新生成 `preview.html`。
 
+**已落地（2026-11-16）**：版面 **02 + 音色 B**，代码在 `crates/nousdesk/src/sound.rs`
+和 `settings.rs::sound_pane`。落地后的真实截图见 `实现-设置页.png` —— 和本页 02 的差别只有两处：
+「操作失败」并进了「生成出错」（同一个红条、同一个音），音色不做三选一（只落一套）。
+为什么这么定写在 `decisions.md` 2026-11-16 那条。
+
 ## 这一版在定什么
 
 不是"加不加声音"，是**这十几个开关怎么摆**，以及**提示音什么性格**。

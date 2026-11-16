@@ -337,6 +337,9 @@ pub struct Desktop {
     /// 这里留一份只是给设置页判断「哪张卡片在选中态」用。
     /// **渲染层不读这个字段**，一律 `crate::theme::cur()` 取帧内快照。
     pub(crate) theme_name: crate::theme::ThemeName,
+    /// 声音偏好（`sound.toml`）。**这里是唯一的内存副本**：每次改动先落盘再改它。
+    /// 渲染层不直接读它做判断 —— 判断在 `sound::chime` 里，这条只是给设置页画开关。
+    pub(crate) sound: crate::sound::Prefs,
     /// 设置页底部的一行反馈：文案 + 是不是错。
     pub(crate) settings_msg: Option<(String, bool)>,
     /// 归档库页开着没有（右栏整页）。优先级：设置 > 归档库 > New Manual > 聊天。
@@ -944,6 +947,7 @@ impl Desktop {
             auto_editor: open_at_start == "editor",
             settings_tab: crate::settings::SettingsTab::Connection,
             theme_name: crate::theme::ThemeName::load(),
+            sound: crate::sound::Prefs::load(),
             settings_msg: None,
             archive_open: false,
             archive: crate::archive_page::ArchivePageState::new(),
@@ -2031,6 +2035,8 @@ impl Desktop {
         self.streaming = true;
         self.turn_error = None;
         self.user_stopped = false;
+        // 回执**不看焦点**：手刚离开回车，响的读就是这一刻。默认开（`sound.toml` 可关）。
+        crate::sound::chime(self.sound, crate::sound::Cue::Send, true);
         cx.notify();
 
         let live = self.live_state.clone();
@@ -2158,6 +2164,12 @@ impl Desktop {
                                             "30 秒没有任何输出"
                                         };
                                         log::warn!("{why}，判定本轮失败");
+                                        // 你看着屏幕时，红条自己会跳出来；不看着才需要声音。
+                                        crate::sound::chime(
+                                            this.sound,
+                                            crate::sound::Cue::Error,
+                                            !this.focused,
+                                        );
                                         this.turn_error = Some(format!("{why}，可以重试"));
                                     }
                                     cx.notify();
@@ -2177,6 +2189,11 @@ impl Desktop {
                                 log::info!("停止后流断开，按预期忽略：{err}");
                             } else {
                                 log::warn!("生成失败：{err}");
+                                crate::sound::chime(
+                                    this.sound,
+                                    crate::sound::Cue::Error,
+                                    !this.focused,
+                                );
                                 this.turn_error = Some(err);
                             }
                             cx.notify();
@@ -2193,6 +2210,13 @@ impl Desktop {
                         this.scroll.scroll_to_bottom();
                         if drained.done {
                             // 一轮结束：交出去，历史以引擎为准重拉一遍。流不关，继续等下一轮。
+                            // **只在窗口不在前台时响**：正看着它跑完，视觉反馈已经够了；
+                            // 而"发出去、切去干活、回来看见跑完了"正是这一声的全部意义。
+                            crate::sound::chime(
+                                this.sound,
+                                crate::sound::Cue::Done,
+                                !this.focused,
+                            );
                             this.streaming = false;
                             idle_snapshot = false;
                             reload = true;
@@ -2232,6 +2256,7 @@ impl Desktop {
         }
         self.streaming = false;
         self.user_stopped = true;
+        crate::sound::chime(self.sound, crate::sound::Cue::Stop, true);
         cx.notify();
 
         cx.spawn(async move |this, cx| {
