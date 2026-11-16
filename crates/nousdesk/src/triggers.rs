@@ -897,7 +897,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!("Nous-Trigger · {branch} · {head}")),
                     ),
             )
@@ -1075,14 +1075,14 @@ impl Desktop {
                         .child(
                             div()
                                 .text_size(t().fs(12.))
-                                .text_color(rgb(if count == 0 { t().p.faint } else { t().p.text_2 }))
+                                .text_color(rgb(if count == 0 { t().p.muted } else { t().p.text_2 }))
                                 .child(label.to_string()),
                         )
                         .child(div().flex_1())
                         .child(
                             div()
                                 .text_size(t().fs(10.))
-                                .text_color(rgb(t().p.faint))
+                                .text_color(rgb(t().p.muted))
                                 .child(count.to_string()),
                         )
                         .into_any_element(),
@@ -1112,7 +1112,7 @@ impl Desktop {
                 .child(
                     Icon::new(IconName::Archive)
                         .size(t().d(13.))
-                        .text_color(rgb(t().p.faint)),
+                        .text_color(rgb(t().p.muted)),
                 )
                 .child(
                     div()
@@ -1125,7 +1125,7 @@ impl Desktop {
                 .child(
                     div()
                         .text_size(t().fs(10.))
-                        .text_color(rgb(t().p.faint))
+                        .text_color(rgb(t().p.muted))
                         .child(archived.to_string()),
                 )
                 .into_any_element(),
@@ -1150,14 +1150,14 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child("类别"),
                     )
                     .child(div().flex_1())
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!("{}", counts.len())),
                     ),
             )
@@ -1175,7 +1175,7 @@ impl Desktop {
                     .border_t(t().d(1.))
                     .border_color(rgb(t().p.line_soft))
                     .text_size(t().fs(9.5))
-                    .text_color(rgb(t().p.faint))
+                    .text_color(rgb(t().p.muted))
                     .child("/opt/Nous-Trigger\nindex.mjs 扫出来的"),
             )
             .into_any_element()
@@ -1219,7 +1219,7 @@ impl Desktop {
             .child(
                 div()
                     .text_size(t().fs(10.))
-                    .text_color(rgb(t().p.faint))
+                    .text_color(rgb(t().p.muted))
                     .child(count.to_string()),
             )
             .into_any_element()
@@ -1335,7 +1335,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(n.to_string()),
                     )
                     .into_any_element(),
@@ -1373,14 +1373,14 @@ impl Desktop {
             .child(
                 div()
                     .text_size(t().fs(10.5))
-                    .text_color(rgb(t().p.faint))
+                    .text_color(rgb(t().p.muted))
                     .child(format!("{n} 个 · 按最近改动")),
             )
             .child(div().flex_1())
             .child(
                 div()
                     .text_size(t().fs(10.5))
-                    .text_color(rgb(t().p.faint))
+                    .text_color(rgb(t().p.muted))
                     .child("保存 ≠ 发布"),
             )
             .into_any_element()
@@ -1470,7 +1470,7 @@ impl Desktop {
             .border_color(rgb(if label == "清单坏了" { t().p.danger } else { t().p.line }))
             .bg(rgb(t().p.panel))
             .cursor_pointer()
-            .hover(|h| h.border_color(rgb(t().p.faint)))
+            .hover(|h| h.border_color(rgb(t().p.muted)))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.select_trigger(&name.clone(), cx);
             }))
@@ -1504,8 +1504,8 @@ impl Desktop {
                             )
                             .child(
                                 div()
-                                    .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(t().p.text_2))
                                     .child(format!("v{}", item.version)),
                             ),
                     )
@@ -1554,9 +1554,9 @@ impl Desktop {
                             .flex()
                             .items_center()
                             .rounded(t().r(4.))
-                            .bg(rgb(t().p.surface))
+                            .bg(rgb(t().p.line_soft))
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.muted))
+                            .text_color(rgb(t().p.text_2))
                             .child(c.clone())
                     })),
             )
@@ -1570,14 +1570,14 @@ impl Desktop {
                     .pt(t().d(10.))
                     .child(
                         div()
-                            .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.text_2))
                             .child(format!("{params} 参数")),
                     )
                     .child(div().flex_1())
                     .children((dirty > 0).then(|| {
                         div()
-                            .text_size(t().fs(9.5))
+                            .text_size(t().fs(10.))
                             .text_color(rgb(t().p.warn))
                             .child(format!("{dirty} 个文件"))
                     })),
@@ -1668,7 +1668,7 @@ impl Desktop {
                             .child(
                                 div()
                                     .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child(format!("v{}", row.version.clone().unwrap_or_default())),
                             ),
                     )
@@ -1683,7 +1683,7 @@ impl Desktop {
                         div()
                             .mt(t().d(4.))
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!(
                                 "{} · 归档于 {}",
                                 row.category.join(" / "),
@@ -1755,7 +1755,7 @@ impl Desktop {
             .left(t().d(214.))
             .right_0()
             .bottom_0()
-            .bg(rgba(0x00000028))
+            .bg(rgba(t().p.scrim))
             .into_any_element()
     }
 
@@ -1823,7 +1823,7 @@ impl Desktop {
                                         div()
                                             .mt(t().d(3.))
                                             .text_size(t().fs(10.5))
-                                            .text_color(rgb(t().p.faint))
+                                            .text_color(rgb(t().p.muted))
                                             .child(format!(
                                                 "v{} · {} · 产物 {}",
                                                 item.version,
@@ -2037,7 +2037,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(p.kind.clone()),
                     )
                     .children(p.required.then(|| {
@@ -2056,7 +2056,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(p.title().to_string()),
                     ),
             )
@@ -2072,12 +2072,22 @@ impl Desktop {
 }
 
 fn tile_color(name: &str) -> u32 {
-    const PALETTE: [u32; 6] = [0x1f6f5c, 0x4b5d7a, 0x7a5b32, 0x6b4b6f, 0x3f6b7a, 0x7a4b4b];
+    // 浅色皮用深色头像，深色皮必须提亮 —— 否则 mono / amber 下头像是一团黑。
+    const LIGHT: [u32; 6] = [0x1f6f5c, 0x4b5d7a, 0x7a5b32, 0x6b4b6f, 0x3f6b7a, 0x7a4b4b];
+    const DARK: [u32; 6] = [0x3a9a82, 0x7189b0, 0xa8874f, 0x95739a, 0x5f97a8, 0xa86f6f];
     let mut h: u32 = 0;
     for ch in name.chars() {
         h = h.wrapping_mul(31).wrapping_add(ch as u32);
     }
-    PALETTE[(h as usize) % PALETTE.len()]
+    let palette = if is_dark(t().p.panel) { &DARK } else { &LIGHT };
+    palette[(h as usize) % palette.len()]
+}
+
+fn is_dark(color: u32) -> bool {
+    let r = (color >> 16) & 0xff;
+    let g = (color >> 8) & 0xff;
+    let b = color & 0xff;
+    (r * 299 + g * 587 + b * 114) / 1000 < 128
 }
 
 fn detail_section(title: &str, body: AnyElement) -> AnyElement {
@@ -2091,8 +2101,8 @@ fn detail_section(title: &str, body: AnyElement) -> AnyElement {
         .child(
             div()
                 .mb(t().d(8.))
-                .text_size(t().fs(9.5))
-                .text_color(rgb(t().p.faint))
+                .text_size(t().fs(10.))
+                .text_color(rgb(t().p.text_2))
                 .child(title.to_string()),
         )
         .child(body)
@@ -2111,7 +2121,7 @@ fn kv(key: &str, value: String) -> AnyElement {
                 .w(t().d(78.))
                 .flex_none()
                 .text_size(t().fs(10.5))
-                .text_color(rgb(t().p.faint))
+                .text_color(rgb(t().p.muted))
                 .child(key.to_string()),
         )
         .child(
@@ -2150,7 +2160,7 @@ impl Desktop {
                     .child(
                         Icon::new(IconName::File)
                             .size(t().d(11.))
-                            .text_color(rgb(t().p.faint)),
+                            .text_color(rgb(t().p.muted)),
                     )
                     .child(
                         div()
@@ -2162,7 +2172,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!("{} B", f.size)),
                     )
                     .into_any_element()
@@ -2255,7 +2265,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!(
                                 "{} / {}",
                                 code.name.clone().unwrap_or_default(),
@@ -2266,7 +2276,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child("保存只落盘 · 发布才 commit + push"),
                     )
                     .child(
@@ -2372,7 +2382,7 @@ impl Desktop {
                                     .px(t().d(6.))
                                     .py(t().d(4.))
                                     .text_size(t().fs(9.))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child("文件"),
                             )
                             .child(
@@ -2466,7 +2476,7 @@ impl Desktop {
                     .flex()
                     .flex_row()
                     .min_h(t().d(19.))
-                    .when(added, |el| el.bg(rgb(0xedf9f0)))
+                    .when(added, |el| el.bg(rgb(t().p.accent_soft)))
                     .child(
                         div()
                             .w(t().d(38.))
@@ -2474,7 +2484,7 @@ impl Desktop {
                             .pr(t().d(9.))
                             .text_right()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!("{}", i + 1)),
                     )
                     .child(
@@ -2525,7 +2535,7 @@ impl Desktop {
                             .w(t().d(16.))
                             .flex_none()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(if done { t().p.accent_fg } else { t().p.faint }))
+                            .text_color(rgb(if done { t().p.accent_fg } else { t().p.muted }))
                             .child(format!("{:02}", i + 1)),
                     )
                     .child(
@@ -2543,7 +2553,7 @@ impl Desktop {
                                 div()
                                     .mt(t().d(2.))
                                     .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child(match *label {
                                         "cargo check" => "编不过就不提交",
                                         "cargo build" => "产物落 target/debug",
@@ -2556,7 +2566,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(if done { t().p.accent_fg } else { t().p.faint }))
+                            .text_color(rgb(if done { t().p.accent_fg } else { t().p.muted }))
                             .child(if busy { "跑…".to_string() } else if done { "通过".to_string() } else { "待".to_string() }),
                     )
                     .into_any_element()
@@ -2614,14 +2624,14 @@ impl Desktop {
                                     .child(
                                         div()
                                             .text_size(t().fs(9.5))
-                                            .text_color(rgb(t().p.faint))
+                                            .text_color(rgb(t().p.muted))
                                             .child("流水线"),
                                     )
                                     .child(div().flex_1())
                                     .child(
                                         div()
                                             .text_size(t().fs(9.5))
-                                            .text_color(rgb(t().p.faint))
+                                            .text_color(rgb(t().p.muted))
                                             .child(if busy {
                                                 "发布中…".to_string()
                                             } else if let Some(p) = &publish {
@@ -2646,7 +2656,7 @@ impl Desktop {
                                 div()
                                     .mb(t().d(8.))
                                     .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child("参数声明"),
                             )
                             .children(item.as_ref().map(|it| {
@@ -2667,7 +2677,7 @@ impl Desktop {
                                 div()
                                     .mb(t().d(6.))
                                     .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child("结果"),
                             )
                             .children(err.as_ref().map(|e| {
@@ -2779,7 +2789,7 @@ impl Desktop {
                             } else if done {
                                 t().p.accent_fg
                             } else {
-                                t().p.faint
+                                t().p.muted
                             }))
                             .child(if done { "✓".to_string() } else { format!("{n:02}") }),
                     )
@@ -2846,7 +2856,7 @@ impl Desktop {
                     div()
                         .mt(t().d(8.))
                         .text_size(t().fs(10.))
-                        .text_color(rgb(t().p.faint))
+                        .text_color(rgb(t().p.muted))
                         .child("建完会写进 nous.json 的 params；写坏了可以在代码层改。"),
                 )
                 .into_any_element(),
@@ -3046,7 +3056,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(match step {
                                 1 => "身份 · 下一步填参数".to_string(),
                                 2 => "参数声明 · 下一步看骨架".to_string(),
@@ -3162,7 +3172,7 @@ impl Desktop {
             .left_0()
             .right_0()
             .bottom_0()
-            .bg(rgba(0x00000046))
+            .bg(rgba(t().p.scrim))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.triggers.confirm.open = false;
                 cx.notify();
@@ -3318,7 +3328,7 @@ fn wizard_field(label: &str, hint: &str, body: AnyElement) -> AnyElement {
                 .child(
                     div()
                         .text_size(t().fs(9.5))
-                        .text_color(rgb(t().p.faint))
+                        .text_color(rgb(t().p.muted))
                         .child(hint.to_string()),
                 ),
         )
@@ -3342,7 +3352,7 @@ fn code_block(text: &str) -> AnyElement {
                         .pr(t().d(9.))
                         .text_right()
                         .text_size(t().fs(9.5))
-                        .text_color(rgb(t().p.faint))
+                        .text_color(rgb(t().p.muted))
                         .child(format!("{}", i + 1)),
                 )
                 .child(
