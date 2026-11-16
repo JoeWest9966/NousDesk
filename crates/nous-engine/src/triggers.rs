@@ -120,6 +120,17 @@ pub struct TriggerList {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// 改类别 / 改词表都回这一份：新的清单 + 新的类别树。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TriggerCatalog {
+    #[serde(default)]
+    pub catalog: Vec<TriggerItem>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TriggerFileMeta {
@@ -350,6 +361,40 @@ impl TriggerClient {
             .http
             .post(self.url("v1/triggers/purge")?)
             .json(&NameBody { name })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 把某个触发器挂到这几类下面（顺手把新类别写进词表）。
+    pub async fn set_category(
+        &self,
+        name: &str,
+        category: &[String],
+    ) -> Result<TriggerCatalog, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/category")?)
+            .json(&serde_json::json!({ "name": name, "category": category }))
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 词表增改删：`op` = `add` / `rename` / `remove`。
+    ///
+    /// `rename` / `remove` 会重写每个触发器 `nous.json` 的 `category`（子类一起搬 / 一起摘），
+    /// 但**不提交 git** —— 提交要显式调 [`sync`](Self::sync)。
+    pub async fn edit_vocab(
+        &self,
+        op: &str,
+        name: &str,
+        to: Option<&str>,
+    ) -> Result<TriggerCatalog, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/categories")?)
+            .json(&serde_json::json!({ "op": op, "name": name, "to": to }))
             .send()
             .await?;
         self.json(resp).await
