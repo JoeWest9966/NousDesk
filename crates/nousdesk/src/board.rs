@@ -132,6 +132,10 @@ pub(crate) struct NewChat {
     /// 这次会话带哪些扩展。初始 = `loadable`（这台装上且能加载的）。
     picked_exts: BTreeSet<String>,
 
+    /// 只读 = 不给会写的工具（引擎侧摘 `WRITE_TOOLS`）。别的都一样：读文件、查目录、
+    /// 回答问题全在。默认 `false` —— 开盘面是为了干活，不是先锁上再说。
+    read_only: bool,
+
     pub(crate) sheet: Option<Sheet>,
     sheet_scroll: ScrollHandle,
     creating: bool,
@@ -185,6 +189,7 @@ impl NewChat {
             ext_query,
             ext_cat: None,
             picked_exts: BTreeSet::new(),
+            read_only: false,
             sheet: None,
             sheet_scroll: ScrollHandle::new(),
             creating: false,
@@ -666,6 +671,9 @@ impl Desktop {
             }),
             cwd: self.newchat.dir.clone(),
             machine: self.newchat.machine.clone(),
+            // **总是发**：`false` 也是有效值（= 明确可写）。服务端默认虽然也是可写，
+            // 但让客户端自己声明一遍，省得哪天默认值改了这边跟着变。
+            read_only: Some(self.newchat.read_only),
             ..Default::default()
         };
 
@@ -797,18 +805,7 @@ impl Desktop {
             ))
             .child(self.board_context(&m, cx))
             .child(self.board_ext(&m, cx))
-            .child(self.board_card(
-                &m,
-                art::Slot::Perms,
-                "board-perms",
-                "PERMISSIONS",
-                "Permissions",
-                "—".into(),
-                "soon",
-                false,
-                cx,
-                |_, _| {},
-            ))
+            .child(self.board_perms(&m, cx))
             .child(self.board_feet(&m, cx))
             .children(self.board_status(&m));
 
@@ -1179,6 +1176,87 @@ impl Desktop {
             .into_any_element()
     }
 
+    /// Permissions 那张卡：一个二值开关，**不弹层**。
+    ///
+    /// 引擎里没有「权限」这个概念（`/v1/permissions` 是 404），只有 `readOnly` ——
+    /// 它做的事是把这个会话会写的工具摘掉。所以卡上要说的就一件事：这次能不能动东西。
+    /// 两个选项不值当开一个弹层，整张卡就是那个开关。
+    fn board_perms(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let ro = self.newchat.read_only;
+        let r = art::node_rect(&m, art::Slot::Perms);
+        div()
+            .id(ElementId::Name("board-perms".into()))
+            .absolute()
+            .left(px(r.x))
+            .top(px(r.y))
+            .w(px(r.w))
+            .h(px(r.h))
+            .flex()
+            .flex_col()
+            .gap(m.v(0.25))
+            .px(m.v(1.1))
+            .py(m.v(0.85))
+            .bg(rgb(art::panel()))
+            .border_1()
+            .border_color(rgb(art::border()))
+            .rounded(t().r(10.))
+            .hover(|s| s.border_color(rgb(art::line())))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.newchat.read_only = !this.newchat.read_only;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .font_family(art::mono())
+                    .text_size(m.f(1.05, 8., 10.))
+                    .text_color(rgb(art::faint()))
+                    .child("PERMISSIONS"),
+            )
+            .child(
+                div()
+                    .text_size(m.f(1.6, 11., 14.))
+                    .font_weight(FontWeight::BOLD)
+                    .child("Permissions"),
+            )
+            .child(
+                div()
+                    .mt(m.v(0.45))
+                    .font_family(art::mono())
+                    .text_size(m.f(1.3, 10., 12.))
+                    .text_color(rgb(art::fg()))
+                    .child(if ro { "只读" } else { "可写" }),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(m.v(0.6))
+                    .child(
+                        div()
+                            .min_w(t().d(0.))
+                            .text_size(m.f(1.15, 8.5, 10.5))
+                            .text_color(rgb(art::faint()))
+                            .truncate()
+                            .child(if ro {
+                                "只能读，改不了东西"
+                            } else {
+                                "能改文件、能跑命令"
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(m.f(1.15, 8.5, 10.5))
+                            .text_color(rgb(art::muted()))
+                            .child("切换 ›"),
+                    ),
+            )
+            .into_any_element()
+    }
+
     /// Context 那张卡：里面是**两个**可点子块 —— 技能是集合（多选），
     /// 模板是单值（单选），塞进一个按钮里会让人以为它们一样。
     fn board_context(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
@@ -1187,6 +1265,14 @@ impl Desktop {
         let r = art::node_rect(&m, art::Slot::Context);
         let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
         let prompt = b.template.clone().unwrap_or_else(|| "none".into());
+        let pickable = b.ext_pickable();
+        let picked = pickable.iter().filter(|n| b.picked_exts.contains(*n)).count();
+        let broken = b.ext_broken();
+        let ext = if broken > 0 {
+            format!("{picked}/{} · {broken} 坏", pickable.len())
+        } else {
+            format!("{picked}/{}", pickable.len())
+        };
         let prompt_summary = b.template.as_ref().and_then(|name| {
             b.prompt_list().into_iter().find(|p| &p.name == name).and_then(|p| {
                 // `summary` 是模板仓库自己写的中文一句话；`description` 常常是
@@ -1387,6 +1473,14 @@ impl Desktop {
         let model = b.picked_label().unwrap_or_else(|| "—".into());
         let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
         let prompt = b.template.clone().unwrap_or_else(|| "none".into());
+        let pickable = b.ext_pickable();
+        let picked = pickable.iter().filter(|n| b.picked_exts.contains(*n)).count();
+        let broken = b.ext_broken();
+        let ext = if broken > 0 {
+            format!("{picked}/{} · {broken} 坏", pickable.len())
+        } else {
+            format!("{picked}/{}", pickable.len())
+        };
 
         let pill = |id: &'static str, text: String, sheet: Sheet, cx: &mut Context<Self>| {
             div()
@@ -1406,7 +1500,14 @@ impl Desktop {
                 .child(text)
         };
 
-        let row = |id: &'static str, k: &'static str, title: &'static str, value: String, sheet: Option<Sheet>, cx: &mut Context<Self>| {
+        #[allow(clippy::too_many_arguments)]
+        let row = |id: &'static str,
+                   k: &'static str,
+                   title: &'static str,
+                   value: String,
+                   sheet: Option<Sheet>,
+                   toggle: bool,
+                   cx: &mut Context<Self>| {
             let mut el = div()
                 .id(ElementId::Name(id.into()))
                 .w_full()
@@ -1417,7 +1518,7 @@ impl Desktop {
                 .border_1()
                 .border_color(rgb(art::border()))
                 .rounded(t().r(9.))
-                .when(sheet.is_some(), |el| {
+                .when(sheet.is_some() || toggle, |el| {
                     el.hover(|s| s.border_color(rgb(art::line())))
                 })
                 .child(
@@ -1443,7 +1544,13 @@ impl Desktop {
                         .truncate()
                         .child(value),
                 );
-            if let Some(sh) = sheet {
+            if toggle {
+                // 竖排档跟宽档同一个语义：整行就是那个开关，不开弹层。
+                el = el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.newchat.read_only = !this.newchat.read_only;
+                    cx.notify();
+                }));
+            } else if let Some(sh) = sheet {
                 el = el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.newchat.sheet = Some(sh);
                     cx.notify();
@@ -1521,6 +1628,7 @@ impl Desktop {
                 "Model",
                 model,
                 Some(Sheet::Model),
+                false,
                 cx,
             ))
             .child(row(
@@ -1529,10 +1637,19 @@ impl Desktop {
                 "Skills · Prompt",
                 format!("{skills} · {prompt}"),
                 Some(Sheet::Skills),
+                false,
                 cx,
             ))
-            .child(row("stk-ext", "EXTENSIONS", "Extensions", "none".into(), None, cx))
-            .child(row("stk-perm", "PERMISSIONS", "Permissions", "—".into(), None, cx))
+            .child(row("stk-ext", "EXTENSIONS", "Extensions", ext, Some(Sheet::Ext), false, cx))
+            .child(row(
+                "stk-perm",
+                "PERMISSIONS",
+                "Permissions",
+                if b.read_only { "只读" } else { "可写" }.into(),
+                None,
+                true,
+                cx,
+            ))
             // 状态行放最底下：竖排档顶部已经够挤，它在那儿会被输入框压住。
             .child(
                 div()
