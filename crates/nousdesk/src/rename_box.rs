@@ -92,13 +92,6 @@ impl RenameBox {
         self.pending.is_some()
     }
 
-    /// 正在改的那一条 `(id, 原名)`。调用方拿原名去填输入框的初值。
-    pub fn target(&self) -> Option<(i64, &str)> {
-        self.pending
-            .as_ref()
-            .map(|(id, name)| (*id, name.as_str()))
-    }
-
     /// Esc：只关，不产出动作。
     pub fn on_esc(&mut self) -> Submit {
         self.dismiss()
@@ -284,7 +277,7 @@ mod tests {
     fn 提交带出去的_id_是刚才请求的那一条() {
         let mut b = RenameBox::new();
         b.request(7, "旧名");
-        assert_eq!(b.target(), Some((7, "旧名")), "原名要给输入框当初值");
+        assert_eq!(b.take_fresh(), Some((7, "旧名".into())), "原名要给输入框当初值");
         assert_eq!(
             b.submit("  新名字  "),
             Submit::Go(RenameAction {
@@ -318,7 +311,7 @@ mod tests {
     fn 没开的时候提交不产出() {
         let mut b = RenameBox::new();
         assert_eq!(b.submit("新名字"), Submit::Nothing);
-        assert_eq!(b.target(), None);
+        assert_eq!(b.take_fresh(), None);
     }
 
     #[test]
@@ -326,6 +319,6 @@ mod tests {
         let mut b = RenameBox::new();
         b.request(1, "甲");
         b.request(2, "乙");
-        assert_eq!(b.target(), Some((2, "乙")), "弹层只代表最后点的那一条");
+        assert_eq!(b.take_fresh(), Some((2, "乙".into())), "弹层只代表最后点的那一条");
     }
 }

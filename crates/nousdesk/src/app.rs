@@ -588,6 +588,17 @@ impl Desktop {
                     app.stop_propagation();
                     return;
                 }
+                // 会话页「这个会话带什么」那四行：Tab 也要能走。它跟盘面共用一层 sheet，
+                // 但盘面没开着 —— 所以是另一套停靠点（`SessRow`），不是 `board_key` 那条。
+                // 插在这里是因为下面那条 `matches!` 只放行 up/down/enter/escape，
+                // `tab` 会被提前挡掉。
+                if weak
+                    .update(app, |this, cx| this.sess_row_key(&ev.keystroke, cx))
+                    .unwrap_or(false)
+                {
+                    app.stop_propagation();
+                    return;
+                }
                 if !matches!(key, "up" | "down" | "enter" | "escape") {
                     return;
                 }
@@ -642,12 +653,9 @@ impl Desktop {
                     // 会话页的「带什么」弹层：它跟盘面共用一层 sheet，但这时盘面没开着。
                     if weak
                         .update(app, |this, cx| {
-                            if this.newchat.open || this.newchat.sheet.is_none() {
-                                return false;
-                            }
-                            this.newchat.sheet = None;
-                            cx.notify();
-                            true
+                            // 规矩在 board 那边（`sheet_esc`）：子弹层退回摘要，
+                            // 摘要在最上面才真关。这里只管「这个 Esc 归不归它」。
+                            this.sheet_esc(cx)
                         })
                         .unwrap_or(false)
                     {
