@@ -1010,20 +1010,30 @@ AGENTS 里写的是「Tesla 那 9 套」全要。**只落一套是有意的**：
 设置页也跟着画空心圆，但建出来的会话永远带着它们。这是「界面说能做、引擎做不到」——
 按项目纪律，静默的假动作算 bug，不是「先这样」。
 
-**这一刀怎么处理**：先写进 `wire.md` + `验证.md`，**不动 UI**。理由：
-- 改 UI 让核心三条不可勾，等于承认「核心就是不能动」，那是产品决定，得先问用户；
-- 改引擎让 `[]` 真能减，是 qrd3wh 那边的事（要动 `settings.extensions` 的默认值），
-  不是桌面端这一块能单方面定的；
-- 但**文档必须先说实话** —— 上次 `wire.md` 漏一条，长成了「重命名没做」，
-  这次不能重演。
+**这一刀选 A：把核心钉死，UI 不再骗人**（用户 2026-11-16 采纳建议）。
+
+理由：核心那几条是 `agent 在 Nous 里的自我介绍 + 当前目录 + 技能系统 + 模板系统`，
+减掉它们会话就不完整了——它们本来就是「上下文的地基」，不是可选项。
+引擎把它们写死在 `settings.extensions` 里正是这个意思。客户端跟着钉死，
+比假装能减要诚实。
+
+落地（`board.rs`）：
+- `ExtKind::Core`（catalog 里 `is_default` 的那三条）现在和 `Builtin` / `Broken` /
+  `Archived` 一样是**锁住的**：虚线框 + ✓ + 不可点，没有 hover。
+- `core_exts()` 取的是 `builtin[0]`（coding-tools）+ `defaults`（nous/skills/prompts）——
+  **不从 `installed` 推**（coding-tools 不在 installed 里），
+  **也不把 catalog 里其他 `default: true` 的扩展算进来**（那是「新会话默认勾」，
+  跟「引擎无条件带上」不是一回事）。
+- `picked_exts` 初始化时无条件插入这四条。
+- `ext_pickable()` / Extensions 卡上的 `N/M` **只数能勾的**——现在这台机器是 `1/1`
+  （只有 `123`），不再是骗人的 `4/4`。
+- 弹层副标题改成「勾的是这次会话额外带哪些 · 核心四条引擎总带上，勾不掉」。
 
 **反悔点**：
-1. 用户说「核心三条本来就该钉死」→ `ExtKind::Core` 的行改成不可点，
-   `picked_exts` 初始化时无条件插入，UI 不再承诺一个做不到的动作（空格键那行也去掉）。
-2. 用户说「引擎要支持减」→ 去 qrd3wh 改 `createConversation` 的 `settings.extensions`：
-   `askedExt === undefined` 用默认四个，否则用请求的清单（空数组就是空）。
-   改完这里要同步改 `wire.md:360` 那句「空数组才是『一个都不要』」——
-   **那句话现在写的是引擎将来该有的样子，不是现在有的样子**。
-3. 想继续装作能勾掉：不行，静默 = bug。
+1. 用户改主意要「引擎支持减」→ 去 qrd3wh 改 `createConversation` 的
+   `settings.extensions`：`askedExt === undefined` 才用默认四条，否则按请求清单
+   （空数组就是空）。改完回来把 `wire.md` 那条 ⚠ 和这里的决定一起改掉，
+   `ExtKind::Core` 恢复可勾、`core_exts()` 不再无条件插入。
+2. 想继续装作能勾掉：不行，静默 = bug。
 
 ---

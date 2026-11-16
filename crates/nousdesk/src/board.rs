@@ -68,7 +68,11 @@ fn in_cat(cats: &[String], path: &str) -> bool {
 enum ExtKind {
     /// 装上的普通扩展，可以勾掉。
     Pickable,
-    /// 核心（`nous` / `skills` / `prompts`）：默认带，能勾掉但提醒别。
+    /// 核心（`nous` / `skills` / `prompts`）：引擎**总是带上**，勾掉是假动作。
+    ///
+    /// 2026-11-16 实测：`POST /v1/sessions` 的 `extensions` 只能加不能减 ——
+    /// 内核在 `settings.extensions` 里无条件放四个核心，请求里少写的不会删掉。
+    /// 所以这一格是**锁住的**，不是「勾掉但提醒别」。
     Core,
     /// 引擎自带，不在仓库里。
     Builtin,
@@ -76,6 +80,20 @@ enum ExtKind {
     Broken,
     /// 已归档。
     Archived,
+}
+
+/// 引擎**无条件**带上的那几条：`coding-tools` + `nous` + `skills` + `prompts`。
+///
+/// 不从 `installed` 推：`coding-tools` 是 `builtin`，根本不在 `installed` 里；
+/// 从 `defaults` 取也不对 —— 那是「额外可装扩展」的默认勾选项（demo 里的 `123`
+/// 那种），跟这四个硬编码的不是一回事。
+fn core_exts(x: &nous_engine::types::Extensions) -> Vec<String> {
+    let mut v = Vec::new();
+    if let Some(builtin) = x.builtin.first() {
+        v.push(builtin.clone()); // coding-tools
+    }
+    v.extend(x.defaults.iter().cloned());
+    v
 }
 
 impl ExtKind {
@@ -383,14 +401,19 @@ impl NewChat {
             .collect()
     }
 
-    /// 能勾的扩展：仓库里有、这台也装上了。核心那三条也算（默认带，能勾掉）。
+    /// **能勾的**扩展：仓库里有、这台也装上、且不是核心。
+    ///
+    /// 核心四条不算 —— 引擎总是带上，客户端没有「减」的能力，
+    /// 把它们算进「4/4」会让那颗数字说谎。
     fn ext_pickable(&self) -> Vec<String> {
         let Some(x) = self.exts.as_ref() else {
             return Vec::new();
         };
+        let core = core_exts(x);
         x.catalog
             .iter()
             .filter(|e| x.installed.contains(&e.name))
+            .filter(|e| !core.contains(&e.name))
             .map(|e| e.name.clone())
             .collect()
     }
@@ -715,9 +738,15 @@ impl Desktop {
                     b.machines = Some(mm);
                 }
                 if let Ok(x) = exts {
-                    // 初始勾选 = 这台装上且能加载的。用户改过就不动。
+                    // 核心四条**无条件在**（引擎总是带上，勾掉是假动作，见 ExtKind::Core）。
+                    // 其余 = 这台装上且能加载的。用户改过就不动。
                     if b.picked_exts.is_empty() {
-                        b.picked_exts = x.loadable.iter().cloned().collect();
+                        b.picked_exts = x
+                            .loadable
+                            .iter()
+                            .cloned()
+                            .chain(core_exts(&x))
+                            .collect();
                     }
                     b.exts = Some(x);
                 }
@@ -2270,7 +2299,7 @@ impl Desktop {
             ),
             Sheet::Ext => (
                 "上下文 · 扩展",
-                "勾的是这次会话带哪些 · 核心那三条去掉就没提示词了",
+                "勾的是这次会话额外带哪些 · 核心四条引擎总带上，勾不掉",
                 Some(art::Slot::Ext),
             ),
             Sheet::Dir => ("工作目录", "列的是引擎那台机器上的目录 · 点一层进去", None),
@@ -2962,7 +2991,8 @@ impl Desktop {
                   kind: ExtKind,
                   picked: bool|
          -> AnyElement {
-            let locked = !matches!(kind, ExtKind::Pickable | ExtKind::Core);
+            // 核心也锁：引擎不认「减」，让它们看着能勾就是在骗人。
+            let locked = kind != ExtKind::Pickable;
             let mut el = div()
                 .id(ElementId::Name(format!("ext-{name}").into()))
                 .flex()
@@ -3112,7 +3142,11 @@ impl Desktop {
                 e.version.clone().unwrap_or_default(),
                 e.summary.clone().unwrap_or_default().replace(['\n', '\r'], " "),
                 e.sections.join(" · "),
-                if e.is_default { "核心" } else { "" }.to_string(),
+                if e.is_default {
+                    "固定 · 引擎总带上".to_string()
+                } else {
+                    String::new()
+                },
                 kind,
                 b.picked_exts.contains(&e.name),
             ));
@@ -4059,5 +4093,41 @@ mod tests {
     #[test]
     fn 会话页第一次_tab_落在第一行() {
         assert_eq!(SessRow::Perms.step(false), SessRow::Model);
+    }
+
+    /// 核心扩展 = builtin 的第一个（coding-tools）+ defaults 三条。
+    /// 这条钉住「从哪取」：不能从 installed 推（coding-tools 不在里面），
+    /// 也不能把 catalog 里 `default: true` 的普通扩展算进来（那是「默认勾」，
+    /// 跟「引擎无条件带上」不是一回事）。
+    // 用 JSON 造清单：`Extensions` 每个字段都有 `#[serde(default)]`，
+    // 这正是它在生产里被构造的方式（引擎的 GET 回包）。手写 14 个字段，
+    // 引擎哪天加一个字段测试就编不过 —— 那是 `deny_unknown_fields` 的毛病，
+    // 不该在测试里重演。
+    fn exts(json: &str) -> nous_engine::types::Extensions {
+        serde_json::from_str(json).expect("测试清单")
+    }
+
+    #[test]
+    fn 核心扩展从_builtin_和_defaults_取() {
+        let x = exts(
+            r#"{
+                "builtin": ["coding-tools", "另一个内置"],
+                "defaults": ["nous", "skills", "prompts"],
+                "installed": ["nous", "skills", "prompts", "123"]
+            }"#,
+        );
+        assert_eq!(
+            super::core_exts(&x),
+            vec!["coding-tools", "nous", "skills", "prompts"]
+        );
+    }
+
+    /// 引擎连 defaults 都没给（老版本 / 读到半截）时至少别 panic。
+    #[test]
+    fn 核心扩展在空清单上不炸() {
+        assert!(super::core_exts(&exts("{}")).is_empty());
+        // builtin 有但 defaults 空：只认 builtin 第一条。
+        let x = exts(r#"{"builtin": ["coding-tools"]}"#);
+        assert_eq!(super::core_exts(&x), vec!["coding-tools"]);
     }
 }
