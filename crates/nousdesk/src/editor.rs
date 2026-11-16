@@ -31,17 +31,26 @@ pub(crate) enum EditorTab {
     Json,
     Effective,
     Issues,
+    /// 仓里这份预设还没提交的改动（引擎 `/pending` + `/pending/diff`）。
+    Diff,
     Changes,
 }
 
 impl EditorTab {
-    const ALL: [Self; 4] = [Self::Json, Self::Effective, Self::Issues, Self::Changes];
+    const ALL: [Self; 5] = [
+        Self::Json,
+        Self::Effective,
+        Self::Issues,
+        Self::Diff,
+        Self::Changes,
+    ];
 
     fn label(self) -> &'static str {
         match self {
             Self::Json => "JSON",
             Self::Effective => "生效值",
             Self::Issues => "问题",
+            Self::Diff => "待提交",
             Self::Changes => "改动",
         }
     }
@@ -169,6 +178,13 @@ pub(crate) struct EditorState {
     pub publish_msg: Option<Entity<InputState>>,
     /// 挑值弹层。
     pub picker: Option<PickerState>,
+    /// 仓里这一段有什么没提交（`/pending`）。
+    pub pending: Option<nous_engine::types::Pending>,
+    /// 当前选中那个文件的 `before` / `after`。
+    pub diff: Option<nous_engine::types::FileDiff>,
+    /// 正在拉 diff 的那个文件路径（相对段目录）。
+    pub diff_pick: Option<String>,
+    pub diff_loading: bool,
     /// 候选池。
     pub candidates: Candidates,
 }
@@ -194,6 +210,10 @@ impl Default for EditorState {
             text_edit: None,
             publish_msg: None,
             picker: None,
+            pending: None,
+            diff: None,
+            diff_pick: None,
+            diff_loading: false,
             candidates: Candidates::default(),
         }
     }
@@ -391,6 +411,58 @@ fn toggle_list(v: &mut serde_json::Value, key: &str, item: &str) {
     obj.insert(key.to_string(), serde_json::Value::Array(list));
 }
 
+/// 一行 diff 是什么。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DiffOp {
+    Same,
+    Add,
+    Del,
+}
+
+/// 行级 diff（LCS）。文件都不大（几百行），DP 就够，不用拉一个 diff 库进来。
+///
+/// 返回 `(是什么, 这一行的原文)`，按着老文件在前新文件在后的顺序摊平。
+fn line_diff(before: &str, after: &str) -> Vec<(DiffOp, String)> {
+    let a: Vec<&str> = before.lines().collect();
+    let b: Vec<&str> = after.lines().collect();
+    let (n, m) = (a.len(), b.len());
+    // dp[i][j] = a[i..] 和 b[j..] 的 LCS 长度
+    let mut dp = vec![vec![0usize; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            dp[i][j] = if a[i] == b[j] {
+                dp[i + 1][j + 1] + 1
+            } else {
+                dp[i + 1][j].max(dp[i][j + 1])
+            };
+        }
+    }
+    let mut out = Vec::new();
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < n && j < m {
+        if a[i] == b[j] {
+            out.push((DiffOp::Same, a[i].to_string()));
+            i += 1;
+            j += 1;
+        } else if dp[i + 1][j] >= dp[i][j + 1] {
+            out.push((DiffOp::Del, a[i].to_string()));
+            i += 1;
+        } else {
+            out.push((DiffOp::Add, b[j].to_string()));
+            j += 1;
+        }
+    }
+    while i < n {
+        out.push((DiffOp::Del, a[i].to_string()));
+        i += 1;
+    }
+    while j < m {
+        out.push((DiffOp::Add, b[j].to_string()));
+        j += 1;
+    }
+    out
+}
+
 /// 有没有没保存的改动。比的是 **Value 相等**，不是字符串 —— JSON 键顺序会被
 /// `to_string` 改，按字节比会永远「脏」。
 fn is_dirty(text: &str, draft: &serde_json::Value) -> bool {
@@ -446,6 +518,7 @@ impl crate::app::Desktop {
                         this.editor.conflict = false;
                         this.validate_preset(cx);
                         this.load_candidates(cx);
+                        this.load_pending(cx);
                     }
                     Some(Err(e)) => this.editor.err = Some(format!("读不到 preset.json：{e}")),
                     None => this.editor.err = Some("任务没跑完".into()),
@@ -535,6 +608,82 @@ impl crate::app::Desktop {
             self.editor.picker = None;
         }
         cx.notify();
+    }
+
+    /// 拉这一段仓里没提交的东西（编辑器「待提交」那一栏的目录）。
+    pub(crate) fn load_pending(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let section = self.editor.section.clone();
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move { engine.pending(&section).await })
+                .await
+                .ok();
+            let _ = this.update(cx, |this, cx| {
+                let Some(Ok(p)) = got else {
+                    return;
+                };
+                // 之前选的那个文件可能已经提交掉了 —— 不在清单里就重选第一个。
+                let files: Vec<String> = p
+                    .unit(&this.editor.name)
+                    .map(|u| u.files.iter().map(|f| f.path.clone()).collect())
+                    .unwrap_or_default();
+                let keep = this
+                    .editor
+                    .diff_pick
+                    .as_ref()
+                    .is_some_and(|cur| files.iter().any(|f| f == cur));
+                this.editor.pending = Some(p);
+                if !keep {
+                    this.editor.diff = None;
+                    this.editor.diff_pick = None;
+                }
+                if let Some(first) = files.first().cloned() {
+                    if !keep {
+                        this.pick_diff_file(&first, cx);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 读一个文件的 `before` / `after`（相对段目录的路径）。
+    pub(crate) fn pick_diff_file(&mut self, path: &str, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let section = self.editor.section.clone();
+        let path = path.to_string();
+        self.editor.diff_pick = Some(path.clone());
+        self.editor.diff = None;
+        self.editor.diff_loading = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move { engine.pending_diff(&section, &path).await })
+                .await
+                .ok();
+            let _ = this.update(cx, |this, cx| {
+                this.editor.diff_loading = false;
+                match got {
+                    Some(Ok(d)) => this.editor.diff = Some(d),
+                    Some(Err(e)) => this.editor.err = Some(format!("读改动失败：{e}")),
+                    None => this.editor.err = Some("读改动没跑完".into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 拉一次候选池：模型 / 会话模板 / 技能 / 本段类别。
@@ -703,6 +852,7 @@ impl crate::app::Desktop {
                         this.editor.conflict = false;
                         this.notify("已保存到盘上 · 还没提交", crate::app::NoticeKind::Info, cx);
                         this.validate_preset(cx);
+                        this.load_pending(cx);
                         this.load_section(this.section, true, cx);
                     }
                     Some(Err(EngineError::Engine { status: 409, message })) => {
@@ -1087,6 +1237,10 @@ impl crate::app::Desktop {
                     .hover(|h| h.bg(rgb(t().p.panel)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.editor.tab = tab;
+                        // 「待提交」第一次点开才去问引擎，别在打开编辑器时就多打一次。
+                        if tab == EditorTab::Diff && this.editor.pending.is_none() {
+                            this.load_pending(cx);
+                        }
                         cx.notify();
                     }))
                     .child(
@@ -1473,6 +1627,7 @@ impl crate::app::Desktop {
             let on = e.tab == tab;
             let badge = match tab {
                 EditorTab::Issues => errs + warns,
+                EditorTab::Diff => pending_file_count(e),
                 EditorTab::Changes => changed_labels(e).len(),
                 _ => 0,
             };
@@ -1620,6 +1775,182 @@ impl crate::app::Desktop {
                                     })),
                             ),
                     );
+                }
+                col.into_any_element()
+            }
+            EditorTab::Diff => {
+                let mut col = div()
+                    .id("ed-diff")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .overflow_y_scroll();
+                let unit = e.pending.as_ref().and_then(|p| p.unit(&e.name));
+                let Some(unit) = unit else {
+                    col = col.child(note(if e.pending.is_some() {
+                        "这份没有待提交的改动 —— 盘上和 HEAD 一样。"
+                    } else {
+                        "还没读到仓状态（引擎那边 /pending 没回）。"
+                    }));
+                    return wrapper(tabs, col.into_any_element(), cx, self);
+                };
+
+                // ① 这条预设改了哪些文件（引擎数好的增删行数，客户端不再数一遍）
+                col = col.child(section_label(&format!(
+                    "待提交 · {} 个文件",
+                    unit.files.len()
+                )));
+                for f in &unit.files {
+                    let path = f.path.clone();
+                    let picked = e.diff_pick.as_deref() == Some(f.path.as_str());
+                    let (mark, mark_color) = match f.status.as_str() {
+                        "A" => ("A", t().p.ok),
+                        "D" => ("D", t().p.danger),
+                        _ => ("M", t().p.warn),
+                    };
+                    col = col.child(
+                        div()
+                            .id(ElementId::Name(format!("ed-df-{path}").into()))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(t().d(7.))
+                            .px(t().d(12.))
+                            .py(t().d(4.))
+                            .cursor_pointer()
+                            .when(picked, |el| el.bg(rgb(t().p.selected)))
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.pick_diff_file(&path, cx);
+                            }))
+                            .child(
+                                div()
+                                    .w(t().d(10.))
+                                    .flex_none()
+                                    .text_size(t().fs(9.5))
+                                    .font_family("JetBrainsMono")
+                                    .text_color(rgb(mark_color))
+                                    .child(mark),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(t().d(0.))
+                                    .truncate()
+                                    .text_size(t().fs(10.5))
+                                    .font_family("JetBrainsMono")
+                                    .text_color(rgb(t().p.text_2))
+                                    .child(f.path.replace(&format!("{}/", e.name), "")),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(t().fs(9.5))
+                                    .font_family("JetBrainsMono")
+                                    .text_color(rgb(t().p.ok))
+                                    .child(format!("+{}", f.added)),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(t().fs(9.5))
+                                    .font_family("JetBrainsMono")
+                                    .text_color(rgb(t().p.danger))
+                                    .child(format!("−{}", f.removed)),
+                            ),
+                    );
+                }
+
+                // ② 选中那个文件的逐行 diff
+                col = col.child(div().h(t().d(1.)).bg(rgb(t().p.line_soft)));
+                match &e.diff {
+                    None if e.diff_loading => {
+                        col = col.child(note("读那份文件的改动…"));
+                    }
+                    None => {
+                        col = col.child(note("点上面一个文件看改了哪几行。"));
+                    }
+                    Some(d) => {
+                        let rows = line_diff(
+                            d.before.as_deref().unwrap_or(""),
+                            d.after.as_deref().unwrap_or(""),
+                        );
+                        let (mut add, mut del) = (0, 0);
+                        for (op, _) in &rows {
+                            match op {
+                                DiffOp::Add => add += 1,
+                                DiffOp::Del => del += 1,
+                                DiffOp::Same => {}
+                            }
+                        }
+                        col = col.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(t().d(8.))
+                                .px(t().d(12.))
+                                .py(t().d(6.))
+                                .child(
+                                    div()
+                                        .text_size(t().fs(10.))
+                                        .font_family("JetBrainsMono")
+                                        .text_color(rgb(t().p.faint))
+                                        .child(d.path.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .ml_auto()
+                                        .text_size(t().fs(9.5))
+                                        .font_family("JetBrainsMono")
+                                        .text_color(rgb(t().p.ok))
+                                        .child(format!("+{add}")),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(t().fs(9.5))
+                                        .font_family("JetBrainsMono")
+                                        .text_color(rgb(t().p.danger))
+                                        .child(format!("−{del}")),
+                                ),
+                        );
+                        for (op, line) in rows {
+                            let (sign, fg, bg) = match op {
+                                DiffOp::Add => ("+", t().p.text, Some(rgba(soft(t().p.ok)))),
+                                DiffOp::Del => ("−", t().p.muted, Some(rgba(soft(t().p.danger)))),
+                                DiffOp::Same => (" ", t().p.text_2, None),
+                            };
+                            col = col.child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap(t().d(6.))
+                                    .px(t().d(10.))
+                                    .when_some(bg, |el, c| el.bg(c))
+                                    .child(
+                                        div()
+                                            .w(t().d(8.))
+                                            .flex_none()
+                                            .text_size(t().fs(9.5))
+                                            .font_family("JetBrainsMono")
+                                            .text_color(rgb(fg))
+                                            .child(sign),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(t().fs(10.5))
+                                            .font_family("JetBrainsMono")
+                                            .text_color(rgb(fg))
+                                            .child(if line.is_empty() {
+                                                " ".to_string()
+                                            } else {
+                                                line
+                                            }),
+                                    ),
+                            );
+                        }
+                    }
                 }
                 col.into_any_element()
             }
@@ -2099,6 +2430,20 @@ fn wrapper(
         .into_any_element()
 }
 
+/// 一个 RGB 压成很淡的底（`RRGGBBAA`，给 diff 的增删行用）。
+fn soft(color: u32) -> u32 {
+    (color << 8) | 0x16
+}
+
+/// 这份预设有几个文件在待提交里（tab 上的徽标）。
+fn pending_file_count(e: &EditorState) -> usize {
+    e.pending
+        .as_ref()
+        .and_then(|p| p.unit(&e.name))
+        .map(|u| u.files.len())
+        .unwrap_or(0)
+}
+
 fn pill(text: String, color: u32) -> AnyElement {
     div()
         .flex()
@@ -2316,8 +2661,10 @@ fn json_error_line(e: &EditorState) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     // 别写 `use super::*;` —— 会把 `gpui_kit::*` 带进来，`#[test]` 展开时撞 recursion limit
-    // （坑.md 69）。
-    use super::{del_key, is_dirty, read_text, toggle_list, write_bool, write_text};
+    // （坑.md 68）。
+    use super::{
+        DiffOp, del_key, is_dirty, line_diff, read_text, toggle_list, write_bool, write_text,
+    };
 
     fn v(text: &str) -> serde_json::Value {
         serde_json::from_str(text).unwrap()
@@ -2362,6 +2709,37 @@ mod tests {
         let d = v(r#"{"b":1,"a":2}"#);
         assert!(!is_dirty(r#"{"a":2,"b":1}"#, &d));
         assert!(is_dirty(r#"{"a":2}"#, &d));
+    }
+
+    /// 改一行 = 一删一加，前后的行还算 Same（不是整份重写）。
+    #[test]
+    fn diff_marks_only_the_changed_line() {
+        let rows = line_diff(
+            "{\n  \"a\": 1\n}\n",
+            "{\n  \"a\": 2\n}\n",
+        );
+        let same = rows.iter().filter(|(op, _)| *op == DiffOp::Same).count();
+        let add = rows.iter().filter(|(op, _)| *op == DiffOp::Add).count();
+        let del = rows.iter().filter(|(op, _)| *op == DiffOp::Del).count();
+        assert_eq!((same, add, del), (2, 1, 1));
+        assert!(rows.contains(&(DiffOp::Add, "  \"a\": 2".to_string())));
+        assert!(rows.contains(&(DiffOp::Del, "  \"a\": 1".to_string())));
+    }
+
+    /// 只加一行。
+    #[test]
+    fn diff_of_a_pure_addition_has_no_deletions() {
+        let rows = line_diff("a\nb\n", "a\nb\nc\n");
+        assert_eq!(rows.iter().filter(|(op, _)| *op == DiffOp::Del).count(), 0);
+        assert_eq!(rows.last(), Some(&(DiffOp::Add, "c".to_string())));
+    }
+
+    /// 新文件（before 是 null → 空串）：全是加。
+    #[test]
+    fn diff_of_a_new_file_is_all_additions() {
+        let rows = line_diff("", "x\ny\n");
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|(op, _)| *op == DiffOp::Add));
     }
 
     #[test]
