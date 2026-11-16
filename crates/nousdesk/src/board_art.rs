@@ -438,9 +438,24 @@ pub(crate) struct Pop {
     pub anchor: Anchor,
 }
 
+/// 弹层各自的脾气 —— 宽度、贴哪边、要不要翻边，全在这里定。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PopKind {
+    /// 模型：贴卡片下方，宽 600。
+    Model,
+    /// 技能：左树 + 右列表，要 620 才站得下两栏。
+    Skills,
+    /// 模板这类单列：410。
+    Narrow,
+    /// 目录：命令面板（左列表 + 右预览），600。
+    Dir,
+    /// 机器：460。
+    Machine,
+}
+
 /// 模型弹层贴在卡片**下方**；技能 / 提示词贴在卡片**左侧**（右上角右边没地方）；
 /// 机器 / 目录贴在 dock **上方**、居中。
-pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool, for_dir: bool) -> Pop {
+pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
     let gap = 14.;
     // 竖排档没有四角卡、也没有环 —— `node_rect` / `foot_rect` 在这里是流式布局，
     // 拿它们的坐标去贴只会把弹层甩到格子外。这一档统一居中贴顶。
@@ -453,9 +468,9 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool, for_dir: bool) -> 
         };
     }
     match slot {
-        Some(Slot::Model) => {
+        Some(Slot::Model) if kind == PopKind::Model => {
             let n = node_rect(m, Slot::Model);
-            let w = (m.w - 28.).min(if wide { 600. } else { 520. });
+            let w = (m.w - 28.).min(600.);
             let x = n.x.clamp(14., (m.w - w - 14.).max(14.));
             let top = n.bottom() + gap;
             // 底下放不下就翻到卡片上面去。
@@ -475,7 +490,10 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool, for_dir: bool) -> 
         }
         Some(slot) => {
             let n = node_rect(m, slot);
-            let w = 410.;
+            let w = match kind {
+                PopKind::Skills => (m.w - 28.).min(620.),
+                _ => 410.,
+            };
             // 优先放右侧；右边不够（右上角那张卡就是这样）就翻到左边。
             let x = if n.right() + gap + w <= m.w - 14. {
                 n.right() + gap
@@ -490,10 +508,14 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool, for_dir: bool) -> 
         }
         None => {
             // 机器 / 目录：贴着被点的那颗 pill 弹（就地弹出的同一条规矩）。
-            let f = if for_dir { Foot::Dir } else { Foot::Machine };
+            let f = if kind == PopKind::Dir {
+                Foot::Dir
+            } else {
+                Foot::Machine
+            };
             let t = foot_rect(m, f);
             // 目录弹层是命令面板（左列表 + 右预览），比机器列表要宽一格。
-            let w = (m.w - 28.).min(if for_dir { 600. } else { 460. });
+            let w = (m.w - 28.).min(if kind == PopKind::Dir { 600. } else { 460. });
             let x = (t.cx() - w / 2.).clamp(14., (m.w - w - 14.).max(14.));
             Pop {
                 x,
