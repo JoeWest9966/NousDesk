@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>New Manual · 工作目录 · 8 套终极形态</title>
+<style>
+  :root{
+    --bg:#ededed; --panel:#fff; --surface:#f6f6f6; --line:#e6e6e6; --line-soft:#f1f1f1;
+    --text:#1a1a1a; --text2:#333; --muted:#999; --faint:#aaa; --ghost:#c8c8c8;
+    --accent:#07c160; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f; --accent-tint:#07c16022;
+    --warn:#c77700; --warn-soft:#fff8ee;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: Inter, "Manrope", -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#fafafa;color:var(--text);font-family:var(--sans);}
+  body{padding:52px 44px 140px;}
+  h1{font-size:23px;font-weight:600;letter-spacing:-.015em;margin:0 0 10px;}
+  .lede{font-size:13.5px;color:#666;line-height:1.75;max-width:900px;margin:0;}
+  .lede b{color:#111;font-weight:600;}
+  code{font-family:var(--mono);font-size:12px;background:#efefef;padding:1px 5px;border-radius:3px;color:#333;}
+  .meta{font-family:var(--mono);font-size:11px;color:#b0b0b0;margin:16px 0 8px;}
+
+  .facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:1100px;margin:24px 0 8px;}
+  .fact{border:1px solid #ececec;background:#fff;border-radius:9px;padding:12px 14px;}
+  .fact .k{font-family:var(--mono);font-size:10px;color:#bbb;letter-spacing:.04em;}
+  .fact .v{font-size:12.5px;color:#333;line-height:1.6;margin-top:5px;}
+  .fact .v b{color:#0a7a3f;}
+
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:44px 52px;margin-top:44px;max-width:1340px;align-items:start;}
+  .pane.wide{grid-column:1 / -1;}
+  .pane-head{display:flex;align-items:baseline;gap:10px;margin:0 0 4px;}
+  .num{font-family:var(--mono);font-size:10.5px;color:#c0c0c0;border:1px solid #e8e8e8;border-radius:3px;padding:1px 5px;}
+  .num.hot{color:var(--accent-fg);border-color:var(--accent);background:var(--accent-soft);}
+  .pane-head h2{font-size:14.5px;font-weight:600;margin:0;letter-spacing:-.01em;}
+  .why{font-size:12px;color:#7d7d7d;line-height:1.65;margin:0 0 14px 34px;max-width:600px;}
+  .why b{color:#333;font-weight:600;}
+
+  /* ── 弹层 ───────────────────────────── */
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+         box-shadow:0 12px 34px rgba(0,0,0,.075),0 1px 2px rgba(0,0,0,.03);}
+  .sheet.w460{width:460px;} .sheet.w520{width:520px;} .sheet.w620{width:620px;}
+  .shead{display:flex;align-items:flex-start;justify-content:space-between;padding:11px 15px 9px;border-bottom:1px solid var(--line);}
+  .shead .t{font-size:12.5px;font-weight:600;line-height:1.3;}
+  .shead .h{font-size:10.5px;color:var(--muted);font-style:italic;margin-top:2px;}
+  .shead .x{color:#c4c4c4;font-size:14px;line-height:1;cursor:pointer;}
+  .shead .x:hover{color:#777;}
+
+  /* 路径条 */
+  .pbar{display:flex;align-items:center;gap:7px;margin:9px 13px 0;padding:0 9px;min-height:30px;
+        background:var(--surface);border:1px solid transparent;border-radius:7px;}
+  .pbar.focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px var(--accent-tint);}
+  .pbar.plain{background:transparent;border:0;padding:0 4px;margin:9px 13px 0;min-height:26px;}
+  .pbar .ico{font-family:var(--mono);font-size:11px;color:#c2c2c2;flex:none;}
+  .pbar input{flex:1;min-width:0;border:0;background:transparent;outline:0;font-family:var(--mono);font-size:11.5px;color:var(--text);}
+  .pbar input::placeholder{color:#bfbfbf;}
+  .pbar .edit{color:#c8c8c8;font-size:10px;flex:none;cursor:pointer;}
+  .kbd{font-family:var(--mono);font-size:9px;color:#c0c0c0;border:1px solid #e9e9e9;border-radius:3px;
+       padding:0 4px;line-height:14px;flex:none;background:#fcfcfc;}
+
+  /* 面包屑 */
+  .crumbs{display:flex;align-items:center;gap:1px;flex-wrap:nowrap;overflow:hidden;
+          font-family:var(--mono);font-size:11px;color:#8c8c8c;flex:1;min-width:0;}
+  .crumbs .seg{padding:2px 5px;border-radius:4px;cursor:pointer;white-space:nowrap;}
+  .crumbs .seg:hover{background:#f0f0f0;color:#1a1a1a;}
+  .crumbs .seg.cur{color:#1a1a1a;font-weight:700;}
+  .crumbs .seg.root{color:#b0b0b0;}
+  .crumbs .sep{color:#dedede;flex:none;font-size:10px;}
+  .crumbs .fold{padding:2px 4px;color:#b8b8b8;cursor:pointer;border-radius:4px;}
+  .crumbs .fold:hover{background:#f0f0f0;color:#555;}
+
+  /* 机器段 */
+  .mseg{display:flex;align-items:center;gap:4px;padding:2px 6px;border-radius:4px;cursor:pointer;
+        font-family:var(--mono);font-size:10.5px;color:#666;background:#f2f2f2;flex:none;}
+  .mseg:hover{background:#eaeaea;}
+  .mseg .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);}
+  .mseg .car{font-size:8px;color:#aaa;}
+
+  /* 列表 */
+  .list{margin:8px 0 0;padding:0 6px 6px;max-height:300px;overflow:hidden;}
+  .list.tall{max-height:360px;}
+  .row{display:flex;align-items:center;gap:8px;padding:5px 9px;border-radius:6px;
+       font-family:var(--mono);font-size:11.5px;border:1px solid transparent;min-height:28px;}
+  .row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .row .tail{font-family:var(--sans);font-size:9.5px;color:#cfcfcf;flex:none;}
+  .row .go{font-size:10px;color:#d8d8d8;flex:none;opacity:0;}
+  .row:hover{background:#f7f7f7;}
+  .row:hover .go{opacity:1;color:var(--accent);}
+  .row.up{color:#9d9d9d;}
+  .row.up .nm{font-size:10.5px;color:#c4c4c4;}
+  .row.here{border-color:var(--accent);background:var(--accent-soft);}
+  .row.here .nm{color:var(--accent-fg);font-weight:600;}
+  .row.sel{background:var(--surface);border-color:#dedede;}
+  .ghead{display:flex;align-items:center;gap:6px;padding:5px 9px 3px;font-family:var(--mono);
+         font-size:9.5px;color:#c2c2c2;letter-spacing:.05em;}
+  .ghead .ln{flex:1;height:1px;background:var(--line-soft);}
+  .divider{height:1px;background:var(--line-soft);margin:5px 9px;}
+  .ghost{font-family:var(--sans);font-size:10.5px;color:#ccc;padding:3px 9px 6px;}
+  mark{background:var(--accent-soft);color:var(--accent-fg);font-weight:700;border-radius:2px;}
+
+  /* 底栏 */
+  .sfoot{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;
+         border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:#b8b8b8;gap:10px;}
+  .sfoot .stat{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;}
+  .usebtn{font-family:var(--sans);font-size:11px;font-weight:500;color:#fff;background:var(--accent);
+          border-radius:6px;padding:4px 11px;cursor:pointer;flex:none;}
+  .usebtn:hover{background:#06ad56;}
+  .usebtn.off{background:#f0f0f0;color:#b8b8b8;cursor:default;}
+
+  /* 树 */
+  .split{display:flex;border-top:1px solid var(--line);}
+  .tree{width:212px;flex:none;border-right:1px solid var(--line);padding:6px 4px;max-height:340px;overflow:hidden;}
+  .tnode{display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:5px;
+         font-family:var(--mono);font-size:11px;color:#666;min-height:24px;cursor:pointer;}
+  .tnode:hover{background:#f7f7f7;}
+  .tnode.cur{background:var(--accent-soft);color:var(--accent-fg);font-weight:600;}
+  .tnode .arw{width:9px;font-size:8px;color:#ccc;flex:none;text-align:center;}
+  .tnode .ic{color:#d0d0d0;font-size:9px;flex:none;width:8px;text-align:center;}
+  .tnode.l1{padding-left:6px;} .tnode.l2{padding-left:19px;} .tnode.l3{padding-left:32px;} .tnode.l4{padding-left:45px;}
+  .right{flex:1;min-width:0;padding:6px 4px;max-height:340px;overflow:hidden;}
+
+  /* 命令面板 */
+  .palette{padding:0;}
+  .pinput{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--line);}
+  .pinput .car{font-family:var(--mono);color:var(--accent);font-size:13px;}
+  .pinput input{flex:1;border:0;background:transparent;outline:0;font-family:var(--mono);font-size:14px;color:var(--text);}
+  .pinput input::placeholder{color:#c8c8c8;font-family:var(--sans);font-size:13px;}
+  .pres{padding:4px 6px 6px;}
+  .prow{display:flex;align-items:center;gap:9px;padding:7px 11px;border-radius:6px;min-height:34px;}
+  .prow.on{background:var(--accent-soft);}
+  .prow .path{font-family:var(--mono);font-size:11.5px;color:#333;flex:1;min-width:0;
+              overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .prow .who{font-family:var(--mono);font-size:9.5px;color:#c0c0c0;flex:none;}
+  .prow .n{font-family:var(--sans);font-size:9.5px;color:#b8b8b8;flex:none;}
+  .prow.on .path{color:var(--accent-fg);font-weight:600;}
+
+  /* 预览 */
+  .prev{width:200px;flex:none;border-left:1px solid var(--line);background:#fcfcfc;padding:11px 12px;max-height:340px;overflow:hidden;}
+  .prev .pk{font-family:var(--mono);font-size:9px;color:#c0c0c0;letter-spacing:.05em;margin-bottom:5px;}
+  .prev .pv{font-family:var(--mono);font-size:10.5px;color:#444;line-height:1.6;word-break:break-all;}
+  .prev .pr{display:flex;justify-content:space-between;font-size:10.5px;color:#888;line-height:1.9;}
+  .prev .pr b{font-family:var(--mono);color:#333;font-weight:600;}
+
+  .note{font-size:11.5px;color:#8d8d8d;line-height:1.7;margin:12px 0 0 34px;max-width:600px;}
+  .note b{color:#333;}
+  .note .bad{color:#c0392b;}
+  .note .good{color:#0a7a3f;}
+
+  .verdict{max-width:900px;margin:64px 0 0;padding:22px 26px;background:#fff;border:1px solid #ececec;border-radius:12px;}
+  .verdict h3{font-size:14px;font-weight:600;margin:0 0 10px;}
+  .verdict p{font-size:13px;color:#555;line-height:1.8;margin:0 0 10px;}
+  .verdict p:last-child{margin:0;}
+  .verdict b{color:#111;}
+  .verdict .pick{color:var(--accent-fg);font-weight:600;}
+  .legend{font-family:var(--mono);font-size:10px;color:#c0c0c0;margin-top:14px;}
+</style>
+</head>
+<body>
+
+<h1>New Manual · 工作目录 · 8 套</h1>
+<p class="lede">
+  上一版的四套都建立在<b>「map 是根」</b>这个错误前提上。真实情况是：内核能列<b>这台机器上的任意路径</b>
+  —— <code>?path=/</code> 直接返回 18 项，<code>~</code> 也能展开，只要目录真实存在就能当 cwd；
+  而且 <code>?machine=</code> 能列<b>远端机器</b>的目录——这条我们 UI 完全没用。
+  所以这一版把「<b>路径的根是 <code>/</code>，起点是 map</b>」和「<b>机器是路径的第一段</b>」两件事都摊开，
+  再和上一版选中的「单行 + 折叠面包屑」拼在一起，做到能到的尽头。
+</p>
+
+<div class="facts">
+  <div class="fact"><div class="k">GET /v1/fs/dirs?path=/</div><div class="v"><b>18 项</b> · parent = null<br>boot dev etc home media …</div></div>
+  <div class="fact"><div class="k">GET /v1/fs/dirs?path=/etc</div><div class="v"><b>142 项</b> · 无白名单<br>内核只跳隐藏目录和 node_modules</div></div>
+  <div class="fact"><div class="k">GET /v1/fs/dirs?machine=j1900</div><div class="v"><b>远端机器</b>也能列<br>我们 UI 一直没吃这个参数</div></div>
+</div>
+<div class="meta">弹层宽 460 / 520 / 620 三种 · 数据取自 /v1/fs/dirs 真实返回 · 配色 =「默认」皮</div>
+
+<div class="grid">
+
+<!-- 01 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">01</span><h2>单行面包屑 · 首字符消歧</h2></div>
+  <p class="why">上一版的 03 加上「能爬到 <code>/</code>」。首段是 <code>/</code>，一直可点；
+     <b>打 <code>/</code> 或 <code>~</code> 开头 = 路径，打别的 = 搜索</b>。下面这条已经是输入态。</p>
+  <div class="sheet w460" id="v1"></div>
+  <p class="note">好处：<b>一条规则消掉歧义</b>，还是 shell 的老约定，不用解释。
+    代价：一聚焦就整行变路径，<b>面包屑会"消失"</b>——靠「初始内容 = 完整当前路径」来兜，光标在末尾。</p>
+</section>
+
+<!-- 02 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">02</span><h2>双行 · 输入框常驻 + 面包屑</h2></div>
+  <p class="why">两个控件都在，谁也不藏。输入框空着时面包屑就是导航，输入框一有字下面变结果。
+     <b>下面这条是搜索态（打了 <code>prompts</code>）</b>。</p>
+  <div class="sheet w460" id="v2"></div>
+  <p class="note">好处：<b>没有模式切换</b>，两个入口永远看得见，谁也不用猜。
+    代价：<b class="bad">两行都在说「你在哪」</b>——省不下来的 70px 正好是一个子目录。</p>
+</section>
+
+<!-- 03 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">03</span><h2>命令行 · 一条 <code>›</code> 提示符</h2></div>
+  <p class="why">没有面包屑、没有标题行，只有一条命令输入 + 结果。<b>纯键盘、纯一行</b>。
+     打路径就跳，打名字就找，<code>.</code> 开头是操作。</p>
+  <div class="sheet w460" id="v3"></div>
+  <p class="note">好处：<b>最快的形态</b>，460 宽里塞进最多信息，而且完全不用鼠标。
+    代价：<b class="bad">对不用键盘的人是堵墙</b>——面包屑能"点"这件事在这里没有了，只能打字。</p>
+</section>
+
+<!-- 04 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">04</span><h2>机器是路径的第一段</h2></div>
+  <p class="why">上一个问题里最该补的一条：<code>?machine=</code> 能列远端机器。
+     那机器就<b>不该是弹层外面那颗 pill，而是路径的第一段</b>——换机器 = 换根，跟换盘一样。</p>
+  <div class="sheet w460" id="v4"></div>
+  <p class="note">好处：<b>「哪台机器上的哪个目录」变成一句话</b>，不再是两个控件拼起来的猜测。
+     远端目录直接出现在同一个浏览器里，不用先切 pill 再开弹层。
+     <span class="bad">代价</span>：机器多一个段，路径就长一段；而且远端列目录要 SSH，慢的那台会卡。</p>
+</section>
+
+<!-- 05 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">05</span><h2>分组 · 最近 + 子目录</h2></div>
+  <p class="why">列表分三组：<b>最近用过</b>（跨目录，直接跳）、<b>当前目录下</b>、<b>上一级</b>。
+     组头极轻，只有一行 mono 小字加一条细线。</p>
+  <div class="sheet w460" id="v5"></div>
+  <p class="note">好处：<b>省掉一整串点击</b>——天天用的那几个目录永远在第一屏。
+     代价：<span class="bad">"最近"要存状态</span>（本地还是引擎？），而且新目录永远排不上号，会让人以为没列全。</p>
+</section>
+
+<!-- 06 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">06</span><h2>树形 · 点箭头展开、点名字才跳</h2></div>
+  <p class="why">箭头和名字分开：<b>点箭头 = 原地展开</b>（看结构），<b>点名字 = 进去</b>（换内容）。
+     一层一层点得太累的时候，能一眼看完兄弟目录。</p>
+  <div class="sheet w520" id="v6"></div>
+  <p class="note">好处：<b>结构可见</b>。知道"map 旁边还有什么"，不用来回上下。
+     代价：<span class="bad">两级交互压在 12px 的两个热点上</span>，误点率高；宽度也不够，深一层就全挤。</p>
+</section>
+
+<!-- 07 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">07</span><h2>双栏 · 左树右列表（620 宽）</h2></div>
+  <p class="why">弹层加宽到 620：左边是<b>可折叠的树</b>（整个 <code>/</code> 往下三层），
+     右边是当前选中目录的子目录。<b>树给结构，列表给操作</b>。</p>
+  <div class="sheet w620" id="v7"></div>
+  <p class="note">好处：<b>「我在哪」和「这层有什么」同时可见</b>，深路径不用来回爬。
+     代价：<span class="bad">弹层要加宽到 620</span>——窄档（右格 &lt; 780）时这个形态直接不存在，得退回 01。</p>
+</section>
+
+<!-- 08 -->
+<section class="pane wide">
+  <div class="pane-head"><span class="num hot">08</span><h2>终极 · 命令面板（620 宽，带预览）</h2></div>
+  <p class="why" style="max-width:900px">
+    把所有东西收进一个输入框：<b>打 <code>ncm</code> 就模糊匹配出 <code>/opt/Nous/content/new1/map</code></b>（首字母缩写），
+    打 <code>/</code> 开头就是路径，右边常驻一栏告诉你<b>这个目录是什么</b>（哪台机器、几个会话、是不是 git 仓库、空不空）。
+    结果行左侧是路径，右侧是「<b>哪台机器 · 几个会话</b>」——那是选目录时真正要在乎的两件事。
+  </p>
+  <div class="sheet w620" id="v8" style="margin:0 auto;"></div>
+  <p class="note" style="max-width:900px">
+    好处：<b>一次输入决定一切</b>。不用先想「我在哪一层」，直接从任意位置到任意位置；
+    预览把「选错了会怎样」提前说清楚（这台机器上已经有 3 个会话跑在这里）。
+    代价：<span class="bad">这是这个盘面里唯一一个"要学"的控件</span>——三档断点里只有 ≥780 放得下；
+    而且模糊匹配的排序在内核，我们只能把候选摆出来，排得对不对不由我们定。
+  </p>
+</section>
+
+</div>
+
+<div class="verdict">
+  <h3>这几套不是并列的，是一条台阶</h3>
+  <p>
+    <b>01</b> 是保底：单行、任何宽度都能活、规则一句话说完。<br>
+    <b>04</b> 是必须补的：机器是路径的第一段，不然 <code>?machine=</code> 永远用不上。<br>
+    <b>05</b> 是纯赚的加速度：最近用过的目录，成本最低收益最高。<br>
+    <b>08</b> 是尽头：模糊匹配 + 预览 + 一切路径。<br>
+    <b>03 / 06</b> 我不建议做 —— 一个把「点」废掉，一个把两个热点压在 12px 上。
+  </p>
+  <p>
+    真要我定：<span class="pick">01 的骨架 + 04 的机器段 + 05 的最近组 + 08 的预览栏</span>，
+    弹层在 ≥780 用 620 宽（带预览），620–780 用 460（去预览），&lt;620 退化成 01 的单列。
+    <b>这就是"终极形态"</b>——不是选一套，是这套在三种宽度下的三副面孔。
+  </p>
+  <div class="legend">demo/new-manual-dir-v2 · 8 套 · 数据 = /v1/fs/dirs 真实返回 · 配色 =「默认」皮</div>
+</div>
+
+<script>
+const SUBS = ['3699b9','68kazk','6ysg01','7awa4h','8ven4x','bjes6b','cmqt66','d6s4v1','e4kq9z','f7bw82','g3jt0m','h58ga5'];
+const HERE = '/opt/Nous/content/new1/map';
+const ROOT_KIDS = ['boot','dev','etc','home','media','opt','root','usr','var'];
+const OPT_KIDS = ['Nous','NousDesk','OpenCode','Warehousetui','wechat','CrabPort'];
+const MAP_KIDS = ['3699b9','68kazk','6ysg01','7awa4h','8ven4x','bjes6b','cmqt66','d6s4v1','h58ga5','qrd3wh'];
+
+const head = (t='工作目录', h='列的是引擎那台机器上的目录 · 能一直爬到 /') =>
+  `<div class="shead"><div><div class="t">${t}</div><div class="h">${h}</div></div><div class="x">×</div></div>`;
+
+const arrowRow = (n, extra='') =>
+  `<div class="row"><span class="nm">${n}</span>${extra}<span class="go">↵</span></div>`;
+
+const useFoot = (left='23 个子目录 · 6 个隐藏', right='用这个目录') =>
+  `<div class="sfoot"><div class="stat"><span>${left}</span></div><span class="usebtn">${right}</span></div>`;
+
+// ── 01 单行面包屑 · 首字符消歧（输入态：打了 prompts）
+document.getElementById('v1').innerHTML = head('工作目录','打 / 或 ~ 是路径 · 打别的按名字找') + `
+  <div class="pbar focus">
+    <span class="ico">›</span>
+    <input value="prompts">
+    <span class="kbd">3 匹配</span>
+    <span class="kbd">esc</span>
+  </div>
+  <div class="list">
+    <div class="ghead">按名字匹配<span class="ln"></span></div>
+    <div class="row here"><span class="nm">/opt/Nous/content/new1/map/<mark>6ysg01</mark>/prompts</span><span class="tail">本机</span></div>
+    <div class="row"><span class="nm">/opt/Nous/content/new1/map/<mark>qrd3wh</mark>/prompts</span><span class="tail">本机</span><span class="go">↵</span></div>
+    <div class="row"><span class="nm">/opt/Nous/prompts</span><span class="tail">仓库根</span><span class="go">↵</span></div>
+    <div class="divider"></div>
+    <div class="row up"><span class="nm">↑ 上一级 · /opt/Nous/content/new1</span></div>
+  </div>` + useFoot('匹配 3 条 · 最近用过 2 个','用这个目录');
+
+// ── 02 双行输入框 + 面包屑
+document.getElementById('v2').innerHTML = head() + `
+  <div class="pbar">
+    <span class="ico">⌕</span>
+    <input value="prompts">
+    <span class="kbd">3</span>
+  </div>
+  <div class="crumbs" style="margin:6px 15px 0">
+    <span class="seg root">/</span><span class="sep">›</span>
+    <span class="seg">opt</span><span class="sep">›</span>
+    <span class="seg">Nous</span><span class="sep">›</span>
+    <span class="seg">content</span><span class="sep">›</span>
+    <span class="seg">new1</span><span class="sep">›</span>
+    <span class="seg cur">map</span>
+  </div>
+  <div class="list" style="max-height:250px">
+    <div class="ghead">匹配<span class="ln"></span></div>
+    <div class="row here"><span class="nm">/opt/Nous/content/new1/map/6ysg01/<mark>prompts</mark></span></div>
+    <div class="row"><span class="nm">/opt/Nous/content/new1/map/qrd3wh/<mark>prompts</mark></span><span class="go">↵</span></div>
+    <div class="row"><span class="nm">/opt/Nous/<mark>prompts</mark></span><span class="go">↵</span></div>
+  </div>` + useFoot('3 条匹配 · 点面包屑回到任意一层');
+
+// ── 03 命令行
+document.getElementById('v3').innerHTML = `
+  <div class="shead" style="border:0;padding-bottom:0"><div class="x" style="margin-left:auto">×</div></div>
+  <div class="pinput" style="border-bottom:1px solid var(--line)">
+    <span class="car">›</span>
+    <input value="/opt/Nous/content/new1/map" placeholder="路径 / 名字 / .操作">
+    <span class="kbd">↵</span>
+  </div>
+  <div class="pres list" style="max-height:290px">
+    <div class="row up"><span class="nm">↑ /opt/Nous/content/new1</span><span class="tail">..</span></div>
+    <div class="divider"></div>
+    ${MAP_KIDS.slice(0,7).map((k,i)=>`<div class="row"><span class="nm">${k}/</span><span class="tail">${['桌面端','手机端','内核','新会话','归档','模板','归档'][i]||''}</span><span class="go">↵</span></div>`).join('')}
+    <div class="ghost">… 还有 16 个 · 继续打字缩小</div>
+  </div>
+  <div class="sfoot"><div class="stat"><span>/ 路径</span><span>~ 家目录</span><span>.</span><span>? 帮助</span></div><span class="usebtn">用这里</span></div>`;
+
+// ── 04 机器是路径第一段
+document.getElementById('v4').innerHTML = head('工作目录','第一段是机器 · 后面对面那台机器的路径') + `
+  <div class="pbar">
+    <div class="mseg"><span class="dot"></span>j1900<span class="car">▾</span></div>
+    <div class="crumbs">
+      <span class="sep">:</span>
+      <span class="seg root">/</span><span class="sep">›</span>
+      <span class="seg">opt</span><span class="sep">›</span>
+      <span class="fold">…</span><span class="sep">›</span>
+      <span class="seg cur">map</span>
+    </div>
+    <span class="edit">✎</span>
+  </div>
+  <div class="list">
+    <div class="row up"><span class="nm">↑ /opt/Nous/content/new1</span></div>
+    <div class="divider"></div>
+    ${SUBS.slice(0,6).map((s,i)=>`<div class="row"><span class="nm">${s}/</span><span class="tail">${i===0?'3 个会话':''}</span><span class="go">↵</span></div>`).join('')}
+    <div class="divider"></div>
+    <div class="ghead">这台机器上的其他盘<span class="ln"></span></div>
+    <div class="row"><span class="nm">/home/root/work</span><span class="go">↵</span></div>
+    <div class="row"><span class="nm">/srv/nous</span><span class="go">↵</span></div>
+  </div>` + useFoot('j1900 · 23 个子目录','用这个目录');
+
+// ── 05 分组 · 最近 + 子目录
+document.getElementById('v5').innerHTML = head('工作目录','最近用过的排最前 · 其余照字母') + `
+  <div class="pbar plain">
+    <div class="crumbs">
+      <span class="seg root">/</span><span class="sep">›</span>
+      <span class="seg">opt</span><span class="sep">›</span>
+      <span class="fold">…</span><span class="sep">›</span>
+      <span class="seg cur">map</span>
+    </div>
+    <span class="edit">✎</span>
+  </div>
+  <div class="list">
+    <div class="ghead">最近用过<span class="ln"></span></div>
+    <div class="row"><span class="nm">/opt/Nous/content/new1/map/h58ga5</span><span class="tail">2 小时前</span><span class="go">↵</span></div>
+    <div class="row"><span class="nm">/opt/Nous/content/new1/map/qrd3wh</span><span class="tail">昨天</span><span class="go">↵</span></div>
+    <div class="divider"></div>
+    <div class="ghead">这一层<span class="ln"></span></div>
+    ${MAP_KIDS.slice(0,5).map(s=>`<div class="row"><span class="nm">${s}/</span><span class="go">↵</span></div>`).join('')}
+    <div class="ghost">… 还有 5 个</div>
+  </div>` + useFoot('最近 2 · 这层 10','用这个目录');
+
+// ── 06 树形
+document.getElementById('v6').innerHTML = head('工作目录','点箭头展开 · 点名字进去') + `
+  <div class="pbar plain">
+    <div class="crumbs">
+      <span class="seg root">/</span><span class="sep">›</span>
+      <span class="seg cur">opt</span>
+    </div>
+    <span class="edit">✎</span>
+  </div>
+  <div class="split">
+    <div class="tree" style="width:100%;border:0;max-height:320px">
+      <div class="tnode l1"><span class="arw">▾</span><span style="color:#b8b8b8">/</span></div>
+      <div class="tnode l2"><span class="arw">▾</span><span>opt/</span></div>
+      <div class="tnode l3"><span class="arw">▾</span><span>Nous/</span></div>
+      <div class="tnode l4"><span class="arw">▾</span><span>content/</span></div>
+      <div class="tnode" style="padding-left:58px"><span class="arw">▾</span><span>new1/</span></div>
+      <div class="tnode cur" style="padding-left:71px"><span class="arw">▾</span><span>map/</span></div>
+      ${MAP_KIDS.slice(0,4).map((s,i)=>`<div class="tnode" style="padding-left:84px"><span class="arw">${i===0?'▾':'▸'}</span><span class="ic">▸</span><span>${s}</span></div>`).join('')}
+      <div class="tnode l4"><span class="arw">▸</span><span>prompts/</span></div>
+      <div class="tnode l3"><span class="arw">▸</span><span>demo/</span></div>
+      <div class="tnode l2"><span class="arw">▸</span><span>root/</span></div>
+    </div>
+  </div>` + useFoot('点箭头展开 · 点名字进去','用 map');
+
+// ── 07 双栏树 + 列表
+document.getElementById('v7').innerHTML = head('工作目录','树给结构 · 右边给这一层') + `
+  <div class="pbar plain">
+    <div class="crumbs">
+      <span class="seg root">/</span><span class="sep">›</span>
+      <span class="seg">opt</span><span class="sep">›</span>
+      <span class="seg">Nous</span><span class="sep">›</span>
+      <span class="fold">…</span><span class="sep">›</span>
+      <span class="seg cur">map</span>
+    </div>
+    <span class="edit">✎</span>
+  </div>
+  <div class="split">
+    <div class="tree">
+      <div class="tnode l1"><span class="arw">▾</span><span style="color:#b8b8b8">/</span></div>
+      <div class="tnode l2"><span class="arw">▾</span><span>opt/</span></div>
+      <div class="tnode l3"><span class="arw">▾</span><span>Nous/</span></div>
+      <div class="tnode l4"><span class="arw">▾</span><span>content/</span></div>
+      <div class="tnode" style="padding-left:58px"><span class="arw">▾</span><span>new1/</span></div>
+      <div class="tnode cur" style="padding-left:71px"><span class="arw">▾</span><span>map/</span></div>
+      ${MAP_KIDS.slice(0,3).map(s=>`<div class="tnode" style="padding-left:84px"><span class="arw">▸</span><span>${s}/</span></div>`).join('')}
+      <div class="tnode l4"><span class="arw">▸</span><span>prompts/</span></div>
+      <div class="tnode l2"><span class="arw">▸</span><span>root/</span></div>
+    </div>
+    <div class="right">
+      <div class="ghead">这一层 · 10 个目录<span class="ln"></span></div>
+      ${MAP_KIDS.map((s,i)=>`<div class="row"><span class="nm">${s}/</span><span class="tail">${i<2?'有会话':''}</span><span class="go">↵</span></div>`).join('')}
+    </div>
+  </div>` + useFoot('/opt/Nous/content/new1/map','用这个目录');
+
+// ── 08 命令面板
+{
+  const hits = [
+    ['/opt/Nous/content/new1/map','j1900','12 会话', true],
+    ['/opt/Nous/content/new1/map/qrd3wh','j1900','内核', false],
+    ['/opt/Nous/content/new1/map/bjes6b','j1900','手机端', false],
+    ['/home/root/nous/new-manual-cat','9996696','空目录', false],
+    ['/opt/Nous/content/new1/map/6ysg01','j1900','', false],
+  ];
+  document.getElementById('v8').innerHTML = `
+  <div class="palette">
+    <div class="pinput">
+      <span class="car">›</span>
+      <input value="ncm" placeholder="打名字、缩写、或 / 开头的路径">
+      <span class="kbd">↑↓</span><span class="kbd">↵</span><span class="kbd">esc</span>
+    </div>
+    <div style="display:flex">
+      <div class="pres" style="flex:1;min-width:0">
+        <div class="ghead">模糊匹配 · 5 个目录 · 首字母 ncm = <span style="color:#0a7a3f">n</span>ous <span style="color:#0a7a3f">c</span>ontent <span style="color:#0a7a3f">m</span>ap<span class="ln"></span></div>
+        ${hits.map(([p,w,n,on])=>`<div class="prow ${on?'on':''}">
+          <span class="path">${p}</span><span class="who">${w}</span><span class="n">${n}</span>
+        </div>`).join('')}
+        <div class="ghost">↑↓ 选 · ↵ 进这一层 · shift+↵ 直接用它</div>
+      </div>
+      <div class="prev">
+        <div class="pk">选中目录</div>
+        <div class="pv" style="margin-bottom:9px">/opt/Nous/content/new1/map</div>
+        <div class="pr"><span>机器</span><b>j1900</b></div>
+        <div class="pr"><span>跑着的会话</span><b>12</b></div>
+        <div class="pr"><span>子目录</span><b>23</b></div>
+        <div class="pr"><span>git</span><b style="color:#0a7a3f">✓ 干净</b></div>
+        <div class="pr"><span>可写</span><b>✓</b></div>
+        <div style="height:9px"></div>
+        <div class="pk">最近</div>
+        <div class="pv" style="font-size:10px;color:#999">h58ga5 · 2 小时前<br>qrd3wh · 昨天</div>
+      </div>
+    </div>
+    <div class="sfoot"><div class="stat"><span>5 个匹配</span><span>·</span><span>按相关度排</span></div><span class="usebtn">用这个目录</span></div>
+  </div>`;
+}
+</script>
+</body>
+</html>

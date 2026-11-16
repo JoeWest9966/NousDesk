@@ -1272,7 +1272,7 @@ impl Desktop {
                 return;
             };
             let got = h
-                .spawn(async move { engine.dirs(want.as_deref()).await })
+                .spawn(async move { engine.dirs(want.as_deref(), None).await })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 match got {

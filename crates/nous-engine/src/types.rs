@@ -658,6 +658,10 @@ pub struct MachineIp {
 pub struct Dirs {
     /// 请求时没给 `path` 就为空串（= 起点）。
     pub path: Option<String>,
+    /// 上一级。引擎在 `/` 时不给这个键。**自己算 `rsplit('/')` 会算错根**，
+    /// 所以照抄它。
+    #[serde(default)]
+    pub parent: Option<String>,
     #[serde(default)]
     pub dirs: Vec<DirEntry>,
     #[serde(flatten)]
