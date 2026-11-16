@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>New Manual · 技能 · 02 树 + 搜索框 · 7 套</title>
+<style>
+  :root{
+    --bg:#ededed; --panel:#fff; --surface:#f6f6f6; --line:#e6e6e6; --line-soft:#f1f1f1;
+    --text:#1a1a1a; --text2:#333; --muted:#999; --faint:#aaa; --ghost:#c8c8c8;
+    --accent:#07c160; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f; --accent-tint:#07c16022;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: Inter, "Manrope", -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#fafafa;color:var(--text);font-family:var(--sans);}
+  body{padding:52px 44px 140px;}
+  h1{font-size:23px;font-weight:600;letter-spacing:-.015em;margin:0 0 10px;}
+  .lede{font-size:13.5px;color:#666;line-height:1.8;max-width:960px;margin:0;}
+  .lede b{color:#111;font-weight:600;}
+  code{font-family:var(--mono);font-size:12px;background:#efefef;padding:1px 5px;border-radius:3px;color:#333;}
+
+  .facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:1120px;margin:24px 0 6px;}
+  .fact{border:1px solid #ececec;background:#fff;border-radius:9px;padding:12px 14px;}
+  .fact .k{font-family:var(--mono);font-size:10px;color:#bbb;letter-spacing:.04em;}
+  .fact .v{font-size:12.5px;color:#333;line-height:1.65;margin-top:5px;}
+  .fact .v b{color:#0a7a3f;}
+  .fact .v i{color:#aaa;font-style:normal;}
+
+  .note{border-left:2px solid #d8d8d8;padding:2px 0 2px 14px;margin:26px 0 0;max-width:960px;
+        font-size:12.5px;color:#777;line-height:1.85;}
+  .note b{color:#111;}
+
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:46px 52px;margin-top:44px;max-width:1400px;align-items:start;}
+  .pane.wide{grid-column:1 / -1;}
+  .pane-head{display:flex;align-items:baseline;gap:10px;margin:0 0 4px;}
+  .num{font-family:var(--mono);font-size:10.5px;color:#c0c0c0;border:1px solid #e8e8e8;border-radius:3px;padding:1px 5px;}
+  .num.hot{color:var(--accent-fg);border-color:var(--accent);background:var(--accent-soft);}
+  .pane-head h2{font-size:14.5px;font-weight:600;margin:0;letter-spacing:-.01em;}
+  .why{font-size:12px;color:#7d7d7d;line-height:1.7;margin:0 0 14px 34px;max-width:660px;}
+  .why b{color:#333;font-weight:600;}
+  .why .cost{color:#b06a00;}
+
+  /* ── 弹层外壳 ───────────────────────── */
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+         box-shadow:0 12px 34px rgba(0,0,0,.075),0 1px 2px rgba(0,0,0,.03);}
+  .sheet.w620{width:620px;}
+  .shead{display:flex;align-items:flex-start;justify-content:space-between;padding:11px 15px 9px;border-bottom:1px solid var(--line);}
+  .shead .t{font-size:12.5px;font-weight:600;line-height:1.3;}
+  .shead .h{font-size:10.5px;color:var(--muted);font-style:italic;margin-top:2px;}
+  .shead .x{color:#c4c4c4;font-size:14px;line-height:1;}
+  .sfoot{display:flex;align-items:center;justify-content:space-between;padding:8px 15px;border-top:1px solid var(--line);}
+  .sfoot .l{font-family:var(--mono);font-size:9.5px;color:var(--faint);}
+  .sfoot .r{font-family:var(--mono);font-size:10px;color:var(--accent-fg);border:1px solid var(--accent);
+            background:var(--accent-soft);border-radius:5px;padding:2px 9px;}
+
+  /* ── 搜索框 ─────────────────────────── */
+  .pbar{display:flex;align-items:center;gap:7px;margin:10px 14px 0;padding:0 9px;min-height:30px;
+        background:var(--surface);border:1px solid transparent;border-radius:7px;}
+  .pbar.focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px var(--accent-tint);}
+  .pbar .ico{font-family:var(--mono);font-size:11px;color:#c2c2c2;flex:none;}
+  .pbar input{flex:1;min-width:0;border:0;background:transparent;outline:0;font-family:var(--mono);
+              font-size:11.5px;color:var(--text);}
+  .pbar input::placeholder{color:#bfbfbf;}
+  .pbar .cls{font-size:10px;color:#c8c8c8;flex:none;}
+  .pbar.tight{margin:8px 8px 6px;}
+  .pbar.mini{min-height:26px;margin:0 0 8px;}
+  .pbar.mini input{font-size:10.5px;}
+
+  /* ── 两栏 ───────────────────────────── */
+  .cols{display:flex;border-top:1px solid var(--line);}
+  .tree{width:172px;flex:none;border-right:1px solid var(--line);padding:9px 6px 11px;background:#fcfcfc;}
+  .tree.fade{opacity:.38;}
+  .tnode{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:5px;font-family:var(--mono);
+         font-size:10.5px;color:#666;}
+  .tnode.on{background:#fff;border:1px solid var(--line);color:var(--text);}
+  .tnode .c{margin-left:auto;font-size:9px;color:#c8c8c8;}
+  .tnode .c.hit{color:var(--accent-fg);}
+  .tnode .tick{color:#cfcfcf;font-size:9px;width:9px;flex:none;text-align:center;}
+  .tnode.off{color:#d2d2d2;}
+  .tnode.off .c{color:#dedede;}
+  .tnode.sub{padding-left:23px;}
+  .list{flex:1;min-width:0;}
+
+  /* ── 技能行 ─────────────────────────── */
+  .rows{padding:6px 8px 8px;}
+  .row{display:flex;align-items:flex-start;gap:9px;padding:8px 9px;border-radius:7px;border:1px solid transparent;}
+  .row.on{background:var(--accent-soft);border-color:var(--accent);}
+  .box{margin-top:2px;width:13px;height:13px;border-radius:3px;border:1px solid var(--line);
+       flex:none;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--accent);}
+  .row.on .box{border-color:var(--accent);}
+  .row .body{flex:1;min-width:0;}
+  .row .n{font-family:var(--mono);font-size:12px;color:var(--text2);letter-spacing:-.01em;}
+  .row .d{font-size:11px;color:var(--muted);line-height:1.55;margin-top:3px;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .tag{font-family:var(--mono);font-size:9px;color:#a8a8a8;border:1px solid var(--line-soft);
+       background:#fbfbfb;border-radius:3px;padding:0 4px;line-height:14px;flex:none;white-space:nowrap;}
+  .tag.acc{color:var(--accent-fg);border-color:#cdebd9;background:var(--accent-soft);}
+  mark{background:#fdf3cf;color:#6b5200;border-radius:2px;padding:0 1px;}
+
+  .gh{display:flex;align-items:center;gap:8px;padding:11px 14px 3px;}
+  .gh .t{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:#b8b8b8;}
+  .gh .line{flex:1;height:1px;background:var(--line-soft);}
+  .gh .c{font-family:var(--mono);font-size:9.5px;color:#cdcdcd;}
+
+  .empty{padding:30px 16px;text-align:center;font-size:11.5px;color:var(--ghost);line-height:1.9;}
+  .hint{font-family:var(--mono);font-size:9.5px;color:#c8c8c8;padding:7px 15px 9px;}
+</style>
+</head>
+<body>
+
+<h1>02 加了搜索框 —— 7 种放法</h1>
+<p class="lede">
+  骨架不动：<b>左类别树 + 右技能列表，620 宽</b>。只问一件事：<b>搜索框放哪、搜的时候那棵树怎么办。</b>
+  <br>每套我都填了同一个词 —— <code>复盘</code> —— 这样你能直接比「同样的输入，三种面板给出什么」。
+  为什么要拿「复盘」当例子：技能名全是英文（<code>incident-postmortem</code>），但描述是中文
+  （「事故复盘：时间线、根因、修复…」）。<b>你多半记得住「复盘」，记不住那个英文名。</b>
+  所以搜索必须搜描述，不只是搜名字 —— 这条决定下面所有方案的前提。
+</p>
+
+<div class="facts">
+  <div class="fact"><div class="k">搜什么</div>
+    <div class="v">名字 + <b>描述</b> + 类别名，三个一起搜。<i>只搜名字的话，「复盘」一条都搜不到</i></div></div>
+  <div class="fact"><div class="k">搜索框什么时候在</div>
+    <div class="v">常驻（不藏在图标后面）。<i>5 条技能的面板上藏一个搜索入口，等于没人会用</i></div></div>
+  <div class="fact"><div class="k">边上那个 <code>/</code></div>
+    <div class="v">聚焦快捷键，和目录弹层同一个（按 <code>/</code> 直接跳进搜索框）</div></div>
+</div>
+
+<div class="grid">
+
+  <!-- 01 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">01</span><h2>通栏输入 · 树不动</h2></div>
+    <p class="why">搜索框横跨整块，但要 <b>先选类、再在这一类里搜</b>。树一点不跟着变，
+      计数还是全量（工程 2），所以你搜「复盘」时看到「写作 2」不会知道那两条其实没有命中。
+      <span class="cost">代价：搜索范围被左栏框住了 —— 想全盘搜得先点「全部」。多一步，而且用户不一定想到要先去点。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">技能</div><div class="h">5 条 · 按类别找</div></div><div class="x">✕</div></div>
+      <div class="pbar focus"><span class="ico">›</span><input value="复盘" readonly><span class="cls">✕</span></div>
+      <div class="cols">
+        <div class="tree">
+          <div class="tnode on"><span class="tick"></span>全部<span class="c">5</span></div>
+          <div class="tnode"><span class="tick">▾</span>工程<span class="c">2</span></div>
+          <div class="tnode sub">事故<span class="c">1</span></div>
+          <div class="tnode"><span class="tick">▾</span>写作<span class="c">2</span></div>
+          <div class="tnode sub">长文<span class="c">1</span></div>
+          <div class="tnode off"><span class="tick"></span>实验<span class="c">0</span></div>
+          <div class="tnode off"><span class="tick"></span>Basics<span class="c">0</span></div>
+          <div class="tnode">未分类<span class="c">1</span></div>
+        </div>
+        <div class="list">
+          <div class="rows">
+            <div class="row on"><div class="box">✓</div><div class="body"><div class="n">incident-postmortem</div>
+              <div class="d">事故<mark>复盘</mark>：时间线、根因、修复、以及下一次不会再发生的那一条</div></div>
+              <span class="tag acc">工程/事故</span></div>
+          </div>
+          <div class="hint">1 条命中 · 搜的是全部 5 条</div>
+        </div>
+      </div>
+      <div class="sfoot"><span class="l">1 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 02 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num hot">02 · 推荐</span><h2>通栏输入 · 搜索时树让位</h2></div>
+    <p class="why">一打字，<b>左栏淡出不可点，右边变成「全部里的命中」</b>，每行带着自己的类别标签。
+      空了就回到树。搜索是临时状态，树是常驻状态 —— 两种东西不抢地方。
+      <span class="cost">代价：搜的时候没法用树收窄（但你都打字了，本来也不打算点）。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">技能</div><div class="h">搜全部技能 · 名字或描述</div></div><div class="x">✕</div></div>
+      <div class="pbar focus"><span class="ico">›</span><input value="复盘" readonly><span class="cls">✕</span></div>
+      <div class="cols">
+        <div class="tree fade">
+          <div class="tnode"><span class="tick"></span>全部<span class="c">5</span></div>
+          <div class="tnode"><span class="tick">▾</span>工程<span class="c">2</span></div>
+          <div class="tnode sub">事故<span class="c">1</span></div>
+          <div class="tnode"><span class="tick">▾</span>写作<span class="c">2</span></div>
+          <div class="tnode sub">长文<span class="c">1</span></div>
+          <div class="tnode off"><span class="tick"></span>实验<span class="c">0</span></div>
+          <div class="tnode off"><span class="tick"></span>Basics<span class="c">0</span></div>
+          <div class="tnode">未分类<span class="c">1</span></div>
+        </div>
+        <div class="list">
+          <div class="rows">
+            <div class="row on"><div class="box">✓</div><div class="body"><div class="n">incident-postmortem</div>
+              <div class="d">事故<mark>复盘</mark>：时间线、根因、修复、以及下一次不会再发生的那一条</div></div>
+              <span class="tag acc">工程/事故</span></div>
+          </div>
+          <div class="hint">1 条命中 · 全部 5 条里搜</div>
+        </div>
+      </div>
+      <div class="sfoot"><span class="l">1 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 03 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">03</span><h2>输入框搬进左栏（筛类别）</h2></div>
+    <p class="why">输入框放在树顶上，<b>它筛的是类别名，不是技能</b>。打「工」树上只剩工程和事故。
+      右侧永远是「当前类里的全部技能」。
+      <span class="cost">代价：这是个为将来准备的方案 —— 类别现在只有 6 个，筛类别比不筛还慢。而且「复盘」这种词在这里一条都搜不到。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">技能</div><div class="h">左边选类别，右边勾技能</div></div><div class="x">✕</div></div>
+      <div class="cols" style="border-top:0">
+        <div class="tree">
+          <div class="pbar mini"><span class="ico">›</span><input value="工" readonly></div>
+          <div class="tnode"><span class="tick"></span>全部<span class="c">5</span></div>
+          <div class="tnode"><span class="tick">▾</span>工程<span class="c">2</span></div>
+          <div class="tnode sub">事故<span class="c">1</span></div>
+        </div>
+        <div class="list">
+          <div class="rows">
+            <div class="row"><div class="box"></div><div class="body"><div class="n">code-review</div>
+              <div class="d">审查从某个点以来的改动：标准 + 规格两条轴，别只夸好</div></div><span class="tag">工程</span></div>
+            <div class="row on"><div class="box">✓</div><div class="body"><div class="n">incident-postmortem</div>
+              <div class="d">事故复盘：时间线、根因、修复、以及下一次不会再发生的那一条</div></div><span class="tag acc">工程/事故</span></div>
+          </div>
+          <div class="hint">左栏命中 2 个类别</div>
+        </div>
+      </div>
+      <div class="sfoot"><span class="l">1 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 04 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">04</span><h2>输入框搬进右栏（筛技能）</h2></div>
+    <p class="why">输入框在列表顶上，<b>只搜当前类里的技能</b>。树完全不受影响，计数是真数。
+      这是 01 的「收进右栏」版本 —— 范围还是被类别框着，但视觉上很清楚「我在这一栏里搜」。
+      <span class="cost">代价：「全部」没点的时候搜不到别类的东西，用户会以为技能丢了。这是最容易踩的坑。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">技能</div><div class="h">先在左边选类别</div></div><div class="x">✕</div></div>
+      <div class="cols" style="border-top:0">
+        <div class="tree">
+          <div class="tnode on"><span class="tick"></span>全部<span class="c">5</span></div>
+          <div class="tnode"><span class="tick">▾</span>工程<span class="c">2</span></div>
+          <div class="tnode sub">事故<span class="c">1</span></div>
+          <div class="tnode"><span class="tick">▾</span>写作<span class="c">2</span></div>
+          <div class="tnode sub">长文<span class="c">1</span></div>
+          <div class="tnode off"><span class="tick"></span>实验<span class="c">0</span></div>
+          <div class="tnode off"><span class="tick"></span>Basics<span class="c">0</span></div>
+          <div class="tnode">未分类<span class="c">1</span></div>
+        </div>
+        <div class="list">
+          <div style="padding:8px 8px 0"><div class="pbar tight focus" style="margin:0"><span class="ico">›</span><input value="复盘" readonly><span class="cls">✕</span></div></div>
+          <div class="rows">
+            <div class="row on"><div class="box">✓</div><div class="body"><div class="n">incident-postmortem</div>
+              <div class="d">事故<mark>复盘</mark>：时间线、根因、修复、以及下一次不会再发生的那一条</div></div>
+              <span class="tag acc">工程/事故</span></div>
+          </div>
+          <div class="hint">1 条命中 · 只在「全部」里搜</div>
+        </div>
+      </div>
+      <div class="sfoot"><span class="l">1 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 05 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">05</span><h2>通栏输入 · 树只亮命中的类</h2></div>
+    <p class="why">搜索时树整体不动，但<b>计数换成命中数</b>（工程 <b>1</b>、写作 <b>0</b>、灰掉），
+      点哪个类就在「这个类 ∩ 命中」里看。搜索和类别叠着用。
+      <span class="cost">代价：两套数字打架 —— 树上的 1 是命中数还是总数？得靠颜色区分，悬。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">技能</div><div class="h">搜的时候，左边的数字变成命中数</div></div><div class="x">✕</div></div>
+      <div class="pbar focus"><span class="ico">›</span><input value="复盘" readonly><span class="cls">✕</span></div>
+      <div class="cols">
+        <div class="tree">
+          <div class="tnode on"><span class="tick"></span>全部<span class="c hit">1</span></div>
+          <div class="tnode"><span class="tick">▾</span>工程<span class="c hit">1</span></div>
+          <div class="tnode sub">事故<span class="c hit">1</span></div>
+          <div class="tnode off"><span class="tick">▾</span>写作<span class="c">0</span></div>
+          <div class="tnode sub off">长文<span class="c">0</span></div>
+          <div class="tnode off"><span class="tick"></span>实验<span class="c">0</span></div>
+          <div class="tnode off"><span class="tick"></span>Basics<span class="c">0</span></div>
+          <div class="tnode off">未分类<span class="c">0</span></div>
+        </div>
+        <div class="list">
+          <div class="rows">
+            <div class="row on"><div class="box">✓</div><div class="body"><div class="n">incident-postmortem</div>
+              <div class="d">事故<mark>复盘</mark>：时间线、根因、修复、以及下一次不会再发生的那一条</div></div>
+              <span class="tag acc">工程/事故</span></div>
+          </div>
+          <div class="hint">1 条命中 · 灰掉的类里没有</div>
+        </div>
+      </div>
+      <div class="sfoot"><span class="l">1 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 06 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">06</span><h2>通栏输入 · 命中按类别分段</h2></div>
+    <p class="why">搜索时右栏不回退成一串，<b>而是按类别分段</b>（就像不搜索时的分组列表）。
+      命中散在三个类里时，这一段就是「原来这条在事故里」。
+      <span class="cost">代价：只有 1 条命中时，段头那行「工程 1」比内容还长 —— 词太少时显笨。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">技能</div><div class="h">命中按类别排</div></div><div class="x">✕</div></div>
+      <div class="pbar focus"><span class="ico">›</span><input value="复盘" readonly><span class="cls">✕</span></div>
+      <div class="cols">
+        <div class="tree fade">
+          <div class="tnode on"><span class="tick"></span>全部<span class="c">5</span></div>
+          <div class="tnode"><span class="tick">▾</span>工程<span class="c">2</span></div>
+          <div class="tnode sub">事故<span class="c">1</span></div>
+          <div class="tnode"><span class="tick">▾</span>写作<span class="c">2</span></div>
+          <div class="tnode sub">长文<span class="c">1</span></div>
+          <div class="tnode off"><span class="tick"></span>实验<span class="c">0</span></div>
+          <div class="tnode off"><span class="tick"></span>Basics<span class="c">0</span></div>
+          <div class="tnode">未分类<span class="c">1</span></div>
+        </div>
+        <div class="list">
+          <div class="gh"><span class="t">工程</span><span class="line"></span><span class="c">1</span></div>
+          <div class="rows" style="padding-top:2px">
+            <div class="row on"><div class="box">✓</div><div class="body"><div class="n">incident-postmortem</div>
+              <div class="d">事故<mark>复盘</mark>：时间线、根因、修复、以及下一次不会再发生的那一条</div></div>
+              <span class="tag acc">事故</span></div>
+          </div>
+          <div class="hint" style="padding-bottom:12px">写作 / 未分类 里没有命中</div>
+        </div>
+      </div>
+      <div class="sfoot"><span class="l">1 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+  <!-- 07 -->
+  <div class="pane">
+    <div class="pane-head"><span class="num">07</span><h2>通栏输入 · 不过滤，只高亮</h2></div>
+    <p class="why">列表<b>一条不少</b>，只把命中的字标黄，再把光标锁在第一处命中上。
+      类别、计数、位置全都不变 —— 搜索变成一个「跳过去」的动作，不是「筛掉」的动作。
+      <span class="cost">代价：5 条时很好用，50 条时就是灾难（你得自己滚）。所以这套只在技能少的时候成立。</span></p>
+    <div class="sheet w620">
+      <div class="shead"><div><div class="t">技能</div><div class="h">5 条 · 按类别找</div></div><div class="x">✕</div></div>
+      <div class="pbar focus"><span class="ico">›</span><input value="复盘" readonly><span class="cls">✕</span></div>
+      <div class="cols">
+        <div class="tree">
+          <div class="tnode on"><span class="tick"></span>全部<span class="c">5</span></div>
+          <div class="tnode"><span class="tick">▾</span>工程<span class="c">2</span></div>
+          <div class="tnode sub">事故<span class="c">1</span></div>
+          <div class="tnode"><span class="tick">▾</span>写作<span class="c">2</span></div>
+          <div class="tnode sub">长文<span class="c">1</span></div>
+          <div class="tnode off"><span class="tick"></span>实验<span class="c">0</span></div>
+          <div class="tnode off"><span class="tick"></span>Basics<span class="c">0</span></div>
+          <div class="tnode">未分类<span class="c">1</span></div>
+        </div>
+        <div class="list">
+          <div class="rows">
+            <div class="row"><div class="box"></div><div class="body"><div class="n">code-review</div>
+              <div class="d">审查从某个点以来的改动：标准 + 规格两条轴，别只夸好</div></div><span class="tag">工程</span></div>
+            <div class="row"><div class="box"></div><div class="body"><div class="n">deep-dive</div>
+              <div class="d">针对一个技术问题做深挖：先列假设，再找反证，最后给结论和代价</div></div><span class="tag">写作/长文</span></div>
+            <div class="row on"><div class="box">✓</div><div class="body"><div class="n">incident-postmortem</div>
+              <div class="d">事故<mark>复盘</mark>：时间线、根因、修复、以及下一次不会再发生的那一条</div></div><span class="tag acc">工程/事故</span></div>
+            <div class="row"><div class="box"></div><div class="body"><div class="n">scratch-notes</div>
+              <div class="d">随手记：临时想法、半截结论、以后可能要捡回来的东西</div></div><span class="tag">未分类</span></div>
+            <div class="row"><div class="box"></div><div class="body"><div class="n">weekly-report</div>
+              <div class="d">把这周的会议、提交、聊天整理成一份能直接发给老板的周报</div></div><span class="tag">写作</span></div>
+          </div>
+          <div class="hint">1 处命中 · Enter 跳下一个</div>
+        </div>
+      </div>
+      <div class="sfoot"><span class="l">1 已选</span><span class="r">完成 ›</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="note" style="margin-top:52px">
+  <b>我选 02。</b>理由是它把「树」和「搜索」当两种互斥的状态：不搜的时候树管事儿，一打字树就让开。
+  不用解释「现在是全盘搜还是在类里搜」，也不会有 01 / 04 的坑（搜不到东西，其实是被类别框住了）。
+  <br><br>
+  <b>07 值得单独说</b>：它是唯一一个「搜索不动列表」的方案。技能少的时候手感最好 —— 但你说了技能会长到十几条，
+  那时 02 还成立、07 就不成立了。如果你觉得技能短期内长不起来，07 其实更准。
+  <br><br>
+  <b>落地的活儿（选哪个都一样）：</b>
+  左栏的树从 <code>categories</code>（含空类）+ 技能自带 <code>category</code> 现算，别写死；
+  子类只在父类展开时出现（<code>工程 ▾ 事故</code>），默认不展开也可以 —— 现在只有 1 条技能属于子类，展开是空的。
+</div>
+
+</body>
+</html>
