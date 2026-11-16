@@ -3241,7 +3241,7 @@ fn wrapper(
 /// 段的 `manifest` 住在仓根的 `sections.json` 里（`Session-Template` = `preset.json`，
 /// `Ultimate-Template` = `ultimate.json`），引擎不额外报这个名字 —— 所以照清单挑：
 /// 先认那两个老名字，再退到「任意一个顶层的 .json」。
-fn pick_manifest(files: &[nous_engine::types::PresetFileMeta]) -> String {
+pub(crate) fn pick_manifest(files: &[nous_engine::types::PresetFileMeta]) -> String {
     let json: Vec<&str> = files
         .iter()
         .map(|f| f.path.as_str())
