@@ -23,6 +23,7 @@ mod fonts;
 mod live;
 mod md;
 mod nav_ui;
+mod new_entry;
 mod preset_confirm;
 mod preset_menu;
 mod recent;

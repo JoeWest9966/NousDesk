@@ -670,3 +670,19 @@ JSON 面板看得懂但看不懂。而且数据天然是图（`resolved` 每个�
 `on_action` 上，interceptor 只留「盘面开着时的临时接管」这一小段。
 
 ---
+
+## 2026-11-16 · ＋ 菜单分两组；「复制这条会话」只抄设置，不抄对话
+
+`＋` 从「只有 New Manual」变成 `新会话`（空白 / 从模板起）+ `从当前这条`（复制设置）。
+理由：这两件事语义不一样 —— 一个是「从零开始」，一个是「从这条派生」；一条直线摆三行
+将来加第四条就没地方了（demo `demo/new-entry-menu` 的 A/B/C 三个方案里选的 B）。
+
+**「复制」的含义钉死在「抄设置」**：`model` / `thinkingLevel` / `skills` / `template` /
+`cwd` / `machine` / `readOnly`。**不带对话**（要连历史一起，那是 `POST /v1/sessions/:id/fork`，
+不是复制）；**不带扩展**（会话对象里根本没有生效的扩展清单，见 `wire.md`），省掉 = 引擎给全开。
+
+**反悔点**：真要做「连对话一起复制」，走 fork 那条路，别在 `copy_body` 上叠参数；
+引擎哪天在会话对象里补上 `extensions`，就把 `copy_body` 里那一行改掉并补一条测试。
+
+菜单项的空格也算契约：三项的键帽 `Ctrl+N` / `Ctrl+Shift+N` / `Ctrl+D` 是**画在菜单里**的
+（`new_entry::menu()`），改快捷键就改那一处，别让菜单和 `intercept_keystrokes` 各写一份。

@@ -315,6 +315,11 @@ pub struct Desktop {
     pub(crate) tab: Tab,
     /// 底部「≡ 更多」菜单开着没有。
     pub(crate) menu_open: bool,
+    /// 「从模板起」那张模板清单开着没有（`＋` 菜单的第二项）。
+    /// 它是左栏里的一块浮层，不是第二级菜单 —— 见 `preset_pick_overlay`。
+    pub(crate) preset_pick: bool,
+    /// 「复制这条会话」在途。防连点：`Ctrl+D` 按住会自动重复，不挡的话一秒能建十条。
+    pub(crate) copying: bool,
     /// 右栏是不是在显示全局设置（整页替换聊天区，左栏不动）。
     pub(crate) settings_open: bool,
     /// 设置页左边选的那一项。
@@ -526,6 +531,20 @@ impl Desktop {
                         .unwrap_or(false);
                     if handled {
                         app.stop_propagation();
+                        return;
+                    }
+                    // 左栏「新建」那三条：Ctrl+N 空白 / Ctrl+Shift+N 从模板起 /
+                    // Ctrl+D 复制当前这条。键帽在菜单里画着，这里是真按。
+                    // **只在编辑器没开时**管 —— 编辑器开着时 Ctrl+N 该是它自己的事
+                    // （那条分支上面已经挡掉了，走到这儿说明编辑器没吃它）。
+                    let shift = ev.keystroke.modifiers.shift;
+                    let handled = weak
+                        .update(app, |this, cx| {
+                            this.new_entry_shortcut(key, shift, window, cx)
+                        })
+                        .unwrap_or(false);
+                    if handled {
+                        app.stop_propagation();
                     }
                     // 别的 Ctrl 组合照旧不归这里管。
                     return;
@@ -655,6 +674,12 @@ impl Desktop {
                     // 明明满屏都是自己点开的东西，按 Esc 一点反应都没有。
                     let closed = weak
                         .update(app, |this, cx| {
+                            // 「从模板起」那张卡：盖在左栏里、比 `≡` 菜单更靠上（它是从菜单
+                            // 点出来的），所以先收它。
+                            if this.preset_pick {
+                                this.close_preset_pick(cx);
+                                return true;
+                            }
                             if this.menu_open {
                                 this.close_menu(cx);
                                 return true;
@@ -796,6 +821,8 @@ impl Desktop {
             loading: true,
             input,
             menu_open: open_at_start == "menu",
+            preset_pick: false,
+            copying: false,
             settings_open: open_at_start == "settings",
             // `NOUS_DESKTOP_OPEN=editor`：列表一拉回来就打开第一条的编辑器（验编辑器用）。
             auto_editor: open_at_start == "editor",
@@ -2656,6 +2683,9 @@ impl Desktop {
     /// 只加 `.item(...)`，不用改这段的骨架。
     fn render_new_chat_button(&self, cx: &mut Context<Self>) -> AnyElement {
         let weak = cx.weak_entity();
+        // 菜单实体是**打开那次**才建的（gpui-kit 用 keyed state 缓存），所以这个
+        // 「有没有选中会话」的判定跟着那一次打开走，不会卡在首帧的值上。
+        let has_sel = self.selected.is_some();
         Button::new("new-chat-btn")
             .ghost()
             .small()
@@ -2665,18 +2695,192 @@ impl Desktop {
             // `TopRight`：菜单落在按钮**下方**、右边缘对齐（`Anchor` 说的是浮层自己
             // 贴着触发器的哪条边 —— 写 `BottomRight` 会翻到按钮上方去）。
             .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
-                let weak = weak.clone();
-                menu.min_w(t().d(180.)).item(
-                    PopupMenuItem::new("New Manual")
-                        .icon(Icon::new(IconName::PenLine))
-                        .on_click(move |_, window, cx| {
-                            if let Some(this) = weak.upgrade() {
-                                this.update(cx, |this, cx| this.board_open(window, cx));
-                            }
-                        }),
-                )
+                let mut menu = menu.min_w(t().d(216.));
+                for (i, group) in crate::new_entry::menu().into_iter().enumerate() {
+                    // 组与组之间来一条分隔线；第一组上面不画（贴着菜单顶）。
+                    if i > 0 {
+                        menu = menu.item(PopupMenuItem::separator());
+                    }
+                    if let Some(title) = group.title {
+                        menu = menu.item(PopupMenuItem::label(title));
+                    }
+                    for entry in group.items {
+                        menu = menu.item(Self::new_entry_item(entry, has_sel, weak.clone()));
+                    }
+                }
+                menu
             })
             .into_any_element()
+    }
+
+    /// 菜单里的一行：图标 + 名字 + 右边那枚键帽。
+    ///
+    /// 用 `PopupMenuItem::element` 而不是 `new(...)`：`new` 只能挂一串纯文字，
+    /// 键帽右对齐不了。没有选中会话时「复制设置」整行灰掉，键帽换成「先选一条」——
+    /// 灰着还写着 Ctrl+D 会让人以为按了有用。
+    fn new_entry_item(
+        entry: crate::new_entry::Entry,
+        has_sel: bool,
+        weak: gpui::WeakEntity<Self>,
+    ) -> PopupMenuItem {
+        use crate::new_entry::Action;
+        let label = entry.label;
+        let keys = entry.keys;
+        let (icon, disabled) = match entry.action {
+            Action::Manual => (IconName::PenLine, false),
+            Action::FromPreset => (IconName::LayoutTemplate, false),
+            // 没选中会话时「从当前这条」无从谈起：灰掉，并写清楚为什么。
+            Action::CopySettings => (IconName::Copy, !has_sel),
+        };
+        let action = entry.action;
+        PopupMenuItem::element(move |_, _| {
+            div()
+                .flex()
+                .items_center()
+                .flex_1()
+                .min_w(t().d(0.))
+                .child(div().truncate().child(label))
+                .when(disabled, |el| {
+                    el.child(
+                        div()
+                            .ml_auto()
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(t().p.faint))
+                            .child("先选一条"),
+                    )
+                })
+                .when(!disabled, |el| el.child(Self::kbd_chip(keys)))
+        })
+        .icon(Icon::new(icon).size(t().d(15.)))
+        .disabled(disabled)
+        .on_click(move |_, window, cx| {
+            if let Some(this) = weak.upgrade() {
+                this.update(cx, |this, cx| this.new_entry_click(action, window, cx));
+            }
+        })
+    }
+
+    /// 菜单项点下去。三个动作各自只有一行，真正的活都在别处。
+    pub(crate) fn new_entry_click(
+        &mut self,
+        action: crate::new_entry::Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::new_entry::Action;
+        match action {
+            Action::Manual => self.board_open(window, cx),
+            Action::FromPreset => self.open_preset_pick(cx),
+            Action::CopySettings => self.copy_current_settings(cx),
+        }
+    }
+
+    /// 三条快捷键：`Ctrl+N` 空白 / `Ctrl+Shift+N` 从模板起 / `Ctrl+D` 复制当前这条。
+    ///
+    /// 在 `intercept_keystrokes` 的 Ctrl 分支里叫。返回 `false` = 这个组合不归这里管
+    /// （`Ctrl+S` / `Ctrl+K` 已经先走了）。
+    fn new_entry_shortcut(
+        &mut self,
+        key: &str,
+        shift: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        // 编辑器是整页，开在上面时这三条不归这里管（Ctrl+N 会把它顶掉）。
+        if self.editor.open {
+            return false;
+        }
+        match (key, shift) {
+            ("n", true) => {
+                self.open_preset_pick(cx);
+                true
+            }
+            ("n", false) => {
+                self.board_open(window, cx);
+                true
+            }
+            ("d", false) => {
+                // 没选中就什么都不做 —— 跟菜单里灰掉那行一致（提示已经在菜单里写过了，
+                // 快捷键没菜单可看，这里补一条轻提示）。
+                if self.selected.is_none() {
+                    self.notify("先选一条会话", NoticeKind::Info, cx);
+                    return true;
+                }
+                self.copy_current_settings(cx);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 「复制这条会话」：把当前会话的设置抄成一条新会话（**不带对话**）。
+    ///
+    /// 请求体在 [`crate::new_entry::copy_body`]（纯函数，带测试）。这里只做
+    /// 「起任务 → 三种结局分开 → 成功就切过去」，跟 `launch_preset` 一个套路。
+    fn copy_current_settings(&mut self, cx: &mut Context<Self>) {
+        let Some(sess) = self.cur_session().cloned() else {
+            self.notify("先选一条会话", NoticeKind::Info, cx);
+            return;
+        };
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        if self.copying {
+            return;
+        }
+        self.copying = true;
+        cx.notify();
+
+        let body = crate::new_entry::copy_body(&sess);
+        let from = sess.name.clone();
+        cx.spawn(async move |this, cx| {
+            let handle = crate::TOKIO.get().cloned();
+            // create → 紧跟一次 sessions()，一次任务里带回落库后的列表。
+            let outcome: Option<Result<(nous_engine::types::CreatedSession, Vec<Session>), EngineError>> =
+                match &handle {
+                    Some(h) => {
+                        h.spawn(async move {
+                            let created = engine.create(&body).await?;
+                            let sessions = engine.sessions().await?.items;
+                            Ok((created, sessions))
+                        })
+                        .await
+                        .ok()
+                    }
+                    _ => None,
+                };
+            let _ = this.update(cx, |this, cx| {
+                this.copying = false;
+                match outcome {
+                    Some(Ok((created, sessions))) => {
+                        let mut sessions = sessions;
+                        sessions.sort_by(|a, b| b.id.cmp(&a.id));
+                        this.sessions = sessions;
+                        // 复制出来的不该还赖在盘面上。
+                        this.newchat.open = false;
+                        this.newchat.sheet = None;
+                        this.select_session(created.id, true, cx);
+                        // 引擎说缺什么要如实说，别把 201 当全须全尾（wire.md 「建会话」）。
+                        let missing = created.missing.len()
+                            + created.missing_extensions.len()
+                            + created.missing_templates.len();
+                        if missing > 0 {
+                            this.notify(
+                                format!("已复制「{from}」，但有 {missing} 项引擎那边找不到"),
+                                NoticeKind::Error,
+                                cx,
+                            );
+                        } else {
+                            this.notify(format!("已复制「{from}」的设置"), NoticeKind::Info, cx);
+                        }
+                    }
+                    Some(Err(e)) => this.notify_error(&e, cx),
+                    None => this.notify("任务没跑完", NoticeKind::Error, cx),
+                }
+            });
+        })
+        .detach();
     }
 
     /// 搜索中的列表：**先过滤，再按组摆**。
@@ -2747,6 +2951,27 @@ impl Desktop {
             );
         }
         out
+    }
+
+    /// 菜单右侧那枚键帽（`Ctrl+N` 这种）。
+    ///
+    /// 画出来比写在文档里管用 —— 不写等于没有快捷键。
+    fn kbd_chip(label: &'static str) -> AnyElement {
+        div()
+            .flex_none()
+            .ml(t().d(6.))
+            .h(t().d(16.))
+            .px(t().d(5.))
+            .flex()
+            .items_center()
+            .rounded(t().r(4.))
+            .bg(rgb(t().p.hover))
+            .border_1()
+            .border_color(rgb(t().p.line))
+            .text_size(t().fs(10.))
+            .text_color(rgb(t().p.muted))
+            .child(label)
+            .into_any_element()
     }
 
     /// 一行「可能带高亮」的文本。
@@ -2841,6 +3066,9 @@ impl Desktop {
             .flex_col()
             .w(px(t().list_w))
             .h_full()
+            // `relative`：`＋` 菜单里「从模板起」那张清单绝对定位在这一列里
+            // （见 `templates::preset_pick_overlay`）。
+            .relative()
             .bg(rgb(t().p.list_bg))
             .child(
                 // 顶部就一行：搜索框（计数内嵌右端）+ 一颗 `＋`。
@@ -2894,6 +3122,8 @@ impl Desktop {
                         self.bar(Bar::List).1,
                     )),
             )
+            // 「从模板起」的模板清单：盖在列表上、压在这一列里，不铺到整窗。
+            .children(self.preset_pick_overlay(cx))
             .into_any_element()
     }
 
