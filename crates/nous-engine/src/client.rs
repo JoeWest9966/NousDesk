@@ -12,8 +12,8 @@ use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ConfigPatch, CreateSession, CreatedSession, Device,
     Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
-    PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt, Renamed,
-    Triggers,
+    PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt,
+    RenamePreset, Renamed, RenamedPreset, Triggers,
     SessionConfig, Sessions, Skills, Submission, Unread,
 };
 
@@ -552,6 +552,22 @@ impl EngineClient {
             .http
             .post(self.url(&format!("v1/presets/{section}/category"))?)
             .json(&Body { name, category })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 改一条模板的名字。引擎同时动三处：目录（`git mv`）、清单里的 `name`、
+    /// 以及引用了它的终极模板的 `session` —— 回包的 `refs` 就是被连带改掉的那几条。
+    pub async fn rename_preset(
+        &self,
+        section: &str,
+        body: &RenamePreset,
+    ) -> Result<RenamedPreset, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/rename"))?)
+            .json(body)
             .send()
             .await?;
         self.json(resp).await

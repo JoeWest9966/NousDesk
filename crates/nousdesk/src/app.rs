@@ -417,6 +417,8 @@ pub struct Desktop {
     pub(crate) cat_dialog: Option<crate::templates::CatDialog>,
     /// 导入模板弹层（文件已读进来，只等名字）。`Some` = 开着。
     pub(crate) preset_import: Option<crate::templates::ImportDraft>,
+    /// 模板重命名弹层。`Some` = 开着。
+    pub(crate) preset_rename: Option<crate::templates::RenameDraft>,
     /// 窄窗下 Template 页的类别抽屉开着没有（宽窗常驻，不用这个）。
     pub(crate) cat_drawer: bool,
     /// Template 页在看**归档区**（列表栏换成归档列表）。
@@ -786,6 +788,10 @@ impl Desktop {
                                 this.close_import(cx);
                                 return true;
                             }
+                            if this.preset_rename.is_some() {
+                                this.close_preset_rename(cx);
+                                return true;
+                            }
                             if this.new_cat.input.is_some() {
                                 this.close_new_category(cx);
                                 return true;
@@ -965,6 +971,7 @@ impl Desktop {
             preset_copy: None,
             cat_dialog: None,
             preset_import: None,
+            preset_rename: None,
             preset_closed: std::collections::HashSet::new(),
             creating: None,
             picked_preset: None,
@@ -4912,6 +4919,7 @@ impl Render for Desktop {
             .children(self.copy_overlay(cx))
             .children(self.cat_dialog_overlay(cx))
             .children(self.import_overlay(cx))
+            .children(self.preset_rename_overlay(cx))
             // Template 页：改类别 / 归档·彻底删的确认（最上面两层）
             .children(self.cat_edit_overlay(cx))
             .children(self.preset_confirm_overlay(cx))
