@@ -514,6 +514,19 @@ impl Desktop {
                     // 别的 Ctrl 组合照旧不归这里管。
                     return;
                 }
+                // New Manual 盘面：Tab 走站、⏎ 按下去、`← →` 在 Context 里分两半。
+                // 走 interceptor 而不是挂在盘面根元素的 `on_key_down` 上 ——
+                // 根元素的焦点会被输入框和窗口激活抢走，键盘流不能指望「焦点正好在根上」。
+                if weak
+                    .update(app, |this, cx| {
+                        let ks = &ev.keystroke;
+                        this.newchat.open && this.board_key(ks, cx)
+                    })
+                    .unwrap_or(false)
+                {
+                    app.stop_propagation();
+                    return;
+                }
                 if !matches!(key, "up" | "down" | "enter" | "escape") {
                     return;
                 }
@@ -899,6 +912,7 @@ impl Desktop {
                         if std::env::var("NOUS_OPEN_BOARD").is_ok() && !this.newchat.open {
                             log::info!("NOUS_OPEN_BOARD：直接开在 New Manual 盘面上");
                             this.newchat.open = true;
+                            this.request_focus();
                             this.board_load(cx);
                             // 再给一个梯子：直接开在某个弹层上，省得每次手点。
                             match std::env::var("NOUS_OPEN_SHEET").as_deref() {
