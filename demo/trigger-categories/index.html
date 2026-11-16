@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>触发器 · 类别树可写</title>
+<style>
+@font-face { font-family: InterX; src: url(fonts/inter-400.woff2) format("woff2"); font-display: swap; }
+@font-face { font-family: JBMono; src: url(fonts/jetbrainsmono-400.woff2) format("woff2"); font-display: swap; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: #0a0b0c; color: #e7e9ea; display: flex; overflow: hidden;
+  font: 400 12.5px/1.5 InterX, "Noto Sans CJK SC", "Source Han Sans SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+:root {
+  --bg: #0a0b0c; --panel: #111315; --overlay: #16181b; --raised: #1b1e21;
+  --line: #26292d; --line-soft: #1e2124; --hover: #1d2023;
+  --text: #e7e9ea; --text2: #d2d2d2; --muted: #b0b0b0; --faint: #8a8a8a;
+  --accent: #f2f2f2; --on-accent: #0a0b0c;
+  --danger: #e0554d; --warn: #d8a13a; --ok: #5fbf7f;
+  --mono: JBMono, ui-monospace, monospace;
+}
+
+/* ── 左侧方案选择 ───────────────────────────────── */
+.picker { width: 268px; flex: 0 0 268px; height: 100vh; overflow: auto; background: var(--panel);
+  border-right: 1px solid var(--line); padding: 22px 16px 18px; }
+.picker h1 { font-size: 13px; font-weight: 600; letter-spacing: .2px; }
+.picker .sub { font-size: 10.5px; line-height: 1.75; color: var(--faint); margin: 7px 0 16px; }
+.plist { display: flex; flex-direction: column; gap: 1px; }
+.plist button { display: flex; align-items: flex-start; gap: 9px; padding: 7px 8px; border: 0;
+  border-left: 2px solid transparent; background: transparent; color: #9aa0a6; font: inherit;
+  text-align: left; cursor: pointer; }
+.plist button:hover { color: var(--text); background: #17191c; }
+.plist button.on { border-left-color: var(--accent); color: #fff; background: #1b1e21; }
+.plist b { font: 500 9.5px/16px var(--mono); color: #5f676d; min-width: 18px; }
+.plist button.on b { color: var(--accent); }
+.plist span { font-size: 11px; line-height: 16px; }
+.pnote { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line-soft);
+  font-size: 10.5px; line-height: 1.85; color: #9aa0a6; }
+.pnote b { display: block; color: var(--text); font-weight: 600; margin-bottom: 5px; }
+.pnote em { font-style: normal; color: var(--text2); }
+.pfoot { margin-top: 14px; padding-top: 11px; border-top: 1px solid var(--line-soft);
+  font-size: 9.5px; line-height: 1.9; color: #5f676d; }
+.pfoot code { font-family: var(--mono); color: #8a9298; }
+
+/* ── 舞台 ───────────────────────────────────────── */
+.stage { flex: 1; height: 100vh; display: flex; position: relative; }
+.rail { width: 60px; flex: 0 0 60px; border-right: 1px solid var(--line-soft);
+  display: flex; flex-direction: column; align-items: center; padding-top: 18px; gap: 18px; }
+.rail i { width: 18px; height: 18px; border: 1.5px solid #6a7178; border-radius: 4px; display: block; }
+.rail i.on { border-color: var(--accent); background: #ffffff14; }
+
+/* 类别栏 —— 和产品里一样 220px */
+.cats { width: 220px; flex: 0 0 220px; border-right: 1px solid var(--line-soft);
+  display: flex; flex-direction: column; background: #0d0f10; }
+.cats-head { height: 34px; display: flex; align-items: center; padding: 0 10px 0 12px;
+  font-size: 10px; color: var(--faint); border-bottom: 1px solid var(--line-soft); }
+.cats-head .grow { flex: 1; }
+.cats-tools { display: none; gap: 2px; }
+body[data-mode="3"] .cats-tools { display: flex; }
+.cats-tools button { width: 20px; height: 20px; border: 1px solid var(--line); background: transparent;
+  color: var(--muted); border-radius: 4px; font: 400 12px/1 var(--mono); cursor: pointer; }
+.cats-tools button:hover { border-color: var(--accent); color: var(--accent); }
+.tree { flex: 1; overflow: auto; padding: 6px 6px 10px; }
+.node { position: relative; display: flex; align-items: center; height: 26px; padding: 0 8px;
+  border-radius: 4px; font-size: 11px; color: var(--text2); cursor: default; }
+.node:hover { background: var(--hover); }
+.node.on { background: #ffffff10; color: #fff; }
+.node .grow { flex: 1; }
+.node b { font: 400 10px/1 var(--mono); color: var(--faint); margin-left: 6px; }
+.node .acts { display: none; gap: 1px; margin-left: 6px; }
+body[data-mode="1"] .node:hover .acts,
+body[data-mode="1"] .node.peek .acts { display: flex; }
+body[data-mode="1"] .node.peek { background: var(--hover); }
+body[data-mode="1"] .node.peek .acts i { color: var(--faint); }
+.node .acts i { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+  border-radius: 3px; font: 400 11px/1 var(--mono); color: var(--faint); font-style: normal; cursor: pointer; }
+.node .acts i:hover { background: #ffffff18; color: var(--accent); }
+.node .acts i.d { color: #a7655f; }
+.node .acts i.d:hover { color: var(--danger); }
+.d1 { padding-left: 18px; } .d2 { padding-left: 30px; }
+.node.rn { color: var(--warn); }
+.node.rn b { color: var(--warn); }
+
+/* 倒计时条：贴着类别树底部，因为改动发生在这儿 */
+.commitbar { border-top: 1px solid var(--line-soft); padding: 9px 10px 10px; display: none; }
+.commitbar.show { display: block; }
+.commitbar .row1 { display: flex; align-items: baseline; gap: 6px; font-size: 10px; color: var(--muted); }
+.commitbar .row1 b { font: 500 10px/1 var(--mono); color: var(--accent); }
+.commitbar .row2 { display: flex; gap: 6px; margin-top: 7px; }
+.commitbar button { flex: 1; height: 22px; border: 1px solid var(--line); background: transparent;
+  color: var(--text2); border-radius: 4px; font: 400 10px/1 InterX, sans-serif; cursor: pointer; }
+.commitbar button:hover { border-color: var(--accent); color: var(--accent); }
+.commitbar button.pri { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.commitbar button.pri:hover { background: #fff; }
+.commitbar .bar { height: 2px; background: #ffffff12; margin-top: 8px; overflow: hidden; border-radius: 1px; }
+.commitbar .bar i { display: block; height: 100%; background: var(--accent); width: 100%; transform-origin: left; }
+.commitbar.done .row1 b { color: var(--ok); }
+.commitbar.err .row1 b, .commitbar.err .row1 { color: var(--danger); }
+@keyframes shrink { from { transform: scaleX(1);} to { transform: scaleX(0);} }
+.commitbar.run .bar i { animation: shrink 6s linear forwards; }
+
+/* 主内容区 */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.top { height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 14px;
+  border-bottom: 1px solid var(--line-soft); font-size: 11px; color: var(--muted); }
+.top .grow { flex: 1; }
+.top .tag { font-size: 9.5px; color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
+.grid { padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, 258px); gap: 10px; align-content: start; }
+.card { border: 1px solid var(--line); border-radius: 6px; padding: 10px; height: 108px;
+  display: flex; flex-direction: column; gap: 5px; background: #0e1011; }
+.card .h { display: flex; align-items: center; gap: 7px; }
+.card .av { width: 20px; height: 20px; border-radius: 4px; background: #24282c; color: var(--text2);
+  display: flex; align-items: center; justify-content: center; font: 500 10px/1 var(--mono); }
+.card .n { font-size: 11.5px; color: var(--text); }
+.card .h .grow { flex: 1; }
+.card .st { font-size: 9.5px; color: var(--faint); }
+.card .s { font-size: 10.5px; line-height: 1.45; color: var(--muted); overflow: hidden; }
+.card .chips { display: flex; gap: 4px; margin-top: auto; }
+.card .chip { font-size: 9.5px; color: var(--text2); background: var(--raised);
+  border-radius: 3px; padding: 1px 5px; }
+.board { margin: 0 14px 14px; border: 1px solid var(--line-soft); border-radius: 6px;
+  padding: 10px 12px; font-size: 10.5px; line-height: 1.8; color: var(--muted); }
+.board b { color: var(--text2); font-weight: 500; }
+.board .k { font-family: var(--mono); color: var(--text2); font-size: 10px; }
+.board em { font-style: normal; color: var(--text2); }
+
+/* ── 浮层 ───────────────────────────────────────── */
+.scrim { position: absolute; inset: 0; background: #00000073; display: none; }
+.scrim.show { display: block; }
+.dlg { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%);
+  width: 320px; background: var(--overlay); border: 1px solid var(--line); border-radius: 8px;
+  padding: 16px; display: none; box-shadow: 0 18px 50px #0009; }
+.dlg.show { display: block; }
+.dlg h3 { font-size: 12.5px; font-weight: 600; }
+.dlg p { font-size: 10.5px; line-height: 1.75; color: var(--muted); margin-top: 6px; }
+.dlg p em { font-style: normal; color: var(--text2); }
+.dlg input { width: 100%; height: 28px; margin-top: 11px; background: #0b0d0e; color: var(--text);
+  border: 1px solid var(--line); border-radius: 5px; padding: 0 9px; font: 400 11.5px/1 var(--mono); outline: 0; }
+.dlg input:focus { border-color: #8a9298; }
+.dlg .acts { display: flex; justify-content: flex-end; gap: 7px; margin-top: 14px; }
+.dlg button { height: 26px; padding: 0 12px; border-radius: 5px; border: 1px solid var(--line);
+  background: transparent; color: var(--text2); font: 400 10.5px/1 InterX, sans-serif; cursor: pointer; }
+.dlg button:hover { background: var(--hover); }
+.dlg button.pri { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.dlg button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.dlg .warnbox { margin-top: 10px; border: 1px solid #4a2f2c; background: #1e1514; border-radius: 5px;
+  padding: 8px 10px; font-size: 10px; line-height: 1.7; color: #d9a09a; }
+.dlg .warnbox b { color: var(--danger); font-weight: 500; }
+
+.ctx { position: absolute; width: 158px; background: var(--overlay); border: 1px solid var(--line);
+  border-radius: 7px; padding: 4px; display: none; box-shadow: 0 14px 40px #000a; z-index: 4; }
+.ctx.show { display: block; }
+.ctx div { padding: 0 10px; height: 28px; display: flex; align-items: center; border-radius: 5px;
+  font-size: 11px; color: var(--text); cursor: pointer; }
+.ctx div:hover { background: var(--hover); }
+.ctx div.d { color: var(--danger); }
+.ctx .sep { height: 1px; background: var(--line-soft); margin: 4px 6px; padding: 0; cursor: default; }
+.ctx .sep:hover { background: var(--line-soft); }
+.ctx small { margin-left: auto; font: 400 9px/1 var(--mono); color: #5f676d; }
+</style>
+</head>
+<body data-mode="1">
+
+<div class="picker">
+  <h1>类别树可写</h1>
+  <div class="sub">三个入口形态，动作和结果完全一样。<br>点左侧编号切换，随便点、随便删。</div>
+  <div class="plist">
+    <button class="on" data-m="1"><b>01</b><span>行内编辑：双击改名</span></button>
+    <button data-m="2"><b>02</b><span>右键菜单：和卡片一致</span></button>
+    <button data-m="3"><b>03</b><span>顶部入口：+ ／⋯</span></button>
+  </div>
+  <div class="pnote" id="note"></div>
+  <div class="pfoot">
+    真字号真栏宽：类别栏 <code>220px</code>，行高 <code>26px</code>，字号 <code>11px / 10px</code>。<br>
+    <span class="hint">试：改名「工程」看子类跟不跟着走；删除「工程」看影响面。</span><br>
+    <span class="hint" id="pf-hint"></span>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="rail">
+    <i></i><i></i><i class="on"></i><i></i>
+  </div>
+
+  <div class="cats">
+    <div class="cats-head">
+      <span>类别</span><span class="grow"></span>
+      <div class="cats-tools">
+        <button id="t-add" title="新建类别">+</button>
+        <button id="t-more" title="更多">⋯</button>
+      </div>
+    </div>
+    <div class="tree" id="tree"></div>
+    <div class="commitbar" id="bar">
+      <div class="row1" id="bar-t"></div>
+      <div class="row2" id="bar-a"></div>
+      <div class="bar"><i></i></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="top">
+      <span>7 个触发器</span><span class="tag">按最近改动</span>
+      <span class="grow"></span>
+      <span>保存 ≠ 发布</span>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <div class="dlg" id="dlg">
+    <h3 id="dlg-h"></h3>
+    <p id="dlg-p"></p>
+    <input id="dlg-i" spellcheck="false">
+    <div class="warnbox" id="dlg-w" style="display:none"></div>
+    <div class="acts">
+      <button id="dlg-c">取消</button>
+      <button class="pri" id="dlg-k">确定</button>
+    </div>
+  </div>
+
+  <div class="ctx" id="ctx">
+    <div data-op="new">新建子类…<small>n</small></div>
+    <div data-op="rename">改名…<small>r</small></div>
+    <div class="sep"></div>
+    <div data-op="delete" class="d">删除类别…<small>⌫</small></div>
+  </div>
+</div>
+
+<script>
+const T = [
+  { name: "dep-alert",    cat: ["工程", "工程/发布"] },
+  { name: "audit-daily",  cat: ["工程"] },
+  { name: "pr-watch",     cat: ["工程", "工程/发布"] },
+  { name: "single-shot",  cat: ["时间", "时间/一次"] },
+  { name: "daily-digest", cat: ["时间"] },
+  { name: "orphan",       cat: [] },
+  { name: "hello",        cat: [] },
+];
+// 类别树固定带零计数节点（和引擎一致：词表里有就留着）
+let vocab = ["工程", "工程/发布", "时间", "时间/一次", "为空"];
+let state = { mode: 1, sel: "全部", pending: 0, timer: null, phase: "idle" };
+
+const $ = (s) => document.querySelector(s);
+const NOTES = {
+  1: "<b>01 行内</b>双击节点就地改名，回车确认、Esc 取消。<em>hover 才出 + 和 ⋯</em>，不 hover 的时候页面保持干净。好处是不用找入口；代价是「点哪儿能改」得先试一下。",
+  2: "<b>02 右键</b>和卡片右键是同一套菜单，<em>肌肉记忆复用</em>：右键 → 新建子类 / 改名 / 删除。删除是红的，还要再确认一次。好处是入口永远在同一个地方；代价是发现性靠习惯。",
+  3: "<b>03 顶部入口</b>类别栏右上角一个 <em>+</em> 一个 <em>⋯</em>，点开是表单式弹层，父级别明确。好处是最容易发现、键盘也能走；代价是多一次点击，而且「改哪个」要先选节点。",
+};
+const HINTS = {
+  1: "这一套：<em style='font-style:normal;color:#b0b0b0'>hover「工程」</em>= 出 + ✎ ✕；双击名字 = 改名。",
+  2: "这一套：<em style='font-style:normal;color:#b0b0b0'>右键「工程」</em>= 菜单；双击也能改名（兼容）。",
+  3: "这一套：类别栏右上角 <em style='font-style:normal;color:#b0b0b0'>+</em> / <em style='font-style:normal;color:#b0b0b0'>⋯</em>，先选节点再动手。",
+};
+$("#note").innerHTML = NOTES[1];
+$("#pf-hint").innerHTML = HINTS[1];
+document.querySelectorAll(".plist button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".plist button").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+    state.mode = +b.dataset.m;
+    document.body.dataset.mode = state.mode;
+    $("#note").innerHTML = NOTES[state.mode];
+    $("#pf-hint").innerHTML = HINTS[state.mode];
+    hideCtx();
+    render();
+  };
+});
+
+const countOf = (label) => T.filter((t) => t.cat.some((c) => c === label || c.startsWith(label + "/"))).length;
+const deepCount = (label) => T.filter((t) => t.cat.includes(label)).length;
+
+function rows() {
+  const set = new Set(vocab);
+  for (const t of T) for (const c of t.cat) {
+    const parts = c.split("/");
+    for (let i = 1; i <= parts.length; i++) set.add(parts.slice(0, i).join("/"));
+  }
+  const all = [...set].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  return all.filter((l) => !all.some((o) => o !== l && o.startsWith(l + "/")) || true)
+    .map((l) => ({ label: l, depth: l.split("/").length - 1 }));
+}
+
+function render() {
+  const list = rows();
+  const html = [
+    `<div class="node ${state.sel === "全部" ? "on" : ""}" data-l="全部"><span class="grow">全部</span><b>${T.length}</b></div>`,
+    `<div class="node ${state.sel === "未分类" ? "on" : ""}" data-l="未分类"><span class="grow">未分类</span><b>${T.filter((t) => !t.cat.length).length}</b></div>`,
+    `<div style="height:1px;background:var(--line-soft);margin:6px 8px"></div>`,
+  ];
+  for (const r of list) {
+    const n = countOf(r.label);
+    const peek = r.label === "工程" ? " peek" : "";
+    html.push(`<div class="node d${r.depth} ${state.sel === r.label ? "on" : ""}${peek}" data-l="${r.label}">
+      <span class="grow">${r.label.split("/").pop()}</span><b>${n}</b>
+      <span class="acts"><i data-a="add">+</i><i data-a="rename" title="改名">✎</i><i data-a="delete" class="d" title="删除">✕</i></span>
+    </div>`);
+  }
+  html.push(`<div style="height:1px;background:var(--line-soft);margin:6px 8px"></div>`);
+  html.push(`<div class="node" data-l="已归档"><span class="grow">已归档</span><b>2</b></div>`);
+  $("#tree").innerHTML = html.join("");
+  $("#tree").querySelectorAll(".node").forEach((n) => {
+    const l = n.dataset.l;
+    n.onclick = (e) => {
+      if (e.target.dataset.a) return;
+      state.sel = l; render();
+    };
+    if (l === "全部" || l === "未分类") return;
+    n.ondblclick = () => openRename(l);
+    n.oncontextmenu = (e) => { e.preventDefault(); state.sel = l; render(); openCtx(e, l); };
+    n.querySelectorAll(".acts i").forEach((a) => {
+      a.onclick = (e) => {
+        e.stopPropagation();
+        const op = a.dataset.a;
+        if (op === "add") openNew(l);
+        if (op === "rename") openRename(l);
+        if (op === "delete") openDelete(l);
+      };
+    });
+  });
+
+  const cards = T.filter((t) => {
+    if (state.sel === "全部") return true;
+    if (state.sel === "未分类") return !t.cat.length;
+    return t.cat.some((c) => c === state.sel || c.startsWith(state.sel + "/"));
+  });
+  $("#grid").innerHTML = cards.map((t) => `<div class="card">
+    <div class="h"><div class="av">${t.name[0].toUpperCase()}</div><div class="n">${t.name}</div>
+      <div class="grow"></div><div class="st">已发布</div></div>
+    <div class="s">${t.cat.length ? "挂在 " + t.cat.join(" / ") : "没有类别"}</div>
+    <div class="chips">${t.cat.map((c) => `<span class="chip">${c}</span>`).join("")}</div>
+  </div>`).join("");
+
+  $("#board").innerHTML = `
+    <b>引擎那边发生的事情</b><br>
+    改名 / 删除会<em>重写每个触发器 nous.json 的 category</em>，再写 <span class="k">categories.json</span> 词表。<br>
+    这些请求<em>不提交 git</em>——只有 <span class="k">POST /v1/triggers/sync</span> 才会 add + commit + push。<br>
+    所以倒计时条不是在等接口，是在等你<em>别再改了</em>。`;
+}
+
+/* ── 菜单 ── */
+function openCtx(e, l) {
+  const c = $("#ctx");
+  c.dataset.l = l;
+  c.classList.add("show");
+  const r = $(".stage").getBoundingClientRect();
+  c.style.left = Math.min(e.clientX - r.left, r.width - 170) + "px";
+  c.style.top = Math.min(e.clientY - r.top, r.height - 130) + "px";
+}
+function hideCtx() { $("#ctx").classList.remove("show"); }
+$("#ctx").onclick = (e) => {
+  const op = e.target.closest("[data-op]")?.dataset.op;
+  if (!op) return;
+  const l = $("#ctx").dataset.l;
+  hideCtx();
+  if (op === "new") openNew(l);
+  if (op === "rename") openRename(l);
+  if (op === "delete") openDelete(l);
+};
+document.addEventListener("mousedown", (e) => {
+  if (!e.target.closest("#ctx")) hideCtx();
+});
+
+/* ── 弹层 ── */
+let dlgAction = null;
+function showDlg({ title, desc, value, warn, ok, danger, action }) {
+  $("#dlg-h").textContent = title;
+  $("#dlg-p").innerHTML = desc;
+  const i = $("#dlg-i");
+  i.style.display = value === null ? "none" : "block";
+  if (value !== null) { i.value = value; }
+  const w = $("#dlg-w");
+  w.style.display = warn ? "block" : "none";
+  w.innerHTML = warn || "";
+  const k = $("#dlg-k");
+  k.textContent = ok;
+  k.className = danger ? "danger" : "pri";
+  $("#scrim").classList.add("show");
+  $("#dlg").classList.add("show");
+  if (value !== null) setTimeout(() => { i.focus(); i.select(); }, 0);
+  dlgAction = action;
+}
+function closeDlg() {
+  $("#scrim").classList.remove("show");
+  $("#dlg").classList.remove("show");
+  dlgAction = null;
+}
+$("#dlg-c").onclick = closeDlg;
+$("#scrim").onclick = closeDlg;
+$("#dlg-k").onclick = () => { const a = dlgAction; closeDlg(); a && a($("#dlg-i").value.trim()); };
+$("#dlg-i").onkeydown = (e) => {
+  if (e.key === "Enter") { e.preventDefault(); $("#dlg-k").click(); }
+  if (e.key === "Escape") closeDlg();
+};
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDlg(); hideCtx(); } });
+
+function openNew(parent) {
+  const base = parent ? parent + "/" : "";
+  showDlg({
+    title: parent ? `在「${parent}」下新建子类` : "新建类别",
+    desc: base ? `会写成 <span class="k" style="font-family:var(--mono)">${base}新名字</span>，词表里两级都会留下。`
+               : "只写词表，不挂触发器；挂上去是每张卡片自己的事。",
+    value: base,
+    ok: "新建",
+    action: (v) => {
+      if (!v) return;
+      if (vocab.includes(v)) return notice("这个类别已经有了");
+      vocab.push(v);
+      touched(1, `新建「${v}」`);
+      render();
+    },
+  });
+}
+
+function openRename(label) {
+  showDlg({
+    title: `改名「${label}」`,
+    desc: `子类会一起搬：<span class="k" style="font-family:var(--mono)">${label}/…</span> → 新名字/…。<br>
+      <em>${deepCount(label)} 个触发器</em>的 nous.json 会被重写。`,
+    value: label,
+    ok: "改名",
+    action: (v) => {
+      if (!v || v === label) return;
+      if (vocab.includes(v)) return notice("这个名字已经被占了");
+      vocab = vocab.map((x) => (x === label ? v : x.startsWith(label + "/") ? v + x.slice(label.length) : x));
+      for (const t of T) t.cat = t.cat.map((c) => (c === label ? v : c.startsWith(label + "/") ? v + c.slice(label.length) : c));
+      state.sel = state.sel === label ? v : state.sel;
+      touched(deepCount(v), `改名「${label}」→「${v}」`);
+      render();
+    },
+  });
+}
+
+function openDelete(label) {
+  const n = deepCount(label);
+  const kids = vocab.filter((x) => x.startsWith(label + "/"));
+  showDlg({
+    title: `删除「${label}」`,
+    desc: `词表里这一项会被拿掉${kids.length ? `，子类 <em>${kids.join("、")}</em> 一起删` : ""}。`,
+    value: null,
+    warn: n
+      ? `<b>${n} 个触发器会变成「未分类」</b><br>触发器本身不会被删，只是摘掉这个标签。<br>
+         ${T.filter((t) => t.cat.includes(label)).map((t) => t.name).join("、")}`
+      : `没有触发器挂在这个类别上，删了不影响任何东西。`,
+    ok: "删除",
+    danger: true,
+    action: () => {
+      vocab = vocab.filter((x) => x !== label && !x.startsWith(label + "/"));
+      for (const t of T) t.cat = t.cat.filter((c) => c !== label && !c.startsWith(label + "/"));
+      if (state.sel === label) state.sel = "全部";
+      touched(Math.max(n, 1), `删除「${label}」`);
+      render();
+    },
+  });
+}
+
+/* 03 顶部入口 */
+$("#t-add").onclick = () => openNew(state.sel && state.sel !== "全部" && state.sel !== "未分类" ? state.sel : "");
+$("#t-more").onclick = (e) => {
+  const l = state.sel;
+  if (!l || l === "全部" || l === "未分类") return notice("先在左边选一个类别");
+  const r = $(".stage").getBoundingClientRect();
+  openCtx({ clientX: e.clientX, clientY: e.clientY, preventDefault() {} }, l);
+};
+
+/* ── 倒计时条（三套共用） ── */
+function notice(text) {
+  const b = $("#bar");
+  b.className = "commitbar show err";
+  $("#bar-t").innerHTML = `<b>!</b><span>${text}</span>`;
+  $("#bar-a").innerHTML = "";
+  setTimeout(() => { if (state.phase === "idle") { b.className = "commitbar"; } }, 2200);
+}
+
+function touched(n, what) {
+  state.pending += n;
+  state.last = what;
+  if (state.timer) clearTimeout(state.timer);
+  state.phase = "countdown";
+  const b = $("#bar");
+  b.className = "commitbar show run";
+  $("#bar-t").innerHTML = `<b>${state.pending} 处改动</b><span>· ${what}</span>`;
+  $("#bar-a").innerHTML = `<button class="pri" data-x="now">立刻提交</button><button data-x="later">等一下</button>`;
+  const t = 6000;
+  state.timer = setTimeout(commit, t);
+}
+
+$("#bar").onclick = (e) => {
+  const x = e.target.closest("[data-x]")?.dataset.x;
+  if (x === "now") commit();
+  if (x === "later") {
+    clearTimeout(state.timer);
+    state.timer = null;
+    state.phase = "held";
+    const b = $("#bar");
+    b.className = "commitbar show";
+    $("#bar-t").innerHTML = `<b>${state.pending} 处改动</b><span>· 先不推，${state.last}</span>`;
+    $("#bar-a").innerHTML = `<button class="pri" data-x="now">提交并推送</button><button data-x="drop">收起</button>`;
+  }
+  if (x === "drop") {
+    const b = $("#bar");
+    b.className = "commitbar";
+    state.phase = "idle";
+    $("#bar-t").innerHTML = `<b>${state.pending} 处改动</b><span>· 还没提交</span>`;
+  }
+  if (x === "retry") commit();
+};
+
+function commit() {
+  clearTimeout(state.timer);
+  state.phase = "committing";
+  const b = $("#bar");
+  b.className = "commitbar show run";
+  $("#bar-t").innerHTML = `<b>提交中…</b><span>· git add + commit + push</span>`;
+  $("#bar-a").innerHTML = "";
+  setTimeout(() => {
+    const n = state.pending;
+    state.pending = 0;
+    state.phase = "idle";
+    b.className = "commitbar show done";
+    $("#bar-t").innerHTML = `<b>已提交并推送</b><span>· ${n} 处改动 → main</span>`;
+    $("#bar-a").innerHTML = `<button data-x="drop">收起</button>`;
+  }, 1100);
+}
+
+// 截图用：preview.html#2 直接落到第 2 套
+const m0 = +(location.hash.slice(1) || 0);
+if (m0 >= 1 && m0 <= 3) {
+  state.mode = m0;
+  document.body.dataset.mode = m0;
+  $("#note").innerHTML = NOTES[m0];
+  $("#pf-hint").innerHTML = HINTS[m0];
+  document.querySelectorAll(".plist button").forEach((b) => b.classList.toggle("on", +b.dataset.m === m0));
+}
+render();
+// 截图用：preview.html#2-del 自动打开「删除 工程」确认层
+if (location.hash.includes("del")) openDelete("工程");
+</script>
+</body>
+</html>
