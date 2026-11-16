@@ -292,9 +292,9 @@ impl Palette {
         bubble_other: 0x0a0a0a,
 
         text: 0xffffff,
-        text_2: 0xa8a8a8,
-        muted: 0x6b6b6b,
-        faint: 0x4a4a4a,
+        text_2: 0xd2d2d2,
+        muted: 0xb0b0b0,
+        faint: 0x8a8a8a,
         on_accent: 0x000000,
         on_sidebar: 0x6b6b6b,
 
@@ -322,7 +322,7 @@ impl Palette {
 
         hover: 0x141414,
         selected: 0x1f1f1f,
-        disabled: 0x4a4a4a,
+        disabled: 0x5f5f5f,
         avatar: 0xffffff,
         scrim: 0x00000066,
         shadow: 0x00000040,
@@ -402,9 +402,9 @@ impl Palette {
         bubble_other: 0x17150f,
 
         text: 0xf0e9dc,
-        text_2: 0xa89e8c,
-        muted: 0x6f6656,
-        faint: 0x504a3e,
+        text_2: 0xd6c9ae,
+        muted: 0xb4a88e,
+        faint: 0x968c78,
         on_accent: 0x14110c,
         on_sidebar: 0x6f6656,
 
@@ -431,7 +431,7 @@ impl Palette {
 
         hover: 0x17150f,
         selected: 0x211d15,
-        disabled: 0x504a3e,
+        disabled: 0x6b6354,
         avatar: 0xe8a33d,
         scrim: 0x00000066,
         shadow: 0x00000040,

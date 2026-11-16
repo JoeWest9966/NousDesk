@@ -23,6 +23,7 @@ use gpui_kit::component::Icon;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use nous_engine::EngineError;
 use nous_engine::triggers::{
     ArchivedTrigger, NewTrigger, TriggerFileMeta, TriggerItem, TriggerList,
     TriggerParam, TriggerPublish,
@@ -90,6 +91,12 @@ pub(crate) struct Wizard {
     pub err: Option<String>,
 }
 
+pub(crate) struct TriggerMenu {
+    pub name: String,
+    pub x: f32,
+    pub y: f32,
+}
+
 pub(crate) struct Confirm {
     pub open: bool,
     pub name: String,
@@ -111,6 +118,8 @@ pub(crate) struct State {
     pub wizard: Wizard,
     pub confirm: Confirm,
     pub busy: Option<String>,
+    pub menu: Option<TriggerMenu>,
+    pub conflict: Option<String>,
     pub scroll: ScrollHandle,
 }
 
@@ -162,6 +171,8 @@ impl State {
                 input: confirm_input,
             },
             busy: None,
+            menu: None,
+            conflict: None,
             scroll: ScrollHandle::new(),
         }
     }
@@ -404,7 +415,7 @@ impl Desktop {
         .detach();
     }
 
-    fn save_trigger_file(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn save_trigger_file(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(client), Some(name), Some(path)) = (
             self.triggers.client.clone(),
             self.triggers.code.name.clone(),
@@ -416,13 +427,26 @@ impl Desktop {
         let etag = self.triggers.code.etag.clone();
         self.triggers.code.busy = true;
         self.triggers.code.notice = None;
+        self.triggers.conflict = None;
         cx.notify();
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, p, t) = (name.clone(), path.clone(), text.clone());
             let res = handle
-                .spawn(async move { client.save(&name, &path, &text, &etag).await })
+                .spawn(async move {
+                    // 覆盖：先拿最新 etag 当 base，服务端的并发闸才会放行。
+                    let base = if force {
+                        match client.file(&n, &p).await {
+                            Ok(f) => f.etag,
+                            Err(e) => return Err(e),
+                        }
+                    } else {
+                        etag
+                    };
+                    client.save(&n, &p, &t, &base).await
+                })
                 .await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, _window, cx| {
                 this.triggers.code.busy = false;
                 match res {
                     Ok(Ok(v)) => {
@@ -431,6 +455,10 @@ impl Desktop {
                         }
                         this.triggers.code.notice = Some(("已保存到磁盘 · 还没提交".into(), false));
                         this.triggers.code.editing = false;
+                        this.triggers.conflict = None;
+                    }
+                    Ok(Err(EngineError::Engine { status: 409, message })) => {
+                        this.triggers.conflict = Some(message);
                     }
                     Ok(Err(e)) => {
                         this.triggers.code.notice = Some((format!("保存失败：{e}"), true));
@@ -448,7 +476,11 @@ impl Desktop {
     fn publish_trigger(&mut self, cx: &mut Context<Self>) {
         let (Some(client), Some(name)) = (
             self.triggers.client.clone(),
-            self.triggers.code.name.clone(),
+            self.triggers
+                .code
+                .name
+                .clone()
+                .or_else(|| self.triggers.selected.clone()),
         ) else {
             return;
         };
@@ -498,6 +530,321 @@ impl Desktop {
     }
 
     // ── 归档 / 同步 ────────────────────────────────────────
+
+    // ── 右键菜单 / 冲突 / 键盘 ─────────────────────────────
+
+    pub(crate) fn trigger_menu_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(menu) = self.triggers.menu.as_ref() else {
+            return div().into_any_element();
+        };
+        let (x, y) = (menu.x, menu.y);
+        let open = menu.name.clone();
+        let code = menu.name.clone();
+        let arch = menu.name.clone();
+        let copy = menu.name.clone();
+        div()
+            .absolute()
+            .size_full()
+            .child(
+                div()
+                    .absolute()
+                    .size_full()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.triggers.menu = None;
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(y))
+                    .w(t().d(170.))
+                    .flex()
+                    .flex_col()
+                    .p(t().d(4.))
+                    .rounded(t().r(7.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .child(
+                        div()
+                            .id("tm-open")
+                            .flex()
+                            .items_center()
+                            .px(t().d(10.))
+                            .h(t().d(30.))
+                            .rounded(t().r(5.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.text))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.triggers.menu = None;
+                                this.select_trigger(&open, cx);
+                            }))
+                            .child("打开详情"),
+                    )
+                    .child(
+                        div()
+                            .id("tm-code")
+                            .flex()
+                            .items_center()
+                            .px(t().d(10.))
+                            .h(t().d(30.))
+                            .rounded(t().r(5.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.text))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.triggers.menu = None;
+                                this.open_code(&code, window, cx);
+                            }))
+                            .child("改代码"),
+                    )
+                    .child(
+                        div()
+                            .id("tm-arch")
+                            .flex()
+                            .items_center()
+                            .px(t().d(10.))
+                            .h(t().d(30.))
+                            .rounded(t().r(5.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.danger))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.triggers.menu = None;
+                                this.ask_archive(&arch, window, cx);
+                            }))
+                            .child("归档"),
+                    )
+                    .child(
+                        div()
+                            .id("tm-copy")
+                            .flex()
+                            .items_center()
+                            .px(t().d(10.))
+                            .h(t().d(30.))
+                            .rounded(t().r(5.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.text_2))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.triggers.menu = None;
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                                cx.notify();
+                            }))
+                            .child("复制名字"),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    pub(crate) fn trigger_conflict_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(message) = self.triggers.conflict.as_ref() else {
+            return div().into_any_element();
+        };
+        let message = message.clone();
+        let name = self.triggers.code.name.clone();
+        let path = self.triggers.code.path.clone();
+        div()
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(t().p.scrim))
+            .child(
+                div()
+                    .w(t().d(430.))
+                    .p(t().d(18.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .text_size(t().fs(13.))
+                            .text_color(rgb(t().p.text))
+                            .child("文件被改过了"),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(8.))
+                            .text_size(t().fs(10.5))
+                            .text_color(rgb(t().p.text_2))
+                            .child(message),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(6.))
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.muted))
+                            .child("你的改动还在编辑框里。重新加载会丢掉它。"),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(14.))
+                            .flex()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .child(
+                                div()
+                                    .id("tc-reload")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.triggers.conflict = None;
+                                        if let (Some(n), Some(p)) = (name.clone(), path.clone()) {
+                                            this.open_trigger_file(&n, &p, window, cx);
+                                        } else {
+                                            cx.notify();
+                                        }
+                                    }))
+                                    .child("重新加载"),
+                            )
+                            .child(
+                                div()
+                                    .id("tc-force")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.accent))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.triggers.conflict = None;
+                                        this.save_trigger_file(true, window, cx);
+                                    }))
+                                    .child("用我的覆盖"),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    pub(crate) fn trigger_key(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let _ = window;
+        if key == "escape" {
+            if self.triggers.menu.is_some() {
+                self.triggers.menu = None;
+                cx.notify();
+                return true;
+            }
+            if self.triggers.conflict.is_some() {
+                self.triggers.conflict = None;
+                cx.notify();
+                return true;
+            }
+        }
+        match self.triggers.layer {
+            Layer::Main => match key {
+                "up" | "down" => {
+                    let items = self.filtered_triggers(cx);
+                    if items.is_empty() {
+                        return false;
+                    }
+                    let step = if key == "down" { 1 } else { -1 };
+                    let cur = self
+                        .triggers
+                        .selected
+                        .as_ref()
+                        .and_then(|s| items.iter().position(|i| &i.name == s))
+                        .map(|i| i as isize)
+                        .unwrap_or(if step > 0 { -1 } else { 0 });
+                    let next = (cur + step).clamp(0, items.len() as isize - 1);
+                    self.triggers.selected = Some(items[next as usize].name.clone());
+                    cx.notify();
+                    true
+                }
+                "enter" => {
+                    if let Some(name) = self.triggers.selected.clone() {
+                        self.select_trigger(&name, cx);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            },
+            Layer::Detail => {
+                if key == "escape" {
+                    self.triggers.layer = Layer::Main;
+                    cx.notify();
+                    true
+                } else {
+                    false
+                }
+            }
+            Layer::Code => {
+                if key == "escape" {
+                    if self.triggers.code.editing {
+                        self.triggers.code.editing = false;
+                    } else {
+                        self.triggers.layer = Layer::Detail;
+                    }
+                    cx.notify();
+                    true
+                } else {
+                    false
+                }
+            }
+            Layer::Wizard => {
+                if key == "escape" {
+                    self.triggers.layer = Layer::Main;
+                    cx.notify();
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    pub(crate) fn trigger_ctrl(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match key {
+            "s" if self.triggers.layer == Layer::Code && self.triggers.code.editing => {
+                self.save_trigger_file(false, window, cx);
+                true
+            }
+            "p" if matches!(self.triggers.layer, Layer::Code | Layer::Detail) => {
+                self.publish_trigger(cx);
+                true
+            }
+            _ => false,
+        }
+    }
 
     fn ask_archive(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.triggers.confirm.name = name.to_string();
@@ -897,7 +1244,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!("Nous-Trigger · {branch} · {head}")),
                     ),
             )
@@ -1075,14 +1422,14 @@ impl Desktop {
                         .child(
                             div()
                                 .text_size(t().fs(12.))
-                                .text_color(rgb(if count == 0 { t().p.faint } else { t().p.text_2 }))
+                                .text_color(rgb(if count == 0 { t().p.muted } else { t().p.text_2 }))
                                 .child(label.to_string()),
                         )
                         .child(div().flex_1())
                         .child(
                             div()
                                 .text_size(t().fs(10.))
-                                .text_color(rgb(t().p.faint))
+                                .text_color(rgb(t().p.muted))
                                 .child(count.to_string()),
                         )
                         .into_any_element(),
@@ -1112,7 +1459,7 @@ impl Desktop {
                 .child(
                     Icon::new(IconName::Archive)
                         .size(t().d(13.))
-                        .text_color(rgb(t().p.faint)),
+                        .text_color(rgb(t().p.muted)),
                 )
                 .child(
                     div()
@@ -1125,7 +1472,7 @@ impl Desktop {
                 .child(
                     div()
                         .text_size(t().fs(10.))
-                        .text_color(rgb(t().p.faint))
+                        .text_color(rgb(t().p.muted))
                         .child(archived.to_string()),
                 )
                 .into_any_element(),
@@ -1150,14 +1497,14 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child("类别"),
                     )
                     .child(div().flex_1())
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!("{}", counts.len())),
                     ),
             )
@@ -1175,7 +1522,7 @@ impl Desktop {
                     .border_t(t().d(1.))
                     .border_color(rgb(t().p.line_soft))
                     .text_size(t().fs(9.5))
-                    .text_color(rgb(t().p.faint))
+                    .text_color(rgb(t().p.muted))
                     .child("/opt/Nous-Trigger\nindex.mjs 扫出来的"),
             )
             .into_any_element()
@@ -1219,7 +1566,7 @@ impl Desktop {
             .child(
                 div()
                     .text_size(t().fs(10.))
-                    .text_color(rgb(t().p.faint))
+                    .text_color(rgb(t().p.muted))
                     .child(count.to_string()),
             )
             .into_any_element()
@@ -1335,7 +1682,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(n.to_string()),
                     )
                     .into_any_element(),
@@ -1373,14 +1720,14 @@ impl Desktop {
             .child(
                 div()
                     .text_size(t().fs(10.5))
-                    .text_color(rgb(t().p.faint))
+                    .text_color(rgb(t().p.muted))
                     .child(format!("{n} 个 · 按最近改动")),
             )
             .child(div().flex_1())
             .child(
                 div()
                     .text_size(t().fs(10.5))
-                    .text_color(rgb(t().p.faint))
+                    .text_color(rgb(t().p.muted))
                     .child("保存 ≠ 发布"),
             )
             .into_any_element()
@@ -1454,6 +1801,9 @@ impl Desktop {
     fn trigger_card(&self, item: &TriggerItem, cx: &mut Context<Self>) -> AnyElement {
         let (label, bg, fg) = status_of(item);
         let name = item.name.clone();
+        let menu_name = item.name.clone();
+        // 键盘 ↑↓ 改的是 selected，卡片上得看得见，否则像没反应。
+        let picked = self.triggers.selected.as_deref() == Some(item.name.as_str());
         let params = item.params.len();
         let dirty = item.dirty_files;
         let tile = tile_color(&item.name);
@@ -1467,13 +1817,31 @@ impl Desktop {
             .p(t().d(13.))
             .rounded(t().r(9.))
             .border(t().d(1.))
-            .border_color(rgb(if label == "清单坏了" { t().p.danger } else { t().p.line }))
+            .border_color(rgb(if picked {
+                t().p.accent
+            } else if label == "清单坏了" {
+                t().p.danger
+            } else {
+                t().p.line
+            }))
             .bg(rgb(t().p.panel))
             .cursor_pointer()
-            .hover(|h| h.border_color(rgb(t().p.faint)))
+            .hover(|h| h.border_color(rgb(t().p.muted)))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.select_trigger(&name.clone(), cx);
             }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                    this.triggers.selected = Some(menu_name.clone());
+                    this.triggers.menu = Some(TriggerMenu {
+                        name: menu_name.clone(),
+                        x: f32::from(ev.position.x),
+                        y: f32::from(ev.position.y),
+                    });
+                    cx.notify();
+                }),
+            )
             .child(
                 div()
                     .flex()
@@ -1504,8 +1872,8 @@ impl Desktop {
                             )
                             .child(
                                 div()
-                                    .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(t().p.text_2))
                                     .child(format!("v{}", item.version)),
                             ),
                     )
@@ -1554,9 +1922,9 @@ impl Desktop {
                             .flex()
                             .items_center()
                             .rounded(t().r(4.))
-                            .bg(rgb(t().p.surface))
+                            .bg(rgb(t().p.line_soft))
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.muted))
+                            .text_color(rgb(t().p.text_2))
                             .child(c.clone())
                     })),
             )
@@ -1570,14 +1938,14 @@ impl Desktop {
                     .pt(t().d(10.))
                     .child(
                         div()
-                            .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.text_2))
                             .child(format!("{params} 参数")),
                     )
                     .child(div().flex_1())
                     .children((dirty > 0).then(|| {
                         div()
-                            .text_size(t().fs(9.5))
+                            .text_size(t().fs(10.))
                             .text_color(rgb(t().p.warn))
                             .child(format!("{dirty} 个文件"))
                     })),
@@ -1668,7 +2036,7 @@ impl Desktop {
                             .child(
                                 div()
                                     .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child(format!("v{}", row.version.clone().unwrap_or_default())),
                             ),
                     )
@@ -1683,7 +2051,7 @@ impl Desktop {
                         div()
                             .mt(t().d(4.))
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!(
                                 "{} · 归档于 {}",
                                 row.category.join(" / "),
@@ -1755,7 +2123,7 @@ impl Desktop {
             .left(t().d(214.))
             .right_0()
             .bottom_0()
-            .bg(rgba(0x00000028))
+            .bg(rgba(t().p.scrim))
             .into_any_element()
     }
 
@@ -1823,7 +2191,7 @@ impl Desktop {
                                         div()
                                             .mt(t().d(3.))
                                             .text_size(t().fs(10.5))
-                                            .text_color(rgb(t().p.faint))
+                                            .text_color(rgb(t().p.muted))
                                             .child(format!(
                                                 "v{} · {} · 产物 {}",
                                                 item.version,
@@ -2037,7 +2405,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(p.kind.clone()),
                     )
                     .children(p.required.then(|| {
@@ -2056,7 +2424,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(p.title().to_string()),
                     ),
             )
@@ -2072,12 +2440,22 @@ impl Desktop {
 }
 
 fn tile_color(name: &str) -> u32 {
-    const PALETTE: [u32; 6] = [0x1f6f5c, 0x4b5d7a, 0x7a5b32, 0x6b4b6f, 0x3f6b7a, 0x7a4b4b];
+    // 浅色皮用深色头像，深色皮必须提亮 —— 否则 mono / amber 下头像是一团黑。
+    const LIGHT: [u32; 6] = [0x1f6f5c, 0x4b5d7a, 0x7a5b32, 0x6b4b6f, 0x3f6b7a, 0x7a4b4b];
+    const DARK: [u32; 6] = [0x3a9a82, 0x7189b0, 0xa8874f, 0x95739a, 0x5f97a8, 0xa86f6f];
     let mut h: u32 = 0;
     for ch in name.chars() {
         h = h.wrapping_mul(31).wrapping_add(ch as u32);
     }
-    PALETTE[(h as usize) % PALETTE.len()]
+    let palette = if is_dark(t().p.panel) { &DARK } else { &LIGHT };
+    palette[(h as usize) % palette.len()]
+}
+
+fn is_dark(color: u32) -> bool {
+    let r = (color >> 16) & 0xff;
+    let g = (color >> 8) & 0xff;
+    let b = color & 0xff;
+    (r * 299 + g * 587 + b * 114) / 1000 < 128
 }
 
 fn detail_section(title: &str, body: AnyElement) -> AnyElement {
@@ -2091,8 +2469,8 @@ fn detail_section(title: &str, body: AnyElement) -> AnyElement {
         .child(
             div()
                 .mb(t().d(8.))
-                .text_size(t().fs(9.5))
-                .text_color(rgb(t().p.faint))
+                .text_size(t().fs(10.))
+                .text_color(rgb(t().p.text_2))
                 .child(title.to_string()),
         )
         .child(body)
@@ -2111,7 +2489,7 @@ fn kv(key: &str, value: String) -> AnyElement {
                 .w(t().d(78.))
                 .flex_none()
                 .text_size(t().fs(10.5))
-                .text_color(rgb(t().p.faint))
+                .text_color(rgb(t().p.muted))
                 .child(key.to_string()),
         )
         .child(
@@ -2150,7 +2528,7 @@ impl Desktop {
                     .child(
                         Icon::new(IconName::File)
                             .size(t().d(11.))
-                            .text_color(rgb(t().p.faint)),
+                            .text_color(rgb(t().p.muted)),
                     )
                     .child(
                         div()
@@ -2162,7 +2540,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!("{} B", f.size)),
                     )
                     .into_any_element()
@@ -2255,7 +2633,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!(
                                 "{} / {}",
                                 code.name.clone().unwrap_or_default(),
@@ -2266,7 +2644,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child("保存只落盘 · 发布才 commit + push"),
                     )
                     .child(
@@ -2307,7 +2685,7 @@ impl Desktop {
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.hover)))
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.save_trigger_file(window, cx);
+                                this.save_trigger_file(false, window, cx);
                             }))
                             .child(
                                 Icon::new(IconName::Save)
@@ -2372,7 +2750,7 @@ impl Desktop {
                                     .px(t().d(6.))
                                     .py(t().d(4.))
                                     .text_size(t().fs(9.))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child("文件"),
                             )
                             .child(
@@ -2466,7 +2844,7 @@ impl Desktop {
                     .flex()
                     .flex_row()
                     .min_h(t().d(19.))
-                    .when(added, |el| el.bg(rgb(0xedf9f0)))
+                    .when(added, |el| el.bg(rgb(t().p.accent_soft)))
                     .child(
                         div()
                             .w(t().d(38.))
@@ -2474,7 +2852,7 @@ impl Desktop {
                             .pr(t().d(9.))
                             .text_right()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(format!("{}", i + 1)),
                     )
                     .child(
@@ -2525,7 +2903,7 @@ impl Desktop {
                             .w(t().d(16.))
                             .flex_none()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(if done { t().p.accent_fg } else { t().p.faint }))
+                            .text_color(rgb(if done { t().p.accent_fg } else { t().p.muted }))
                             .child(format!("{:02}", i + 1)),
                     )
                     .child(
@@ -2543,7 +2921,7 @@ impl Desktop {
                                 div()
                                     .mt(t().d(2.))
                                     .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child(match *label {
                                         "cargo check" => "编不过就不提交",
                                         "cargo build" => "产物落 target/debug",
@@ -2556,7 +2934,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(9.5))
-                            .text_color(rgb(if done { t().p.accent_fg } else { t().p.faint }))
+                            .text_color(rgb(if done { t().p.accent_fg } else { t().p.muted }))
                             .child(if busy { "跑…".to_string() } else if done { "通过".to_string() } else { "待".to_string() }),
                     )
                     .into_any_element()
@@ -2614,14 +2992,14 @@ impl Desktop {
                                     .child(
                                         div()
                                             .text_size(t().fs(9.5))
-                                            .text_color(rgb(t().p.faint))
+                                            .text_color(rgb(t().p.muted))
                                             .child("流水线"),
                                     )
                                     .child(div().flex_1())
                                     .child(
                                         div()
                                             .text_size(t().fs(9.5))
-                                            .text_color(rgb(t().p.faint))
+                                            .text_color(rgb(t().p.muted))
                                             .child(if busy {
                                                 "发布中…".to_string()
                                             } else if let Some(p) = &publish {
@@ -2646,7 +3024,7 @@ impl Desktop {
                                 div()
                                     .mb(t().d(8.))
                                     .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child("参数声明"),
                             )
                             .children(item.as_ref().map(|it| {
@@ -2667,7 +3045,7 @@ impl Desktop {
                                 div()
                                     .mb(t().d(6.))
                                     .text_size(t().fs(9.5))
-                                    .text_color(rgb(t().p.faint))
+                                    .text_color(rgb(t().p.muted))
                                     .child("结果"),
                             )
                             .children(err.as_ref().map(|e| {
@@ -2779,7 +3157,7 @@ impl Desktop {
                             } else if done {
                                 t().p.accent_fg
                             } else {
-                                t().p.faint
+                                t().p.muted
                             }))
                             .child(if done { "✓".to_string() } else { format!("{n:02}") }),
                     )
@@ -2846,7 +3224,7 @@ impl Desktop {
                     div()
                         .mt(t().d(8.))
                         .text_size(t().fs(10.))
-                        .text_color(rgb(t().p.faint))
+                        .text_color(rgb(t().p.muted))
                         .child("建完会写进 nous.json 的 params；写坏了可以在代码层改。"),
                 )
                 .into_any_element(),
@@ -3046,7 +3424,7 @@ impl Desktop {
                     .child(
                         div()
                             .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.faint))
+                            .text_color(rgb(t().p.muted))
                             .child(match step {
                                 1 => "身份 · 下一步填参数".to_string(),
                                 2 => "参数声明 · 下一步看骨架".to_string(),
@@ -3162,7 +3540,7 @@ impl Desktop {
             .left_0()
             .right_0()
             .bottom_0()
-            .bg(rgba(0x00000046))
+            .bg(rgba(t().p.scrim))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.triggers.confirm.open = false;
                 cx.notify();
@@ -3318,7 +3696,7 @@ fn wizard_field(label: &str, hint: &str, body: AnyElement) -> AnyElement {
                 .child(
                     div()
                         .text_size(t().fs(9.5))
-                        .text_color(rgb(t().p.faint))
+                        .text_color(rgb(t().p.muted))
                         .child(hint.to_string()),
                 ),
         )
@@ -3342,7 +3720,7 @@ fn code_block(text: &str) -> AnyElement {
                         .pr(t().d(9.))
                         .text_right()
                         .text_size(t().fs(9.5))
-                        .text_color(rgb(t().p.faint))
+                        .text_color(rgb(t().p.muted))
                         .child(format!("{}", i + 1)),
                 )
                 .child(

@@ -296,8 +296,8 @@ fn parse_presets_with_categories_and_repo() {
     assert_eq!(repo.head.as_deref().map(|h| &h[..7]), Some("9e4ccd1"));
     assert!(repo.dirty);
     assert!(repo.error.is_none());
-    // `archived` / `root` 这类没型号的键进 extra，不炸。
-    assert!(p.extra.contains_key("archived"));
+    // `archived` 已经是 Presets 的字段（不再进 extra），空数组照收。
+    assert!(p.archived.is_empty());
     let item = &p.presets[0];
     assert_eq!(item.category, ["写作", "写作/周报"]);
     assert_eq!(item.spec.as_ref().unwrap()["template"], "demo-weekly");
