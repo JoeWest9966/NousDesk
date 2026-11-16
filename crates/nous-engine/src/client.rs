@@ -121,10 +121,20 @@ impl EngineClient {
     ///
     /// 浏览发生在**引擎进程**里，这边只收发路径字符串 —— 以后引擎跑在远程机器上，
     /// 这一页列的就是那台机器的目录。
-    pub async fn dirs(&self, path: Option<&str>) -> Result<Dirs, EngineError> {
+    /// 列目录。`path` 空 = 起点（引擎的 START_DIRS）；`machine` 空 = 引擎那台机器本身。
+    ///
+    /// `?machine=` 是远端机器的目录 —— 不给它就是 qrd3wh 那台。
+    pub async fn dirs(
+        &self,
+        path: Option<&str>,
+        machine: Option<&str>,
+    ) -> Result<Dirs, EngineError> {
         let mut url = self.url("v1/fs/dirs")?;
         if let Some(path) = path.filter(|p| !p.is_empty()) {
             url.query_pairs_mut().append_pair("path", path);
+        }
+        if let Some(machine) = machine.filter(|m| !m.is_empty()) {
+            url.query_pairs_mut().append_pair("machine", machine);
         }
         let resp = self.http.get(url).send().await?;
         self.json(resp).await

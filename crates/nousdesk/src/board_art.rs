@@ -492,7 +492,8 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, wide: bool, for_dir: bool) -> 
             // 机器 / 目录：贴着被点的那颗 pill 弹（就地弹出的同一条规矩）。
             let f = if for_dir { Foot::Dir } else { Foot::Machine };
             let t = foot_rect(m, f);
-            let w = (m.w - 28.).min(460.);
+            // 目录弹层是命令面板（左列表 + 右预览），比机器列表要宽一格。
+            let w = (m.w - 28.).min(if for_dir { 600. } else { 460. });
             let x = (t.cx() - w / 2.).clamp(14., (m.w - w - 14.).max(14.));
             Pop {
                 x,

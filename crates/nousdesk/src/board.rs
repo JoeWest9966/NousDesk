@@ -79,6 +79,8 @@ pub(crate) struct NewChat {
     dir: Option<String>,
     /// 目录浏览到哪儿（和 `dir` 是两件事：看的地方和选的地方）。
     dir_at: Option<String>,
+    /// 目录弹层的那个命令行输入框（空 = 只是浏览）。
+    dir_input: Entity<TextareaState>,
 
     pub(crate) sheet: Option<Sheet>,
     sheet_scroll: ScrollHandle,
@@ -87,6 +89,11 @@ pub(crate) struct NewChat {
 
 impl NewChat {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> Self {
+        let dir_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 1)
+                .placeholder("/ 路径 · 或打一段名字筛这一层")
+        });
         let name_input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 1)
@@ -111,6 +118,7 @@ impl NewChat {
             machine: None,
             dir: None,
             dir_at: None,
+            dir_input,
             sheet: None,
             sheet_scroll: ScrollHandle::new(),
             creating: false,
@@ -260,6 +268,11 @@ impl Desktop {
                 .auto_grow(1, 1)
                 .placeholder("Name")
         });
+        self.newchat.dir_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 1)
+                .placeholder("/ 路径 · 或打一段名字筛这一层")
+        });
         self.newchat.open = true;
         self.newchat.sheet = None;
         self.newchat.flash = None;
@@ -303,7 +316,17 @@ impl Desktop {
                     let skills: Got<Skills> = engine.skills().await;
                     let prompts: Got<Prompts> = engine.prompts().await;
                     let machines: Got<Machines> = engine.machines().await;
-                    let dirs: Got<Dirs> = engine.dirs(None).await;
+                    // start dirs 只给「map 根」这一条。拿它自己再列一次，
+                    // 否则打开弹层只有孤零零一行，看着像坏了。
+                    let dirs: Got<Dirs> = match engine.dirs(None, None).await {
+                        Ok(d) if d.path.as_deref().unwrap_or("").is_empty() => {
+                            match d.dirs.first().map(|x| x.path.clone()) {
+                                Some(root) => engine.dirs(Some(&root), None).await,
+                                None => Ok(d),
+                            }
+                        }
+                        other => other,
+                    };
                     (models, skills, prompts, machines, dirs)
                 })
                 .await
@@ -381,20 +404,64 @@ impl Desktop {
         .detach();
     }
 
-    /// 点目录里的某一层：进去看一眼，**顺手把它当成选择**（省一次点击）。
+    /// 回到「这台机器」的起点：列 start dirs，再展开第一条。
+    ///
+    /// 换机器后走这里 —— 旧路径在对面没意义，得从它的起点重新看。
+    fn board_dir_start(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let machine = self.newchat.machine.clone();
+        self.newchat.dir = None;
+        self.newchat.dir_at = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(h) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let got = h
+                .spawn(async move {
+                    match engine.dirs(None, machine.as_deref()).await {
+                        Ok(d) => match d.dirs.first().map(|x| x.path.clone()) {
+                            Some(root) => engine.dirs(Some(&root), machine.as_deref()).await,
+                            None => Ok(d),
+                        },
+                        Err(e) => Err(e),
+                    }
+                })
+                .await
+                .ok();
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Some(Ok(d)) => {
+                        this.newchat.dir_at = d.path.clone();
+                        this.newchat.dir = d.path.clone().filter(|p| !p.is_empty());
+                        this.newchat.dirs = Some(d);
+                    }
+                    Some(Err(e)) => this.newchat.flash = Some(format!("列目录失败：{e}")),
+                    None => this.newchat.flash = Some("列目录失败了".into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 点目录里的某一层：**只导航，不选中** —— 选不选由底下那颗「用这个目录」
+    /// 决定。以前点即选，和那颗按钮说的是同一件事。
     fn board_dir_enter(&mut self, path: String, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
         };
+        let machine = self.newchat.machine.clone();
         self.newchat.dir_at = Some(path.clone());
-        self.newchat.dir = Some(path.clone());
         cx.notify();
 
         cx.spawn(async move |this, cx| {
             let handle = crate::TOKIO.get().cloned();
             let Some(h) = handle else { return };
             let got = h
-                .spawn(async move { engine.dirs(Some(&path)).await })
+                .spawn(async move { engine.dirs(Some(&path), machine.as_deref()).await })
                 .await
                 .ok();
             let _ = this.update(cx, |this, cx| {
@@ -1343,6 +1410,7 @@ impl Desktop {
                     .child("✕"),
             );
 
+        // 目录弹层自带底栏（路径 + 机器 + 用这个目录），整条通用 footer 让给它。
         let footer = div()
             .flex_none()
             .flex()
@@ -1352,14 +1420,15 @@ impl Desktop {
             .py(m.v(0.75))
             .border_t(t().d(1.))
             .border_color(rgb(art::border()))
-            .child(
+            .children((sheet != Sheet::Dir).then(|| {
                 div()
                     .font_family(art::mono())
                     .text_size(m.f(0.8, 6.5, 8.5))
                     .text_color(rgb(art::faint()))
-                    .child("Esc 关闭 · 点空白处也关"),
-            )
-            .child(
+                    .child("Esc 关闭 · 点空白处也关")
+                    .into_any_element()
+            }))
+            .children((sheet != Sheet::Dir).then(|| {
                 div()
                     .id(ElementId::Name("board-sheet-done".into()))
                     .px(m.v(1.0))
@@ -1374,8 +1443,11 @@ impl Desktop {
                         this.newchat.sheet = None;
                         cx.notify();
                     }))
-                    .child("完成 ›"),
-            );
+                    .child("完成 ›")
+                    .into_any_element()
+            }))
+            // 目录弹层的那条通用 footer 整个不画。
+            .when(sheet == Sheet::Dir, |el| el.h(t().d(0.)).py(t().d(0.)));
 
         let cap = match pop.anchor {
             // Wide：往上顶到环上那排 pill，别把三个值压住。
@@ -1388,7 +1460,8 @@ impl Desktop {
                     m.h - y - 24.
                 }
             }
-            art::Anchor::Bottom(_) => m.h * 0.62,
+            // 从底往上弹：上面还有多少就给多少，不然面板会顶穿格子。
+            art::Anchor::Bottom(y) => (m.h - y - 16.).max(200.),
         };
         let max_h = cap.clamp(220., m.h * 0.62);
         let panel = div()
@@ -1842,39 +1915,118 @@ impl Desktop {
         )
     }
 
-    /// 目录弹层：点一层进一层。**这不是勾选，是导航** —— 所以没有方框，
-    /// 当前选中的那格用边框表示。
+    /// 目录弹层：**命令面板**形态 —— 一个输入、一条可点的面包屑、
+    /// 左边是这一层、右边告诉你这个目录是什么。
+    ///
+    /// 「这不是勾选，是导航」这条没变：列表里点一行就是进去，
+    /// 选不选它由底下那个按钮决定。
     fn sheet_dir(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let mm = *m;
         let b = &self.newchat;
         let at = b.dir_at.clone().unwrap_or_default();
-        let mut rows: Vec<AnyElement> = Vec::new();
+        let typed = b.dir_input.read(cx).value().trim().to_string();
+        // `/` 或 `~` 开头是路径（shell 的老约定），别的都是「在这一层里筛」。
+        let as_path = typed.starts_with('/') || typed.starts_with('~');
+        let machine_label = b.machine.clone().unwrap_or_else(|| "本机".into());
+        let parent = b.dirs.as_ref().and_then(|d| d.parent.clone());
 
-        if !at.is_empty() {
-            let up = at.rsplit_once('/').map(|(p, _)| p.to_string());
-            let up = up.filter(|p| !p.is_empty()).unwrap_or_else(|| "/".into());
+        // ── 面包屑：每一段都能点 ──
+        // 根单独画一个 `/`，后面每段前面加 `/` 当分隔 —— 根自己也进 segs
+        // 的话会出现「/ / opt」。
+        let mut segs: Vec<(String, String)> = Vec::new();
+        let mut acc = String::new();
+        for part in at.trim_start_matches('/').split('/').filter(|p| !p.is_empty()) {
+            acc.push('/');
+            acc.push_str(part);
+            segs.push((part.to_string(), acc.clone()));
+        }
+        let crumbs = div()
+            .flex()
+            .items_center()
+            .gap(t().d(1.))
+            .px(m.v(1.5))
+            .pb(m.v(0.9))
+            .overflow_hidden()
+            .child(
+                div()
+                    .id(ElementId::Name("crumb-root".into()))
+                    .flex_none()
+                    .px(m.v(0.45))
+                    .py(m.v(0.2))
+                    .rounded(t().r(4.))
+                    .font_family(art::mono())
+                    .text_size(m.f(1.15, 9., 11.))
+                    .text_color(rgb(art::faint()))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.08)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.board_dir_enter("/".into(), cx);
+                    }))
+                    .child("/"),
+            )
+            .children(segs.into_iter().enumerate().flat_map(|(i, (label, path))| {
+                let last = path == at || at.is_empty();
+                let mut out: Vec<AnyElement> = Vec::new();
+                if i > 0 {
+                    out.push(
+                        div()
+                            .flex_none()
+                            .text_size(m.f(0.95, 8., 10.))
+                            .text_color(rgb(art::faint()))
+                            .child("/")
+                            .into_any_element(),
+                    );
+                }
+                out.push(
+                    div()
+                        .id(ElementId::Name(format!("crumb-{i}").into()))
+                        .flex_none()
+                        .max_w(mm.s(120.))
+                        .truncate()
+                        .px(m.v(0.45))
+                        .py(m.v(0.2))
+                        .rounded(t().r(4.))
+                        .font_family(art::mono())
+                        .text_size(m.f(1.15, 9., 11.))
+                        .text_color(if last { rgb(art::fg()) } else { rgb(art::muted()) })
+                        .when(last, |el| el.font_weight(FontWeight::BOLD))
+                        .hover(|s| s.bg(rgb(art::accent()).opacity(0.08)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.board_dir_enter(path.clone(), cx);
+                        }))
+                        .child(label)
+                        .into_any_element(),
+                );
+                out
+            }));
+
+        // ── 列表 ──
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if as_path && !typed.is_empty() {
+            let target = typed.clone();
             rows.push(
                 div()
-                    .id(ElementId::Name("dir-up".into()))
+                    .id(ElementId::Name("dir-jump".into()))
                     .flex()
                     .items_center()
-                    .gap(m.v(0.9))
+                    .gap(m.v(0.8))
                     .w_full()
                     .px(m.v(0.8))
-                    .py(m.v(0.5))
+                    .py(m.v(0.6))
                     .rounded(t().r(6.))
-                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
-                    .on_click(cx.listener({
-                        let up = up.clone();
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.board_dir_enter(up.clone(), cx);
-                        }
+                    .border_1()
+                    .border_color(rgb(art::accent()))
+                    .bg(rgb(art::accent()).opacity(0.10))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.18)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.board_dir_enter(target.clone(), cx);
                     }))
                     .child(
                         div()
+                            .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(1.4, 10., 13.))
-                            .text_color(rgb(art::muted()))
-                            .child(".."),
+                            .text_size(m.f(1.2, 9.5, 11.))
+                            .text_color(rgb(art::accent()))
+                            .child("↵"),
                     )
                     .child(
                         div()
@@ -1882,27 +2034,80 @@ impl Desktop {
                             .min_w(t().d(0.))
                             .truncate()
                             .font_family(art::mono())
-                            .text_size(m.f(1.4, 10., 13.))
-                            .text_color(rgb(art::muted()))
-                            .child(up),
+                            .text_size(m.f(1.25, 10., 11.5))
+                            .child(typed.clone()),
                     )
                     .into_any_element(),
             );
         }
-
-        for d in b.dirs.as_ref().map(|x| x.dirs.clone()).unwrap_or_default() {
+        if let Some(up) = parent.filter(|_| !as_path) {
+            let up_go = up.clone();
+            rows.push(
+                div()
+                    .id(ElementId::Name("dir-up".into()))
+                    .flex()
+                    .items_center()
+                    .gap(m.v(0.8))
+                    .w_full()
+                    .px(m.v(0.8))
+                    .py(m.v(0.45))
+                    .rounded(t().r(6.))
+                    .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.board_dir_enter(up_go.clone(), cx);
+                    }))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(art::mono())
+                            .text_size(m.f(1.1, 9., 10.5))
+                            .text_color(rgb(art::faint()))
+                            .child("↑"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .truncate()
+                            .font_family(art::mono())
+                            .text_size(m.f(1.2, 9.5, 11.))
+                            .text_color(rgb(art::muted()))
+                            .child(up.clone()),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let needle = typed.to_lowercase();
+        let mut hits = 0;
+        // 打的是路径时，这一层的子目录就没有意义了 —— 只留那行「跳过去」。
+        for d in b
+            .dirs
+            .as_ref()
+            .filter(|_| !(as_path && !typed.is_empty()))
+            .map(|x| x.dirs.clone())
+            .unwrap_or_default()
+        {
+            if !needle.is_empty() && !as_path && !d.name.to_lowercase().contains(&needle) {
+                continue;
+            }
+            hits += 1;
             let path = d.path.clone();
-            let picked_path = path.clone();
+            let pick = path.clone();
             let selected = b.dir.as_deref() == Some(path.as_str());
+            let sessions_here = self
+                .sessions
+                .iter()
+                .filter(|x| x.cwd.as_deref() == Some(path.as_str()))
+                .count();
             rows.push(
                 div()
                     .id(ElementId::Name(format!("dir-{}", d.name).into()))
                     .flex()
                     .items_center()
-                    .gap(m.v(0.9))
+                    .gap(m.v(0.8))
                     .w_full()
                     .px(m.v(0.8))
-                    .py(m.v(0.5))
+                    .py(m.v(0.45))
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if selected {
@@ -1913,38 +2118,202 @@ impl Desktop {
                     .when(selected, |el| el.bg(rgb(art::accent()).opacity(0.14)))
                     .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.board_dir_enter(picked_path.clone(), cx);
+                        this.board_dir_enter(pick.clone(), cx);
                     }))
-                    .child(
-                        div()
-                            .font_family(art::mono())
-                            .text_size(m.f(1.4, 10., 13.))
-                            .text_color(rgb(art::muted()))
-                            .child("›"),
-                    )
                     .child(
                         div()
                             .flex_1()
                             .min_w(t().d(0.))
                             .truncate()
                             .font_family(art::mono())
-                            .text_size(m.f(1.4, 10., 13.))
-                            .child(path.clone()),
+                            .text_size(m.f(1.25, 10., 11.5))
+                            .child(format!("{}/", d.name)),
                     )
+                    .children((sessions_here > 0).then(|| {
+                        div()
+                            .flex_none()
+                            .font_family(art::mono())
+                            .text_size(m.f(0.9, 7.5, 9.))
+                            .text_color(rgb(art::faint()))
+                            .child(format!("{sessions_here} 会话"))
+                    }))
                     .into_any_element(),
             );
         }
 
-        self.sheet_list(
-            m,
-            rows,
-            if b.dirs.as_ref().map(|d| d.dirs.is_empty()).unwrap_or(true) {
-                "这层没有子目录"
-            } else {
-                ""
-            },
-            cx,
-        )
+        // ── 右栏：这个目录是什么 ──
+        let here = self
+            .sessions
+            .iter()
+            .filter(|x| x.cwd.as_deref() == Some(at.as_str()))
+            .count();
+        let n = b.dirs.as_ref().map(|d| d.dirs.len()).unwrap_or(0);
+        let kv = |k: &'static str, v: String| {
+            div()
+                .flex()
+                .justify_between()
+                .gap(m.v(0.6))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(m.f(0.95, 8., 9.5))
+                        .text_color(rgb(art::faint()))
+                        .child(k),
+                )
+                .child(
+                    div()
+                        .truncate()
+                        .font_family(art::mono())
+                        .text_size(m.f(1.05, 8.5, 10.))
+                        .child(v),
+                )
+        };
+        let preview = div()
+            .flex_none()
+            .w(mm.s(196.))
+            .border_l(t().d(1.))
+            .border_color(rgb(art::border()))
+            .px(m.v(1.3))
+            .py(m.v(1.2))
+            .flex()
+            .flex_col()
+            .gap(m.v(0.55))
+            .child(
+                div()
+                    .font_family(art::mono())
+                    .text_size(m.f(0.9, 7.5, 9.))
+                    .text_color(rgb(art::faint()))
+                    .child("选中目录"),
+            )
+            .child(
+                div()
+                    .font_family(art::mono())
+                    .text_size(m.f(1.05, 8.5, 10.))
+                    .text_color(rgb(art::fg()))
+                    .child(if at.is_empty() { "—".into() } else { at.clone() }),
+            )
+            .child(div().h(m.v(0.4)))
+            .child(kv("机器", machine_label.clone()))
+            .child(kv("这一层的会话", format!("{here}")))
+            .child(kv("子目录", format!("{n}")))
+            .child(div().flex_1());
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(t().d(0.))
+            // 命令行
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(m.v(0.8))
+                    .mx(m.v(1.3))
+                    .mt(m.v(1.1))
+                    .mb(m.v(0.5))
+                    .px(m.v(0.9))
+                    .py(m.v(0.45))
+                    .rounded(t().r(7.))
+                    .bg(rgb(art::surface()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(art::mono())
+                            .text_size(m.f(1.3, 10., 12.))
+                            .text_color(rgb(art::accent()))
+                            .child("›"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .child(Textarea::new(&b.dir_input).appearance(false).bordered(false)),
+                    ),
+            )
+            .child(crumbs)
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(art::border()))
+                    .child(
+                        div()
+                            .id(ElementId::Name("dir-list".into()))
+                            .flex()
+                            .flex_col()
+                            .gap(t().d(2.))
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .min_h(t().d(0.))
+                            .px(m.v(0.9))
+                            .py(m.v(0.8))
+                            .overflow_y_scroll()
+                            .track_scroll(&self.newchat.sheet_scroll)
+                            .children(rows)
+                            .children(if hits == 0 && !as_path {
+                                vec![
+                                    div()
+                                        .py(m.v(1.6))
+                                        .text_center()
+                                        .text_size(m.f(1.2, 9.5, 11.))
+                                        .text_color(rgb(art::muted()))
+                                        .child(if typed.is_empty() {
+                                            "这一层没有子目录".to_string()
+                                        } else {
+                                            format!("这一层没有名字含「{typed}」的目录")
+                                        })
+                                        .into_any_element(),
+                                ]
+                            } else {
+                                Vec::new()
+                            }),
+                    )
+                    .child(preview),
+            )
+            // 底栏
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(m.v(1.))
+                    .px(m.v(1.4))
+                    .py(m.v(0.7))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(art::border()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(art::mono())
+                            .text_size(m.f(0.9, 7.5, 9.))
+                            .text_color(rgb(art::faint()))
+                            .child(format!("{} · {machine_label}", at.clone())),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name("dir-use".into()))
+                            .flex_none()
+                            .px(m.v(1.0))
+                            .py(m.v(0.3))
+                            .rounded(t().r(6.))
+                            .bg(rgb(art::accent()))
+                            .text_color(rgb(art::bg()))
+                            .text_size(m.f(1.05, 8.5, 11.))
+                            .hover(|s| s.opacity(0.88))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                if let Some(at) = this.newchat.dir_at.clone() {
+                                    this.newchat.dir = Some(at);
+                                }
+                                this.newchat.sheet = None;
+                                cx.notify();
+                            }))
+                            .child("用这个目录"),
+                    ),
+            )
+            .into_any_element()
     }
 
     /// 机器弹层：本机在最上面，`None` 就是它。
@@ -1990,10 +2359,9 @@ impl Desktop {
                         // 目录是**机器上**的路径：换机器，旧路径立刻没意义，
                         // 留着它会让 Create 发一个对面根本不存在的 cwd。
                         if this.newchat.machine != value {
-                            this.newchat.dir = None;
-                            this.newchat.dir_at = None;
+                            this.newchat.machine = value.clone();
+                            this.board_dir_start(cx);
                         }
-                        this.newchat.machine = value.clone();
                         cx.notify();
                     }))
                     .child(

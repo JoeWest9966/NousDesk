@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>New Manual · 模型搜索（4 套）</title>
+<style>
+  :root{
+    --bg:#ededed; --panel:#fff; --surface:#f6f6f6; --line:#e6e6e6;
+    --text:#1a1a1a; --muted:#999; --faint:#aaa;
+    --accent:#07c160; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: Inter, "Manrope", -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#fbfbfb;color:var(--text);font-family:var(--sans);}
+  body{padding:56px 40px 120px;}
+  h1{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;}
+  .lede{font-size:13.5px;color:#666;line-height:1.65;max-width:760px;margin:0 0 6px;}
+  .lede b{color:#111;font-weight:600;}
+  .meta{font-family:var(--mono);font-size:11px;color:#aaa;margin:14px 0 44px;}
+
+  .pane{margin:0 0 64px;}
+  .pane-head{display:flex;align-items:baseline;gap:12px;margin:0 0 4px;}
+  .num{font-family:var(--mono);font-size:11px;color:#bbb;border:1px solid #e4e4e4;border-radius:3px;padding:1px 6px;}
+  .pane-head h2{font-size:15px;font-weight:600;margin:0;}
+  .why{font-size:12.5px;color:#7a7a7a;line-height:1.6;margin:0 0 18px 40px;max-width:720px;}
+  .why b{color:#333;font-weight:600;}
+
+  /* ── 弹层本体：真尺寸 600 宽 ─────────────────────────── */
+  .sheet{
+    width:600px; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; box-shadow:0 10px 32px rgba(0,0,0,.07);
+  }
+  .shead{display:flex;align-items:flex-start;justify-content:space-between;padding:12px 16px 10px;border-bottom:1px solid var(--line);}
+  .shead .t{font-size:13px;font-weight:600;line-height:1.3;}
+  .shead .h{font-size:11px;color:var(--muted);font-style:italic;margin-top:2px;}
+  .shead .x{color:#bbb;font-size:14px;line-height:1;cursor:pointer;}
+
+  /* 搜索行 */
+  .sbar{display:flex;align-items:center;gap:8px;margin:10px 14px;padding:0 10px;height:30px;
+        background:var(--surface);border:1px solid transparent;border-radius:8px;}
+  .sbar:focus-within{border-color:var(--accent);background:#fff;}
+  .sbar .ico{font-size:12px;color:#bbb;}
+  .sbar input{flex:1;border:0;background:transparent;outline:0;font:inherit;font-size:12.5px;color:var(--text);}
+  .sbar input::placeholder{color:#b8b8b8;}
+  .sbar .clr{font-size:11px;color:#aaa;background:#eaeaea;border-radius:50%;width:15px;height:15px;
+             display:grid;place-items:center;cursor:pointer;}
+  .sbar .hits{font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap;}
+
+  /* 三列 */
+  .cols{display:flex;gap:0;padding:0 14px 6px;max-height:396px;overflow:hidden;}
+  .col{overflow:hidden;}
+  .col.prov{width:148px;flex:none;border-right:1px solid #f2f2f2;padding-right:8px;}
+  .col.mod{flex:1;min-width:0;padding:0 8px;border-right:1px solid #f2f2f2;}
+  .col.lvl{width:152px;flex:none;padding-left:8px;}
+  .row{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:6px;font-size:12px;
+       border:1px solid transparent;line-height:1.35;min-height:28px;}
+  .row .txt{font-family:var(--mono);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .row.sel{border-color:var(--accent);background:var(--accent-soft);}
+  .row.hov{background:#f7f7f7;}
+  .row .dot{width:11px;height:11px;border-radius:50%;border:1px solid #e0e0e0;flex:none;
+            display:grid;place-items:center;}
+  .row .dot i{width:5px;height:5px;border-radius:50%;background:transparent;display:block;}
+  .row.sel .dot{border-color:var(--accent);}
+  .row.sel .dot i{background:var(--accent);}
+  .muted{color:var(--faint);}
+
+  /* 匹配高亮片段 */
+  mark{background:transparent;color:inherit;font-weight:700;}
+
+  /* 思考档 */
+  .lrow{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;font-size:11.5px;
+        border:1px solid transparent;min-height:28px;}
+  .lrow.sel{border-color:var(--accent);background:var(--accent-soft);}
+  .lrow .k{font-family:var(--mono);width:64px;flex:none;}
+  .lrow .v{white-space:nowrap;}
+  .lrow .v{color:var(--muted);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;}
+  .rail{position:relative;}
+  .rail::before{content:"";position:absolute;left:-5px;top:14px;bottom:8px;width:1px;background:#ededed;}
+  .rail .row::before{content:"";position:absolute;left:-5px;width:5px;height:1px;background:#ededed;}
+  .rail .row{position:relative;}
+
+  .sfoot{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;
+         border-top:1px solid var(--line);font-size:10.5px;color:var(--faint);font-family:var(--mono);}
+  .done{font-size:11px;color:var(--accent-fg);border:1px solid var(--accent);background:var(--accent-soft);
+        border-radius:6px;padding:3px 9px;font-family:var(--sans);}
+
+  /* ── 各方案的微调 ─────────────────────────────── */
+  /* 01 压暗 */
+  .dim{opacity:.32;}
+  /* 02 过滤 */
+  .hidden{display:none;}
+  /* 03 折叠：组头 */
+  .ghead{display:flex;align-items:center;justify-content:space-between;padding:5px 7px;font-size:11px;
+         color:var(--faint);font-family:var(--mono);min-height:24px;}
+  .ghead .cnt{font-family:var(--sans);letter-spacing:.02em;}
+  .ghead.open{color:#666;}
+  .gmore{padding:4px 7px 8px;font-size:11px;color:#aaa;font-family:var(--mono);cursor:pointer;}
+  /* 04 单列结果 */
+  .flat{display:flex;flex-direction:column;gap:2px;padding:0 14px 6px;max-height:396px;overflow:hidden;}
+  .frow{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:6px;border:1px solid transparent;min-height:32px;}
+  .frow.sel{border-color:var(--accent);background:var(--accent-soft);}
+  .frow .p{font-family:var(--mono);font-size:10.5px;color:var(--faint);width:78px;flex:none;
+           overflow:hidden;text-overflow:ellipsis;}
+  .frow .m{font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .frow .lv{font-size:10.5px;color:var(--faint);flex:none;}
+
+  .note{font-size:12px;color:#888;line-height:1.7;margin:12px 0 0 0;padding-left:40px;max-width:720px;}
+  .note b{color:#333;}
+  .note .bad{color:#c0392b;}
+  .legend{font-family:var(--mono);font-size:10.5px;color:#bbb;margin-top:10px;padding-left:40px;}
+</style>
+</head>
+<body>
+
+<h1>New Manual · 模型搜索</h1>
+<p class="lede">
+  242 个模型，现在只能滚。<b>加搜索框这件事本身没得选</b> —— 要选的是：输进去之后，
+  <b>不匹配的那些怎么办</b>。四个方案都是「输入了 <span style="font-family:var(--mono)">flash</span>」的同一时刻，
+  弹层 600 宽、真字号，直接对比。
+</p>
+<div class="meta">匹配 4 / 242 · 供应商 3 家 · 思考档列不变</div>
+
+<!-- 00 现状 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">00</span><h2>现在（没有搜索框）</h2></div>
+  <p class="why">对照用。<b>242 个模型，volc-ark 一家就 240 个</b>，找 <span style="font-family:var(--mono)">flash</span>
+     得滚五十多屏。这也是为什么上一批把弹层高度放到了格底 —— 只是把五十屏变成三十屏。</p>
+  <div class="sheet" id="pane0"></div>
+</section>
+
+<!-- 01 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">01</span><h2>匹配 / 压暗</h2></div>
+  <p class="why">参考页的做法。<b>位置不变，只把不匹配的压到 32%</b>。列表长度不变，眼睛顺着往下扫就能找到那 4 条。</p>
+  <div class="sheet" id="pane1"></div>
+  <p class="note">
+    好处：<b>空间不跳</b>。刚才看到的东西还在老地方，只是变淡了 —— 不会出现「我明明看见过」的困惑。<br>
+    代价：列表还是那么长，滚动量一点没少，只是能一眼看出哪儿有东西。
+  </p>
+</section>
+
+<!-- 02 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">02</span><h2>过滤 / 只剩匹配</h2></div>
+  <p class="why">不匹配的直接不渲染。<b>242 行变 4 行，一屏看完，不用滚</b>。供应商列同步缩到只剩 volc-ark。</p>
+  <div class="sheet" id="pane2"></div>
+  <p class="note">
+    好处：<b>最短路径</b>。输入完直接点，没有任何「找」的动作。<br>
+    代价：<b class="bad">列表会跳</b>。原本在第 12 行的东西突然变成第 1 行，手指位置全错；清空搜索又跳回去一次。
+    另外「workbuddy 底下有什么」这类浏览型问题，搜索一问就看不到了。
+  </p>
+</section>
+
+<!-- 03 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">03</span><h2>供应商折叠</h2></div>
+  <p class="why">有匹配的供应商留着（匹配项 + 一行「还有 8 条」），<b>没匹配的整组压成一行 24px 的灰色组头</b>。
+     列表从 14 行变 7 行，但<i>结构还在</i>。</p>
+  <div class="sheet" id="pane3"></div>
+  <p class="note">
+    好处：<b>还知道「东西在哪家」</b>。搜索不只是过滤，它顺带回答了「哪几家有这类模型」。<br>
+    代价：<b class="bad">多一层视觉噪音</b>。组头、计数、展开箭头 —— 一个搜索框配了一套手风琴。
+    而且「还有 8 条」点开之后，又变回原来看不完的状态。
+  </p>
+</section>
+
+<!-- 04 -->
+<section class="pane">
+  <div class="pane-head"><span class="num">04</span><h2>塌成一列结果</h2></div>
+  <p class="why">搜索时<b>三列塌成一列</b>：每行 <span style="font-family:var(--mono)">volc-ark / deepseek-v4-flash-260425</span>。
+     这不是「过滤视图」，是<b>另一个模式</b> —— 像命令面板。</p>
+  <div class="sheet" id="pane4"></div>
+  <p class="note">
+    好处：<b>一行一个完整答案</b>，不用在三列之间来回看；宽出来的地方正好放长模型名，不用截断。<br>
+    代价：<b class="bad">模式切换</b>。选完模型弹层关掉，思考档列就没了 —— 要么选完再弹一次，
+    要么把思考档挪到 pill 上（那是另一处改版）。而且「三列」这个形状本身是这个盘面的语法，
+    搜索一来就换语法，得解释。
+  </p>
+</section>
+
+<h2 style="font-size:15px;margin:56px 0 10px;">我的判断</h2>
+<p class="lede" style="max-width:760px;">
+  <b>01 和 02 之间只差一件事：列表跳不跳。</b>这不是审美问题 —— 手指记位置，跳一次就得重新找一次。
+  所以倾向 <b>01</b>，但 01 有个用久了才暴露的问题：<b>搜索结果散在几十屏里，压暗只是让它们「可辨认」，没让它们「可到达」</b>。
+  真用起来会变成「搜 flash → 滚两屏 → 找到」。<br><br>
+  真要我选：<b>01 + 一条「跳到第一条匹配」</b> —— 默认保持原位只压暗，但搜索框右边显示
+  <span style="font-family:var(--mono)">4 匹配</span>，点它把列表滚到第一条匹配。这样两边都要到了。
+</p>
+<div class="legend">demo/new-manual-search · 数据取自 /v1/models（242 条真实模型名）· 配色 = 「默认」皮</div>
+
+<script>
+const MODELS = [
+  {p:'Qoder', m:['qwen3-32b','qwen3-coder-480b']},
+  {p:'volc-ark', m:[
+    'ark-code-latest','deepseek-r1-250120','deepseek-r1-250528','deepseek-r1-distill-qwen-32b-250120',
+    'deepseek-r1-distill-qwen-7b-250120','deepseek-v3-1-250821','deepseek-v3-1-terminus',
+    'deepseek-v3-2-251201','deepseek-v3-2-251201','deepseek-v3-241226','deepseek-v3-250324',
+    'deepseek-v4-1-flash-260910','deepseek-v4-1-flash-261017','deepseek-v4-1-flash-economy-261017',
+    'deepseek-v4-flash-260425'
+  ]},
+  {p:'workbuddy', m:['claude-sonnet-4-5','gpt-5-mini','gpt-5-1-codex']}
+];
+const LEVELS = [['off','不思考'],['minimal','极少'],['low','低'],['medium','中'],['high','高']];
+const SEL = {p:'volc-ark', m:'deepseek-v4-flash-260425', l:'off'};
+const Q = 'flash';
+const isHit = s => s.toLowerCase().includes(Q);
+
+// 把匹配片段包成 <mark>
+function hl(s){
+  const i = s.toLowerCase().indexOf(Q);
+  if (i < 0) return s;
+  return s.slice(0,i) + '<mark>' + s.slice(i, i+Q.length) + '</mark>' + s.slice(i+Q.length);
+}
+
+function sheet(opts){
+  const {cols, foot, hits} = opts;
+  return `
+  <div class="shead">
+    <div><div class="t">选择模型</div><div class="h">供应商 › 模型 › 思考 · 点模型即收回</div></div>
+    <div class="x">×</div>
+  </div>
+  ${opts.noSearch ? '' : `<div class="sbar">
+    <span class="ico">⌕</span>
+    <input value="${opts.q||''}" placeholder="搜索模型 · 名字">
+    ${opts.q ? `<span class="hits">${hits}</span><span class="clr">×</span>` : ''}
+  </div>`}
+  ${cols}
+  <div class="sfoot"><span>Esc 关闭 · 点空白处也关</span><span class="done">完成 ›</span></div>`;
+}
+
+// 三列（00/01/02/03 共用骨架，差异由 rows 内容决定）
+function threeCols({provRows, modRows, dimProv=false, dimMod=false}){
+  const lvl = LEVELS.map(([k,v]) =>
+    `<div class="lrow ${k===SEL.l?'sel':''}"><span class="k">${k}</span><span class="v">· ${v}</span></div>`
+  ).join('');
+  return `
+  <div class="cols">
+    <div class="col prov ${dimProv?'dim':''}">${provRows}</div>
+    <div class="col mod rail ${dimMod?'dim':''}">${modRows}</div>
+    <div class="col lvl">${lvl}</div>
+  </div>`;
+}
+
+function provRow(name, sel, dim, extra=''){
+  return `<div class="row ${sel?'sel':''} ${dim?'dim':''}">
+    <span class="dot"><i></i></span><span class="txt" style="font-family:var(--sans);font-size:12px">${name}</span>${extra}
+  </div>`;
+}
+function modRow(name, sel, dim){
+  const short = name.length > 32 ? name.slice(0,31)+'…' : name;
+  return `<div class="row ${sel?'sel':''} ${dim?'dim':''}">
+    <span class="dot"><i></i></span><span class="txt">${dim?short:hl(name)}</span>
+  </div>`;
+}
+
+// ── 00 现状
+document.getElementById('pane0').innerHTML = sheet({
+  q:'', noSearch:true,
+  cols: threeCols({
+    provRows: MODELS.map(x=>provRow(x.p, x.p===SEL.p)).join(''),
+    modRows : MODELS[1].m.map(m=>modRow(m, m===SEL.m)).join('')
+  }),
+  foot:''
+});
+
+// ── 01 压暗
+document.getElementById('pane1').innerHTML = sheet({
+  q:Q, hits:'4 匹配 ›',
+  cols: threeCols({
+    provRows: MODELS.map(x=>provRow(x.p, x.p===SEL.p, !x.m.some(isHit))).join(''),
+    modRows : MODELS.flatMap(x=>x.m).map(m=>modRow(m, m===SEL.m, !isHit(m))).join('')
+  })
+});
+
+// ── 02 过滤
+{
+  const kept = MODELS.filter(x=>x.m.some(isHit));
+  document.getElementById('pane2').innerHTML = sheet({
+    q:Q, hits:'4 / 242',
+    cols: threeCols({
+      provRows: kept.map(x=>provRow(x.p, x.p===SEL.p)).join(''),
+      modRows : kept.flatMap(x=>x.m).filter(isHit).map(m=>modRow(m, m===SEL.m)).join('')
+    })
+  });
+}
+
+// ── 03 供应商折叠
+{
+  const provRows = MODELS.map(x=>{
+    const hit = x.m.some(isHit);
+    return provRow(x.p, x.p===SEL.p, !hit, hit?'':'<span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:#ccc">0</span>');
+  }).join('');
+  const modRows = MODELS.map(x=>{
+    const hitModels = x.m.filter(isHit);
+    const rest = x.m.length - hitModels.length;
+    if (!hitModels.length) {
+      return `<div class="ghead"><span>${x.p}</span><span class="cnt">0 匹配</span></div>`;
+    }
+    const head = `<div class="ghead open"><span>${x.p}</span><span class="cnt">${hitModels.length} 匹配</span></div>`;
+    const body = hitModels.map(m=>modRow(m, m===SEL.m)).join('');
+    const more = rest ? `<div class="gmore">+ 还有 ${rest} 条 · 展开</div>` : '';
+    return head + body + more;
+  }).join('');
+  document.getElementById('pane3').innerHTML = sheet({ q:Q, hits:'4 匹配', cols: threeCols({provRows, modRows}) });
+}
+
+// ── 04 塌成一列
+{
+  const hitsAll = MODELS.flatMap(x=>x.m.map(m=>({p:x.p,m}))).filter(o=>isHit(o.m));
+  const flat = hitsAll.map(o=>`
+    <div class="frow ${o.m===SEL.m?'sel':''}">
+      <span class="p">${o.p}</span>
+      <span class="m">${hl(o.m)}</span>
+      <span class="lv">${SEL.l} · 不思考</span>
+    </div>`).join('');
+  document.getElementById('pane4').innerHTML = `
+    <div class="shead">
+      <div><div class="t">搜索模型</div><div class="h">输入即筛 · 一行一个 · 点即选</div></div>
+      <div class="x">×</div>
+    </div>
+    <div class="sbar">
+      <span class="ico">⌕</span>
+      <input value="${Q}" placeholder="搜索模型 · 名字">
+      <span class="hits">4 / 242</span>
+      <span class="clr">×</span>
+    </div>
+    <div class="flat">${flat}</div>
+    <div class="sfoot"><span>Esc 清空搜索 · 再按一次关闭</span><span class="done">完成 ›</span></div>`;
+}
+</script>
+</body>
+</html>
