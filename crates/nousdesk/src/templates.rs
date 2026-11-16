@@ -396,6 +396,10 @@ impl Desktop {
             // 五份数据一次拉齐（拉过就不重拉）：切过来就该有东西看，不该先给白屏。
             self.load_console(false, cx);
         }
+        if tab == Tab::Resources {
+            // 三份清单并发拉，跟数据监控室一个口径。
+            self.load_resources(false, cx);
+        }
         cx.notify();
     }
 

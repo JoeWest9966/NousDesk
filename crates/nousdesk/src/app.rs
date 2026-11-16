@@ -159,6 +159,8 @@ pub(crate) enum Tab {
     Triggers,
     /// 数据监控室：面板 `d6s4v1` + 归档库搬进桌面端（`data_console.rs`）。
     Data,
+    /// 资源：技能 / 提示词 / 扩展（方案 03：内容 / 扩展两段）。
+    Resources,
 }
 
 /// 轻提示的性质：成功绿 / 失败红。
@@ -358,6 +360,8 @@ pub struct Desktop {
     pub(crate) archive: crate::archive_page::ArchivePageState,
     /// 数据监控室（左列第四个入口）的全部状态：五份数据 + 屏 + 拉片档 + 时间线。
     pub(crate) console: crate::data_console::ConsoleState,
+    /// 「资源」页（一个图标、内容 / 扩展两段）的全部状态。
+    pub(crate) resources: crate::resources::ResourceState,
     /// 「撕原件」危险确认的状态机（票 #3）。本票只负责把它接到引擎上。
     pub(crate) purge_confirm: crate::archive_confirm::PurgeConfirm,
     /// 「重命名会话」弹层（居中对话框）。输入框单独存一个复用 —— 每开一次不新建
@@ -966,6 +970,7 @@ impl Desktop {
             archive_open: false,
             archive: crate::archive_page::ArchivePageState::new(),
             console: crate::data_console::ConsoleState::new(),
+            resources: crate::resources::ResourceState::default(),
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
             rename_box: crate::rename_box::RenameBox::new(),
             rename_input, // 上面 `cx.new` 建好的那个
@@ -1013,6 +1018,8 @@ impl Desktop {
                 Tab::Triggers
             } else if open_at_start == "data" {
                 Tab::Data
+            } else if open_at_start == "resources" {
+                Tab::Resources
             } else {
                 Tab::Chats
             },
@@ -1130,6 +1137,9 @@ impl Desktop {
                         // 自己拉一遍 —— `switch_tab` 只在「切过去」那一刻触发。
                         if this.tab == Tab::Data {
                             this.load_console(false, cx);
+                        }
+                        if this.tab == Tab::Resources {
+                            this.load_resources(false, cx);
                         }
                         // 置顶单独去 bjes6b 拿（单源在它那儿）。
                         this.load_pins(cx);
@@ -2825,6 +2835,7 @@ impl Desktop {
             .child(self.tab_button(IconName::MessageCircle, Tab::Chats, cx))
             .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
             .child(self.tab_button(IconName::Bolt, Tab::Triggers, cx))
+            .child(self.tab_button(IconName::Layers, Tab::Resources, cx))
             .child(self.tab_button(IconName::Database, Tab::Data, cx))
             .child(div().flex_1())
             .child(self.more_button(cx))
@@ -2856,6 +2867,7 @@ impl Desktop {
             Tab::Chats => "tab-chats",
             Tab::Templates => "tab-templates",
             Tab::Triggers => "tab-triggers",
+            Tab::Resources => "tab-resources",
             Tab::Data => "tab-data",
         };
         div()
@@ -4939,6 +4951,8 @@ impl Render for Desktop {
                     })
                     .into_any_element(),
                 Tab::Triggers => self.render_triggers(cx).into_any_element(),
+                // 资源页自带三栏（树 / 列表 / 详情），自己画完全宽。
+                Tab::Resources => crate::resources::render(self, cx, narrow_tree).into_any_element(),
                 // 数据监控室是三列整页（拉片 / 六屏 / 时间线），自己画完全宽。
                 Tab::Data => self.render_data_console(cx).into_any_element(),
             }
