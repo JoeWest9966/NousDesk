@@ -47,7 +47,8 @@ body{
 
 /* ── 窗口 ─────────────────────────────────────────────── */
 .win{
-  max-width:1240px;margin:0 auto;height:760px;display:flex;
+  /* 真应用里这一页是可滚的；demo 里让它自己长高，三套版面都完整看得见 */
+  max-width:1240px;margin:0 auto;min-height:760px;display:flex;
   background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;
   box-shadow:0 18px 48px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.05);
 }
