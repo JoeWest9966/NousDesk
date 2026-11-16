@@ -13,7 +13,6 @@
 
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,7 +25,7 @@ use gpui_kit::*;
 use nous_engine::EngineError;
 use nous_engine::triggers::{
     ArchivedTrigger, NewTrigger, TriggerFileMeta, TriggerItem, TriggerList,
-    TriggerParam, TriggerPublish, TriggerRepo,
+    TriggerParam, TriggerPublish,
 };
 
 use crate::app::Desktop;
@@ -1834,56 +1833,7 @@ fn status_of(item: &TriggerItem) -> (&'static str, u32, u32) {
     }
 }
 
-/// 同步芯片的颜色档位。
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Tone {
-    /// 干净。
-    Ok,
-    /// 有东西要处理（推 / 发布 / 拉）。
-    Warn,
-    /// 触发器本身没事，但仓库里有别的改动。
-    Idle,
-}
-
-/// 同步芯片该写什么。
-///
-/// 顺序按「先解决哪个」排：落后 → 没推 → 有改动 → 未发布 → 仓库脏 → 干净。
-/// `ahead > 0` 排在 `dirty > 0` 前面，是因为前者只要推一下就完事，
-/// 而后者还得先发布；反过来会出现「改了 2 个」盖住「3 个提交没推」的情况，
-/// 人就一直看不到自己其实一直没推上去。两个数都非零时并排写，不吞信息。
-pub(crate) fn sync_state(
-    repo: Option<&TriggerRepo>,
-    dirty: usize,
-    unpublished: usize,
-) -> (String, Tone) {
-    let ahead = repo.map(|r| r.ahead).unwrap_or(0);
-    let behind = repo.map(|r| r.behind).unwrap_or(0);
-    let repo_dirty = repo.map(|r| r.dirty).unwrap_or(false);
-    if behind > 0 {
-        return (format!("远端有新提交 · 落后 {behind}"), Tone::Warn);
-    }
-    if ahead > 0 {
-        let mut text = format!("{ahead} 个提交没推");
-        if dirty > 0 {
-            text.push_str(&format!(" · {dirty} 个有改动"));
-        }
-        return (text, Tone::Warn);
-    }
-    if dirty > 0 {
-        let mut text = format!("{dirty} 个有改动");
-        if unpublished > 0 {
-            text.push_str(&format!(" · {unpublished} 个未发布"));
-        }
-        return (text, Tone::Warn);
-    }
-    if unpublished > 0 {
-        return (format!("{unpublished} 个未发布"), Tone::Warn);
-    }
-    if repo_dirty {
-        return ("仓库有别的改动".to_string(), Tone::Idle);
-    }
-    ("已同步".to_string(), Tone::Ok)
-}
+use crate::sync_state::{SyncFacts, Tone, sync_state};
 
 fn is_under(cat: &str, root: &str) -> bool {
     cat == root || cat.starts_with(&format!("{root}/"))
@@ -1947,7 +1897,11 @@ impl Desktop {
             .data
             .as_ref()
             .and_then(|d| d.repo.as_ref());
-        let (sync_text, tone) = sync_state(repo_state, dirty, unpublished);
+        let (sync_text, tone) = sync_state(
+            repo_state.map(|r| SyncFacts::of(r.ahead, r.behind, r.dirty)),
+            dirty,
+            unpublished,
+        );
         let sync_color = match tone {
             Tone::Ok => t().p.accent,
             Tone::Warn => t().p.warn,
@@ -5196,70 +5150,3 @@ fn code_block(text: &str) -> AnyElement {
         .into_any_element()
 }
 
-#[cfg(test)]
-mod sync_tests {
-    use super::{sync_state, Tone, TriggerRepo};
-
-    fn repo(ahead: i64, behind: i64, dirty: bool) -> TriggerRepo {
-        TriggerRepo {
-            ahead,
-            behind,
-            dirty,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn clean_repo_says_synced() {
-        let (text, tone) = sync_state(Some(&repo(0, 0, false)), 0, 0);
-        assert_eq!(text, "已同步");
-        assert_eq!(tone, Tone::Ok);
-    }
-
-    /// 这就是当初那个 bug：`ahead: 1` 却报「已同步」。
-    #[test]
-    fn ahead_wins_over_everything_except_behind() {
-        let (text, tone) = sync_state(Some(&repo(1, 0, false)), 0, 0);
-        assert_eq!(text, "1 个提交没推");
-        assert_eq!(tone, Tone::Warn);
-    }
-
-    #[test]
-    fn ahead_keeps_dirty_count_visible() {
-        let (text, _) = sync_state(Some(&repo(3, 0, false)), 2, 0);
-        assert_eq!(text, "3 个提交没推 · 2 个有改动");
-    }
-
-    #[test]
-    fn behind_is_first_thing_to_fix() {
-        let (text, tone) = sync_state(Some(&repo(2, 5, false)), 9, 9);
-        assert_eq!(text, "远端有新提交 · 落后 5");
-        assert_eq!(tone, Tone::Warn);
-    }
-
-    #[test]
-    fn dirty_before_unpublished_but_both_shown() {
-        let (text, _) = sync_state(Some(&repo(0, 0, false)), 2, 1);
-        assert_eq!(text, "2 个有改动 · 1 个未发布");
-    }
-
-    #[test]
-    fn unpublished_alone() {
-        let (text, _) = sync_state(Some(&repo(0, 0, false)), 0, 3);
-        assert_eq!(text, "3 个未发布");
-    }
-
-    #[test]
-    fn repo_dirty_but_triggers_clean_is_idle_not_warn() {
-        let (text, tone) = sync_state(Some(&repo(0, 0, true)), 0, 0);
-        assert_eq!(text, "仓库有别的改动");
-        assert_eq!(tone, Tone::Idle);
-    }
-
-    #[test]
-    fn no_repo_block_degrades_to_counts() {
-        let (text, tone) = sync_state(None, 0, 0);
-        assert_eq!(text, "已同步");
-        assert_eq!(tone, Tone::Ok);
-    }
-}

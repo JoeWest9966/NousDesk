@@ -434,6 +434,10 @@ pub struct Desktop {
     pub(crate) preset_hover: Option<String>,
     /// 拖拽中悬停到哪一条上（落点线画在它上面）。
     pub(crate) preset_drop: Option<String>,
+    /// 正在飞的那个排序请求（同一时刻只许一个）。
+    pub(crate) preset_order_flying: Option<Vec<String>>,
+    /// 飞着的时候又拖了一下 —— 排在这儿，回来再发。
+    pub(crate) preset_order_next: Option<Vec<String>>,
     /// 窄窗下 Template 页的类别抽屉开着没有（宽窗常驻，不用这个）。
     pub(crate) cat_drawer: bool,
     /// Template 页在看**归档区**（列表栏换成归档列表）。
@@ -1020,6 +1024,8 @@ impl Desktop {
             preset_rename: None,
             preset_hover: None,
             preset_drop: None,
+            preset_order_flying: None,
+            preset_order_next: None,
             preset_closed: std::collections::HashSet::new(),
             creating: None,
             picked_preset: None,

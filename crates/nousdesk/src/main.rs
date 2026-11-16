@@ -38,6 +38,7 @@ mod search;
 mod session_nav;
 mod settings;
 mod slash;
+mod sync_state;
 mod templates;
 mod templates_graph;
 mod theme;
