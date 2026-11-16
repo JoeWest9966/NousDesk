@@ -434,6 +434,36 @@ impl Desktop {
             }),
             cx.intercept_keystrokes(move |ev, window, app| {
                 let key = ev.keystroke.key.as_str();
+                // 编辑器快捷键：Ctrl+S 存盘、Ctrl+K 命令面板。
+                // 只在编辑器开着时接管 —— 别的地方 Ctrl+S 应该什么都不做。
+                if ev.keystroke.modifiers.control
+                    && !ev.keystroke.modifiers.alt
+                    && !ev.keystroke.modifiers.platform
+                {
+                    let handled = weak
+                        .update(app, |this, cx| {
+                            if !this.editor.open {
+                                return false;
+                            }
+                            match key {
+                                "s" => {
+                                    this.save_editor(cx);
+                                    true
+                                }
+                                "k" => {
+                                    this.open_palette(window, cx);
+                                    true
+                                }
+                                _ => false,
+                            }
+                        })
+                        .unwrap_or(false);
+                    if handled {
+                        app.stop_propagation();
+                    }
+                    // 别的 Ctrl 组合照旧不归这里管。
+                    return;
+                }
                 if !matches!(key, "up" | "down" | "enter" | "escape") {
                     return;
                 }
@@ -446,12 +476,42 @@ impl Desktop {
                 }
                 // 配置面板开着时 Esc 收起。它没有 ↑↓ 这类键，只看 Esc，
                 // 也不要求输入框聚焦 —— 面板自己的清单才是焦点可能待着的地方。
+                // 命令面板盖在最上面：↑↓⏎ 和 Esc 都先给它。
+                if weak
+                    .update(app, |this, _cx| this.editor.palette.is_some())
+                    .unwrap_or(false)
+                {
+                    let handled = weak
+                        .update(app, |this, cx| {
+                            match key {
+                                "up" => this.palette_move(false, cx),
+                                "down" => this.palette_move(true, cx),
+                                "enter" => this.palette_run(window, cx),
+                                "escape" => {
+                                    this.editor.palette = None;
+                                    cx.notify();
+                                }
+                                _ => return false,
+                            }
+                            true
+                        })
+                        .unwrap_or(false);
+                    if handled {
+                        app.stop_propagation();
+                        return;
+                    }
+                }
                 if key == "escape" {
                     // 盖在最上面的两层先拿 Esc：「撕原件」确认只关不撕；归档库页只收页。
                     // 都走 `stop_propagation`，不让 Esc 再落到下面去关别的面板。
                     let closed = weak
                         .update(app, |this, cx| {
                             // 编辑器里的小弹层比编辑器本身更靠上：先收弹层，再关编辑器。
+                            if this.editor.palette.is_some() {
+                                this.editor.palette = None;
+                                cx.notify();
+                                return true;
+                            }
                             if this.editor.picker.is_some() {
                                 this.editor.picker = None;
                                 cx.notify();
@@ -4137,6 +4197,7 @@ impl Render for Desktop {
             .children(self.cat_edit_overlay(cx))
             .children(self.preset_confirm_overlay(cx))
             // 编辑器：文本字段输入 / 发布
+            .children(self.palette_overlay(cx))
             .children(self.picker_overlay(cx))
             .children(self.text_edit_overlay(cx))
             .children(self.publish_overlay(cx))
