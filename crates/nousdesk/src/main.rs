@@ -28,6 +28,7 @@ mod preset_confirm;
 mod preview;
 mod preset_menu;
 mod recent;
+mod rename_box;
 mod search;
 mod session_nav;
 mod settings;
