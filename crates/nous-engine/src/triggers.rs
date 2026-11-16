@@ -234,10 +234,20 @@ impl TriggerClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            let message = serde_json::from_str::<serde_json::Value>(&text)
-                .ok()
-                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_owned))
+            let value = serde_json::from_str::<serde_json::Value>(&text).ok();
+            let stage = value
+                .as_ref()
+                .and_then(|v| v.get("stage").and_then(|s| s.as_str()))
+                .map(str::to_owned);
+            let mut message = value
+                .as_ref()
+                .and_then(|v| v.get("error").and_then(|e| e.as_str()))
+                .map(str::to_owned)
                 .unwrap_or_else(|| text.chars().take(300).collect());
+            if let Some(stage) = stage {
+                // 发布失败时 n8qkkj 用 `stage` 说是哪一步，前端要能原样显示。
+                message = format!("[{stage}] {message}");
+            }
             return Err(EngineError::Engine {
                 status: status.as_u16(),
                 message,

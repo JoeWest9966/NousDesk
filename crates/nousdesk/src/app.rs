@@ -508,6 +508,11 @@ impl Desktop {
                 {
                     let handled = weak
                         .update(app, |this, cx| {
+                            if this.tab == Tab::Triggers
+                                && this.trigger_ctrl(key, window, cx)
+                            {
+                                return true;
+                            }
                             if !this.editor.open {
                                 return false;
                             }
@@ -539,6 +544,19 @@ impl Desktop {
                     || ev.keystroke.modifiers.platform
                 {
                     return;
+                }
+                // 触发器页：Esc 逐层退、↑↓ 选卡片、Enter 打开详情。
+                if weak
+                    .update(app, |this, _| this.tab == Tab::Triggers)
+                    .unwrap_or(false)
+                {
+                    let handled = weak
+                        .update(app, |this, cx| this.trigger_key(key, window, cx))
+                        .unwrap_or(false);
+                    if handled {
+                        app.stop_propagation();
+                        return;
+                    }
                 }
                 // 配置面板开着时 Esc 收起。它没有 ↑↓ 这类键，只看 Esc，
                 // 也不要求输入框聚焦 —— 面板自己的清单才是焦点可能待着的地方。
@@ -4426,6 +4444,15 @@ impl Render for Desktop {
             .children(self.cfg_overlay(window, cx))
             // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
             .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
+            // 触发器：卡片右键菜单 / 保存冲突（挂在整窗，坐标才是窗口坐标）
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.menu.is_some())
+                    .then(|| self.trigger_menu_overlay(cx)),
+            )
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.conflict.is_some())
+                    .then(|| self.trigger_conflict_overlay(cx)),
+            )
             // 「撕原件」确认（盖在菜单之上）
             .children(self.purge_overlay(cx))
             // 窄窗的类别抽屉（比弹层低一层：弹层永远压在它上面）
