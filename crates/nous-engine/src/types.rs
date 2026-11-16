@@ -1072,3 +1072,40 @@ pub struct DirEntry {
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
+
+/// `GET /v1/combos` 里的一条。开着没开由引擎算（`enabled` 缺省 true），客户端不自己读 spec。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Combo {
+    pub name: String,
+    pub trigger: Option<String>,
+    pub params: Option<serde_json::Value>,
+    pub session: Option<String>,
+    /// 引擎算好的开关状态。缺省 true —— 和 `presets.js` 的 `spec.enabled !== false` 一个字不差。
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// 为什么跑不起来（写坏了 / 引用没了）。空串 = 没问题。
+    #[serde(default)]
+    pub problem: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+fn default_true() -> bool { true }
+
+/// `GET /v1/combos` 的整包。调度器节拍也在里面（引擎给的，客户端只显示）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Combos {
+    #[serde(default)]
+    pub combos: Vec<Combo>,
+    pub scheduler: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `POST /v1/combos/:name/enable|disable` 的回包。
+#[derive(Debug, Clone, Deserialize)]
+pub struct ComboChanged {
+    pub combo: Combo,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
