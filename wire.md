@@ -264,6 +264,25 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 - **这一段现在只读**：`enabled` 怎么切、`trigger` 用哪个端点启用，协议都还没定。
   桌面端只显示（`⚡ trigger` / `→ session`），点它什么也不发生。要动它先定端点。
 
+#### POST /v1/presets/:section/rename
+
+改一条模板的名字。body `{ name, to }`。
+
+名字 = 目录名 = 主键（形状校验要求 `preset.json` 里的 `name` **等于**目录名），所以
+**一次改名引擎同时动三处**，客户端一件都不许自己动手：
+
+1. 目录 —— `git mv`，git 认得出是改名（历史不断）；未发布的（盘上有、HEAD 里没）退回直接搬。
+2. 清单里的 `name`。
+3. **引用了它的终极模板的 `session`** —— `ultimate.json` 的 `session` 是**名字字符串**，
+   不改的话那条终极模板立刻是「会话模板不在 Session-Template 里」，而改名的人不知道去哪修。
+
+回包 `{ ok, commit, pushed, name, to, refs }`，`refs` 是**被动到的终极模板名**（连带改的）。
+界面要把 `refs` 说出来 —— 改名顺手动了别人的东西，不说一声就是偷偷改。
+
+- 只有 POST；`to` 走和新建同一套名字规则（`400`）、目标已存在 `409`、源不存在 `404`。
+- **索引不跟着这次提交走**：`regenIndex` 会把「新建了还没发布」的条目也扫进 `index.json`，
+  一起提交就成了「仓说我有它、实际推不上去」。留成 `M index.json`，下次发布收。
+
 ---
 
 ### GET /v1/models
