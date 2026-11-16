@@ -605,6 +605,17 @@ impl Desktop {
                     app.stop_propagation();
                     return;
                 }
+                // 会话页「这个会话带什么」那四行：Tab 也要能走。它跟盘面共用一层 sheet，
+                // 但盘面没开着 —— 所以是另一套停靠点（`SessRow`），不是 `board_key` 那条。
+                // 插在这里是因为下面那条 `matches!` 只放行 up/down/enter/escape，
+                // `tab` 会被提前挡掉。
+                if weak
+                    .update(app, |this, cx| this.sess_row_key(&ev.keystroke, cx))
+                    .unwrap_or(false)
+                {
+                    app.stop_propagation();
+                    return;
+                }
                 // 数据监控室：`T` 收起 / 展开右列时间线（键帽画在底栏）。
                 // 这页没有输入框，所以不用像 `/` 面板那样挑「输入框聚焦时」才拦。
                 if weak
@@ -679,12 +690,9 @@ impl Desktop {
                     // 会话页的「带什么」弹层：它跟盘面共用一层 sheet，但这时盘面没开着。
                     if weak
                         .update(app, |this, cx| {
-                            if this.newchat.open || this.newchat.sheet.is_none() {
-                                return false;
-                            }
-                            this.newchat.sheet = None;
-                            cx.notify();
-                            true
+                            // 规矩在 board 那边（`sheet_esc`）：子弹层退回摘要，
+                            // 摘要在最上面才真关。这里只管「这个 Esc 归不归它」。
+                            this.sheet_esc(cx)
                         })
                         .unwrap_or(false)
                     {
@@ -3239,8 +3247,14 @@ impl Desktop {
         // 不然同一条分支会在两个地方各出现一次。
         //
         // 置顶排序只在**主线**这一份名单里做（分支视图按树画，不掺置顶）。
-        let mainline: Vec<&Session> = self
-            .sessions
+        // 性能探针：`NOUS_PERF_SESSIONS=500` 时**只在渲染这一帧**把名单换成 500 条假行。
+        // 不改状态 —— 改了会被轮询冲掉，而且假 id 会漏到点击里（`fake()` 说明写在那儿）。
+        let fake: Vec<Session> = match crate::perf::rows() {
+            Some(n) => crate::perf::fake(&self.sessions, n),
+            None => Vec::new(),
+        };
+        let rows_of: &[Session] = if fake.is_empty() { &self.sessions } else { &fake };
+        let mainline: Vec<&Session> = rows_of
             .iter()
             .filter(|s| s.parent.is_none())
             .collect();
@@ -3262,6 +3276,7 @@ impl Desktop {
                 .count()
         };
         let mut index = ListIndex::default();
+        let t_build = std::time::Instant::now();
         let rows: Vec<AnyElement> = if q.is_empty() {
             // 没在搜：老样子。**一行都不动** —— 搜索不能把常态列表的顺序改了。
             ordered
@@ -3275,6 +3290,12 @@ impl Desktop {
         } else {
             self.search_rows(&ordered, &q, &mut index, cx)
         };
+        // 量「这一帧构建了多少行的元素树」。注意这只是 CPU 那一半：布局和绘制在 GPUI 里
+        // 另算，但列表行是纯文本 + 几个色块，元素树构建就是主成本。这条数一超标，
+        // 剩下两半就不用量了。
+        if !crate::perf::rows().is_none() {
+            crate::perf::note(rows.len(), t_build.elapsed());
+        }
         // 键盘导航跟着**这一帧真的画出来的东西**走：搜索分组、过滤、排序全已经反映在这里。
         // 每帧重算一份比在按键时另算一遍便宜得多（149 个 i64），也不会两边漂。
         *self.list_index.borrow_mut() = index;
@@ -5486,5 +5507,18 @@ x
         };
 
         assert_eq!(error_notice(&err), message);
+    }
+}
+
+/// 性能探针的假会话标记。实现放在这儿而不是 `perf.rs`：`perf` 不该知道 `Session`
+/// 长什么样（它只负责「复制 + 计时」这一件事）。孤儿规则允许 —— trait 是本 crate 的。
+impl crate::perf::FakeId for nous_engine::types::Session {
+    fn set_fake(&mut self, i: usize) {
+        // id 从 100 万起：跟真会话撞不上，误点也只会 404，改不到真数据。
+        self.id = 1_000_000 + i as i64;
+        self.name = format!("perf-{i:05}");
+        // 假行一律当主线。克隆的那条万一是个分支，500 条全会带 `parent`，
+        // 列表按主线过滤之后一行不剩 —— 量出来 0 行，看着像「探针没生效」。
+        self.parent = None;
     }
 }

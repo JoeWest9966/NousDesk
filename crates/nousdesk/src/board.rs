@@ -129,6 +129,29 @@ impl Stop {
     }
 }
 
+/// 会话页「这个会话带什么」弹层里那四行的顺序。
+///
+/// 跟盘面的 [`Stop`] 分开：盘面那五站是「中央 + 四角」的几何环，这里是一列四行，
+/// 两边站名对不上（盘面有 Create / Context，这里有 Template）。硬套一个枚举
+/// 只会让两边的 `match` 各多几条走不到的分支。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SessRow {
+    Model,
+    Template,
+    Skills,
+    Perms,
+}
+
+impl SessRow {
+    const RING: [SessRow; 4] = [Self::Model, Self::Template, Self::Skills, Self::Perms];
+
+    fn step(self, back: bool) -> Self {
+        let n = Self::RING.len();
+        let i = Self::RING.iter().position(|r| *r == self).unwrap_or(0);
+        Self::RING[(i + if back { n - 1 } else { 1 }) % n]
+    }
+}
+
 /// 盘面的状态。**选择是本地草稿**：这一页还没落库，一切都在内存里，
 /// 按 Create 才变成一次 `POST /v1/sessions`。
 pub(crate) struct NewChat {
@@ -178,6 +201,12 @@ pub(crate) struct NewChat {
     target: Option<i64>,
     /// 键盘停在哪一格。`None` = 还没动过键盘（跟鼠标点击同步）。
     kb: Option<Stop>,
+    /// 会话页那个「带什么」弹层里键盘停在哪一行。跟 `kb` 是两套：那边盘面没开着。
+    ss_kb: Option<SessRow>,
+    /// 现在这一层弹层是不是从会话页那四行摘要里点进来的。
+    /// 是的话 Esc 退回摘要，不是一路关到底 —— 改完模板想看看四行改成了什么样，
+    /// 不该逼人重新点一次顶栏。
+    ss_back: bool,
     /// 下一次渲染要把焦点抢到盘面上。用 `Cell` 是因为 `render_board` 只有 `&self`，
     /// 而「开一次就抢一次」这件事必须在渲染时做（那时才有 window）。
     needs_focus: std::cell::Cell<bool>,
@@ -244,6 +273,8 @@ impl NewChat {
             picked_exts: BTreeSet::new(),
             target: None,
             kb: None,
+            ss_kb: None,
+            ss_back: false,
             needs_focus: std::cell::Cell::new(false),
             ctx_half: false,
             read_only: false,
@@ -563,6 +594,10 @@ impl Desktop {
         self.newchat.template = s.template.clone();
         self.newchat.read_only = s.read_only;
         self.newchat.sheet = Some(Sheet::Session);
+        // 每次开都从「没停过」起步：上一次停在 PERMS 的话，这次一按 Tab
+        // 会从 MODEL 开始，看起来像在原地没动。
+        self.newchat.ss_kb = None;
+        self.newchat.ss_back = false;
         // 会话页从来没拉过清单（`board_load` 是开盘面时调的）：不拉的话点开模型 / 模板
         // 会看到「这个盘上还没有提示词模板」——而它只是没人去问过引擎。
         if self.newchat.models.is_none() && !self.newchat.loading {
@@ -967,6 +1002,88 @@ impl Desktop {
             _ => {}
         }
         false
+    }
+
+    /// 会话页弹层的 Esc：子弹层退回四行摘要，摘要在最上面才真关掉。
+    ///
+    /// 判据是 [`NewChat::ss_back`]（「这一层是从摘要点进来的」）+ `target.is_some()`
+    /// （会话页才算数，盘面上 `sheet = None` 就是回盘面，不需要中间这一层）。
+    ///
+    /// 返回 `true` = 这个 Esc 归这里管，调用方 `stop_propagation`。
+    pub(crate) fn sheet_esc(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.newchat.open || self.newchat.sheet.is_none() {
+            return false;
+        }
+        if self.newchat.ss_back && self.newchat.target.is_some() {
+            self.newchat.sheet = Some(Sheet::Session);
+            self.newchat.ss_back = false;
+        } else {
+            self.newchat.sheet = None;
+        }
+        cx.notify();
+        true
+    }
+
+    /// 会话页「这个会话带什么」弹层里的键盘流：Tab / ↑↓ 走四行，⏎ 按下去。
+    ///
+    /// 跟 [`Self::board_key`] 是**两套**：盘面开着时 `open` 为真，会话页弹层只在
+    /// 看一条真会话时开，两者不会同时在场。共用一个 `kb` 反而会互相干扰
+    /// （盘面那次 Tab 停在 Perms，回会话页一按 Tab 就从 PERMS 起步）。
+    ///
+    /// **接管范围是收着的**，因为这个弹层没有 scrim：下面的聊天输入框照样能聚焦。
+    /// - `Tab` 弹层开着就接管 —— 否则焦点会跳到下一个可聚焦元素，人看着像「按了没反应」。
+    /// - `↑↓⏎` 只在**已经动过键盘**（`ss_kb` 有值）之后才接管，不按 Tab 就完全不影响打字。
+    /// - 空格不接管：它跟 Enter 一个意思，但输入框里按空格太常见了，不值得为省一个键惹这个麻烦。
+    ///
+    /// 返回 `false` = 这个键不归这里管，调用方照旧往下传。
+    pub(crate) fn sess_row_key(&mut self, ks: &Keystroke, cx: &mut Context<Self>) -> bool {
+        if self.newchat.open || self.newchat.sheet != Some(Sheet::Session) {
+            return false;
+        }
+        let key = ks.key.as_str();
+        let mods = ks.modifiers;
+        // X11 传上来的回车有时叫 `return`（跟 `board_key` 里那条同一个理由）。
+        let enter = key == "enter" || key == "return";
+
+        if key == "tab" {
+            // 还没停过就从最后一行起步，第一次 Tab 落到 MODEL 上。
+            let cur = self.newchat.ss_kb.unwrap_or(SessRow::Perms);
+            self.newchat.ss_kb = Some(cur.step(mods.shift));
+            cx.notify();
+            return true;
+        }
+        if self.newchat.ss_kb.is_none() {
+            return false;
+        }
+        match key {
+            "up" | "down" => {
+                let cur = self.newchat.ss_kb.unwrap_or(SessRow::Model);
+                self.newchat.ss_kb = Some(cur.step(key == "up"));
+                cx.notify();
+                true
+            }
+            _ if enter => {
+                let Some(row) = self.newchat.ss_kb else {
+                    return false;
+                };
+                match row {
+                    SessRow::Model => self.newchat.sheet = Some(Sheet::Model),
+                    // 「模板」这行开的是提示词弹层（`Sheet::Prompt`），跟鼠标点同一个落点。
+                    SessRow::Template => self.newchat.sheet = Some(Sheet::Prompt),
+                    SessRow::Skills => self.newchat.sheet = Some(Sheet::Skills),
+                    SessRow::Perms => {
+                        self.newchat.read_only = !self.newchat.read_only;
+                        // 会话页改的是真会话：改一处推一处（跟鼠标那条一样）。
+                        self.cfg_push(cx);
+                    }
+                }
+                // 进的是子弹层就记一笔，Esc 才知道该退回摘要。
+                self.newchat.ss_back = self.newchat.sheet != Some(Sheet::Session);
+                cx.notify();
+                true
+            }
+            _ => false,
+        }
     }
 
     // ── 渲染 ──────────────────────────────────────────────────────────
@@ -1429,12 +1546,14 @@ impl Desktop {
 
         // 一行 = 小标题 + 值 + `›`。三行开弹层，一行直接切。
         let row = |id: &'static str,
+                   row_at: SessRow,
                    k: &'static str,
                    v: String,
                    sub: Option<String>,
                    cx: &mut Context<Self>,
                    act: Option<Sheet>,
-                   toggle: bool| {
+                   toggle: bool,
+                   hot: bool| {
             div()
                 .id(ElementId::Name(id.into()))
                 .flex()
@@ -1446,15 +1565,21 @@ impl Desktop {
                 .border_color(rgb(art::border()))
                 .hover(|s| s.bg(rgb(art::surface())))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    // 鼠标点=键盘停在这儿：不然点完再按 Tab 会从别处起步。
+                    this.newchat.ss_kb = Some(row_at);
                     if toggle {
                         this.newchat.read_only = !this.newchat.read_only;
                         // 会话页改的是真会话：改一处推一处。
                         this.cfg_push(cx);
                     } else if let Some(sh) = act {
                         this.newchat.sheet = Some(sh);
+                        // 进的是子弹层：Esc 退回四行摘要，不是一路关到底。
+                        this.newchat.ss_back = true;
                     }
                     cx.notify();
                 }))
+                // 焦点是 2px 整圈 accent，不是只换个底色 —— 跟盘面那五站同一个做法。
+                .when(hot, |el| el.border_2().border_color(rgb(art::accent())))
                 .child(
                     div()
                         .flex_none()
@@ -1503,33 +1628,40 @@ impl Desktop {
             .min_h(t().d(0.))
             .child(row(
                 "ss-model",
+                SessRow::Model,
                 "MODEL",
                 model,
                 None,
                 cx,
                 Some(Sheet::Model),
                 false,
+                b.ss_kb == Some(SessRow::Model),
             ))
             .child(row(
                 "ss-template",
+                SessRow::Template,
                 "TEMPLATE",
                 template,
                 None,
                 cx,
                 Some(Sheet::Prompt),
                 false,
+                b.ss_kb == Some(SessRow::Template),
             ))
             .child(row(
                 "ss-skills",
+                SessRow::Skills,
                 "SKILLS",
                 skills,
                 None,
                 cx,
                 Some(Sheet::Skills),
                 false,
+                b.ss_kb == Some(SessRow::Skills),
             ))
             .child(row(
                 "ss-perms",
+                SessRow::Perms,
                 "PERMS",
                 if ro { "只读" } else { "可写" }.into(),
                 Some(if ro {
@@ -1540,6 +1672,7 @@ impl Desktop {
                 cx,
                 None,
                 true,
+                b.ss_kb == Some(SessRow::Perms),
             ))
             .into_any_element()
     }
@@ -3882,7 +4015,7 @@ fn sheet_lanes(sheet_w: f32, pad: f32) -> ([f32; 3], [f32; 3]) {
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::sheet_lanes;
+    use super::{SessRow, sheet_lanes};
 
     /// 三列必须落在弹层宽度里。写死 720 那版在半屏窗口下第三列直接挂在弹层外。
     #[test]
@@ -3897,5 +4030,34 @@ mod tests {
             );
             assert!(xs[1] >= cols[0] - 0.01, "{sheet_w}: 第二列盖住第一列");
         }
+    }
+
+    /// 四行走一圈回到原处：少一步走不到最后一排，多一步绕圈。
+    #[test]
+    fn 会话页四行走一圈回到原点() {
+        let mut r = SessRow::Model;
+        for _ in 0..SessRow::RING.len() {
+            r = r.step(false);
+        }
+        assert_eq!(r, SessRow::Model);
+    }
+
+    /// 反向一步 == 正向三步（四个站的时候才成立，正好钉住「环里有几个」）。
+    #[test]
+    fn 会话页反向一步等于正向三步() {
+        let mut a = SessRow::Model;
+        let mut b = SessRow::Model;
+        a = a.step(true);
+        for _ in 0..SessRow::RING.len() - 1 {
+            b = b.step(false);
+        }
+        assert_eq!(a, b);
+    }
+
+    /// 还没停过时第一次 Tab 要落在**第一行**（MODEL），不是最后一行。
+    /// `sess_row_key` 里是「从 Perms 起步再正着走一步」，这条钉住那个出发点的选法。
+    #[test]
+    fn 会话页第一次_tab_落在第一行() {
+        assert_eq!(SessRow::Perms.step(false), SessRow::Model);
     }
 }
