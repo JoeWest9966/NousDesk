@@ -69,6 +69,10 @@ pub enum SessionMenuAction {
     Rename {
         id: i64,
     },
+    /// 从最后一条 entry 分叉出一条新会话（引擎 `POST /v1/sessions/:id/fork`）。
+    Fork {
+        id: i64,
+    },
     CopyName {
         name: String,
     },
@@ -88,6 +92,7 @@ pub enum SessionMenuEntry {
     More,
     Rename,
     CopyName,
+    Fork,
     Archive,
     Purge,
     CopyId,
@@ -100,7 +105,11 @@ pub enum MenuLine {
     Separator,
 }
 
-/// 父菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字。
+/// 父菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字 / ─── / 新建分支。
+///
+/// 「新建分支」单独沉底、上面加一条分隔线：它是这一串里唯一「造出新会话」的动作，
+/// 其余都是「对这一条做点什么」（见 `decisions.md` 2026-11-16 那条）。现有六项
+/// 一条不动、顺序不挪 —— 微信骨架里肌肉记忆那部分不碰。
 ///
 /// 置顶态只改文案（「置顶该聊天」↔「取消置顶」），不改形状 —— 所以这里不收 `pinned`。
 /// 置顶服务（bjes6b）没连上时也**不改形状**：那一项画成禁用态并写清原因，见
@@ -113,6 +122,8 @@ pub fn top_lines() -> Vec<MenuLine> {
         MenuLine::Item(SessionMenuEntry::More),
         MenuLine::Item(SessionMenuEntry::Rename),
         MenuLine::Item(SessionMenuEntry::CopyName),
+        MenuLine::Separator,
+        MenuLine::Item(SessionMenuEntry::Fork),
     ]
 }
 
@@ -140,6 +151,7 @@ pub fn label(entry: SessionMenuEntry, pinned: bool) -> &'static str {
         SessionMenuEntry::More => "更多",
         SessionMenuEntry::Rename => "重命名",
         SessionMenuEntry::CopyName => "复制名字",
+        SessionMenuEntry::Fork => "新建分支",
         SessionMenuEntry::Archive => "归档该聊天…",
         SessionMenuEntry::Purge => "撕原件…",
         SessionMenuEntry::CopyId => "复制会话 id",
@@ -160,9 +172,13 @@ pub fn entry_enabled(entry: SessionMenuEntry, pins_available: bool) -> bool {
 
 /// 行尾的灰色副标题。`撕原件` 写清前置条件，但**不禁用** ——
 /// 点下去该走归档流程或把引擎的 409 原文给用户，不是灰在那儿让人猜。
+///
+/// `新建分支` 写明分叉点：引擎 `fork` 的 body `{ entryId?, name? }` 里 `entryId`
+/// 省略就是从最后一条分叉（见 `wire.md`），不点也讲得清。
 pub fn hint(entry: SessionMenuEntry) -> Option<&'static str> {
     match entry {
         SessionMenuEntry::Purge => Some("先归档"),
+        SessionMenuEntry::Fork => Some("从最后一条分叉"),
         _ => None,
     }
 }
@@ -177,6 +193,7 @@ pub fn entry_action(entry: SessionMenuEntry, target: &SessionTarget) -> Option<S
         SessionMenuEntry::More => return None,
         SessionMenuEntry::Rename => SessionMenuAction::Rename { id },
         SessionMenuEntry::CopyName => SessionMenuAction::CopyName { name: name() },
+        SessionMenuEntry::Fork => SessionMenuAction::Fork { id },
         SessionMenuEntry::Archive => SessionMenuAction::Archive { id, name: name() },
         SessionMenuEntry::Purge => SessionMenuAction::Purge { id, name: name() },
         SessionMenuEntry::CopyId => SessionMenuAction::CopyId { id },
@@ -334,9 +351,9 @@ mod tests {
         SessionTarget::new(302, "对话 302")
     }
 
-    /// 票 #5 / 设计稿 B 卡的形状：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字。
+    /// 设计稿 C：原有六项一条不动，「新建分支」单独沉底 + 分隔线。
     #[test]
-    fn top_menu_is_the_six_lines_from_the_design() {
+    fn top_menu_keeps_the_six_lines_and_sinks_fork_at_the_bottom() {
         assert_eq!(
             top_lines(),
             vec![
@@ -346,7 +363,21 @@ mod tests {
                 MenuLine::Item(SessionMenuEntry::More),
                 MenuLine::Item(SessionMenuEntry::Rename),
                 MenuLine::Item(SessionMenuEntry::CopyName),
+                MenuLine::Separator,
+                MenuLine::Item(SessionMenuEntry::Fork),
             ]
+        );
+    }
+
+    /// 「新建分支」必须在分隔线之后、最后一项 —— 沉底是设计 C 的契约。
+    #[test]
+    fn fork_is_last_and_preceded_by_a_separator() {
+        let lines = top_lines();
+        assert_eq!(lines.last(), Some(&MenuLine::Item(SessionMenuEntry::Fork)));
+        assert_eq!(
+            lines.get(lines.len() - 2),
+            Some(&MenuLine::Separator),
+            "新建分支上面必须有一条分隔线，把它跟已有项隔开"
         );
     }
 
@@ -370,6 +401,7 @@ mod tests {
         assert_eq!(label(SessionMenuEntry::More, false), "更多");
         assert_eq!(label(SessionMenuEntry::Rename, false), "重命名");
         assert_eq!(label(SessionMenuEntry::CopyName, false), "复制名字");
+        assert_eq!(label(SessionMenuEntry::Fork, false), "新建分支");
         assert_eq!(label(SessionMenuEntry::Archive, false), "归档该聊天…");
         assert_eq!(label(SessionMenuEntry::Purge, false), "撕原件…");
         assert_eq!(label(SessionMenuEntry::CopyId, false), "复制会话 id");
@@ -386,6 +418,7 @@ mod tests {
             SessionMenuEntry::More,
             SessionMenuEntry::Rename,
             SessionMenuEntry::CopyName,
+            SessionMenuEntry::Fork,
             SessionMenuEntry::Archive,
             SessionMenuEntry::Purge,
             SessionMenuEntry::CopyId,
@@ -454,6 +487,10 @@ mod tests {
             Some(SessionMenuAction::CopyName { name: name.clone() })
         );
         assert_eq!(
+            entry_action(SessionMenuEntry::Fork, &target),
+            Some(SessionMenuAction::Fork { id })
+        );
+        assert_eq!(
             entry_action(SessionMenuEntry::Archive, &target),
             Some(SessionMenuAction::Archive {
                 id,
@@ -477,6 +514,17 @@ mod tests {
     #[test]
     fn more_opens_a_submenu_instead_of_acting() {
         assert_eq!(entry_action(SessionMenuEntry::More, &target()), None);
+    }
+
+    /// 「新建分支」的副标题把引擎的省略语义讲清楚（entryId 省略 = 从最后一条分叉）。
+    #[test]
+    fn fork_hint_states_where_the_branch_starts() {
+        assert_eq!(hint(SessionMenuEntry::Fork), Some("从最后一条分叉"));
+        assert_eq!(
+            entry_enabled(SessionMenuEntry::Fork, false),
+            true,
+            "fork 走 qrd3wh，跟置顶服务无关，不能因为 bjes6b 挂了就灰掉"
+        );
     }
 
     /// 置顶服务（bjes6b）没连上时：菜单形状不变（归档入口不能跟着消失），

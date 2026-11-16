@@ -4353,7 +4353,7 @@ impl Desktop {
             }))
             .child(row);
 
-        // 右键菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字。
+        // 右键菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字 / ─── / 新建分支。
         // 「更多」里的归档 / 撕原件是**独立一层**的子菜单（见 `archive_menu.rs`），
         // 条目顺序、文案、动作映射都在那个模块里；这里只把产出的动作送回 `Desktop`。
         //
@@ -4416,7 +4416,47 @@ impl Desktop {
                 cx.notify();
             }
             A::Rename { id } => self.open_rename(id, cx),
+            A::Fork { id } => self.fork_session(id, cx),
         }
+    }
+
+    /// `新建分支`：省掉 `entryId` / `name` 直接分叉 —— 引擎按「从最后一条」处理，
+    /// 名字给默认（见 `wire.md` 的 `POST /v1/sessions/:id/fork`）。
+    ///
+    /// 成功后重拉列表（新分支要出现在分支视图里）+ 选中新会话 + 切盘上那只眼，
+    /// 跟「新建盘面建完就进去」一套。失败弹引擎 `{error}` 原文。
+    fn fork_session(&mut self, id: i64, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        log::info!("新建分支：从 #{id} 最后一条分叉");
+        self.run_engine(
+            cx,
+            &format!("新建分支没成：{id}"),
+            &format!("新建分支任务挂了：{id}"),
+            async move {
+                let forked = engine.fork(id, None, None).await?;
+                let _ = engine.set_selection(Some(forked.id)).await;
+                Ok(forked)
+            },
+            move |this, forked, cx| {
+                this.notify(
+                    format!("已新建分支 · 从 #{id} 最后一条分叉"),
+                    NoticeKind::Info,
+                    cx,
+                );
+                // 新会话在列表里是 `parent != null` 的分支：重拉列表它才出现；
+                // 然后直接进去（force=true，万一点之前正好选着它也要重新载入）。
+                this.reload_sessions(None, cx);
+                this.choose_session(forked.id, cx);
+                // 分支视图开着时把根锁到父会话 —— 不然进视图看不到刚分的叉。
+                if this.branches {
+                    this.branch_of = Some(id);
+                    cx.notify();
+                }
+            },
+            Self::notify_engine_failure,
+        );
     }
 
     /// 未读数红点。0 条就返回 `None`（别画个「0」在那儿）。
