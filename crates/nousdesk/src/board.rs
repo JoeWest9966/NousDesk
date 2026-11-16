@@ -81,6 +81,10 @@ pub(crate) struct NewChat {
     dir_at: Option<String>,
     /// 目录弹层的那个命令行输入框（空 = 只是浏览）。
     dir_input: Entity<TextareaState>,
+    /// 技能弹层顶上的搜索框。搜名字 / 描述 / 类别，**一打字就全盘搜**（左树让位）。
+    skill_query: Entity<TextareaState>,
+    /// 左树选中的类别路径（`工程/事故` 这种）或 [`NewChat::UNCAT`]；`None` = 全部。
+    skill_cat: Option<String>,
 
     pub(crate) sheet: Option<Sheet>,
     sheet_scroll: ScrollHandle,
@@ -98,6 +102,11 @@ impl NewChat {
             TextareaState::new(window, cx)
                 .auto_grow(1, 1)
                 .placeholder("Name")
+        });
+        let skill_query = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 1)
+                .placeholder("技能名 · 描述 · 类别")
         });
         Self {
             open: false,
@@ -119,6 +128,8 @@ impl NewChat {
             dir: None,
             dir_at: None,
             dir_input,
+            skill_query,
+            skill_cat: None,
             sheet: None,
             sheet_scroll: ScrollHandle::new(),
             creating: false,
@@ -185,6 +196,43 @@ impl NewChat {
             .unwrap_or_default();
         out.sort_by(|a, b| a.name.cmp(&b.name));
         out
+    }
+
+    /// 技能弹层里「未分类」那一格的名字。类别路径不会长这样，直接当哨兵用。
+    const UNCAT: &'static str = "未分类";
+
+    /// 左树的全部节点：`(路径, 显示名, 缩进层级, 条数)`。
+    ///
+    /// 类别 = **引擎给的 `categories`**（含 `实验` / `Basics` 这种空类）∪ 技能自带的
+    /// `category`。只算后者的话空类会消失，而空类恰恰是「这类还没东西」的唯一提示。
+    fn skill_cats(&self) -> Vec<(String, String, usize, usize)> {
+        let list = self.skill_list();
+        let mut paths: Vec<String> = Vec::new();
+        if let Some(sk) = self.skills.as_ref() {
+            for c in &sk.categories {
+                if !paths.contains(c) {
+                    paths.push(c.clone());
+                }
+            }
+        }
+        for s in &list {
+            for c in &s.category {
+                if !paths.contains(c) {
+                    paths.push(c.clone());
+                }
+            }
+        }
+        // **不排序**：引擎给 `categories` 的顺序是人排的，父类天然在子类前面
+        // （`工程` → `工程/事故`）。按字符串排会把 `Basics` 顶到最前面。
+        paths
+            .into_iter()
+            .map(|path| {
+                let label = path.rsplit('/').next().unwrap_or(&path).to_string();
+                let depth = path.matches('/').count();
+                let count = list.iter().filter(|s| s.category.contains(&path)).count();
+                (path, label, depth, count)
+            })
+            .collect()
     }
 
     fn prompt_list(&self) -> Vec<&Prompt> {
@@ -273,6 +321,12 @@ impl Desktop {
                 .auto_grow(1, 1)
                 .placeholder("/ 路径 · 或打一段名字筛这一层")
         });
+        self.newchat.skill_query = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 1)
+                .placeholder("技能名 · 描述 · 类别")
+        });
+        self.newchat.skill_cat = None;
         self.newchat.open = true;
         self.newchat.sheet = None;
         self.newchat.flash = None;
@@ -1354,7 +1408,14 @@ impl Desktop {
             Sheet::Machine => ("机器", "会话跑在哪台机器上 · 默认本机", None),
         };
 
-        let pop = art::pop_rect(&m, slot, sheet == Sheet::Model, sheet == Sheet::Dir);
+        let kind = match sheet {
+            Sheet::Model => art::PopKind::Model,
+            Sheet::Skills => art::PopKind::Skills,
+            Sheet::Dir => art::PopKind::Dir,
+            Sheet::Machine => art::PopKind::Machine,
+            Sheet::Prompt => art::PopKind::Narrow,
+        };
+        let pop = art::pop_rect(&m, slot, kind);
         let body = match sheet {
             Sheet::Model => self.sheet_model(&m, pop.w, cx),
             Sheet::Skills => self.sheet_skills(&m, cx),
@@ -1709,24 +1770,64 @@ impl Desktop {
     }
 
     /// 技能弹层：平铺多选。**故意不用铁路图** —— 技能是集合不是链。
+    /// 技能弹层：**左类别树 + 右列表**，顶上一个通栏搜索框。
+    ///
+    /// 搜索和树是两种互斥状态 —— 一打字树就让位（淡出且点不动），右边换成
+    /// **全盘命中**。这样不用解释「现在是在全盘搜还是在类里搜」。
     fn sheet_skills(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
         let b = &self.newchat;
-        let rows: Vec<AnyElement> = b
-            .skill_list()
-            .into_iter()
-            .map(|s| {
-                let name = s.name.clone();
-                let picked = b.picked_skills.contains(&name);
-                let desc = s
+        let q = b.skill_query.read(cx).value().trim().to_lowercase();
+        let searching = !q.is_empty();
+        let cat = b.skill_cat.clone();
+        let all = b.skill_list();
+        let total = all.len();
+        let uncat = all.iter().filter(|s| s.category.is_empty()).count();
+
+        // 名字 / 描述 / 类别，三处任意命中就算。**描述必须搜** ——
+        // 技能名是英文（incident-postmortem），人记得住的是「复盘」。
+        let hit = |s: &Skill| {
+            !searching
+                || s.name.to_lowercase().contains(&q)
+                || s
                     .description
                     .clone()
                     .unwrap_or_default()
-                    .replace(['\n', '\r'], " ");
-                let meta = if s.category.is_empty() {
-                    String::new()
+                    .to_lowercase()
+                    .contains(&q)
+                || s.category.iter().any(|c| c.to_lowercase().contains(&q))
+        };
+
+        let rows_src: Vec<&Skill> = all
+            .into_iter()
+            .filter(|s| {
+                if searching {
+                    hit(s)
                 } else {
-                    s.category.join(" / ")
-                };
+                    match cat.as_deref() {
+                        None => true,
+                        Some(NewChat::UNCAT) => s.category.is_empty(),
+                        Some(c) => s.category.iter().any(|x| x == c),
+                    }
+                }
+            })
+            .collect();
+
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for s in rows_src {
+            let name = s.name.clone();
+            let picked = b.picked_skills.contains(&name);
+            let desc = s
+                .description
+                .clone()
+                .unwrap_or_default()
+                .replace(['\n', '\r'], " ");
+            // 同时挂父类和子类时（`[写作, 写作/长文]`），只显示最具体的那条。
+            let tag = s
+                .category
+                .last()
+                .cloned()
+                .unwrap_or_else(|| NewChat::UNCAT.to_string());
+            rows.push(
                 div()
                     .id(ElementId::Name(format!("skill-{name}").into()))
                     .flex()
@@ -1780,7 +1881,7 @@ impl Desktop {
                                     .font_family(art::mono())
                                     .text_size(m.f(1.5, 11., 13.5))
                                     .truncate()
-                                    .child(name),
+                                    .child(name.clone()),
                             )
                             .child(
                                 div()
@@ -1788,34 +1889,169 @@ impl Desktop {
                                     .text_color(rgb(art::muted()))
                                     .truncate()
                                     .child(desc),
-                            )
-                            .when(!meta.is_empty(), |el| {
-                                el.child(
-                                    div()
-                                        .font_family(art::mono())
-                                        .text_size(m.f(1.2, 9., 11.))
-                                        .text_color(rgb(art::faint()))
-                                        .child(meta),
-                                )
-                            }),
+                            ),
                     )
-                    .into_any_element()
-            })
-            .collect();
+                    // 类别挂在行尾：左树说「你在哪一类里看」，这里说「这条属于哪一类」。
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(art::mono())
+                            .text_size(m.f(1.1, 8., 10.))
+                            .text_color(rgb(art::faint()))
+                            .child(tag),
+                    )
+                    .into_any_element(),
+            );
+        }
 
-        self.sheet_list(
-            m,
-            rows,
-            if b.skill_list().is_empty() {
-                "这个盘上还没装技能（技能在 68kazk 那块）"
-            } else {
-                ""
-            },
-            cx,
-        )
+        // ── 左树 ──────────────────────────────────────────────
+        let mut tree: Vec<AnyElement> = Vec::new();
+        let node = |label: &str, count: usize, depth: usize, on: bool, live: bool, id: &str| {
+            div()
+                .id(ElementId::Name(format!("skill-cat-{id}").into()))
+                .flex()
+                .items_center()
+                .gap(m.v(0.45))
+                .pl(m.s(6. + depth as f32 * 13.))
+                .pr(m.s(6.))
+                .py(m.s(3.))
+                .rounded(t().r(5.))
+                .font_family(art::mono())
+                .text_size(m.f(1.15, 8.5, 10.5))
+                .text_color(rgb(if on {
+                    art::fg()
+                } else if live {
+                    art::muted()
+                } else {
+                    art::faint()
+                }))
+                .when(on, |el| el.bg(rgb(art::surface())).border_1())
+                .when(on, |el| el.border_color(rgb(art::border())))
+                .when(!on && live, |el| {
+                    el.hover(|s| s.bg(rgb(art::surface())).text_color(rgb(art::fg())))
+                })
+                .child(label.to_string())
+                .child(
+                    div()
+                        .ml_auto()
+                        .text_size(m.f(1.0, 8., 9.5))
+                        .text_color(rgb(art::faint()))
+                        .child(count.to_string()),
+                )
+        };
+        // 「全部」—— 搜索时它不参与高亮（右边已经跨界了）。
+        let mut el = node("全部", total, 0, !searching && cat.is_none(), true, "all");
+        if !searching {
+            el = el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.newchat.skill_cat = None;
+                cx.notify();
+            }));
+        }
+        tree.push(el.into_any_element());
+
+        for (path, label, depth, count) in b.skill_cats() {
+            let on = !searching && cat.as_deref() == Some(path.as_str());
+            // 空类还是能点（点了会说「这一类还没有技能」），但颜色淡一档。
+            let live = count > 0;
+            let mut el = node(&label, count, depth + 1, on, live, &path);
+            if !searching {
+                let next = Some(path.clone());
+                el = el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.skill_cat = next.clone();
+                    cx.notify();
+                }));
+            }
+            tree.push(el.into_any_element());
+        }
+        if uncat > 0 {
+            let on = !searching && cat.as_deref() == Some(NewChat::UNCAT);
+            let mut el = node(NewChat::UNCAT, uncat, 1, on, true, "uncat");
+            if !searching {
+                el = el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.newchat.skill_cat = Some(NewChat::UNCAT.into());
+                    cx.notify();
+                }));
+            }
+            tree.push(el.into_any_element());
+        }
+
+        let empty = if searching {
+            "没有名字、描述或类别含这个词的技能"
+        } else if total == 0 {
+            "这个盘上还没装技能（技能在 68kazk 那块）"
+        } else {
+            "这一类还没有技能"
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(t().d(0.))
+            // 通栏搜索框：打字就全盘搜，树让位。
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(m.v(0.8))
+                    .mx(m.v(1.3))
+                    .mt(m.v(1.1))
+                    .mb(m.v(0.7))
+                    .px(m.v(0.9))
+                    .py(m.v(0.45))
+                    .rounded(t().r(7.))
+                    .bg(rgb(art::surface()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(art::mono())
+                            .text_size(m.f(1.3, 10., 12.))
+                            .text_color(rgb(art::accent()))
+                            .child("›"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .child(Textarea::new(&b.skill_query).appearance(false).bordered(false)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .border_t(t().d(1.))
+                    .border_color(rgb(art::border()))
+                    // 左树：搜索时淡出且点不动 —— 它是「常驻状态」，不是「临时状态」。
+                    // 竖排档（格宽 < 620）放不下两栏，树整个不画：类别还在每行尾部。
+                    .children((m.layout != art::Layout::Stack).then(|| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_none()
+                            .w(m.s(172.))
+                            .gap(t().d(1.))
+                            .py(m.s(8.))
+                            .border_r(t().d(1.))
+                            .border_color(rgb(art::border()))
+                            .when(searching, |el| el.opacity(0.35))
+                            .children(tree)
+                            .into_any_element()
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .min_h(t().d(0.))
+                            .child(self.sheet_list(m, rows, empty, cx)),
+                    ),
+            )
+            .into_any_element()
     }
 
-    /// 模板弹层：单选。再点一次取消 —— 「明确不要模板」也是一个有效选择。
     fn sheet_prompt(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
         let b = &self.newchat;
         let rows: Vec<AnyElement> = b
