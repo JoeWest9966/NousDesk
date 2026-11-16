@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>NousDesk · 9 套 Tesla 皮</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --ink: #16161a; --ink2: #5a5a63; --ink3: #8c8c96;
+    --page: #f2f2f4; --card: #fff; --hair: #e4e4e8;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  }
+  body {
+    font-family: var(--font); background: var(--page); color: var(--ink);
+    padding: 28px 32px 80px; font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  header { max-width: 1296px; margin: 0 auto 22px; }
+  h1 { font-size: 21px; font-weight: 650; letter-spacing: -.01em; }
+  h1 span { font-weight: 400; color: var(--ink3); font-size: 14px; margin-left: 10px; letter-spacing: 0; }
+  .lede { font-size: 13px; color: var(--ink2); margin-top: 7px; line-height: 1.6; max-width: 76ch; }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  /* ── tab 条 ── */
+  nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+  nav button {
+    font: inherit; font-size: 12.5px; padding: 6px 11px; border-radius: 7px;
+    border: 1px solid var(--hair); background: var(--card); color: var(--ink2);
+    cursor: pointer; transition: background .12s, color .12s, border-color .12s;
+  }
+  nav button:hover { border-color: #c9c9d0; color: var(--ink); }
+  nav button[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+  nav button .n { opacity: .5; margin-right: 5px; font-size: 11px; }
+
+  /* ── 九宫格 ── */
+  .grid {
+    max-width: 1296px; margin: 0 auto; display: grid;
+    grid-template-columns: repeat(3, 1fr); gap: 14px;
+  }
+  .cell { background: var(--card); border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; cursor: pointer; transition: border-color .12s, transform .12s; }
+  .cell:hover { border-color: #bcbcc6; transform: translateY(-1px); }
+  .cell[data-on="1"] { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+  /* 00 默认是「现状」，不是候选 —— 单独一条放在九宫格下面，不占格子。 */
+  .ref { max-width: 1296px; margin: 16px auto 0; display: flex; align-items: stretch; gap: 16px;
+         border: 1px dashed #cfcfd6; border-radius: 12px; overflow: hidden; background: var(--card); }
+  .ref .thumb { width: 300px; flex: 0 0 auto; }
+  .ref .body { padding: 14px 18px; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+  .ref .body .t { font-size: 13px; font-weight: 640; }
+  .ref .body .t .num { font-size: 10.5px; color: var(--ink3); margin-right: 6px; font-weight: 400; }
+  .ref .body .w { font-size: 12px; color: var(--ink2); line-height: 1.55; max-width: 70ch; }
+  .cell .cap { display: flex; align-items: baseline; gap: 7px; padding: 9px 12px 8px; border-top: 1px solid var(--hair); }
+  .cell .cap .num { font-size: 10px; color: var(--ink3); font-variant-numeric: tabular-nums; }
+  .cell .cap .nm { font-size: 12.5px; font-weight: 620; white-space: nowrap; }
+  .cell .cap .why { font-size: 11px; color: var(--ink3); margin-left: auto; text-align: right; line-height: 1.35; }
+  /* 16:10 = 界面本身的比例（1280×800）。用 aspect-ratio 而不是写死高度，
+     格子窄的时候缩略图不会被裁掉下半截。 */
+  .thumb { position: relative; overflow: hidden; aspect-ratio: 16 / 10; background: #000; }
+  .thumb .screen { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+
+  /* ── 大预览 ── */
+  .bigwrap { max-width: 1296px; margin: 30px auto 0; }
+  .bighead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 11px; }
+  .bighead h2 { font-size: 15px; font-weight: 640; }
+  .bighead .why { font-size: 12.5px; color: var(--ink2); }
+  /* 圆角别太大：屏幕本身是方的，圆角会把四角切出一圈黑边。 */
+  .big { border: 1px solid var(--hair); border-radius: 8px; overflow: hidden; background: #000; position: relative; }
+  /* 缩放从左上角算，不然居中缩放会在边上留半像素的错位。 */
+  .big .screen { width: 1280px; transform-origin: 0 0; }
+
+  /* ══════════ 界面本身：所有颜色都走 --s-* 变量 ══════════ */
+  .screen {
+    --s-r: 8px; --s-d: 1; --s-type: 1;
+    --fs: calc(1px * var(--s-type));
+    width: 1280px; height: 800px; display: flex;
+    background: var(--s-chat); color: var(--s-text);
+    font-family: var(--font); font-variant-numeric: tabular-nums;
+    font-size: calc(13 * var(--fs)); line-height: 1.45;
+    position: relative; overflow: hidden;
+  }
+  /* 图标条 */
+  .rail { width: 56px; background: var(--s-sidebar); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: calc(6px * var(--s-d)); flex: 0 0 auto; }
+  .rail .logo { width: 26px; height: 26px; border-radius: var(--s-r); background: var(--s-accent); color: var(--s-on-accent); display: grid; place-items: center; font-size: calc(11 * var(--fs)); font-weight: 700; margin-bottom: calc(10px * var(--s-d)); }
+  .rail .ic { width: 34px; height: 34px; border-radius: calc(var(--s-r) * .8); display: grid; place-items: center; color: var(--s-sidebar-idle); }
+  .rail .ic svg { width: 17px; height: 17px; }
+  .rail .ic[data-on="1"] { background: var(--s-sidebar-open); color: var(--s-accent); }
+  .rail .sp { flex: 1; }
+  /* 列表 */
+  .list { width: 260px; flex: 0 0 auto; background: var(--s-list); display: flex; flex-direction: column; border-right: 1px solid var(--s-line-soft); }
+  .list .top { padding: calc(10px * var(--s-d)) calc(10px * var(--s-d)) calc(7px * var(--s-d)); display: flex; gap: calc(6px * var(--s-d)); align-items: center; }
+  .search { flex: 1; height: calc(26px * var(--s-d)); border-radius: calc(var(--s-r) * .6); background: var(--s-surface); border: 1px solid var(--s-line-soft); display: flex; align-items: center; padding: 0 8px; gap: 5px; color: var(--s-faint); font-size: calc(11 * var(--fs)); }
+  .plus { width: calc(26px * var(--s-d)); height: calc(26px * var(--s-d)); border-radius: calc(var(--s-r) * .6); background: var(--s-accent); color: var(--s-on-accent); display: grid; place-items: center; font-size: calc(14 * var(--fs)); font-weight: 300; }
+  .row { display: flex; gap: calc(9px * var(--s-d)); padding: calc(9px * var(--s-d)) calc(10px * var(--s-d)); align-items: flex-start; }
+  .row[data-sel="1"] { background: var(--s-selected); }
+  .row + .row { border-top: 1px solid var(--s-line-soft); }
+  .row .av { width: calc(30px * var(--s-d)); height: calc(30px * var(--s-d)); border-radius: calc(var(--s-r) * .7); background: var(--s-avatar); flex: 0 0 auto; display: grid; place-items: center; font-size: calc(12 * var(--fs)); color: var(--s-on-accent); font-weight: 600; }
+  .row .bd { flex: 1; min-width: 0; }
+  .row .l1 { display: flex; align-items: baseline; gap: 6px; }
+  .row .nm { font-size: calc(12.5 * var(--fs)); font-weight: 560; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .tm { font-size: calc(10 * var(--fs)); color: var(--s-faint); flex: 0 0 auto; }
+  .row .pv { font-size: calc(11 * var(--fs)); color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .row .badge { display: inline-block; min-width: calc(15px * var(--s-d)); height: calc(15px * var(--s-d)); border-radius: 99px; background: var(--s-badge); color: #fff; font-size: calc(9.5 * var(--fs)); line-height: calc(15px * var(--s-d)); text-align: center; padding: 0 4px; }
+  /* 聊天区 */
+  .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--s-chat); position: relative; }
+  .chat .bar { height: calc(44px * var(--s-d)); flex: 0 0 auto; display: flex; align-items: center; gap: 9px; padding: 0 calc(16px * var(--s-d)); border-bottom: 1px solid var(--s-line-soft); background: var(--s-panel); }
+  .chat .bar .t { font-size: calc(13.5 * var(--fs)); font-weight: 600; }
+  .chat .bar .sub { font-size: calc(11 * var(--fs)); color: var(--s-muted); }
+  .chat .bar .dots { margin-left: auto; color: var(--s-muted); letter-spacing: 2px; font-size: calc(13 * var(--fs)); }
+  .msgs { flex: 1; padding: calc(18px * var(--s-d)) calc(26px * var(--s-d)); display: flex; flex-direction: column; gap: calc(14px * var(--s-d)); overflow: hidden; }
+  .msg { display: flex; gap: 9px; max-width: 78%; }
+  .msg[data-me="1"] { align-self: flex-end; flex-direction: row-reverse; }
+  .msg .av2 { width: calc(26px * var(--s-d)); height: calc(26px * var(--s-d)); border-radius: calc(var(--s-r) * .6); background: var(--s-avatar); flex: 0 0 auto; display: grid; place-items: center; font-size: calc(11 * var(--fs)); color: var(--s-on-accent); }
+  .bub { padding: calc(9px * var(--s-d)) calc(12px * var(--s-d)); border-radius: calc(var(--s-r) * .9); font-size: calc(13 * var(--fs)); line-height: 1.6; border: 1px solid var(--s-line-soft); }
+  .msg .bub { background: var(--s-bubble-other); }
+  .msg[data-me="1"] .bub { background: var(--s-bubble-me); }
+  .bub code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: calc(12 * var(--fs)); background: var(--s-surface); padding: 1px 5px; border-radius: 4px; }
+  /* 输入区 */
+  .composer { flex: 0 0 auto; margin: 0 calc(26px * var(--s-d)) calc(18px * var(--s-d)); border-radius: calc(var(--s-r) * 1.1); background: var(--s-panel); border: 1px solid var(--s-line); padding: calc(11px * var(--s-d)) calc(13px * var(--s-d)); display: flex; flex-direction: column; gap: calc(9px * var(--s-d)); }
+  .composer .ph { font-size: calc(12.5 * var(--fs)); color: var(--s-faint); }
+  .composer .foot { display: flex; align-items: center; gap: 7px; }
+  .chip { font-size: calc(10.5 * var(--fs)); padding: 3px 8px; border-radius: 99px; background: var(--s-accent-soft); color: var(--s-accent-fg); border: 1px solid var(--s-line-soft); }
+  .chip[data-quiet="1"] { background: transparent; color: var(--s-muted); }
+  .send { margin-left: auto; padding: 5px 14px; border-radius: calc(var(--s-r) * .7); background: var(--s-accent); color: var(--s-on-accent); font-size: calc(12 * var(--fs)); font-weight: 560; }
+  /* 右下浮层：rename 对话框 */
+  .ovl { position: absolute; right: calc(26px * var(--s-d)); bottom: calc(96px * var(--s-d)); width: calc(300px * var(--s-d)); background: var(--s-overlay); border: 1px solid var(--s-line); border-radius: calc(var(--s-r) * 1.2); padding: calc(15px * var(--s-d)); box-shadow: 0 12px 40px rgba(0,0,0,.22); }
+  .ovl .h { font-size: calc(13 * var(--fs)); font-weight: 600; margin-bottom: calc(11px * var(--s-d)); }
+  .ovl .inp { height: calc(30px * var(--s-d)); border-radius: calc(var(--s-r) * .6); background: var(--s-surface); border: 1px solid var(--s-line-strong); display: flex; align-items: center; padding: 0 9px; font-size: calc(12.5 * var(--fs)); gap: 2px; }
+  .ovl .cur { width: 1.5px; height: calc(14px * var(--fs)); background: var(--s-accent); margin-left: 1px; }
+  .ovl .note { font-size: calc(10.5 * var(--fs)); color: var(--s-muted); margin-top: calc(7px * var(--s-d)); }
+  .ovl .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: calc(13px * var(--s-d)); }
+  .btn { padding: 5px 13px; border-radius: calc(var(--s-r) * .6); font-size: calc(12 * var(--fs)); border: 1px solid var(--s-line-strong); color: var(--s-text-2); }
+  .btn[data-pri="1"] { background: var(--s-accent); border-color: var(--s-accent); color: var(--s-on-accent); font-weight: 560; }
+
+  /* ── 色板 ── */
+  .swatch { max-width: 1296px; margin: 16px auto 0; display: flex; gap: 10px; flex-wrap: wrap; }
+  .sw { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink2); }
+  .sw i { width: 20px; height: 20px; border-radius: 6px; border: 1px solid rgba(0,0,0,.12); display: block; }
+  .copybar { max-width: 1296px; margin: 14px auto 0; display: flex; align-items: center; gap: 10px; }
+  .copybar button { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 7px;
+    border: 1px solid var(--hair); background: var(--card); color: var(--ink2); cursor: pointer; }
+  .copybar button:hover { border-color: #c9c9d0; color: var(--ink); }
+  #copied { font-size: 11.5px; color: #3f8a5c; }
+  footer { max-width: 1296px; margin: 34px auto 0; font-size: 12px; color: var(--ink3); line-height: 1.7; border-top: 1px solid var(--hair); padding-top: 16px; }
+  footer b { color: var(--ink2); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>9 套 Tesla 皮 <span>NousDesk · theme.rs 的目标位，现在一套都没有</span></h1>
+  <p class="lede">
+    每套除了色值还带三个参数：<b>圆角</b>（<code>--s-r</code>）、<b>密度</b>（<code>--s-d</code>）、
+    <b>字号</b>（<code>--s-type</code>）。只换颜色不换手感，九套会看成一个模子刷漆 ——
+    所以 Cybertruck 是直角、Mcu 最松、Plaid 最紧。
+  </p>
+  <nav id="tabs"></nav>
+</header>
+
+<div class="grid" id="grid"></div>
+<div class="ref" id="ref"></div>
+
+<div class="bigwrap">
+  <div class="bighead">
+    <h2 id="bigName">—</h2>
+    <span class="why" id="bigWhy"></span>
+  </div>
+  <div class="big"><div class="screen" id="big"></div></div>
+  <div class="swatch" id="swatch"></div>
+  <div class="copybar"><button id="copy">复制这一套的 CSS 变量</button><span id="copied"></span></div>
+</div>
+
+<footer>
+  <b>怎么挑</b>：先看九宫格的整体色感（缩略图里字是糊的，看的就是色块关系），
+  再点开大图看细节 —— 重点看 <b>accent 用在几处</b>：<code>models</code> / <code>model3</code> /
+  <code>norail</code> 的 accent 是灰/黑（等于没有重点色），其余六套是彩的。彩色 accent 一多
+  就变成色块分区，AGENTS 里禁的就是那个。
+</footer>
+
+<style>
+  /* 窄一点的窗口两列，不然缩略图里什么都看不清 */
+  @media (max-width: 1100px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } .ref { flex-direction: column; } .ref .thumb { width: 100%; } }
+</style>
+<script>
+/* ───── 九套的定义。落地时每套 = theme.rs 里一个 Palette + 一个 Skin ───── */
+const SKINS = [
+  { id:'models', num:'01', name:'ModelS', dark:true, why:'旗舰石墨：近黑底 + 冷银，克制到几乎无色',
+    v:{ sidebar:'#17181a', 'sidebar-hover':'#222327', 'sidebar-open':'#26282c', 'sidebar-idle':'#7c8088',
+        list:'#1b1c1f', chat:'#131416', panel:'#202124', surface:'#26272b', overlay:'#24252a',
+        text:'#eceef1', 'text-2':'#a5a9b0', muted:'#767a82', faint:'#4e5158',
+        line:'#2b2d31', 'line-soft':'#232428', 'line-strong':'#3a3d42',
+        accent:'#c8ccd4', 'accent-soft':'#2a2c31', 'accent-fg':'#e6e9ee', 'on-accent':'#16171a',
+        hover:'#24252a', selected:'#2b2d33', avatar:'#3a3d43',
+        'bubble-other':'#202124', 'bubble-me':'#2b2d33',
+        badge:'#d95c5c', danger:'#d95c5c', warn:'#c9a15a', ok:'#5aa877', link:'#7fa8dd', disabled:'#4e5158' },
+    x:{ r:'8px', d:'1', type:'1' } },
+
+  { id:'model3', num:'02', name:'Model3', dark:false, why:'展厅白：中性灰白 + 近黑 accent，把「少」做成卖点',
+    v:{ sidebar:'#ebebeb', 'sidebar-hover':'#e0e0e0', 'sidebar-open':'#d8d8d8', 'sidebar-idle':'#8e8e8e',
+        list:'#fbfbfb', chat:'#ffffff', panel:'#ffffff', surface:'#f2f2f2', overlay:'#ffffff',
+        text:'#0d0d0d', 'text-2':'#4a4a4a', muted:'#8a8a8a', faint:'#b4b4b4',
+        line:'#e8e8e8', 'line-soft':'#f0f0f0', 'line-strong':'#d0d0d0',
+        accent:'#111111', 'accent-soft':'#ededed', 'accent-fg':'#111111', 'on-accent':'#ffffff',
+        hover:'#f4f4f4', selected:'#e8e8e8', avatar:'#c9c9c9',
+        'bubble-other':'#f5f5f5', 'bubble-me':'#e6e6e6',
+        badge:'#d0342c', danger:'#c0392b', warn:'#b8860b', ok:'#1e7a4a', link:'#2563c9', disabled:'#c4c4c4' },
+    x:{ r:'10px', d:'1.05', type:'1' } },
+
+  { id:'cybertruck', num:'03', name:'Cybertruck', dark:true, why:'不锈钢原色：钢灰 + 直角 + 一条橙',
+    v:{ sidebar:'#2a2d30', 'sidebar-hover':'#34383b', 'sidebar-open':'#3b3f43', 'sidebar-idle':'#8a9095',
+        list:'#303336', chat:'#232628', panel:'#34373a', surface:'#3b3e42', overlay:'#35383c',
+        text:'#e8eaec', 'text-2':'#b0b4b8', muted:'#83888d', faint:'#5c6166',
+        line:'#454a4e', 'line-soft':'#393d40', 'line-strong':'#575d62',
+        accent:'#ff6b1a', 'accent-soft':'#3d2a1c', 'accent-fg':'#ff8a4d', 'on-accent':'#1a0f06',
+        hover:'#383c3f', selected:'#40454a', avatar:'#4a4f54',
+        'bubble-other':'#34373a', 'bubble-me':'#3d4145',
+        badge:'#ff4d3d', danger:'#ff4d3d', warn:'#ffb020', ok:'#4dd08a', link:'#5aa8ff', disabled:'#5c6166' },
+    x:{ r:'0px', d:'1', type:'1' } },
+
+  { id:'mcu', num:'04', name:'Mcu', dark:true, why:'中控屏：深蓝黑、大字号大间距，车里边开边点',
+    v:{ sidebar:'#070b0f', 'sidebar-hover':'#101820', 'sidebar-open':'#141d26', 'sidebar-idle':'#6b7c8a',
+        list:'#0b1015', chat:'#0a0e13', panel:'#121820', surface:'#18202a', overlay:'#141b23',
+        text:'#f0f4f8', 'text-2':'#a8b4c0', muted:'#6e7a88', faint:'#48525e',
+        line:'#1e2732', 'line-soft':'#161d26', 'line-strong':'#2b3542',
+        accent:'#2ea8ff', 'accent-soft':'#10293d', 'accent-fg':'#6cc4ff', 'on-accent':'#041018',
+        hover:'#141b23', selected:'#18232e', avatar:'#243040',
+        'bubble-other':'#121820', 'bubble-me':'#1a2836',
+        badge:'#ff5a5a', danger:'#ff5a5a', warn:'#ffb84d', ok:'#35d69b', link:'#2ea8ff', disabled:'#48525e' },
+    x:{ r:'14px', d:'1.25', type:'1.06' } },
+
+  { id:'editorial', num:'05', name:'Editorial', dark:false, why:'杂志排版：暖纸底 + 砖红，行高宽、字号层级重',
+    v:{ sidebar:'#efeae0', 'sidebar-hover':'#e6e0d3', 'sidebar-open':'#ddd5c5', 'sidebar-idle':'#8a8172',
+        list:'#faf7f1', chat:'#fbf9f5', panel:'#fffdf9', surface:'#f3eee4', overlay:'#fffdf9',
+        text:'#1c1917', 'text-2':'#4a443d', muted:'#857c70', faint:'#b8ae9f',
+        line:'#e2d9c9', 'line-soft':'#efe8da', 'line-strong':'#cec2ad',
+        accent:'#a63a2a', 'accent-soft':'#f3e3de', 'accent-fg':'#8a2f21', 'on-accent':'#fffdf9',
+        hover:'#f5f0e6', selected:'#eae2d3', avatar:'#c8bda9',
+        'bubble-other':'#fffdf9', 'bubble-me':'#f0e7d8',
+        badge:'#b3362a', danger:'#b3362a', warn:'#9a6b12', ok:'#3f7351', link:'#2b5c95', disabled:'#b8ae9f' },
+    x:{ r:'3px', d:'1.15', type:'1.05' } },
+
+  { id:'nightdrive', num:'06', name:'NightDrive', dark:true, why:'夜路仪表：黑 + 低饱和琥珀，不刺眼',
+    v:{ sidebar:'#12100e', 'sidebar-hover':'#1c1916', 'sidebar-open':'#211d19', 'sidebar-idle':'#7d7264',
+        list:'#15120f', chat:'#0d0b09', panel:'#1a1714', surface:'#211d19', overlay:'#1e1a16',
+        text:'#e8ddd0', 'text-2':'#a89c8c', muted:'#776c5f', faint:'#4e463c',
+        line:'#2a251f', 'line-soft':'#211d18', 'line-strong':'#3a332b',
+        accent:'#d99b3f', 'accent-soft':'#2e2417', 'accent-fg':'#ecb964', 'on-accent':'#1a1209',
+        hover:'#1e1a16', selected:'#262119', avatar:'#3a3129',
+        'bubble-other':'#1a1714', 'bubble-me':'#262019',
+        badge:'#c8523f', danger:'#c8523f', warn:'#d99b3f', ok:'#6a8f5a', link:'#7d9bb8', disabled:'#4e463c' },
+    x:{ r:'8px', d:'1.05', type:'1' } },
+
+  { id:'energy', num:'07', name:'Energy', dark:true, why:'Powerwall：墨绿黑 + 电光青，能量在流',
+    v:{ sidebar:'#0a1210', 'sidebar-hover':'#101d19', 'sidebar-open':'#14251f', 'sidebar-idle':'#6b8a80',
+        list:'#0d1614', chat:'#08100e', panel:'#12201c', surface:'#172a24', overlay:'#14241f',
+        text:'#e4f2ec', 'text-2':'#9db8ae', muted:'#6b8478', faint:'#435850',
+        line:'#1c2e28', 'line-soft':'#152420', 'line-strong':'#27403a',
+        accent:'#2fd6a8', 'accent-soft':'#0f2c24', 'accent-fg':'#5ae6bf', 'on-accent':'#04120e',
+        hover:'#12201c', selected:'#162a24', avatar:'#1e3a32',
+        'bubble-other':'#12201c', 'bubble-me':'#17302a',
+        badge:'#e0604d', danger:'#e0604d', warn:'#e0a83f', ok:'#2fd6a8', link:'#4fc3e8', disabled:'#435850' },
+    x:{ r:'12px', d:'1.1', type:'1' } },
+
+  { id:'plaid', num:'08', name:'Plaid', dark:true, why:'性能版：纯黑 + 红灯，对比拉到最大，密度收紧',
+    v:{ sidebar:'#0a0a0b', 'sidebar-hover':'#111114', 'sidebar-open':'#16161a', 'sidebar-idle':'#6e6e76',
+        list:'#0d0d0e', chat:'#000000', panel:'#121214', surface:'#19191c', overlay:'#16161a',
+        text:'#ffffff', 'text-2':'#b8b8bc', muted:'#7c7c82', faint:'#4a4a50',
+        line:'#232326', 'line-soft':'#1a1a1d', 'line-strong':'#333338',
+        accent:'#e8102a', 'accent-soft':'#2c0d12', 'accent-fg':'#ff5566', 'on-accent':'#ffffff',
+        hover:'#16161a', selected:'#1e1e22', avatar:'#2a2a30',
+        'bubble-other':'#121214', 'bubble-me':'#1e1e23',
+        badge:'#e8102a', danger:'#e8102a', warn:'#e8a020', ok:'#2fbf6a', link:'#4d9bff', disabled:'#4a4a50' },
+    x:{ r:'4px', d:'0.92', type:'1' } },
+
+  { id:'norail', num:'09', name:'NoRail', dark:false, why:'无边框：纯白 + 零分隔线，全靠留白分区',
+    v:{ sidebar:'#ffffff', 'sidebar-hover':'#f4f4f4', 'sidebar-open':'#eeeeee', 'sidebar-idle':'#a0a0a0',
+        list:'#f8f8f8', chat:'#ffffff', panel:'#ffffff', surface:'#f2f2f2', overlay:'#ffffff',
+        text:'#0a0a0a', 'text-2':'#555555', muted:'#999999', faint:'#c4c4c4',
+        line:'#f0f0f0', 'line-soft':'#f7f7f7', 'line-strong':'#e8e8e8',
+        accent:'#0a0a0a', 'accent-soft':'#f2f2f2', 'accent-fg':'#0a0a0a', 'on-accent':'#ffffff',
+        hover:'#f6f6f6', selected:'#f0f0f0', avatar:'#d4d4d4',
+        'bubble-other':'#f7f7f7', 'bubble-me':'#eeeeee',
+        badge:'#c9342a', danger:'#c9342a', warn:'#a87400', ok:'#1a7a4a', link:'#1a5fc9', disabled:'#c4c4c4' },
+    x:{ r:'12px', d:'1.2', type:'1' } },
+
+  /* 00 对照组：theme.rs 现在真正在跑的 Palette::DEFAULT */
+  { id:'default', num:'00', name:'默认 · 微信基线', dark:false, why:'现状对照：微信绿，本轮九套都要跟它比',
+    v:{ sidebar:'#2e2e2e', 'sidebar-hover':'#3a3a3a', 'sidebar-open':'#3f3f3f', 'sidebar-idle':'#9a9a9a',
+        list:'#f7f7f7', chat:'#ededed', panel:'#ffffff', surface:'#f6f6f6', overlay:'#ffffff',
+        text:'#1a1a1a', 'text-2':'#333333', muted:'#999999', faint:'#aaaaaa',
+        line:'#e6e6e6', 'line-soft':'#eeeeee', 'line-strong':'#e2e2e2',
+        accent:'#07c160', 'accent-soft':'#e8f7ee', 'accent-fg':'#0a7a3f', 'on-accent':'#ffffff',
+        hover:'#f2f2f2', selected:'#d9d9d9', avatar:'#b2b2b2',
+        'bubble-other':'#ffffff', 'bubble-me':'#95ec69',
+        badge:'#fa5151', danger:'#d32f2f', warn:'#c77700', ok:'#079c50', link:'#0b6bcb', disabled:'#b2b2b2' },
+    x:{ r:'8px', d:'1', type:'1' } },
+];
+
+/* ───── 界面模板：图标条 + 列表 + 聊天区 + 一个浮层 ───── */
+const ICONS = {
+  chat: '<path d="M3 4.5h11a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 14 13.5H7l-3 2.2v-2.2H3A1.5 1.5 0 0 1 1.5 12V6A1.5 1.5 0 0 1 3 4.5Z"/>',
+  grid: '<rect x="2" y="2" width="6" height="6" rx="1.5"/><rect x="10" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="10" width="6" height="6" rx="1.5"/><rect x="10" y="10" width="6" height="6" rx="1.5"/>',
+  book: '<path d="M3 2.5h5.2a2 2 0 0 1 2 2v10a2 2 0 0 0-2-1.6H3Z"/><path d="M15 2.5H9.8a2 2 0 0 0-2 2v10a2 2 0 0 1 2-1.6H15Z"/>',
+  gear: '<circle cx="9" cy="9" r="2.4"/><path d="M9 1.6v2M9 14.4v2M1.6 9h2M14.4 9h2M3.8 3.8l1.4 1.4M12.8 12.8l1.4 1.4M14.2 3.8l-1.4 1.4M5.2 12.8l-1.4 1.4"/>',
+};
+const svg = p => `<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round">${p}</svg>`;
+
+const ROWS = [
+  ['真', '真模型', '模型列表拉到了 4 条，deepseek-v4-flash 可用', '10:24', 2],
+  ['盘', 'NousDesk 盘面', '07 轨道那套把中央那块收窄了一档', '昨天', 0],
+  ['归', '归档库', '撕原件之前要先 archive 一次，不然 409', '昨天', 0],
+  ['内', 'qrd3wh 内核', '列表刷新：154 行，置顶「真模型」', '11月14日', 0],
+  ['技', '技能筛选', '树的父类要含子类，不然勾了看不见', '11月13日', 0],
+  ['扩', '扩展清单', '核心三条能勾掉，但会话级不是本机级', '11月12日', 0],
+];
+
+function screenHTML() {
+  return `
+  <div class="rail">
+    <div class="logo">N</div>
+    <div class="ic" data-on="1">${svg(ICONS.chat)}</div>
+    <div class="ic">${svg(ICONS.grid)}</div>
+    <div class="ic">${svg(ICONS.book)}</div>
+    <div class="sp"></div>
+    <div class="ic">${svg(ICONS.gear)}</div>
+  </div>
+  <div class="list">
+    <div class="top"><div class="search">搜索会话</div><div class="plus">+</div></div>
+    ${ROWS.map((r, i) => `
+      <div class="row" data-sel="${i === 0 ? 1 : 0}">
+        <div class="av">${r[0]}</div>
+        <div class="bd">
+          <div class="l1"><div class="nm">${r[1]}</div><div class="tm">${r[3]}</div></div>
+          <div class="l1" style="align-items:center">
+            <div class="pv">${r[2]}</div>${r[4] ? `<span class="badge">${r[4]}</span>` : ''}
+          </div>
+        </div>
+      </div>`).join('')}
+  </div>
+  <div class="chat">
+    <div class="bar"><div class="t">真模型</div><div class="sub">#2 · deepseek-v4-flash</div><div class="dots">⋯</div></div>
+    <div class="msgs">
+      <div class="msg"><div class="av2">N</div><div class="bub">列表现在是全量渲染，没有虚拟化。要不要上？</div></div>
+      <div class="msg" data-me="1"><div class="av2">我</div><div class="bub">先量。<code>NOUS_PERF_SESSIONS=500</code> 跑一遍，别拍脑袋。</div></div>
+      <div class="msg"><div class="av2">N</div><div class="bub">154 条 1.5ms，500 条 17ms。<br>离 16.7ms 的预算还有 10 倍 —— 先不做。</div></div>
+    </div>
+    <div class="composer">
+      <div class="ph">发消息给 Nous…</div>
+      <div class="foot">
+        <span class="chip">deepseek-v4-flash</span>
+        <span class="chip" data-quiet="1">smart-ass</span>
+        <span class="chip" data-quiet="1">2 个技能</span>
+        <span class="send">发送</span>
+      </div>
+    </div>
+    <div class="ovl">
+      <div class="h">修改会话名</div>
+      <div class="inp">真模型<span class="cur"></span></div>
+      <div class="note">空名字存不了</div>
+      <div class="acts"><span class="btn">取消</span><span class="btn" data-pri="1">完成</span></div>
+    </div>
+  </div>`;
+}
+
+/* ───── 渲染 ───── */
+const grid = document.getElementById('grid');
+const tabs = document.getElementById('tabs');
+const big = document.getElementById('big');
+const bigName = document.getElementById('bigName');
+const bigWhy = document.getElementById('bigWhy');
+const swatch = document.getElementById('swatch');
+// ?skin=cybertruck 直接开那一套（截图、发给别人看都方便）
+let cur = new URLSearchParams(location.search).get('skin') || 'models';
+if (!SKINS.some(s => s.id === cur)) cur = 'models';
+function scrollBig() {
+  // 点了缩略图就把大图拉到眼前 —— 不然得手动往下滚。
+  document.querySelector('.bigwrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function paint(el, skin) {
+  for (const [k, v] of Object.entries(skin.v)) el.style.setProperty(`--s-${k}`, v);
+  el.style.setProperty('--s-r', skin.x.r);
+  el.style.setProperty('--s-d', skin.x.d);
+  el.style.setProperty('--s-type', skin.x.type);
+}
+
+// 九宫格（只放 9 套候选；00 默认是现状，单独一条）
+SKINS.filter(s => s.id !== 'default').forEach(s => {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.innerHTML = `
+    <div class="thumb"><div class="screen">${screenHTML()}</div></div>
+    <div class="cap"><span class="num">${s.num}</span><span class="nm">${s.name}</span><span class="why">${s.why}</span></div>`;
+  const scr = cell.querySelector('.screen');
+  paint(scr, s);
+  // 缩略：1280 宽的界面塞进格子，缩到格子宽
+  const fit = () => { scr.style.transform = `scale(${cell.querySelector('.thumb').clientWidth / 1280})`; };
+  requestAnimationFrame(fit);
+  window.addEventListener('resize', fit);
+  cell.onclick = () => { cur = s.id; sync(); scrollBig(); };
+  cell.dataset.id = s.id;
+  grid.appendChild(cell);
+});
+
+// 00 对照组
+{
+  const s = SKINS.find(x => x.id === 'default');
+  const box = document.getElementById('ref');
+  box.innerHTML = `<div class="thumb"><div class="screen">${screenHTML()}</div></div>
+    <div class="body"><div class="t"><span class="num">${s.num}</span>${s.name}</div>
+    <div class="w">theme.rs 里现在真正在跑的 <code>Palette::DEFAULT</code> —— ${s.why}。
+    九套都要跟它比：它已经用了一年，习惯了的东西别在换皮时顺手丢掉。</div></div>`;
+  const scr = box.querySelector('.screen');
+  paint(scr, s);
+  const fit = () => { scr.style.transform = `scale(${box.querySelector('.thumb').clientWidth / 1280})`; };
+  requestAnimationFrame(fit);
+  window.addEventListener('resize', fit);
+  box.onclick = () => { cur = s.id; sync(); scrollBig(); };
+}
+
+// tab
+SKINS.forEach(s => {
+  const b = document.createElement('button');
+  b.innerHTML = `<span class="n">${s.num}</span>${s.name}`;
+  b.onclick = () => { cur = s.id; sync(); scrollBig(); };
+  b.dataset.id = s.id;
+  tabs.appendChild(b);
+});
+
+big.innerHTML = screenHTML();
+
+const SW = [['sidebar', '图标条'], ['list', '列表'], ['chat', '聊天'], ['panel', '面板'],
+            ['accent', 'accent'], ['selected', '选中行'], ['bubble-me', '我方气泡'], ['text', '正文']];
+
+function sync() {
+  const s = SKINS.find(x => x.id === cur);
+  paint(big, s);
+  // 大图在窄屏上等比缩放
+  const box = big.parentElement.clientWidth;
+  big.style.transform = box < 1280 ? `scale(${box / 1280})` : 'none';
+  big.parentElement.style.height = box < 1280 ? `${800 * box / 1280}px` : '800px';
+  bigName.textContent = `${s.num} · ${s.name}`;
+  bigWhy.textContent = s.why + (s.dark ? '  · 暗皮' : '  · 浅皮');
+  tabs.querySelectorAll('button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.id === cur)));
+  grid.querySelectorAll('.cell').forEach(c => c.dataset.on = String(c.dataset.id === cur));
+  swatch.innerHTML = SW.map(([k, label]) =>
+    `<span class="sw"><i style="background:${s.v[k]}"></i>${label}</span>`).join('')
+    + `<span class="sw" style="margin-left:6px;color:#8c8c96">圆角 ${s.x.r} · 密度 ${s.x.d} · 字号 ×${s.x.type}</span>`;
+}
+document.getElementById('copy').onclick = async () => {
+  const s = SKINS.find(x => x.id === cur);
+  const lines = [`/* ${s.num} ${s.name} —— ${s.why} */`];
+  for (const [k, v] of Object.entries(s.v)) lines.push(`--s-${k}: ${v};`);
+  lines.push(`--s-r: ${s.x.r}; --s-d: ${s.x.d}; --s-type: ${s.x.type};`);
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    document.getElementById('copied').textContent = '已复制 ' + lines.length + ' 行';
+    setTimeout(() => document.getElementById('copied').textContent = '', 2200);
+  } catch (_) {
+    document.getElementById('copied').textContent = '剪贴板被挡了（file:// 下有些浏览器会拦）';
+  }
+};
+window.addEventListener('resize', () => sync());
+sync();
+</script>
+</body>
+</html>
