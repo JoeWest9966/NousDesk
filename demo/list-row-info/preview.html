@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>左列行内信息：149 条同名会话怎么扫</title>
+<style>
+  :root{
+    --rail:#f0f0ee; --bg:#fbfbfa; --panel:#ffffff; --text:#171a1c; --text2:#62686d;
+    --muted:#9298a0; --faint:#b9bec3; --line:#e6e6e3; --line2:#d8d8d4;
+    --hover:#f5f5f3; --selected:#ececea; --accent:#171a1c; --chat:#fbfbfa; --page:#efefec;
+  }
+  [data-dark]{
+    --rail:#0d0d0d; --bg:#000000; --panel:#0a0a0a; --text:#ffffff; --text2:#a8a8a8;
+    --muted:#6b6b6b; --faint:#4a4a4a; --line:#262626; --line2:#2a2a2a;
+    --hover:#141414; --selected:#1f1f1f; --accent:#ffffff; --chat:#000000; --page:#0a0a0a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--page); color:var(--text);
+    font:13px/1.45 system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC","PingFang SC",sans-serif;
+    -webkit-font-smoothing:antialiased}
+
+  .bar{position:sticky; top:0; z-index:20; display:flex; flex-wrap:wrap; gap:14px; align-items:center;
+    padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line)}
+  .bar h1{font-size:13px; font-weight:600; margin:0 8px 0 0; letter-spacing:.2px}
+  .bar .hint{color:var(--muted); font-size:12px}
+  .seg{display:flex; border:1px solid var(--line2); border-radius:7px; overflow:hidden}
+  .seg button{border:0; background:transparent; color:var(--text2); font:inherit; font-size:12px;
+    padding:5px 10px; cursor:pointer}
+  .seg button + button{border-left:1px solid var(--line2)}
+  .seg button.on{background:var(--accent); color:var(--bg)}
+  .chk{display:flex; gap:6px; align-items:center; color:var(--text2); font-size:12px; cursor:pointer}
+
+  .stage{display:flex; justify-content:center; padding:24px 16px 60px; gap:20px; flex-wrap:wrap; align-items:flex-start}
+  .win{display:flex; width:1000px; max-width:96vw; height:660px; overflow:hidden;
+    background:var(--bg); border:1px solid var(--line2); border-radius:10px;
+    box-shadow:0 18px 50px rgba(0,0,0,.10)}
+  .rail{width:60px; flex:none; background:var(--rail); display:flex; flex-direction:column;
+    align-items:center; gap:8px; padding:12px 0}
+  .rail i{width:26px; height:26px; border-radius:8px; background:var(--line2); display:block; opacity:.55}
+  .rail i.on{opacity:1; background:var(--accent)}
+  .col{width:280px; flex:none; min-width:0; display:flex; flex-direction:column;
+    background:var(--bg); border-right:1px solid var(--line2); min-height:0}
+  .chat{flex:1; min-width:0; background:var(--chat); display:flex; flex-direction:column;
+    align-items:center; justify-content:center; color:var(--faint); font-size:12px; gap:6px}
+
+  /* 头部（跟已上线的方案 A 一致，本轮不改它） */
+  .head{padding:12px 12px 8px; display:flex; gap:6px; align-items:center; min-width:0}
+  .box{flex:1; min-width:0; display:flex; align-items:center; gap:6px; height:30px; padding:0 8px;
+    border:1px solid var(--line2); border-radius:7px; background:var(--panel)}
+  .box input{flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--text);
+    font:inherit; font-size:12.5px}
+  .box input::placeholder{color:var(--faint)}
+  .box .n{flex:none; color:var(--muted); font-size:11.5px; font-variant-numeric:tabular-nums}
+  .plus{flex:none; width:28px; height:28px; border-radius:7px; display:flex; align-items:center;
+    justify-content:center; color:var(--text2); cursor:pointer}
+  .plus:hover{background:var(--hover)}
+
+  .list{flex:1; min-height:0; overflow-y:auto}
+
+  /* ── 行 ─────────────────────────────────────────────────────── */
+  .row{display:flex; flex-direction:column; justify-content:center; padding:6px 10px; gap:2px;
+    border-bottom:1px solid var(--line2); min-height:56px}
+  .row.auto{min-height:0}
+  .row.auto.tight{min-height:40px}
+  .row.hov{background:var(--hover)}
+  .row.on{background:var(--selected)}
+  .row.bar-l{border-left:2px solid var(--accent); padding-left:8px}
+  .l1{display:flex; align-items:center; gap:6px; width:100%}
+  .pin{flex:none; color:#2f7d43; display:flex}
+  .nm{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px}
+  .tm{flex:none; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .l2{display:flex; align-items:center; gap:6px; width:100%; font-size:12px; color:var(--muted)}
+  .l2 .p{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .l2 .dots{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .tag{flex:none; font-size:10px; color:var(--muted); border:1px solid var(--line2);
+    border-radius:3px; padding:0 3px; line-height:15px}
+  .lock{flex:none; color:var(--faint); display:flex}
+  .empty{color:var(--faint); font-style:normal}
+  .nowrap{white-space:nowrap}
+
+  .legend{max-width:1000px; margin:0 auto; padding:0 16px 60px; color:var(--text2); font-size:12.5px}
+  .legend h2{font-size:13px; margin:22px 0 8px}
+  .legend table{border-collapse:collapse; width:100%; font-size:12.5px}
+  .legend td,.legend th{border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top}
+  .legend th{color:var(--muted); font-weight:500}
+  .legend code{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 4px}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>左列行内信息 · 149 条怎么扫</h1>
+  <div class="seg" id="seg">
+    <button data-v="1" class="on">1 基线</button>
+    <button data-v="2">2 密度优先</button>
+    <button data-v="3">3 去重兜底</button>
+    <button data-v="4">4 信息栈</button>
+    <button data-v="5">5 只留编号</button>
+  </div>
+  <label class="chk"><input type="checkbox" id="dark"> 深色皮</label>
+  <label class="chk"><input type="checkbox" id="hoverAll"> 固定显示 hover 态</label>
+  <span class="hint" id="hint"></span>
+</div>
+
+<div class="stage">
+  <div class="win">
+    <div class="rail"><i class="on"></i><i></i><i></i><i></i></div>
+    <div class="col">
+      <div class="head">
+        <div class="box">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--faint);flex:none"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="q" placeholder="搜索会话">
+          <span class="n" id="cnt"></span>
+        </div>
+        <div class="plus" title="新建会话">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </div>
+      </div>
+      <div class="list" id="list"></div>
+    </div>
+    <div class="chat">右边是聊天区</div>
+  </div>
+</div>
+
+<div class="legend">
+  <h2>四个方案各自在干什么</h2>
+  <table>
+    <tr><th style="width:88px">方案</th><th>第二行写什么</th><th>行高</th><th>右侧</th><th>hover</th></tr>
+    <tr><td><b>1 基线</b></td><td>只写预览；没有就空着（现在的线上）</td><td>固定 56</td><td>有 <code>updatedAt</code> 才画时间</td><td>无</td></tr>
+    <tr><td><b>2 密度优先</b></td><td>只写预览；空会话不编内容，行自己缩到 40</td><td>随内容 56 / 40</td><td>同上</td><td>淡底</td></tr>
+    <tr><td><b>3 去重兜底</b></td><td>预览 → 空会话用「模板 · 机器 · 模型尾段 · cwd 末段」，<b>跟上一行完全一样就省略</b></td><td>随内容 56 / 40</td><td>时间，没有就不画</td><td>淡底</td></tr>
+    <tr><td><b>4 信息栈</b></td><td>预览 → 空会话把能拿到的都摆上（<code>#id · 模板 · 机器 · 模型 · cwd</code>），不去重</td><td>随内容 56 / 40</td><td>时间 + 机器角标</td><td>淡底 + 左侧 2px 条</td></tr>
+    <tr><td><b>5 只留编号</b></td><td>预览 → 空会话只写 <code>#id</code>。模型 / 目录对 90% 的行完全一样，是噪声；编号是唯一一个不重复的字段</td><td>随内容 56 / 40</td><td>时间，没有就不画</td><td>淡底</td></tr>
+  </table>
+  <h2>页面里的行是真实数据</h2>
+  <p>取自 <code>192.168.1.7:4790 / p/new1 / qrd3wh</code> 的 <code>/v1/sessions</code>：149 条主线里
+  <b>只有 7 条有预览</b>、<b>只有 2 条有 <code>updatedAt</code></b>、<b>36 条重名</b>。
+  列表里这 28 条是挑出来的典型：有内容的、<code>对话 N</code> 一串、<code>scratch 时间</code> 一串、
+  带模板的、带机器的、模型是 <code>undefined/undefined</code> 的。</p>
+  <p>顺手发现一件事：<b>大部分行的 <code>model</code> 和 <code>cwd</code> 完全一样</b>（<code>deepseek-v4-flash</code> + <code>map/qrd3wh</code>）——
+  所以方案 3 的「去掉重复」不是洁癖，是无脑兜底会变成 149 行同一句灰字。</p>
+</div>
+
+<script>
+const ROWS = [{"id": 2, "name": "真模型", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "6 天前", "ro": false, "busy": null, "pin": true}, {"id": 14, "name": "经宿主真模型", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": true}, {"id": 25, "name": "修完测一下", "prev": "你好！", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 465, "name": "desk-stream-probe2", "prev": "42", "model": "DeepSeek-Flash", "cwd": "map/qrd3wh", "tpl": "smart-ass", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 536, "name": "（测试垃圾 #536，可删）", "prev": "只做一件事：用 bash 工具跑 `hostname; pwd; uname -sr`，把输出原样贴给我，不要解释。", "model": "", "cwd": "root", "tpl": "smart-ass", "machine": "9996696", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 545, "name": "（测试垃圾 #545，可删）", "prev": "Tool failed. No output to paste:\n\n```\n<harness>\n[error] Cannot access 'key' before initialization\n</harness>\n```", "model": "GLM-5.3-Flash", "cwd": "root", "tpl": "smart-ass", "machine": "9996696", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 560, "name": "（测试垃圾 #560，可删）", "prev": "```\n9996696.xyz\n/root\nLinux 6.1.0-53-amd64\n```", "model": "GLM-5.3-Flash", "cwd": "root", "tpl": "smart-ass", "machine": "9996696", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 412, "name": "scratch 测试", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 418, "name": "scratch 11-07 17:09", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 424, "name": "scratch 11-07 17:17", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 442, "name": "scratch 11-07 17:35", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 448, "name": "scratch 11-07 17:38", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 705, "name": "scratch 11-13 19:16", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 395, "name": "上游整库测试", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "smart-ass", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 401, "name": "deep-dive 11-06 21:50", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "smart-ass", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 430, "name": "deep-dive 11-07 17:27", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "smart-ass", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 436, "name": "deep-dive 11-07 17:27", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "smart-ass", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 525, "name": "（测试垃圾 #525，可删）", "prev": "", "model": "deepseek-v4-flash-", "cwd": "root", "tpl": "smart-ass", "machine": "9996696", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 659, "name": "测试垃圾659可删", "prev": "```\n9996696.xyz\n/root\nLinux 6.1.0-53-amd64\n```", "model": "GLM-5.3-Flash", "cwd": "root", "tpl": "smart-ass", "machine": "9996696", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 615, "name": "pi-stop-probe", "prev": "", "model": "", "cwd": "map/qrd3wh", "tpl": "smart-ass", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 316, "name": "tick-probe", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 343, "name": "开发 nous", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 354, "name": "开发 123", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 365, "name": "对话 365", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 371, "name": "对话 371", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 377, "name": "对话 377", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 383, "name": "对话 383", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}, {"id": 389, "name": "对话 389", "prev": "", "model": "deepseek-v4-flash-", "cwd": "map/qrd3wh", "tpl": "", "machine": "", "when": "", "ro": false, "busy": null, "pin": false}];
+const state = {v:'1', dark:false, hoverAll:false, q:''};
+
+const HINTS = {
+  '1':'第二行几乎全是空白——149 条里 142 条没内容。这是现在线上的样子。',
+  '2':'没内容就不占地方：一屏从 11 行变成 15 行。空会话仍然是空的，只是不装样子。',
+  '3':'空会话那一行给点可区分的东西，但同样的东西连在一起只画一次。',
+  '4':'全摆上，接受噪声；换来看得见「这条是谁开的、在哪、用什么模型」。',
+  '5':'模型和目录对 90% 的行是一样的（噪声），真正唯一的是编号。只留 `#id`，最短且不重复。'
+};
+
+const ic = {
+  pin:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 17v5"/><path d="M9 10.76V7a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3.76a2 2 0 0 0 .59 1.42l1.7 1.7a.9.9 0 0 1-.63 1.53H6.34a.9.9 0 0 1-.63-1.53l1.7-1.7A2 2 0 0 0 9 10.76Z"/></svg>',
+  lock:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>'
+};
+
+function esc(s){return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+
+// 方案 3 用：把「一行能拿到的第二行文本」拼出来，便于跟上一行比较去重
+function metaOf(r, v){
+  if(v==='4'){
+    const bits=[];
+    if(r.tpl) bits.push(r.tpl);
+    if(r.machine) bits.push(r.machine);
+    if(r.model) bits.push(r.model);
+    if(r.cwd) bits.push(r.cwd);
+    return bits.join(' · ');
+  }
+  const bits=[];
+  if(r.tpl) bits.push(r.tpl);
+  if(r.machine) bits.push(r.machine);
+  if(r.model) bits.push(r.model);
+  if(r.cwd) bits.push(r.cwd);
+  return bits.join(' · ');
+}
+
+function metaHtml(a, b){ // a/b: {text, dim}
+  const parts=[];
+  if(a) parts.push(`<span class="p">${esc(a)}</span>`);
+  if(b) parts.push(`<span class="p" style="color:var(--faint)">${esc(b)}</span>`);
+  return parts.join('<span style="color:var(--faint)">·</span>');
+}
+
+function render(){
+  const list=document.getElementById('list');
+  const q=state.q.trim().toLowerCase();
+  const src=ROWS.filter(r=>!q || r.name.toLowerCase().includes(q) || (r.prev||'').toLowerCase().includes(q));
+  document.getElementById('cnt').textContent = q ? `${src.length} / ${ROWS.length}` : `${ROWS.length}`;
+  document.getElementById('hint').textContent = HINTS[state.v];
+  list.innerHTML='';
+  let lastMeta = null;   // 方案 3 去重用
+  let hoverLeft = state.hoverAll ? 3 : 1;  // 「固定显示 hover」时给几行画上
+  src.forEach((r, i)=>{
+    const v=state.v;
+    const row=document.createElement('div');
+    row.className='row';
+    if(r.id===2) row.classList.add('on');
+    else if(hoverLeft-->0) row.classList.add('hov');
+    if(v!=='1'){
+      row.classList.add('auto');
+      const hasPrev=!!r.prev;
+      const meta = hasPrev ? '' : metaOf(r,v);
+      if(!hasPrev && !meta) row.classList.add('tight');
+      if(v==='4' && !hasPrev && !meta) row.classList.add('tight');
+      if(v==='4' && !hasPrev) row.classList.add('bar-l');
+    }
+    // 第一行
+    const l1=document.createElement('div'); l1.className='l1';
+    l1.innerHTML =
+      (r.pin?`<span class="pin">${ic.pin}</span>`:'') +
+      (r.ro && v==='4'?`<span class="lock">${ic.lock}</span>`:'') +
+      `<span class="nm">${esc(r.name)}</span>` +
+      (state.v!=='4' && r.branch? `<span class="tm" style="color:#2f7d43">${r.branch} 分支</span>`:'') +
+      (r.when?`<span class="tm">${esc(r.when)}</span>`:'') +
+      (v==='4' && r.machine?`<span class="tag">${esc(r.machine)}</span>`:'');
+    row.appendChild(l1);
+
+    // 第二行
+    const v2=v;
+    let second='';
+    if(r.prev){ second = `<span class="p">${esc(r.prev)}</span>`; }
+    else if(v==='1'){ second = ''; }
+    else if(v==='2'){ second = ''; }
+    else if(v==='3'){
+      const meta = metaOf(r,'3');
+      if(meta && meta!==lastMeta){ second = `<span class="p" style="color:var(--faint)">${esc(meta)}</span>`; }
+    } else if(v==='5'){
+      second=`<span class="p" style="color:var(--faint);font-variant-numeric:tabular-nums">#${r.id}</span>`;
+    } else if(v==='4'){
+      const bits=[];
+      bits.push(`<span style="color:var(--faint)">#${r.id}</span>`);
+      if(r.tpl) bits.push(esc(r.tpl));
+      if(r.machine) bits.push(esc(r.machine));
+      if(r.model) bits.push(esc(r.model));
+      if(r.cwd) bits.push(esc(r.cwd));
+      second=`<span class="p">${bits.join(' · ')}</span>`;
+    }
+    lastMeta = r.prev ? null : metaOf(r,'3');
+    if(second){
+      const l2=document.createElement('div'); l2.className='l2'; l2.innerHTML=second; row.appendChild(l2);
+    }
+    list.appendChild(row);
+  });
+  // 计数
+}
+
+document.getElementById('seg').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  [...document.querySelectorAll('#seg button')].forEach(x=>x.classList.toggle('on', x===b));
+  state.v=b.dataset.v; render();
+});
+document.getElementById('dark').addEventListener('change', e=>{
+  state.dark=e.target.checked; document.documentElement.toggleAttribute('data-dark', state.dark);
+});
+document.getElementById('hoverAll').addEventListener('change', e=>{
+  state.hoverAll=e.target.checked; render();
+});
+document.getElementById('q').addEventListener('input', e=>{ state.q=e.target.value; render(); });
+render();
+</script>
+</body>
+</html>

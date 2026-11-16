@@ -3131,6 +3131,29 @@ impl Desktop {
             )
     }
 
+    /// 空会话那一行上摆什么。
+    ///
+    /// 为什么不是「有预览就用预览、没有就空着」：149 条主线里 **142 条的 `last` 真的是空的**
+    /// （`/v1/sessions/:id/entries` 返回 `{"items":[]}`，不是列表漏了字段），空着等于
+    /// 149 行只有名字，而其中 36 条还重名。摆上元信息至少能区分「谁开的、在哪个目录、什么模型」。
+    ///
+    /// 顺序按「能不能区分」排，`#id` 放最前：它是唯一一个不重复的字段。
+    fn meta_line(s: &Session) -> String {
+        let mut bits = vec![format!("#{}", s.id)];
+        if let Some(tpl) = s.template.as_deref() {
+            if !tpl.trim().is_empty() {
+                bits.push(tpl.to_string());
+            }
+        }
+        if let Some(m) = short_model(s.model.as_deref()) {
+            bits.push(m);
+        }
+        if let Some(c) = short_cwd(s.cwd.as_deref()) {
+            bits.push(c);
+        }
+        bits.join(" · ")
+    }
+
     fn session_row(&self, s: &Session, q: &str, cx: &mut Context<Self>) -> AnyElement {
         // 预览是最后一条 entry 的原文，带换行/连续空白是常态（工具输出整段）。
         // 摊平成一行，配合 `.truncate()` 才是微信那种单行摘要。
@@ -3149,18 +3172,31 @@ impl Desktop {
         // 置顶服务没连上时菜单照样要挂上，只是那一项画成禁用态（见 `archive_menu`）。
         let pins_available = self.pins_client.is_some();
 
+        // 左竖条常驻、平时是透明色：hover 时只换颜色，不换边框宽度 ——
+        // 换成「hover 才加 2px 边框」的话，鼠标划过的瞬间整行文字会右移 2px。
+        // 下边线放在外层（边框只有一种颜色，跟竖条共用会被 hover 一起染上）。
+        //
+        // `min_h(56)`：没有第二行内容的行（只有工具输出的）也跟别人一样高，列表才成一列节奏。
         let row = div()
             .flex()
             .flex_col()
             .justify_center()
-            // 固定下限：没有预览的行（新会话、只有工具输出的）也跟别人一样高，列表才成一列节奏。
             .min_h(t().d(56.))
-            .px(t().d(10.))
+            .pl(t().d(8.))
+            .pr(t().d(10.))
             .py(t().d(6.))
             .gap(t().d(2.))
-            .border_b(t().d(1.))
-            .border_color(rgb(t().p.line_strong))
+            .border_l(t().d(2.))
+            .border_color(rgba(t().p.transparent))
             .when(selected, |el| el.bg(rgb(t().p.selected)))
+            // 选中态优先：鼠标划在最上面那条时不把它的底色盖掉（`hover` 是后画的，
+            // 不加这个条件会盖）。
+            .when(!selected, |el| {
+                el.hover(|s| {
+                    s.bg(rgb(t().p.row_hover))
+                        .border_color(rgb(t().p.accent))
+                })
+            })
             // 一行里三样东西：📌 / 名字 / 分支角标 / 时间。左半边 `flex_1` 占满并 truncate，
             // 右半边 `flex_none` 顶到右边 —— 谁都不会被谁顶出去（比 absolute 好使，也不会重叠）。
             .child(
@@ -3214,6 +3250,19 @@ impl Desktop {
                             .text_size(t().fs(11.))
                             .text_color(rgb(t().p.muted))
                             .child(when)
+                    }))
+                    // 机器角标：`machine` 有值就说明这条不是本机跑的（`j1900` / `9996696`）。
+                    // 元信息那行里**不再重复**它 —— 同一行写两遍等于把噪声翻倍。
+                    .children(s.machine.as_deref().filter(|m| !m.trim().is_empty()).map(|m| {
+                        div()
+                            .flex_none()
+                            .px(t().d(3.))
+                            .rounded(t().r(3.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.line_soft))
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.muted))
+                            .child(m.to_string())
                     })),
             )
             // 第二行只有一个出口：左边是「正在输入…」或预览（`flex_1` + truncate），
@@ -3249,20 +3298,38 @@ impl Desktop {
                                     .child("正在输入…"),
                             )
                             .into_any_element()
-                    } else {
+                    } else if !preview.is_empty() {
                         div()
                             .flex_1()
                             .min_w(t().d(0.))
                             .child(Self::hl_line(&preview, q, Some(12.), Some(t().p.muted)))
                             .into_any_element()
+                    } else {
+                        // 空会话：写元信息（`#id · 模板 · 模型 · cwd`），不写「空」两个字
+                        // ——「空」在 149 行里重复 142 次，跟空白一样没信息量。
+                        div()
+                            .flex_1()
+                            .min_w(t().d(0.))
+                            .truncate()
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(t().p.faint))
+                            .child(Self::meta_line(s))
+                            .into_any_element()
                     })
                     .children(self.unread_badge(id)),
-            )
-            // `.id()` 把 Div 转成 Stateful<Div>，on_click 只存在于后者。
+            );
+
+        // 外层只负责两件事：下边线和点击。`.id()` 把 Div 转成 Stateful<Div>，
+        // on_click 只存在于后者。
+        let row = div()
+            .w_full()
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_strong))
             .id(ElementId::Name(format!("sess-{id}").into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.choose_session(id, cx);
-            }));
+            }))
+            .child(row);
 
         // 右键菜单：打开 / 置顶 / ─── / 更多 › / 重命名 / 复制名字。
         // 「更多」里的归档 / 撕原件是**独立一层**的子菜单（见 `archive_menu.rs`），
@@ -3622,6 +3689,40 @@ impl Desktop {
 /// 左栏顺序：**置顶的在前**（顺序照 `pins` 给的），其余保持原来那套顺序。
 ///
 /// 纯函数（只吃 id），所以能直接拿数字做单测 —— 排序这种事写错一次能烦一星期。
+/// `"volc-ark/deepseek-v4-flash-260425"` → `"deepseek-v4-flash"`。
+///
+/// 摘掉两样：provider 前缀（最后一截才是模型名），和尾部 `-260425` 这种快照日期
+/// （引擎把日期直接挂在名字上，留着会让 `deepseek-v4-flash-260425` 这种长串把整行吃满）。
+/// `"undefined/undefined"` 是引擎真给过的值，当作没有 —— 画出来是纯噪声。
+fn short_model(model: Option<&str>) -> Option<String> {
+    let tail = model?
+        .split('/')
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && *p != "undefined")
+        .next_back()?;
+    if let Some((head, digits)) = tail.rsplit_once('-') {
+        if digits.len() == 6 && digits.chars().all(|c| c.is_ascii_digit()) && !head.is_empty() {
+            return Some(head.to_string());
+        }
+    }
+    Some(tail.to_string())
+}
+
+/// `/opt/Nous/content/new1/map/qrd3wh` → `…/map/qrd3wh`；`/root` → `/root`。
+///
+/// 会话列表里 90% 的 `cwd` 是同一个目录，只要末两段就够区分，前面全部省略成 `…`。
+fn short_cwd(cwd: Option<&str>) -> Option<String> {
+    let cwd = cwd?.trim();
+    if cwd.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = cwd.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.len() <= 2 {
+        return Some(cwd.to_string());
+    }
+    Some(format!("…/{}", parts[parts.len() - 2..].join("/")))
+}
+
 fn order_ids(in_order: &[i64], pins: &[i64]) -> Vec<i64> {
     let mut out: Vec<i64> = Vec::with_capacity(in_order.len());
     for id in pins {
@@ -4023,7 +4124,7 @@ fn nav_child_index(
 mod tests {
     use super::{
         Bar, NoticeKind, NoticeState, error_notice, nav_child_index,
-        next_selection_after_archive, order_ids, when_text,
+        next_selection_after_archive, order_ids, short_cwd, short_model, when_text,
     };
     use nous_engine::EngineError;
     use nous_engine::types::{Entry, Session};
@@ -4238,6 +4339,43 @@ x
     #[test]
     fn 重复置顶不会重复出现() {
         assert_eq!(order_ids(&[1, 2], &[2, 2]), vec![2, 1]);
+    }
+
+    /// 元信息那行里的模型名：provider 前缀和日期后缀都要摘掉，`undefined` 当没有。
+    ///
+    /// 这几个值是引擎真给过的（`volc-ark/deepseek-v4-flash-260425` / `undefined/undefined`），
+    /// 写死在测试里是为了哪天引擎改了命名能立刻红。
+    #[test]
+    fn 模型名前缀和日期后缀都摘掉() {
+        assert_eq!(
+            short_model(Some("volc-ark/deepseek-v4-flash-260425")).as_deref(),
+            Some("deepseek-v4-flash")
+        );
+        assert_eq!(
+            short_model(Some("Qoder/Qoder/DeepSeek-Flash")).as_deref(),
+            Some("DeepSeek-Flash")
+        );
+        // 尾部不是 6 位数字就别当日期，名字里自带的 `-flash` 不能给削了
+        assert_eq!(
+            short_model(Some("ark/glm-5.3-flash")).as_deref(),
+            Some("glm-5.3-flash")
+        );
+        assert_eq!(short_model(Some("undefined/undefined")), None);
+        assert_eq!(short_model(Some("")), None);
+        assert_eq!(short_model(None), None);
+    }
+
+    /// `cwd` 只留末两段：149 条里绝大多数是同一个目录，全写会把整行吃满。
+    #[test]
+    fn 工作目录只留末两段() {
+        assert_eq!(
+            short_cwd(Some("/opt/Nous/content/new1/map/qrd3wh")).as_deref(),
+            Some("…/map/qrd3wh")
+        );
+        assert_eq!(short_cwd(Some("/root")).as_deref(), Some("/root"));
+        assert_eq!(short_cwd(Some("a/b")).as_deref(), Some("a/b"));
+        assert_eq!(short_cwd(Some("   ")), None);
+        assert_eq!(short_cwd(None), None);
     }
 
     // ── 票 #6：归档接线（只测纯函数缝）──────────────────────────────
