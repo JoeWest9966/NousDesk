@@ -948,3 +948,38 @@ j1900 推不回 GitHub、攒了一堆没推的提交，界面照旧写「仓干�
   `colors.primary`，实测出来是黑的），圆角又直接吃 `theme.radius`，换到「单色」这种直角皮上
   整个控件会退化成两个方块。手搭的版本颜色和圆角都从当前皮拿，跟 `pill` / `nav_toggle` 一路。
   不做动画：状态变化立刻可见就够。
+
+## 2026-11-16 · 主题加第 6 套「赛博」，**只落 1 套不落 9 套**
+
+`theme.rs` 从 5 套变 6 套：`default` / `industrial` / `mono` / `paper` / `amber` /
+**`cybertruck`**。用户从 `demo/tesla-themes/` 的九套里挑了 03。
+
+AGENTS 里写的是「Tesla 那 9 套」全要。**只落一套是有意的**：九套 = 九份要长期维护的
+配色（每套 45 个 token），而用户没有同时要九套。剩下八套的值都还在 demo 的
+`SKINS` 数组里（同一份 CSS 变量，复制过去就能变 `Palette`），要的时候一次一套，
+别攒成一批。
+
+**这套皮的三个硬属性**（写进测试 `cybertruck_is_square_dark_and_orange` 钉住）：
+
+1. **`radius_scale: 0.0`** —— 全直角。按钮、输入框、气泡、浮层跟着一起方，
+   这是整套皮的属性，不是某一页的。
+2. **`dark: true`** —— 钢灰底。标错成浅皮的话 `Input` / `Textarea` 组件主题会翻车
+   （它们读 `gpui_component::Theme` 的明暗）。
+3. **`accent: 0xff6b1a`（橙）**，且**只有这一个彩色**。橙出现在哪儿就是「这才是重点」：
+   发送、选中、未读、主按钮、虚线环。加第二个彩色就变成色块分区，
+   正是 AGENTS 里禁的那个。
+
+字体用 **Archivo** 不是 Inter/Manrope：Archivo 是 grotesque，字口更硬，跟直角是一个脾气。
+尺寸不放大（`density: 1.0`、`type_scale: 1.0`）—— 松靠留白堆，不靠把字调大。
+
+**反悔点**：
+- 直角要是太硬（比如输入框看着像老式软件），`radius_scale` 给 `0.375` ——
+  但那就跟 `amber` 一样了，等于这套皮失去理由。先问「那为什么还要这套」。
+- 想要更多套：去 `demo/tesla-themes/index.html` 的 `SKINS` 里取，**一次一套**。
+
+**一个已知的小瑕疵**：暗皮上 `Name` 那颗 pill 是亮底（`solid()` = 正文色，
+这是「三颗珠子跟中央圆同色」的设计），但 `Textarea` 的 placeholder 色来自组件主题的
+`muted_foreground`，在白底上偏淡。不是这次引入的（`mono` 皮同样），
+改它要动组件主题的全局槽，会波及所有输入框 —— 不值得，先记着。
+
+---

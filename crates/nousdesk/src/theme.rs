@@ -438,6 +438,66 @@ impl Palette {
         transparent: 0x00000000,
         code_bg: 0x17150f,
     };
+
+    /// 「赛博」：demo `demo/tesla-themes` 的 03 号，用户挑的那套。
+    ///
+    /// 不锈钢原色 —— 钢灰打底，**直角**（`radius_scale: 0`），一整片灰里只有一条橙。
+    /// 橙是这套唯一的彩色，所以它出现在哪儿就是「这才是重点」：发送、选中、
+    /// 未读、主按钮。别再多加第二个彩色，加了就变成色块分区。
+    pub const CYBERTRUCK: Palette = Palette {
+        sidebar: 0x2a2d30,
+        sidebar_hover: 0x34383b,
+        row_hover: 0x3a3e42,
+        sidebar_open: 0x3b3f43,
+        sidebar_idle: 0x8a9095,
+        list_bg: 0x303336,
+        chat_bg: 0x232628,
+        panel: 0x34373a,
+        panel_alt: 0x2d3033,
+        surface: 0x3b3e42,
+        overlay: 0x35383c,
+        bubble_me: 0x3d4145,
+        bubble_other: 0x34373a,
+
+        text: 0xe8eaec,
+        text_2: 0xb0b4b8,
+        muted: 0x83888d,
+        faint: 0x5c6166,
+        on_accent: 0x1a0f06,
+        on_sidebar: 0x8a9095,
+
+        // 分隔线在钢灰上要看得见但不抢 —— 比 `INDUSTRIAL` 的黑线软一档。
+        line: 0x454a4e,
+        line_strong: 0x575d62,
+        line_soft: 0x393d40,
+
+        accent: 0xff6b1a,
+        accent_hover: 0xff8038,
+        accent_soft: 0x3d2a1c,
+        accent_fg: 0xff8a4d,
+        accent_tint: 0xff6b1a22,
+        accent_soft_hover: 0x4a3323,
+
+        danger: 0xff4d3d,
+        danger_soft: 0x3a1d1a,
+        danger_fg: 0xff7a6a,
+        warn: 0xffb020,
+        warn_soft: 0x3a2e14,
+        ok: 0x4dd08a,
+        ok_fg: 0x6ee0a0,
+        link: 0x5aa8ff,
+        badge: 0xff4d3d,
+
+        hover: 0x383c3f,
+        selected: 0x40454a,
+        disabled: 0x5c6166,
+        avatar: 0x4a4f54,
+        // 暗底上的遮罩要更黑，不然罩不住（默认皮的 2e 在这里等于没罩）。
+        scrim: 0x00000066,
+        shadow: 0x00000030,
+        transparent: 0x00000000,
+        code_bg: 0x3b3e42,
+    };
 }
 
 // ── 排版 / 尺寸 ─────────────────────────────────────────────────────────
@@ -579,6 +639,32 @@ impl Skin {
         density: 1.02,
         dark: true,
         rail_w: 56.,
+        list_w: 280.,
+        preset_tree_w: 248.,
+        template_list_w: 300.,
+        detail_w: 420.,
+        head_h: 54.,
+    };
+
+    /// 「赛博」：钢灰 + 全直角 + 一条橙。
+    ///
+    /// `radius_scale: 0.0` 是这套皮最硬的一条：按钮、输入框、气泡、浮层全部变方。
+    /// 用 **Archivo** 而不是 Inter/Manrope —— Archivo 是 grotesque，字口更硬，
+    /// 跟直角是一个脾气；Inter 偏中性，Manrope 偏圆润，都撑不起这套。
+    ///
+    /// 尺寸不放大（`density: 1.0`）：Cyber 那台车的 UI 松是靠大留白堆的，
+    /// 不是靠把字调大 —— 字一大就变成「车机」而不是「仪表」。
+    pub const CYBERTRUCK: Skin = Skin {
+        p: Palette::CYBERTRUCK,
+        font: "Archivo",
+        mono: "JetBrainsMono",
+        body: 13.,
+        line_height: 0.0,
+        type_scale: 1.0,
+        radius_scale: 0.0,
+        density: 1.0,
+        dark: true,
+        rail_w: 60.,
         list_w: 280.,
         preset_tree_w: 248.,
         template_list_w: 300.,
@@ -819,6 +905,8 @@ pub enum ThemeName {
     Industrial,
     /// 琥珀 · 暖黑底 + 琥珀强调
     Amber,
+    /// 赛博 · 不锈钢 + 直角 + 一条橙
+    Cybertruck,
 }
 
 impl ThemeName {
@@ -829,6 +917,7 @@ impl ThemeName {
         ThemeName::Mono,
         ThemeName::Paper,
         ThemeName::Amber,
+        ThemeName::Cybertruck,
     ];
 
     /// 落盘用的 id（小写、稳定）。
@@ -839,6 +928,7 @@ impl ThemeName {
             ThemeName::Mono => "mono",
             ThemeName::Paper => "paper",
             ThemeName::Amber => "amber",
+            ThemeName::Cybertruck => "cybertruck",
         }
     }
 
@@ -850,6 +940,7 @@ impl ThemeName {
             ThemeName::Mono => "单色 · 纯黑白",
             ThemeName::Paper => "纸 · 暖白",
             ThemeName::Amber => "琥珀 · 暖黑",
+            ThemeName::Cybertruck => "赛博 · 不锈钢与橙",
         }
     }
 
@@ -861,6 +952,7 @@ impl ThemeName {
             ThemeName::Mono => Skin::MONO,
             ThemeName::Paper => Skin::PAPER,
             ThemeName::Amber => Skin::AMBER,
+            ThemeName::Cybertruck => Skin::CYBERTRUCK,
         }
     }
 
@@ -961,6 +1053,45 @@ mod tests {
         assert_eq!(t.d(6.).as_f32(), 6.);
         // 出厂皮不推组件主题：动 font_size / radius 会让整片文字度量变样。
         assert!(t.is_shipped());
+    }
+
+    /// 赛博皮的三条「硬属性」：全直角、暗色、橙 accent。
+    ///
+    /// 这三条是这套皮存在的理由 —— 换成圆角或者换成别的强调色，它就跟
+    /// 「工业」撞了。改这三条的人该先问一句「那为什么还要这套」。
+    #[test]
+    fn cybertruck_is_square_dark_and_orange() {
+        let t = ThemeName::Cybertruck.skin();
+        assert_eq!(t.radius_scale, 0.0, "直角是这套皮的根，不是可调项");
+        assert_eq!(t.r(8.).as_f32(), 0., "圆角必须真的算成 0");
+        assert!(t.dark, "钢灰底是暗皮；标成浅皮的话 Input/Textarea 配色会翻车");
+        assert_eq!(t.p.accent, 0xff6b1a, "橙");
+        assert_eq!(t.font, "Archivo", "用 Archivo，不是 Inter/Manrope");
+        // 尺寸不放大：Cyber 的松靠留白，不靠字号。
+        assert_eq!(t.density, 1.0);
+        assert_eq!(t.type_scale, 1.0);
+    }
+
+    /// 加皮必须同时挂进 `ALL`、`id()`、`label()`、`skin()` 四处 ——
+    /// 漏一处就是「设置页上有卡片但点不动」或者「写盘了读不回来」。
+    #[test]
+    fn every_theme_name_round_trips() {
+        for name in ThemeName::ALL.iter().copied() {
+            assert_eq!(
+                ThemeName::from_id(name.id()),
+                Some(name),
+                "{:?} 的 id 认不回来",
+                name
+            );
+            assert!(!name.label().is_empty(), "{:?} 没有展示名", name);
+            // skin() 里的 match 是穷尽的，能编过就说明四个地方都覆盖了；
+            // 这里只是真的调一次，防止改坏 token 时是运行期才发现。
+            let _ = name.skin();
+        }
+        assert!(
+            ThemeName::ALL.contains(&ThemeName::Cybertruck),
+            "新皮没挂进 ALL —— 设置页不会出现"
+        );
     }
 
     /// 换皮这条链真的通：把一份改过色 / 字号 / 圆角的 Skin 塞进帧内
