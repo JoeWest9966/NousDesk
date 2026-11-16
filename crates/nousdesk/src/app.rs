@@ -404,6 +404,8 @@ pub struct Desktop {
     pub(crate) preset_filter: Entity<InputState>,
     /// 「复制成新的」弹层。`Some` = 开着。
     pub(crate) preset_copy: Option<crate::templates::CopyDraft>,
+    /// 类别改名 / 删除弹层。`Some` = 开着。
+    pub(crate) cat_dialog: Option<crate::templates::CatDialog>,
     /// 窄窗下 Template 页的类别抽屉开着没有（宽窗常驻，不用这个）。
     pub(crate) cat_drawer: bool,
     /// Template 页在看**归档区**（列表栏换成归档列表）。
@@ -712,6 +714,10 @@ impl Desktop {
                                 this.close_copy(cx);
                                 return true;
                             }
+                            if this.cat_dialog.is_some() {
+                                this.close_cat_dialog(cx);
+                                return true;
+                            }
                             if this.new_cat.input.is_some() {
                                 this.close_new_category(cx);
                                 return true;
@@ -885,6 +891,7 @@ impl Desktop {
             preset_cat: None,
             preset_filter,
             preset_copy: None,
+            cat_dialog: None,
             preset_closed: std::collections::HashSet::new(),
             creating: None,
             picked_preset: None,
@@ -4467,6 +4474,19 @@ impl Render for Desktop {
                 (self.tab == Tab::Triggers && self.triggers.conflict.is_some())
                     .then(|| self.trigger_conflict_overlay(cx)),
             )
+            // 类别树：右键菜单 / 新建·改名表单 / 删除确认
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.cat_menu.is_some())
+                    .then(|| self.cat_menu_overlay(cx)),
+            )
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.cat_form.is_some())
+                    .then(|| self.cat_form_overlay(cx)),
+            )
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.cat_del.is_some())
+                    .then(|| self.cat_del_overlay(cx)),
+            )
             // 「撕原件」确认（盖在菜单之上）
             .children(self.purge_overlay(cx))
             // 窄窗的类别抽屉（比弹层低一层：弹层永远压在它上面）
@@ -4474,6 +4494,7 @@ impl Render for Desktop {
             // 「新建类别」弹层
             .children(self.new_cat_overlay(cx))
             .children(self.copy_overlay(cx))
+            .children(self.cat_dialog_overlay(cx))
             // Template 页：改类别 / 归档·彻底删的确认（最上面两层）
             .children(self.cat_edit_overlay(cx))
             .children(self.preset_confirm_overlay(cx))

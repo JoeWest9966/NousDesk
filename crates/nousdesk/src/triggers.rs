@@ -785,6 +785,17 @@ impl Desktop {
     ) -> bool {
         let _ = window;
         if key == "escape" {
+            if self.triggers.cat_form.is_some() || self.triggers.cat_del.is_some() {
+                self.triggers.cat_form = None;
+                self.triggers.cat_del = None;
+                cx.notify();
+                return true;
+            }
+            if self.triggers.cat_menu.is_some() {
+                self.triggers.cat_menu = None;
+                cx.notify();
+                return true;
+            }
             if self.triggers.menu.is_some() {
                 self.triggers.menu = None;
                 cx.notify();
@@ -968,9 +979,8 @@ impl Desktop {
                         c.what = what;
                         c.done = false;
                     }
-                    Ok(Err(e)) | Err(e) => {
-                        this.triggers.commit.err = Some(e.to_string());
-                    }
+                    Ok(Err(e)) => this.triggers.commit.err = Some(e.to_string()),
+                    Err(e) => this.triggers.commit.err = Some(e.to_string()),
                 }
                 cx.notify();
             });
@@ -1007,7 +1017,8 @@ impl Desktop {
                             c.done = true;
                         }
                     }
-                    Ok(Err(e)) | Err(e) => c.err = Some(e.to_string()),
+                    Ok(Err(e)) => c.err = Some(e.to_string()),
+                    Err(e) => c.err = Some(e.to_string()),
                 }
                 cx.notify();
             });
@@ -2017,6 +2028,7 @@ impl Desktop {
                 let count = counts.get(cat).copied().unwrap_or(0);
                 let on = current.as_deref() == Some(cat.as_str());
                 let c = cat.clone();
+                let right = cat.clone();
                 rows.push(
                     div()
                         .id(ElementId::Name(format!("tcat-{cat}").into()))
@@ -2037,10 +2049,10 @@ impl Desktop {
                         .on_mouse_down(
                             MouseButton::Right,
                             cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                                this.triggers.cat = Some(c.clone());
+                                this.triggers.cat = Some(right.clone());
                                 this.triggers.layer = Layer::Main;
                                 this.triggers.cat_menu = Some(CatMenu {
-                                    label: c.clone(),
+                                    label: right.clone(),
                                     x: ev.position.x.into(),
                                     y: ev.position.y.into(),
                                 });
