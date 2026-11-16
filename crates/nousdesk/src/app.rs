@@ -401,6 +401,8 @@ pub struct Desktop {
     pub(crate) new_cat: crate::templates::NewCatDraft,
     /// 窄窗下 Template 页的类别抽屉开着没有（宽窗常驻，不用这个）。
     pub(crate) cat_drawer: bool,
+    /// Template 页在看**归档区**（列表栏换成归档列表）。
+    pub(crate) archive_view: bool,
     _subs: Vec<Subscription>,
     /// 「New Manual」盘面。只占右侧聊天区那一格（外形照 qrd3wh 的 hb7k3j 页）。
     pub(crate) newchat: crate::board::NewChat,
@@ -802,6 +804,7 @@ impl Desktop {
             new_preset: None,
             new_cat: crate::templates::NewCatDraft::default(),
             cat_drawer: false,
+            archive_view: false,
             newchat: crate::board::NewChat::new(window, cx),
             nav: SessionNav::new(),
             _subs: subs,
