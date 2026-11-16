@@ -97,6 +97,31 @@ pub(crate) struct TriggerMenu {
     pub y: f32,
 }
 
+/// 类别节点右键菜单（和卡片右键同一套手感）。
+pub(crate) struct CatMenu {
+    pub label: String,
+    pub x: f32,
+    pub y: f32,
+}
+
+/// 新建 / 改名共用一个弹层，`rename: true` 时是改名。
+pub(crate) struct CatForm {
+    pub rename: bool,
+    pub label: String,
+    pub input: Entity<InputState>,
+    pub err: Option<String>,
+}
+
+/// 类别改动攒着，等一次提交（引擎只写盘，commit + push 要显式同步）。
+#[derive(Default)]
+pub(crate) struct Commit {
+    pub pending: usize,
+    pub what: String,
+    pub busy: bool,
+    pub err: Option<String>,
+    pub done: bool,
+}
+
 pub(crate) struct Confirm {
     pub open: bool,
     pub name: String,
@@ -119,6 +144,10 @@ pub(crate) struct State {
     pub confirm: Confirm,
     pub busy: Option<String>,
     pub menu: Option<TriggerMenu>,
+    pub cat_menu: Option<CatMenu>,
+    pub cat_form: Option<CatForm>,
+    pub cat_del: Option<String>,
+    pub commit: Commit,
     pub conflict: Option<String>,
     pub scroll: ScrollHandle,
 }
@@ -172,6 +201,10 @@ impl State {
             },
             busy: None,
             menu: None,
+            cat_menu: None,
+            cat_form: None,
+            cat_del: None,
+            commit: Commit::default(),
             conflict: None,
             scroll: ScrollHandle::new(),
         }
@@ -846,6 +879,588 @@ impl Desktop {
         }
     }
 
+    // ── 类别树可写（右键 → 新建子类 / 改名 / 删除）──────────
+
+    /// 这个词底下挂了多少条（含子类），用来在删除确认里说影响面。
+    fn cat_impact(&self, label: &str) -> (usize, Vec<String>) {
+        let prefix = format!("{label}/");
+        let mut n = 0;
+        let mut names = vec![];
+        if let Some(d) = self.triggers.data.as_ref() {
+            for t in &d.triggers {
+                if t.category.iter().any(|c| c == label || c.starts_with(&prefix)) {
+                    n += 1;
+                    if names.len() < 4 {
+                        names.push(t.name.clone());
+                    }
+                }
+            }
+        }
+        (n, names)
+    }
+
+    fn cat_open_form(
+        &mut self,
+        rename: bool,
+        parent: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let init = if rename {
+            parent.to_string()
+        } else {
+            format!("{parent}/")
+        };
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("类别名"));
+        input.update(cx, |s, cx| s.set_value(&init, window, cx));
+        self.triggers.cat_menu = None;
+        self.triggers.cat_form = Some(CatForm {
+            rename,
+            label: parent.to_string(),
+            input,
+            err: None,
+        });
+        cx.notify();
+    }
+
+    /// 词表操作走一趟，回来就地换清单 + 类别树，不用整页重载。
+    fn cat_apply(
+        &mut self,
+        op: &'static str,
+        name: String,
+        to: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(client) = self.triggers.client.clone() else {
+            return;
+        };
+        self.triggers.cat_menu = None;
+        self.triggers.cat_del = None;
+        self.triggers.cat_form = None;
+        self.triggers.commit.err = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, t) = (name.clone(), to.clone());
+            let res = handle
+                .spawn(async move { client.edit_vocab(op, &n, t.as_deref()).await })
+                .await;
+            let _ = this.update_in(cx, |this, _window, cx| {
+                match res {
+                    Ok(Ok(c)) => {
+                        if let Some(d) = this.triggers.data.as_mut() {
+                            d.triggers = c.catalog;
+                            d.categories = c.categories;
+                        }
+                        let what = match op {
+                            "rename" => format!("改名「{name}」→「{}」", to.clone().unwrap_or_default()),
+                            "remove" => format!("删除「{name}」"),
+                            _ => format!("新建「{name}」"),
+                        };
+                        this.triggers.cat = match op {
+                            "remove" => None,
+                            "rename" => to.clone(),
+                            _ => Some(name.clone()),
+                        };
+                        let c = &mut this.triggers.commit;
+                        c.pending += 1;
+                        c.what = what;
+                        c.done = false;
+                    }
+                    Ok(Err(e)) | Err(e) => {
+                        this.triggers.commit.err = Some(e.to_string());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 把攒下的类别改动提交并推送（`POST /v1/triggers/sync`）。
+    fn cat_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(client) = self.triggers.client.clone() else {
+            return;
+        };
+        self.triggers.commit.busy = true;
+        self.triggers.commit.err = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let res = handle.spawn(async move { client.sync().await }).await;
+            let _ = this.update_in(cx, |this, _window, cx| {
+                let c = &mut this.triggers.commit;
+                c.busy = false;
+                match res {
+                    Ok(Ok(m)) => {
+                        if m.pushed || !m.push_error.is_empty() {
+                            if m.push_error.is_empty() {
+                                c.pending = 0;
+                                c.done = true;
+                                c.err = None;
+                            } else {
+                                c.err = Some(format!("本地已提交，推送失败：{}", m.push_error));
+                            }
+                        } else {
+                            c.pending = 0;
+                            c.done = true;
+                        }
+                    }
+                    Ok(Err(e)) | Err(e) => c.err = Some(e.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn cat_menu_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(menu) = self.triggers.cat_menu.as_ref() else {
+            return div().into_any_element();
+        };
+        let (x, y) = (menu.x, menu.y);
+        let label = menu.label.clone();
+        let a = label.clone();
+        let b = label.clone();
+        let c = label.clone();
+        let row = |id: &'static str, text: &str, danger: bool| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .px(t().d(10.))
+                .h(t().d(28.))
+                .rounded(t().r(5.))
+                .text_size(t().fs(11.))
+                .text_color(rgb(if danger { t().p.danger } else { t().p.text }))
+                .cursor_pointer()
+                .hover(|h| h.bg(rgb(t().p.hover)))
+                .child(text.to_string())
+        };
+        div()
+            .absolute()
+            .size_full()
+            .child(
+                div()
+                    .absolute()
+                    .size_full()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.triggers.cat_menu = None;
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(y))
+                    .w(t().d(168.))
+                    .flex()
+                    .flex_col()
+                    .p(t().d(4.))
+                    .rounded(t().r(7.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .child(row("cm-new", "新建子类…", false).on_click(
+                        cx.listener(move |this, _, window, cx| {
+                            this.cat_open_form(false, &a, window, cx);
+                        }),
+                    ))
+                    .child(row("cm-rename", "改名…", false).on_click(
+                        cx.listener(move |this, _, window, cx| {
+                            this.cat_open_form(true, &b, window, cx);
+                        }),
+                    ))
+                    .child(
+                        div()
+                            .h(t().d(1.))
+                            .mx(t().d(6.))
+                            .my(t().d(4.))
+                            .bg(rgb(t().p.line_soft)),
+                    )
+                    .child(row("cm-del", "删除类别…", true).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.triggers.cat_menu = None;
+                            this.triggers.cat_del = Some(c.clone());
+                            cx.notify();
+                        }),
+                    )),
+            )
+            .into_any_element()
+    }
+
+    pub(crate) fn cat_form_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(form) = self.triggers.cat_form.as_ref() else {
+            return div().into_any_element();
+        };
+        let rename = form.rename;
+        let label = form.label.clone();
+        let (n, names) = self.cat_impact(&label);
+        let title = if rename {
+            format!("改名「{label}」")
+        } else {
+            format!("在「{label}」下新建子类")
+        };
+        let desc = if rename {
+            format!(
+                "子类会跟着搬：{label}/… → 新名字/…；{n} 个触发器的 nous.json 会被重写{}",
+                if names.is_empty() {
+                    String::new()
+                } else {
+                    format!("（{}）", names.join("、"))
+                }
+            )
+        } else {
+            format!("会写成 {label}/新名字，词表里两级都留下；不影响已有触发器。")
+        };
+        let old = label.clone();
+        div()
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(t().p.scrim))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.triggers.cat_form = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .w(t().d(360.))
+                    .p(t().d(18.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .flex()
+                    .flex_col()
+                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                    .child(
+                        div()
+                            .text_size(t().fs(13.))
+                            .text_color(rgb(t().p.text))
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(6.))
+                            .text_size(t().fs(10.))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.muted))
+                            .child(desc),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(12.))
+                            .h(t().d(31.))
+                            .child(Input::new(&self.triggers.cat_form.as_ref().unwrap().input)),
+                    )
+                    .when_some(
+                        self.triggers.cat_form.as_ref().and_then(|f| f.err.clone()),
+                        |el, err| {
+                            el.child(
+                                div()
+                                    .mt(t().d(7.))
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(t().p.danger))
+                                    .child(err),
+                            )
+                        },
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(14.))
+                            .flex()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .child(
+                                div()
+                                    .id("cf-cancel")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.triggers.cat_form = None;
+                                        cx.notify();
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("cf-ok")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.accent))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        let Some(v) = this
+                                            .triggers
+                                            .cat_form
+                                            .as_ref()
+                                            .map(|f| f.input.read(cx).value().trim().to_string())
+                                        else {
+                                            return;
+                                        };
+                                        if v.is_empty() || v.ends_with('/') {
+                                            if let Some(f) = this.triggers.cat_form.as_mut() {
+                                                f.err = Some("类别名不能是空的".into());
+                                            }
+                                            cx.notify();
+                                            return;
+                                        }
+                                        if rename {
+                                            let op = "rename";
+                                            this.cat_apply(op, old.clone(), Some(v), window, cx);
+                                        } else {
+                                            this.cat_apply("add", v, None, window, cx);
+                                        }
+                                    }))
+                                    .child(if rename { "改名" } else { "新建" }),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    pub(crate) fn cat_del_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(label) = self.triggers.cat_del.clone() else {
+            return div().into_any_element();
+        };
+        let (n, names) = self.cat_impact(&label);
+        let kids: Vec<String> = self
+            .triggers
+            .data
+            .as_ref()
+            .map(|d| {
+                d.categories
+                    .iter()
+                    .filter(|c| c.starts_with(&format!("{label}/")))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let body = if n > 0 {
+            format!(
+                "{n} 个触发器会变成「未分类」：{}。触发器本身不会被删，只是摘掉这个标签。",
+                names.join("、")
+            )
+        } else {
+            "没有触发器挂在这个类别上，删了不影响任何东西。".to_string()
+        };
+        let del = label.clone();
+        div()
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(t().p.scrim))
+            .child(
+                div()
+                    .w(t().d(400.))
+                    .p(t().d(18.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .text_size(t().fs(13.))
+                            .text_color(rgb(t().p.text))
+                            .child(format!("删除「{label}」")),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(6.))
+                            .text_size(t().fs(10.))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.muted))
+                            .child(if kids.is_empty() {
+                                "词表里这一项会被拿掉。".to_string()
+                            } else {
+                                format!("子类 {} 一起删。", kids.join("、"))
+                            }),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(10.))
+                            .p(t().d(9.))
+                            .rounded(t().r(5.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.danger))
+                            .text_size(t().fs(10.))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.danger))
+                            .child(body),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(14.))
+                            .flex()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .child(
+                                div()
+                                    .id("cd-cancel")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.triggers.cat_del = None;
+                                        cx.notify();
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("cd-ok")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.danger))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.cat_apply("remove", del.clone(), None, window, cx);
+                                    }))
+                                    .child("删除"),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 类别栏底部那条「N 处改动 · 提交并推送」。
+    fn cat_commit_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+        let c = &self.triggers.commit;
+        if c.pending == 0 && !c.done && c.err.is_none() {
+            return div().into_any_element();
+        }
+        let (line, color) = if let Some(err) = &c.err {
+            (err.clone(), t().p.danger)
+        } else if c.done {
+            ("已提交并推送".to_string(), t().p.muted)
+        } else {
+            (format!("{} 处改动 · {}", c.pending, c.what), t().p.text_2)
+        };
+        div()
+            .px(t().d(12.))
+            .pt(t().d(8.))
+            .pb(t().d(10.))
+            .border_t(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
+            .flex()
+            .flex_col()
+            .gap(t().d(7.))
+            .child(
+                div()
+                    .text_size(t().fs(10.))
+                    .line_height(t().d(14.))
+                    .text_color(rgb(color))
+                    .child(line),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(t().d(6.))
+                    .when(c.pending > 0 && !c.busy, |el| {
+                        el.child(
+                            div()
+                                .id("cs-sync")
+                                .flex_1()
+                                .h(t().d(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(t().r(5.))
+                                .bg(rgb(t().p.accent))
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.on_accent))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.cat_sync(window, cx);
+                                }))
+                                .child("提交并推送"),
+                        )
+                    })
+                    .when(c.busy, |el| {
+                        el.child(
+                            div()
+                                .flex_1()
+                                .h(t().d(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.muted))
+                                .child("提交中…"),
+                        )
+                    })
+                    .when(c.done || c.err.is_some(), |el| {
+                        el.child(
+                            div()
+                                .id("cs-hide")
+                                .flex_1()
+                                .h(t().d(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(t().r(5.))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.line))
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.text_2))
+                                .cursor_pointer()
+                                .hover(|h| h.bg(rgb(t().p.hover)))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let c = &mut this.triggers.commit;
+                                    c.done = false;
+                                    c.err = None;
+                                    c.pending = 0;
+                                    cx.notify();
+                                }))
+                                .child("知道了"),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+
     fn ask_archive(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.triggers.confirm.name = name.to_string();
         self.triggers.confirm.open = true;
@@ -1419,6 +2034,19 @@ impl Desktop {
                             this.triggers.layer = Layer::Main;
                             cx.notify();
                         }))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                                this.triggers.cat = Some(c.clone());
+                                this.triggers.layer = Layer::Main;
+                                this.triggers.cat_menu = Some(CatMenu {
+                                    label: c.clone(),
+                                    x: ev.position.x.into(),
+                                    y: ev.position.y.into(),
+                                });
+                                cx.notify();
+                            }),
+                        )
                         .child(
                             div()
                                 .text_size(t().fs(12.))
@@ -1514,7 +2142,8 @@ impl Desktop {
                     .flex_1()
                     .min_h(t().d(0.))
                     .overflow_y_scroll()
-                    .children(rows),
+                    .children(rows)
+                    .child(self.cat_commit_bar(cx)),
             )
             .child(
                 div()
