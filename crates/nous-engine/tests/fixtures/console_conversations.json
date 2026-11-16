@@ -1,0 +1,71 @@
+{
+ "count": 183,
+ "list": [
+  {
+   "id": 2,
+   "ownerConv": null,
+   "ownerTask": null,
+   "entries": 90,
+   "tokens": 514241,
+   "cost": 0,
+   "toolCalls": 31,
+   "models": [
+    "deepseek-v4-flash-260425"
+   ],
+   "firstAt": 1793156783434,
+   "lastAt": 1794222429551,
+   "title": "只回答两个字：收到"
+  },
+  {
+   "id": 14,
+   "ownerConv": null,
+   "ownerTask": null,
+   "entries": 12,
+   "tokens": 6043,
+   "cost": 0,
+   "toolCalls": 1,
+   "models": [
+    "deepseek-v4-flash-260425"
+   ],
+   "firstAt": 1793156915823,
+   "lastAt": 1794132760158,
+   "title": "用一句话说明你是谁，别超过十五个字。"
+  },
+  {
+   "id": 25,
+   "ownerConv": null,
+   "ownerTask": null,
+   "entries": 33,
+   "tokens": 18716,
+   "cost": 0,
+   "toolCalls": 0,
+   "models": [
+    "deepseek-v4-flash-260425"
+   ],
+   "firstAt": 1793157773620,
+   "lastAt": 1793344632926,
+   "title": "只回答两个字：收到"
+  },
+  {
+   "id": 44,
+   "ownerConv": null,
+   "ownerTask": null,
+   "entries": 4,
+   "tokens": 2968,
+   "cost": 0,
+   "toolCalls": 1,
+   "models": [
+    "deepseek-v4-flash-260425"
+   ],
+   "firstAt": 1793173176831,
+   "lastAt": 1793173180773,
+   "title": "今天是星期几？"
+  }
+ ],
+ "diagrams": {},
+ "totals": {
+  "entries": 216,
+  "tokens": 592866,
+  "cost": 0
+ }
+}

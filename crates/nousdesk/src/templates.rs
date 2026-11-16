@@ -333,6 +333,10 @@ impl Desktop {
         if tab == Tab::Triggers {
             self.load_trigger_list(false, cx);
         }
+        if tab == Tab::Data {
+            // 五份数据一次拉齐（拉过就不重拉）：切过来就该有东西看，不该先给白屏。
+            self.load_console(false, cx);
+        }
         cx.notify();
     }
 
