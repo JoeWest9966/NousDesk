@@ -70,6 +70,8 @@ pub struct Palette {
     pub sidebar: u32,
     /// 图标条按钮 hover。
     pub sidebar_hover: u32,
+    /// 会话行 hover 底。比 `selected` 浅一档 —— 深了会跟「选中」混成一个样子。
+    pub row_hover: u32,
     /// 图标条菜单展开时的底色。
     pub sidebar_open: u32,
     /// 图标条上没选中的图标。
@@ -166,6 +168,7 @@ impl Palette {
     pub const DEFAULT: Palette = Palette {
         sidebar: 0x2e2e2e,
         sidebar_hover: 0x3a3a3a,
+        row_hover: 0xf0f0f0,
         sidebar_open: 0x3f3f3f,
         sidebar_idle: 0x9a9a9a,
         list_bg: 0xf7f7f7,
@@ -220,6 +223,7 @@ impl Palette {
     pub const INDUSTRIAL: Palette = Palette {
         sidebar: 0xe9e6e0,
         sidebar_hover: 0xdedad3,
+        row_hover: 0xeeebe5,
         sidebar_open: 0xd6d2c9,
         sidebar_idle: 0x8d8a82,
         list_bg: 0xf4f2ee,
@@ -275,6 +279,7 @@ impl Palette {
     pub const MONO: Palette = Palette {
         sidebar: 0x000000,
         sidebar_hover: 0x141414,
+        row_hover: 0x141414,
         sidebar_open: 0x1c1c1c,
         sidebar_idle: 0x6b6b6b,
         list_bg: 0x000000,
@@ -329,6 +334,7 @@ impl Palette {
     pub const PAPER: Palette = Palette {
         sidebar: 0xf0f0ee,
         sidebar_hover: 0xe6e6e3,
+        row_hover: 0xf4f4f2,
         sidebar_open: 0xdededb,
         sidebar_idle: 0x9298a0,
         list_bg: 0xfbfbfa,
@@ -383,6 +389,7 @@ impl Palette {
     pub const AMBER: Palette = Palette {
         sidebar: 0x090806,
         sidebar_hover: 0x17150f,
+        row_hover: 0x1a1711,
         sidebar_open: 0x211d15,
         sidebar_idle: 0x6f6656,
         list_bg: 0x0d0c0a,
