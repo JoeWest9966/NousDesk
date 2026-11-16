@@ -109,6 +109,10 @@ pub fn render_purge_confirm(
 
     let title = format!("撕原件：{name}");
 
+    // 这一层是**整屏**的居中容器，它同时是「点空白」的接收方：
+    // 点卡片时卡片的处理器 `stop_propagation`，点到卡片外面就落到这里 → 关。
+    // 反过来的写法（容器 stop、只留罩子关）会让「点空白」**永远关不掉**：
+    // 容器的命中区盖满整屏，罩子根本收不到那一击（坑.md 85）。
     let body = div()
         .id(ElementId::Name("purge-dialog".into()))
         .absolute()
@@ -119,11 +123,17 @@ pub fn render_purge_confirm(
         .flex()
         .items_center()
         .justify_center()
-        // 弹窗本体吃掉点击**并且 stop**：只「吃掉」不够 —— 同一个点击还会继续传给
-        // 兄弟那层罩子，表现成「点正文，弹窗自己关了」（坑.md 61）。
-        .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
+        .on_click({
+            let on_close = on_close.clone();
+            move |ev: &ClickEvent, window: &mut Window, cx: &mut App| {
+                on_close(ev, window, cx);
+            }
+        })
         .child(
             div()
+                .id(ElementId::Name("purge-card".into()))
+                // 卡片自己吃掉点击：不然点正文会顺着容器关掉弹窗（坑.md 61）。
+                .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
                 .flex()
                 .flex_col()
                 .w(t().d(400.))
@@ -175,7 +185,13 @@ pub fn render_purge_confirm(
                         .child(
                             div()
                                 .id(ElementId::Name("purge-cancel".into()))
-                                .on_click(on_close)
+                                .on_click({
+                                    let on_close = on_close.clone();
+                                    move |ev: &ClickEvent, window: &mut Window, cx: &mut App| {
+                                        on_close(ev, window, cx);
+                                        cx.stop_propagation();
+                                    }
+                                })
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -191,7 +207,10 @@ pub fn render_purge_confirm(
                         .child(
                             div()
                                 .id(ElementId::Name("purge-confirm".into()))
-                                .on_click(on_confirm)
+                                .on_click(move |ev: &ClickEvent, window: &mut Window, cx: &mut App| {
+                                    on_confirm(ev, window, cx);
+                                    cx.stop_propagation();
+                                })
                                 .flex()
                                 .items_center()
                                 .justify_center()
