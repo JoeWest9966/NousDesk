@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>重命名会话 · 四套</title>
+<style>
+  /* mono 皮：黑底、白字、白线、一个强调色也是白。
+     数字对齐、少分隔线、大留白 —— 照 Tesla 那套。 */
+  :root{
+    --bg:#000; --panel:#000; --surface:#0a0a0a; --hover:#161616;
+    --line:rgba(255,255,255,.14); --line-strong:#fff;
+    --fg:#fff; --muted:rgba(255,255,255,.46); --faint:rgba(255,255,255,.26);
+    --accent:#fff;
+    --rail:56px; --list:280px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#050505; color:var(--fg);
+    font:13px/1.5 "Inter","Helvetica Neue",Arial,"PingFang SC","Noto Sans CJK SC",sans-serif;
+    -webkit-font-smoothing:antialiased; padding:28px 24px 60px;
+  }
+  h1{font-size:15px;font-weight:600;letter-spacing:.01em;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 26px}
+  .row{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+
+  .card{width:336px}
+  .card.wide{width:600px}
+  .card.wide .win{width:600px}
+  .cap{display:flex;align-items:baseline;gap:8px;margin:0 0 10px}
+  .no{font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);letter-spacing:.08em}
+  .name{font-size:12px;font-weight:600}
+  .why{color:var(--muted);font-size:11.5px;margin:8px 0 0;min-height:54px}
+  .why b{color:var(--fg);font-weight:500}
+  .cost{color:var(--faint);font-size:11px;margin:4px 0 0}
+  .cost em{color:var(--muted);font-style:normal}
+
+  /* ── 窗口壳：图标条 + 会话列表 ───────────────────────────── */
+  .win{display:flex;height:340px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg);position:relative}
+  .rail{width:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;
+        align-items:center;gap:6px;padding:10px 0;flex:none}
+  .dot{width:26px;height:26px;border-radius:7px;background:var(--surface);border:1px solid var(--line)}
+  .dot.on{background:#fff;border-color:#fff}
+  .list{width:var(--list);flex:none;padding:8px 6px;overflow:hidden}
+  .lhead{display:flex;justify-content:space-between;align-items:center;padding:2px 8px 8px;color:var(--muted);font-size:12px}
+  .lhead span:last-child{font-size:15px;line-height:1}
+  .s{display:flex;align-items:center;gap:8px;height:44px;padding:0 10px;border-radius:7px;color:var(--fg)}
+  .s .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .s .time{font-size:11px;color:var(--faint);flex:none}
+  .s.sel{background:var(--hover)}
+  .s.hov{background:var(--hover)}
+  .body{flex:1;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px}
+
+  /* ── 00 现状：右键菜单 + 那条提示 ───────────────────────── */
+  .menu{position:absolute;left:120px;top:96px;width:196px;background:var(--surface);
+        border:1px solid var(--line-strong);border-radius:8px;padding:5px;font-size:12.5px;z-index:5}
+  .mi{display:flex;justify-content:space-between;padding:6px 9px;border-radius:5px;color:var(--fg)}
+  .mi.dim{color:var(--faint)}
+  .mi.hl{background:var(--hover)}
+  .sep{height:1px;background:var(--line);margin:4px 6px}
+  .toast{position:absolute;left:30px;bottom:18px;right:30px;background:var(--surface);
+         border:1px solid var(--line);border-radius:7px;padding:8px 11px;font-size:11.5px;color:var(--muted);z-index:6}
+  .toast b{color:var(--fg);font-weight:500}
+
+  /* ── A 就地编辑 ─────────────────────────────────────────── */
+  .s.editing{background:var(--surface);padding-right:8px}
+  .s.editing .t{display:none}
+  .inl{flex:1;min-width:0;display:flex;align-items:center;gap:6px;
+       border:1px solid var(--line-strong);border-radius:5px;height:28px;padding:0 7px;background:#000}
+  .inl .v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .inl .caret{width:1px;height:14px;background:#fff;flex:none}
+  .hint{position:absolute;left:calc(var(--rail) + 10px);bottom:10px;font-size:10.5px;color:var(--faint)}
+  .hint kbd{font:11px ui-monospace,monospace;border:1px solid var(--line);border-radius:3px;
+            padding:0 4px;color:var(--muted);margin:0 1px}
+
+  /* ── B 居中弹框 ─────────────────────────────────────────── */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;
+         justify-content:center;z-index:8}
+  .modal{width:262px;background:var(--surface);border:1px solid var(--line-strong);
+         border-radius:9px;padding:14px 14px 12px}
+  .modal .h{font-size:12px;color:var(--muted);margin:0 0 9px;letter-spacing:.02em}
+  .fld{border:1px solid var(--line-strong);border-radius:6px;height:31px;display:flex;
+       align-items:center;padding:0 9px;background:#000}
+  .fld .v{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fld .caret{width:1px;height:15px;background:#fff}
+  .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+  .btn{font-size:12px;padding:4px 11px;border-radius:5px;border:1px solid var(--line);color:var(--fg)}
+  .btn.primary{background:#fff;color:#000;border-color:#fff;font-weight:600}
+
+  /* ── C 贴行浮层 ─────────────────────────────────────────── */
+  .pop{position:absolute;left:calc(var(--rail) + var(--list) + 4px);top:40px;
+       width:236px;background:var(--surface);border:1px solid var(--line-strong);
+       border-radius:8px;padding:11px;z-index:8}
+  .pop .fld{height:29px}
+  .pop .acts{justify-content:space-between;align-items:center;margin-top:9px}
+  .pop .k{font-size:10.5px;color:var(--faint)}
+  .pop .k kbd{font:10.5px ui-monospace,monospace;border:1px solid var(--line);border-radius:3px;padding:0 3px;margin-right:2px}
+  .anchor{position:absolute;left:calc(var(--rail) + var(--list) - 8px);top:196px;
+          width:1px;height:1px}
+  /* 指过去的那条线：说明浮层属于哪一行 */
+  /* 把浮层和那一行钉在一起的短线：从行右边缘伸出来 */
+  .leader{position:absolute;left:calc(var(--rail) + var(--list) - 8px);top:62px;
+          width:12px;height:1px;background:var(--line-strong)}
+</style>
+</head>
+<body>
+
+<h1>重命名会话 · 四套</h1>
+<p class="sub">
+  左栏 <code>336px</code>（图标条 56 + 列表 280）· 会话行 44px · mono 皮 ·
+  <b>都是真栏宽真字号</b>。挑一套，我照着写。
+</p>
+
+<div class="row">
+
+  <!-- ── 00 现状 ─────────────────────────────────────────── -->
+  <div class="card">
+    <div class="cap"><span class="no">00</span><span class="name">现状（对照）</span></div>
+    <div class="win">
+      <div class="rail"><div class="dot on"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="list">
+        <div class="lhead"><span>会话</span><span>＋</span></div>
+        <div class="s sel"><span class="t">真模型</span><span class="time">14:32</span></div>
+        <div class="s"><span class="t">修完测一下</span><span class="time">11:08</span></div>
+        <div class="s"><span class="t">外部写入</span><span class="time">昨天</span></div>
+        <div class="s"><span class="t">对话 44</span><span class="time">周一</span></div>
+      </div>
+      <div class="body">选个会话，这里开始聊</div>
+      <div class="menu">
+        <div class="mi">打开</div>
+        <div class="mi">置顶该聊天</div>
+        <div class="sep"></div>
+        <div class="mi dim">更多 ›</div>
+        <div class="mi hl">重命名</div>
+        <div class="mi">复制名字</div>
+      </div>
+      <div class="toast">重命名端点还没接：<b>wire.md</b> 里没有这条</div>
+    </div>
+    <p class="why">
+      菜单项摆在那儿，点下去弹一句「端点还没接」。<b>其实端点存在</b> —— 这一套要删掉的就是这条提示。
+    </p>
+    <p class="cost">代价：<em>无。这是要换掉的那个</em></p>
+  </div>
+
+  <!-- ── A 就地编辑 ──────────────────────────────────────── -->
+  <div class="card">
+    <div class="cap"><span class="no">A</span><span class="name">就地编辑</span></div>
+    <div class="win">
+      <div class="rail"><div class="dot on"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="list">
+        <div class="lhead"><span>会话</span><span>＋</span></div>
+        <div class="s sel editing">
+          <div class="inl"><span class="v">真模型</span><span class="caret"></span></div>
+          <span class="time">14:32</span>
+        </div>
+        <div class="s"><span class="t">修完测一下</span><span class="time">11:08</span></div>
+        <div class="s"><span class="t">外部写入</span><span class="time">昨天</span></div>
+        <div class="s"><span class="t">对话 44</span><span class="time">周一</span></div>
+      </div>
+      <div class="body">选个会话，这里开始聊</div>
+      <div class="hint"><kbd>↵</kbd> 保存 <kbd>Esc</kbd> 取消</div>
+    </div>
+    <p class="why">
+      眼睛不用离开那一行，改完按个回车就完事。<b>最少动作</b>，也最 Tesla。
+    </p>
+    <p class="cost">代价：<em>输入框只有 200 来像素，长名字看不全；而且它在「点行 = 打开会话」的命中区里，得单独拦事件</em></p>
+  </div>
+
+  <!-- ── B 居中弹框 ──────────────────────────────────────── -->
+  <div class="card">
+    <div class="cap"><span class="no">B</span><span class="name">居中弹框</span></div>
+    <div class="win">
+      <div class="rail"><div class="dot on"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="list">
+        <div class="lhead"><span>会话</span><span>＋</span></div>
+        <div class="s sel"><span class="t">真模型</span><span class="time">14:32</span></div>
+        <div class="s"><span class="t">修完测一下</span><span class="time">11:08</span></div>
+        <div class="s"><span class="t">外部写入</span><span class="time">昨天</span></div>
+        <div class="s"><span class="t">对话 44</span><span class="time">周一</span></div>
+      </div>
+      <div class="body">选个会话，这里开始聊</div>
+      <div class="scrim">
+        <div class="modal">
+          <div class="h">重命名会话</div>
+          <div class="fld"><span class="v">真模型</span><span class="caret"></span></div>
+          <div class="acts"><span class="btn">取消</span><span class="btn primary">完成</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="why">
+      <b>微信桌面就是这套</b>。输入框能拉宽、能看见整个名字；压暗背景等于说「现在就这一件事」。
+    </p>
+    <p class="cost">代价：<em>眼睛要从左栏跳到屏幕中间；多一层遮罩，弹一次重一点</em></p>
+  </div>
+
+  <!-- ── C 贴行浮层 ──────────────────────────────────────── -->
+  <div class="card wide">
+    <div class="cap"><span class="no">C</span><span class="name">贴行浮层</span><span style="color:var(--faint);font-size:10.5px">（这格画宽了，好让浮层跨到聊天区上——真实就是这样）</span></div>
+    <div class="win">
+      <div class="rail"><div class="dot on"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="list">
+        <div class="lhead"><span>会话</span><span>＋</span></div>
+        <div class="s sel"><span class="t">真模型</span><span class="time">14:32</span></div>
+        <div class="s"><span class="t">修完测一下</span><span class="time">11:08</span></div>
+        <div class="s"><span class="t">外部写入</span><span class="time">昨天</span></div>
+        <div class="s"><span class="t">对话 44</span><span class="time">周一</span></div>
+      </div>
+      <div class="body">选个会话，这里开始聊</div>
+      <div class="leader"></div>
+      <div class="pop">
+        <div class="fld"><span class="v">真模型</span><span class="caret"></span></div>
+        <div class="acts">
+          <span class="k"><kbd>↵</kbd>保存 <kbd>Esc</kbd>取消</span>
+          <span class="btn primary">完成</span>
+        </div>
+      </div>
+    </div>
+    <p class="why">
+      折中：位置**贴着那一条**（知道在改谁），输入框又能比行里宽。左边那条短线是把两者钉在一起的。
+    </p>
+    <p class="cost">代价：<em>要算位置；靠近窗口上下边时得翻向；同屏出现的层又多了一种</em></p>
+  </div>
+
+</div>
+
+</body>
+</html>
