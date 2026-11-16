@@ -632,6 +632,16 @@ pub struct CreateSession {
     pub read_only: Option<bool>,
 }
 
+/// `POST /v1/sessions/:id/rename` 的响应（200）。
+///
+/// 引擎只回这两个字段 —— 名字是**它存下来的那个**（trim 过、空的话它会拒绝并回 400
+/// `{"error":"name 是空的"}`）。客户端拿 `name` 覆盖本地，别把请求值直接写上去。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Renamed {
+    pub id: i64,
+    pub name: String,
+}
+
 /// `POST /v1/sessions` 的响应（201）。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
