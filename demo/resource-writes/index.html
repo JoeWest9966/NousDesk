@@ -1,0 +1,1297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NousDesk · 资源页 03 · 写操作落地稿</title>
+<style>
+@font-face { font-family: Inter; src: url(fonts/inter-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: JBMono; src: url(fonts/jetbrainsmono-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: #0a0b0c; color: #e7e9ea;
+  font: 400 12.5px/1.5 Inter, "Noto Sans CJK SC", "Source Han Sans SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; display: flex; overflow: hidden;
+}
+
+/* ── 挑方案的那一列 ─────────────────────────────────────────── */
+.picker { width: 262px; flex: 0 0 262px; height: 100vh; overflow: auto; background: #111315;
+  border-right: 1px solid #202428; padding: 22px 16px 18px; }
+.picker::-webkit-scrollbar { width: 0; }
+.picker h1 { font-size: 13px; font-weight: 600; }
+.picker .sub { font-size: 10.5px; line-height: 1.75; color: #7c848a; margin: 7px 0 16px; }
+.plist { display: flex; flex-direction: column; gap: 1px; }
+.plist button { display: flex; align-items: baseline; gap: 9px; padding: 7px 8px; border: 0;
+  border-left: 2px solid transparent; background: transparent; color: #98a0a6; font: inherit;
+  text-align: left; cursor: pointer; }
+.plist button:hover { color: #e7e9ea; background: #171a1d; }
+.plist button.on { border-left-color: #07c160; color: #fff; background: #1b1f22; }
+.plist b { font: 500 9.5px/1 JBMono, monospace; color: #5f676d; min-width: 18px; }
+.plist button.on b { color: #07c160; }
+.plist span { font-size: 11px; line-height: 1.45; }
+.pnote { margin-top: 14px; padding-top: 13px; border-top: 1px solid #22262a;
+  font-size: 10.5px; line-height: 1.85; color: #8a9298; }
+.pnote b { display: block; color: #e7e9ea; font-weight: 600; margin-bottom: 5px; }
+.pnote em { font-style: normal; color: #b9c0c5; }
+.pnote .cost { color: #c9a227; }
+.skinbar { margin-top: 14px; padding-top: 12px; border-top: 1px solid #22262a;
+  display: flex; align-items: center; gap: 6px; font-size: 10px; color: #7c848a; }
+.skinbar button { height: 22px; padding: 0 9px; border: 1px solid #22262a; background: transparent;
+  color: #98a0a6; font: inherit; font-size: 10px; border-radius: 5px; cursor: pointer; }
+.skinbar button:hover { color: #e7e9ea; border-color: #343a3f; }
+.skinbar button.on { background: #1b1f22; color: #fff; border-color: #3a3f44; }
+.pfoot { margin-top: 14px; padding-top: 11px; border-top: 1px solid #22262a;
+  font-size: 9.5px; line-height: 1.9; color: #5f676d; }
+.pfoot code { font-family: JBMono, monospace; color: #8a9298; }
+.pfoot .hint { color: #b9c0c5; }
+
+/* ── 舞台 ──────────────────────────────────────────────────── */
+.stage { flex: 1; height: 100vh; display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(1300px 760px at 58% 42%, #15181a 0%, #0a0b0c 72%); padding: 22px; }
+.scaler { position: relative; }
+.app { position: absolute; top: 0; left: 0; width: 1280px; height: 800px; display: flex;
+  overflow: hidden; transform-origin: top left;
+  box-shadow: 0 34px 100px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.05); }
+
+/* ── 皮（Palette::DEFAULT / Palette::AMBER）────────────────────── */
+.app[data-skin="default"] {
+  --sidebar:#2e2e2e; --sidebar-hover:#3a3a3a; --sidebar-open:#3f3f3f; --idle:#9a9a9a;
+  --list:#f7f7f7; --chat:#ededed; --panel:#fff; --panel2:#fafafa; --surface:#f6f6f6;
+  --ink:#1a1a1a; --ink2:#333; --muted:#999; --faint:#aaa;
+  --line:#e6e6e6; --line-2:#e2e2e2; --line-soft:#eee;
+  --accent:#07c160; --accent-h:#06ad56; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f;
+  --accent-tint:#07c16022; --on-accent:#fff;
+  --danger:#d32f2f; --danger-soft:#fff1f0; --danger-fg:#c0392b;
+  --warn:#c77700; --warn-soft:#fff8ee; --ok:#079c50; --ok-fg:#2e7d32;
+  --link:#0b6bcb; --hover:#f2f2f2; --selected:#d9d9d9; --disabled:#b2b2b2;
+  --avatar:#7ba7d7; --code:#f6f6f4; --r:1;
+}
+.app[data-skin="amber"] {
+  --sidebar:#090806; --sidebar-hover:#17150f; --sidebar-open:#211d15; --idle:#6f6656;
+  --list:#0d0c0a; --chat:#0d0c0a; --panel:#12110e; --panel2:#17150f; --surface:#17150f;
+  --ink:#f0e9dc; --ink2:#d6c9ae; --muted:#b4a88e; --faint:#968c78;
+  --line:#251f18; --line-2:#322a1f; --line-soft:#1c1712;
+  --accent:#e8a33d; --accent-h:#f2b455; --accent-soft:#2a2113; --accent-fg:#e8a33d;
+  --accent-tint:#e8a33d22; --on-accent:#14110c;
+  --danger:#d8705f; --danger-soft:#2a1712; --danger-fg:#d8705f;
+  --warn:#e8a33d; --warn-soft:#2a2113; --ok:#7fb489; --ok-fg:#7fb489;
+  --link:#e8a33d; --hover:#17150f; --selected:#211d15; --disabled:#6b6354;
+  --avatar:#e8a33d; --code:#17150f; --r:.375;
+}
+
+/* ── 通用零件（跟触发器工作台那套方言一致）────────────────────── */
+.app { background: var(--panel); color: var(--ink); font-size: 12.5px; }
+.mono { font-family: JBMono, monospace; font-variant-numeric: tabular-nums; }
+.grow { flex: 1; }
+.ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.btn { height: 28px; padding: 0 11px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--ink2); font: inherit; font-size: 11.5px; border-radius: calc(6px * var(--r));
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn:hover { background: var(--hover); }
+.btn .ic { width: 14px; height: 14px; }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
+.btn.pri:hover { background: var(--accent-h); border-color: var(--accent-h); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn.ghost:hover { background: var(--hover); color: var(--ink2); }
+.btn.sm { height: 24px; padding: 0 9px; font-size: 11px; border-radius: calc(5px * var(--r)); }
+.btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 32%, transparent); }
+.btn.danger:hover { background: var(--danger-soft); }
+.btn:disabled { opacity: .5; cursor: default; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 19px; padding: 0 6px;
+  border-radius: calc(4px * var(--r)); background: var(--surface); color: var(--muted);
+  font-size: 10.5px; white-space: nowrap; }
+.chip.line { background: transparent; border: 1px solid var(--line); }
+.chip.accent { background: var(--accent-soft); color: var(--accent-fg); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.bad { background: var(--danger-soft); color: var(--danger-fg); }
+.chip.mono { font-family: JBMono, monospace; font-size: 9.5px; letter-spacing: -.1px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: 0 0 6px; }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--danger); }
+.dot.off { background: var(--faint); }
+.kbd { display: inline-flex; align-items: center; height: 17px; padding: 0 4px; border: 1px solid var(--line);
+  border-bottom-width: 2px; border-radius: 4px; background: var(--panel);
+  font: 9.5px JBMono, monospace; color: var(--muted); }
+.scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ── 图标条 ────────────────────────────────────────────────── */
+.rail { width: 60px; flex: 0 0 60px; height: 100%; background: var(--sidebar);
+  display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 6px; }
+.rbtn { width: 40px; height: 40px; display: grid; place-items: center; border: 0;
+  border-radius: calc(8px * var(--r)); background: transparent; color: var(--idle);
+  cursor: pointer; flex: 0 0 40px; }
+.rbtn:hover { background: var(--sidebar-hover); color: #d6d6d6; }
+.rbtn.on { color: var(--accent); }
+.rbtn.on.open { background: var(--sidebar-open); }
+.rbtn .ic { width: 22px; height: 22px; }
+.rsp { flex: 1; }
+
+/* ── 三栏 ──────────────────────────────────────────────────── */
+.page { flex: 1; display: flex; min-width: 0; height: 100%; }
+
+.tree { width: 248px; flex: 0 0 248px; display: flex; flex-direction: column;
+  background: var(--panel2); border-right: 1px solid var(--line-soft); min-width: 0; }
+.tree.narrow { width: 200px; flex: 0 0 200px; }
+.tree-head { display: flex; align-items: center; gap: 6px; padding: 13px 12px 8px;
+  border-bottom: 1px solid var(--line-soft); }
+.tree-head h2 { font-size: 11.5px; font-weight: 400; color: var(--ink2); }
+.tree-head .n { font-size: 11px; color: var(--muted); }
+.tree-body { flex: 1; padding: 6px; }
+.cat { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px;
+  border-radius: calc(5px * var(--r)); color: var(--ink2); font-size: 12px; cursor: pointer; }
+.cat:hover { background: var(--line-soft); }
+.cat.on { background: var(--accent-soft); color: var(--accent-fg); }
+.cat .tw { width: 10px; color: var(--faint); display: grid; place-items: center; flex: 0 0 10px; }
+.cat .tw .ic { width: 9px; height: 9px; }
+.cat .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat .n { margin-left: auto; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cat.on .n { color: var(--accent-fg); opacity: .8; }
+.cat.zero { color: var(--faint); }
+.gsep { padding: 12px 8px 4px; font-size: 10px; color: var(--faint); letter-spacing: .06em; }
+.tree-foot { border-top: 1px solid var(--line-soft); padding: 9px 12px 14px; font-size: 10.5px;
+  line-height: 1.6; color: var(--muted); }
+.tree-foot .frow { display: flex; align-items: center; gap: 5px; }
+.tree-foot .head { font-family: JBMono, monospace; font-size: 9.5px; color: var(--faint); }
+.tree-foot .linkbtn { border: 0; background: none; padding: 0; font: inherit; color: var(--link);
+  cursor: pointer; font-size: 10.5px; }
+.tree-foot .linkbtn:hover { text-decoration: underline; }
+
+/* 段按钮（一个入口下的两三段）*/
+/* 段按钮（一个入口下的两三段）*/
+.subseg { display: flex; gap: 4px; margin: -4px 8px 8px; }
+.subseg button { flex: 1; height: 21px; border: 1px solid var(--line); background: transparent;
+  border-radius: calc(5px * var(--r)); font: inherit; font-size: 10px; color: var(--muted); cursor: pointer; }
+.subseg button.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-fg); }
+.subseg button:hover:not(.on) { background: var(--line-soft); }
+.placeholder { flex: 1; display: grid; place-items: center; background: var(--chat); }
+.ph-card { width: 340px; text-align: center; color: var(--muted); }
+.ph-card .ic { width: 26px; height: 26px; color: var(--faint); }
+.ph-card h3 { font-size: 15px; font-weight: 500; color: var(--ink2); margin: 10px 0 6px; }
+.ph-card p { font-size: 11.5px; line-height: 1.8; }
+.segs { display: flex; gap: 2px; margin: 9px 8px 8px; padding: 3px; border-radius: calc(9px * var(--r));
+  background: var(--line); }
+.segs button { flex: 1 1 0; min-width: 0; padding: 4px 2px; border: 0; border-radius: calc(7px * var(--r));
+  background: transparent; font: inherit; font-size: 10.5px; color: var(--muted); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.segs button .n { font-size: 9.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.segs button.on { background: var(--panel); color: var(--ink); }
+.segs button.on .n { color: var(--ok-fg); }
+.segs button:hover:not(.on) { background: color-mix(in srgb, var(--panel) 55%, transparent); }
+
+/* 列表列 */
+.list { width: 300px; flex: 0 0 300px; display: flex; flex-direction: column;
+  background: var(--list); border-right: 1px solid var(--line); min-width: 0; }
+.list.narrow { width: 280px; flex: 0 0 280px; }
+.list-head { padding: 13px 14px 6px; }
+.list-title { display: flex; align-items: baseline; gap: 6px; }
+.list-title h3 { font-size: 15px; font-weight: 400; }
+.list-title .n { font-size: 12px; color: var(--muted); }
+.list-title .acts { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+.filters { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
+.filters .chip { cursor: pointer; }
+.filters .chip .ic { width: 10px; height: 10px; }
+.search { display: flex; align-items: center; gap: 7px; height: 27px; margin-top: 9px;
+  padding: 0 9px; border: 1px solid transparent; border-radius: calc(6px * var(--r));
+  background: var(--surface); color: var(--muted); }
+.search:focus-within { border-color: var(--line-2); background: var(--panel); }
+.search .ic { width: 13px; height: 13px; color: var(--faint); }
+.search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+  font: inherit; font-size: 11.5px; color: var(--ink); }
+.search input::placeholder { color: var(--faint); }
+.list-body { flex: 1; }
+.row { position: relative; display: flex; gap: 10px; padding: 10px; border-bottom: 1px solid var(--line-2);
+  cursor: pointer; }
+.row:hover { background: var(--line-soft); }
+.row.on { background: var(--accent-soft); }
+.row.on::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
+  border-radius: 1px; background: var(--accent); }
+.row .av { width: 36px; height: 36px; flex: 0 0 36px; border-radius: calc(6px * var(--r));
+  background: var(--avatar); color: #fff; display: grid; place-items: center; font-size: 15px; }
+.app[data-skin="amber"] .row .av { color: var(--panel); }
+.row .av.off { background: var(--disabled); color: var(--faint); }
+.row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+.row .nm { display: flex; align-items: center; gap: 5px; }
+.row .nm .t { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .nm .t.mono { font-size: 12px; }
+.row .sum { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.row .meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.row .meta .chip { height: 17px; font-size: 10px; }
+.note { padding: 20px 16px; font-size: 11.5px; line-height: 1.8; color: var(--muted); }
+
+/* 详情 */
+.detail { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
+.det-head { padding: 13px 20px 11px; border-bottom: 1px solid var(--line-soft); }
+.det-head .top { display: flex; align-items: center; gap: 8px; }
+.det-head h2 { font-size: 16px; font-weight: 500; letter-spacing: -.2px; }
+.det-head .sub { margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px; color: var(--muted); }
+.det-head .acts { margin-left: auto; display: flex; gap: 5px; align-items: center; }
+.det-body { flex: 1; padding: 16px 20px 40px; }
+.det-inner { max-width: 660px; }
+
+.banner { display: flex; gap: 9px; padding: 10px 12px; border-radius: calc(8px * var(--r));
+  background: var(--accent-soft); color: var(--accent-fg); font-size: 11.5px; line-height: 1.65;
+  margin-bottom: 14px; }
+.banner .ic { width: 15px; height: 15px; margin-top: 1px; }
+.banner.warn { background: var(--warn-soft); color: var(--warn); }
+.banner.bad { background: var(--danger-soft); color: var(--danger-fg); }
+.banner b { font-weight: 600; }
+.banner .mono { font-size: 10.5px; word-break: break-all; }
+
+.metas { display: grid; grid-template-columns: 74px 1fr; gap: 6px 10px; margin: 0 0 18px;
+  font-size: 11.5px; }
+.metas dt { color: var(--faint); }
+.metas dd { color: var(--ink2); min-width: 0; overflow-wrap: anywhere; }
+.metas dd .mono { font-size: 10.5px; color: var(--ink2); }
+
+.files { display: flex; flex-direction: column; margin: 0 0 18px; border: 1px solid var(--line-soft);
+  border-radius: calc(7px * var(--r)); overflow: hidden; }
+.file { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 30px;
+  font-size: 11.5px; background: var(--panel); cursor: pointer; }
+.file + .file { border-top: 1px solid var(--line-soft); }
+.file:hover { background: var(--hover); }
+.file .ic { width: 13px; height: 13px; color: var(--faint); }
+.file .p { font-family: JBMono, monospace; font-size: 11px; }
+.file .sz { margin-left: auto; font-family: JBMono, monospace; font-size: 10px; color: var(--faint); }
+.file.on { background: var(--accent-soft); }
+.file.on .p { color: var(--accent-fg); }
+
+.sec-title { display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .06em;
+  color: var(--faint); margin: 20px 0 9px; }
+.sec-title::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+
+.prose { font-size: 12.5px; line-height: 1.78; color: var(--ink2); }
+.prose h1 { font-size: 17px; font-weight: 500; color: var(--ink); margin: 0 0 8px; letter-spacing: -.2px; }
+.prose h2 { font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 16px 0 5px; }
+.prose h3 { font-size: 12px; font-weight: 600; color: var(--ink2); margin: 12px 0 4px; }
+.prose p { margin: 0 0 8px; }
+.prose ul, .prose ol { margin: 0 0 9px; padding-left: 18px; }
+.prose li { margin-bottom: 3px; }
+.prose li::marker { color: var(--faint); }
+.prose code { font-family: JBMono, monospace; font-size: 11px; background: var(--code);
+  padding: 1px 4px; border-radius: 3px; }
+.prose pre { font-family: JBMono, monospace; font-size: 10.5px; line-height: 1.7; background: var(--code);
+  padding: 10px 12px; border-radius: calc(6px * var(--r)); overflow-x: auto; margin: 0 0 10px; }
+.prose pre code { background: none; padding: 0; font-size: 10.5px; }
+.prose strong { font-weight: 600; color: var(--ink); }
+.prose .front { font-family: JBMono, monospace; font-size: 10.5px; line-height: 1.75;
+  color: var(--muted); background: var(--code); border-radius: calc(6px * var(--r));
+  padding: 9px 11px; margin: 0 0 14px; white-space: pre-wrap; }
+
+/* ── 工作台（变体 04）──────────────────────────────────────── */
+.wb { flex: 1; display: flex; min-width: 0; background: var(--panel); }
+.wb-files { width: 186px; flex: 0 0 186px; border-right: 1px solid var(--line-soft);
+  background: var(--panel2); display: flex; flex-direction: column; }
+.wb-files .h { padding: 11px 12px 7px; font-size: 10px; color: var(--faint); letter-spacing: .06em; }
+.wb-files .f { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 12px;
+  font-size: 11px; color: var(--ink2); cursor: pointer; }
+.wb-files .f:hover { background: var(--line-soft); }
+.wb-files .f.on { background: var(--accent-soft); color: var(--accent-fg); }
+.wb-files .f .ic { width: 12px; height: 12px; color: var(--faint); }
+.wb-files .f .mono { font-size: 10.5px; }
+.wb-files .foot { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--line-soft);
+  font-size: 10px; color: var(--muted); line-height: 1.7; }
+.wb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.wb-bar { height: 38px; display: flex; align-items: center; gap: 6px; padding: 0 12px;
+  border-bottom: 1px solid var(--line-soft); }
+.tab { height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid transparent; border-radius: calc(5px * var(--r)); font-size: 11px; color: var(--muted);
+  font-family: JBMono, monospace; cursor: pointer; }
+.tab.on { background: var(--surface); border-color: var(--line); color: var(--ink); }
+.tab .x { color: var(--faint); }
+.code { flex: 1; overflow: auto; padding: 12px 0 40px; background: var(--panel); }
+.ln { display: flex; font: 11px/1.85 JBMono, monospace; }
+.ln .no { width: 44px; flex: 0 0 44px; text-align: right; padding-right: 12px; color: var(--faint);
+  user-select: none; }
+.ln .tx { flex: 1; white-space: pre; color: var(--ink2); padding-right: 20px; }
+.ln.fm .tx { color: var(--muted); }
+.ln.h .tx { color: var(--ink); font-weight: 500; }
+.ln .tx .s { color: var(--ok-fg); }
+.pub { width: 260px; flex: 0 0 260px; border-left: 1px solid var(--line-soft); background: var(--panel2);
+  display: flex; flex-direction: column; }
+.pub .h { padding: 12px 14px 8px; border-bottom: 1px solid var(--line-soft); display: flex;
+  align-items: center; gap: 6px; font-size: 11px; color: var(--ink2); }
+.pub .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.unit { border: 1px solid var(--line); border-radius: calc(7px * var(--r)); background: var(--panel);
+  padding: 8px 10px; font-size: 11px; }
+.unit .nm { display: flex; align-items: center; gap: 5px; font-family: JBMono, monospace; font-size: 10.5px; }
+.unit .fl { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; font-family: JBMono, monospace;
+  font-size: 9.5px; color: var(--muted); }
+.unit .fl .add { color: var(--ok-fg); }
+.unit .fl .del { color: var(--danger); }
+.pub .note-line { font-size: 10px; line-height: 1.75; color: var(--muted); }
+.pub .steps { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.step { display: flex; align-items: center; gap: 7px; font-size: 10.5px; color: var(--faint);
+  font-family: JBMono, monospace; }
+.step .k { width: 13px; height: 13px; border: 1px solid var(--line-2); border-radius: 50%;
+  display: grid; place-items: center; font-size: 8px; }
+.step.done { color: var(--ok-fg); }
+.step.done .k { border-color: var(--ok); background: var(--ok); color: var(--panel); }
+.step.run { color: var(--ink); }
+.step.run .k { border-color: var(--accent); color: var(--accent); }
+
+/* ── 会话列表（变体 05：页面只占右栏）────────────────────────── */
+.sessions { width: 280px; flex: 0 0 280px; background: var(--list); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; }
+.sessions .h { padding: 13px 14px 8px; display: flex; align-items: center; gap: 6px; }
+.sessions .h h3 { font-size: 15px; font-weight: 400; }
+.sessions .h .n { font-size: 12px; color: var(--muted); }
+.srow { display: flex; gap: 10px; padding: 9px 12px; cursor: pointer; }
+.srow:hover { background: var(--line-soft); }
+.srow .av { width: 34px; height: 34px; flex: 0 0 34px; border-radius: calc(5px * var(--r));
+  background: var(--avatar); color: #fff; display: grid; place-items: center; font-size: 13px; }
+.srow .m { flex: 1; min-width: 0; }
+.srow .m .t { font-size: 12.5px; display: flex; }
+.srow .m .t .tm { margin-left: auto; font-size: 10px; color: var(--faint); }
+.srow .m .p { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+
+/* ── 浮层 ─────────────────────────────────────────────────── */
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.28); }
+.menu { position: absolute; left: 66px; bottom: 12px; width: 216px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: calc(9px * var(--r));
+  box-shadow: 0 18px 46px rgba(0,0,0,.18); padding: 5px; }
+.menu .gl { padding: 7px 9px 3px; font-size: 10px; color: var(--faint); }
+.menu .it { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 9px;
+  border-radius: calc(5px * var(--r)); font-size: 12px; color: var(--ink2); cursor: pointer; }
+.menu .it:hover { background: var(--hover); }
+.menu .it .ic { width: 14px; height: 14px; color: var(--muted); }
+.menu .it .kbd { margin-left: auto; }
+.menu .it.on { background: var(--accent-soft); color: var(--accent-fg); }
+.menu .it.on .ic { color: var(--accent-fg); }
+.menu .sep { height: 1px; background: var(--line-soft); margin: 4px 6px; }
+.menu .info { display: flex; align-items: center; gap: 8px; padding: 4px 9px; font-size: 10.5px; color: var(--muted); }
+.menu .info .v { margin-left: auto; font-family: JBMono, monospace; color: var(--ink2); }
+
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 0; display: grid; place-items: center; }
+.dialog { position: relative; z-index: 1; width: 420px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: calc(11px * var(--r)); box-shadow: 0 26px 70px rgba(0,0,0,.25); overflow: hidden; }
+.dialog .dh { padding: 15px 18px 6px; font-size: 14px; font-weight: 500; }
+.dialog .db { padding: 0 18px 14px; font-size: 11.5px; line-height: 1.75; color: var(--muted); }
+.dialog .db b { color: var(--ink2); font-weight: 500; }
+.dialog .db .mono { font-size: 10.5px; }
+.dialog .df { display: flex; gap: 6px; justify-content: flex-end; padding: 11px 14px;
+  border-top: 1px solid var(--line-soft); background: var(--panel2); }
+.dialog .in { display: flex; align-items: center; gap: 7px; height: 30px; margin: 10px 18px 14px;
+  padding: 0 9px; border: 1px solid var(--line); border-radius: calc(6px * var(--r)); background: var(--surface); }
+.dialog .in input { flex: 1; border: 0; outline: none; background: transparent; font: inherit;
+  font-size: 11.5px; color: var(--ink); font-family: JBMono, monospace; }
+.toast { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  background: var(--ink); color: var(--panel); font-size: 11.5px; padding: 8px 14px;
+  border-radius: calc(7px * var(--r)); box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+
+/* ── 03 外壳 ─────────────────────────────────────────────── */
+.wrap { display:flex; height:100vh; background:#0a0b0c; color:var(--ink); }
+.stage { flex:1; display:grid; place-items:center; overflow:hidden;
+  background:radial-gradient(1100px 700px at 55% 42%, #15181a 0%, #0a0b0c 72%); }
+.scaler { width:1280px; height:800px; transform-origin:top left; }
+.side { width:270px; flex:0 0 270px; border-left:1px solid #202428; background:#111315;
+  overflow-y:auto; padding:14px 13px; scrollbar-width:none; }
+.side::-webkit-scrollbar { width:0; }
+.side h2 { font-size:12px; margin:0 0 8px; }
+.side h3 { font-size:10.5px; color:#e7e9ea; margin:0 0 6px; }
+.side .lead { font-size:9.5px; color:#5f676d; letter-spacing:.06em; text-transform:uppercase; margin:12px 0 6px; }
+.side .lead:first-child { margin-top:0; }
+.side p, .side li { font-size:10px; line-height:1.75; color:#98a0a6; margin:0 0 6px; }
+.side b { color:#e7e9ea; font-weight:500; }
+.side code { font-family:JBMono,monospace; font-size:9.5px; color:#c8d0d6; }
+.side .shot { border:1px solid #262a2e; border-radius:6px; padding:9px 10px; margin-bottom:8px; cursor:pointer; }
+.side .shot:hover { border-color:#4c545a; }
+.side .shot.on { border-color:#7ec8ff; }
+.side .shot .n { font-family:JBMono,monospace; color:#7ec8ff; font-size:9.5px; }
+.side .shot .t { font-size:10.5px; color:#e7e9ea; margin-top:3px; }
+.topbar { height:46px; flex:0 0 46px; border-bottom:1px solid #202428; display:flex; align-items:center;
+  padding:0 16px; gap:12px; }
+.topbar h1 { font-size:13px; font-weight:500; }
+.topbar .sub { font-size:10.5px; color:#8a9298; }
+.topbar .tabs { display:flex; gap:4px; margin-left:auto; }
+.topbar .tabs button { height:25px; padding:0 10px; border:1px solid #2a2f33; border-radius:5px;
+  background:transparent; color:#8a9298; font:inherit; font-size:10.5px; cursor:pointer; }
+.topbar .tabs button.on { background:#1b1f22; color:#fff; }
+
+/* 03 的两段 + 子开关（从 resources.rs 的 render_tree 照抄的形状） */
+.segs03 { display:flex; gap:2px; margin:9px 8px 7px; padding:3px; border-radius:9px; background:var(--line); }
+.segs03 button { flex:1; height:26px; border:0; border-radius:7px; background:transparent;
+  font:inherit; font-size:10.5px; color:var(--muted); cursor:pointer; }
+.segs03 button.on { background:var(--panel); color:var(--ink); }
+.sub03 { display:flex; gap:4px; margin:-3px 8px 7px; }
+.sub03 button { flex:1; height:21px; border:1px solid var(--line); background:transparent; border-radius:5px;
+  font:inherit; font-size:10px; color:var(--muted); cursor:pointer; }
+.sub03 button.on { background:var(--accent-soft); border-color:transparent; color:var(--accent-fg); }
+
+/* 新建表单（整页工作台中央） */
+.wb { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:18px 20px; overflow-y:auto; align-content:start; }
+.formcard { border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:14px 16px; }
+.formcard h3 { font-size:12px; font-weight:500; margin:0 0 4px; }
+.formcard .hint { font-size:10px; color:var(--muted); line-height:1.7; margin-bottom:12px; }
+.field { margin-bottom:11px; }
+.field label { display:block; font-size:10.5px; color:var(--ink2); margin-bottom:4px; }
+.field label .req { color:#f7768e; }
+.field input, .field textarea { width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:6px;
+  background:var(--bg); color:var(--ink); font:inherit; font-size:11px; padding:7px 9px; outline:none; resize:none; }
+.field input:focus, .field textarea:focus { border-color:var(--accent); }
+.field textarea { min-height:56px; line-height:1.6; }
+.field .err { font-size:10px; color:#f7768e; margin-top:3px; min-height:12px; }
+.field .tip { font-size:9.5px; color:var(--faint); margin-top:3px; }
+.previewcard { border:1px solid var(--line); border-radius:8px; background:var(--bg); padding:12px 14px; }
+.previewcard .cap { font-size:10px; color:var(--muted); letter-spacing:.04em; margin-bottom:8px; }
+.previewcard pre { font-family:JBMono,monospace; font-size:10px; line-height:1.75; color:#c8d0d6;
+  white-space:pre-wrap; word-break:break-all; margin:0; }
+.previewcard .path { font-family:JBMono,monospace; font-size:9.5px; color:#7ec8ff; margin-bottom:7px; }
+.wbfoot { display:flex; gap:8px; align-items:center; padding:0 20px 16px; }
+.wbfoot .st { font-size:10.5px; color:var(--muted); margin-right:auto; }
+.wbfoot .st b { color:#ffb454; }
+.btn2 { border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:6px;
+  height:28px; padding:0 13px; font:inherit; font-size:11px; cursor:pointer; }
+.btn2.pri { background:var(--accent); color:#0a0b0c; border-color:transparent; font-weight:600; }
+.btn2.dis { opacity:.45; cursor:not-allowed; }
+
+/* 未发布态 / 发布面板 */
+.unpub { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:5px;
+  background:rgba(255,180,84,.12); color:#ffb454; font-size:10px; }
+.pubpanel { display:flex; flex-direction:column; gap:8px; }
+.pubrow { display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:7px;
+  padding:10px 12px; background:var(--panel); }
+.pubrow .nm { font-family:JBMono,monospace; font-size:11px; min-width:90px; }
+.pubrow .st { font-size:10.5px; color:var(--muted); flex:1; }
+.pubrow .st b { color:#ffb454; }
+.pubrow button { height:26px; padding:0 11px; border:1px solid var(--line); background:transparent;
+  color:var(--ink); border-radius:5px; font:inherit; font-size:10.5px; cursor:pointer; }
+.pubrow button:hover { border-color:var(--accent); color:var(--accent-fg); }
+.pubnote { font-size:10px; color:var(--muted); line-height:1.7; border-left:2px solid var(--accent);
+  padding-left:9px; margin:4px 0 0; }
+
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M9 7h7M9 10h5"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4.1 13.3a1 1 0 0 0 .8 1.7H11l-1 7 8.9-11.3a1 1 0 0 0-.8-1.7H12Z"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/><path d="m18.5 15.5.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8Z"/></symbol>
+  <symbol id="i-quote" viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 12.5h8M8 16h5"/></symbol>
+  <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M10 3h4v3.2a2 2 0 1 0 2.8 1.8H20v4h-3.2a2 2 0 1 0-1.8 2.8V21h-4v-3.2A2 2 0 1 0 8.2 16H5v-4h3.2A2 2 0 1 0 10 9.2Z"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 13 9 5 9-5"/><path d="m3 17.5 9 5 9-5"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6Z"/><path d="M14 2v4h4"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9a5 5 0 0 1-5 5H9"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/></symbol>
+  <symbol id="i-package" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="m3 7 9 5 9-5M12 12v10"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 2 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 22 11a2 2 0 1 1 0 4Z"/></symbol>
+  <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="m3 12 9-9 9 9-9 9Z"/><circle cx="12" cy="8" r="1"/></symbol>
+
+<div class="wrap">
+  <div>
+    <div class="topbar"><h1>资源页 · 写操作落地稿</h1>
+      <span class="sub">03 骨架（内容 / 扩展两段）+ 你采纳的四条 · 1280×800 · 真数据</span></div>
+    <div class="stage"><div class="scaler" id="scaler"><div class="app" id="app" data-skin="default"></div></div></div>
+  </div>
+  <aside class="side" id="side"></aside>
+</div>
+<script>
+const D = {
+ "skills": {
+  "root": "/opt/Nous-skills",
+  "repo": {
+   "head": "a2adba9189367c004dfa2cb36cefe1bced0ec227",
+   "dirty": true,
+   "ahead": 0,
+   "behind": 0,
+   "remote": "https://github.com/JoeWest9966/Nous-skills"
+  },
+  "items": [
+   {
+    "name": "ask-matt",
+    "description": "Ask which skill or flow fits your situation. A router over the skills in this repo.",
+    "hidden": true,
+    "tracked": false,
+    "files": 5,
+    "category": []
+   },
+   {
+    "name": "code-review",
+    "description": "审查从某个点以来的改动：标准 + 规格两条轴，别只夸好",
+    "hidden": false,
+    "tracked": true,
+    "files": 2,
+    "category": [
+     "工程"
+    ]
+   },
+   {
+    "name": "deep-dive",
+    "description": "针对一个技术问题做深挖：先列假设，再找反证，最后给结论和代价",
+    "hidden": false,
+    "tracked": true,
+    "files": 2,
+    "category": [
+     "写作",
+     "写作/长文"
+    ]
+   },
+   {
+    "name": "incident-postmortem",
+    "description": "事故复盘：时间线、根因、修复、以及下一次不会再发生的那一条",
+    "hidden": false,
+    "tracked": true,
+    "files": 2,
+    "category": [
+     "工程",
+     "工程/事故"
+    ]
+   },
+   {
+    "name": "scratch-notes",
+    "description": "随手记：临时想法、半截结论、以后可能要捡回来的东西",
+    "hidden": false,
+    "tracked": true,
+    "files": 2,
+    "category": []
+   },
+   {
+    "name": "weekly-report",
+    "description": "把这周的会议、提交、聊天整理成一份能直接发给老板的周报",
+    "hidden": false,
+    "tracked": true,
+    "files": 2,
+    "category": [
+     "写作"
+    ]
+   }
+  ],
+  "categories": [
+   "工程",
+   "工程/事故",
+   "实验",
+   "写作",
+   "写作/长文",
+   "Basics"
+  ],
+  "variants": {
+   "code-review": [
+    {
+     "id": "123",
+     "key": "code-review@123",
+     "dir": "/opt/nous-skill-code-review-123",
+     "branch": "skill/code-review-123",
+     "unmerged": 0,
+     "remoteBranch": false,
+     "installed": false,
+     "load": {
+      "state": "missing",
+      "error": "名册里没有这一条（树没了？）"
+     }
+    }
+   ]
+  },
+  "pending": [
+   {
+    "key": "ask-matt",
+    "kind": "skill",
+    "name": "ask-matt",
+    "tracked": false,
+    "added": 0,
+    "removed": 0,
+    "files": [
+     {
+      "path": "ask-matt/",
+      "status": "??"
+     }
+    ]
+   },
+   {
+    "key": "__categories",
+    "kind": "categories",
+    "name": null,
+    "tracked": true,
+    "added": 7,
+    "removed": 0,
+    "files": [
+     {
+      "path": "index.json",
+      "status": "M"
+     }
+    ]
+   }
+  ],
+  "files": {
+   "code-review": [
+    {
+     "path": "nous.json",
+     "size": 112
+    },
+    {
+     "path": "SKILL.md",
+     "size": 413
+    }
+   ]
+  },
+  "text": {
+   "code-review/SKILL.md": "---\nname: code-review\ndescription: \"审查从某个点以来的改动：标准 + 规格两条轴，别只夸好\"\n---\n\n# code-review\n\n## 何时用\n有人让你 review 一个分支、一个 PR、或者「看看我这几天改的」。\n\n## 两条轴\n1. **标准**：这段代码符合仓库写下来的规矩吗\n2. **规格**：它做的是票/issue 里要的那件事吗\n\n两条分开报，别搅成一段感想。\n",
+   "incident-postmortem/SKILL.md": "---\nname: incident-postmortem\ndescription: \"事故复盘：时间线、根因、修复、以及下一次不会再发生的那一条\"\n---\n\n# incident-postmortem\n\n## 铁律\n- 时间线只写**看得见的事实**（谁在几点看到了什么），不写推断\n- 根因要能回答「如果只改这一处，这事还会发生吗」\n- 行动项必须有 owner 和日期，否则不算\n",
+   "code-review/nous.json": "{\n  \"name\": \"code-review\",\n  \"summary\": \"审查从某个点以来的改动\",\n  \"category\": [\n    \"工程\"\n  ]\n}\n"
+  }
+ },
+ "prompts": {
+  "root": "/opt/Nous-prompts",
+  "repo": {
+   "head": "5b8c7f58dc848ff58f45afb1459963526bfbf1eb",
+   "dirty": true,
+   "ahead": 0,
+   "behind": 0,
+   "remote": "https://github.com/JoeWest9966/Nous-prompts"
+  },
+  "items": [
+   {
+    "name": "demo-diagram",
+    "summary": "动手前先把结构画成一张图，再写第一行代码",
+    "bytes": 65,
+    "category": [
+     "代码"
+    ],
+    "tracked": false
+   },
+   {
+    "name": "demo-diary",
+    "summary": "随手记一段，不整理、不总结、不分点",
+    "bytes": 35,
+    "category": [
+     "写作"
+    ],
+    "tracked": false
+   },
+   {
+    "name": "demo-weekly",
+    "summary": "把一周的提交、聊天、会议整理成一份能直接发出去的周报",
+    "bytes": 80,
+    "category": [
+     "写作/周报"
+    ],
+    "tracked": false
+   },
+   {
+    "name": "one-sentence",
+    "summary": "Reply in one sentence unless asked for more. Tool calls unaffected. Easy to see on and off.",
+    "bytes": 137,
+    "category": [
+     "Basics"
+    ],
+    "tracked": true
+   },
+   {
+    "name": "smart-ass",
+    "summary": "Clear, concise, actionable: conclusions last, reference codes, no filler, banned-word list.",
+    "bytes": 7685,
+    "category": [
+     "Basics"
+    ],
+    "tracked": true
+   }
+  ],
+  "categories": [
+   "代码",
+   "写作",
+   "写作/周报",
+   "Basics"
+  ],
+  "default": "smart-ass",
+  "archived": [],
+  "pending": [
+   {
+    "key": "demo-diagram",
+    "kind": "prompt",
+    "name": "demo-diagram",
+    "tracked": false,
+    "added": 0,
+    "removed": 0,
+    "files": [
+     {
+      "path": "demo-diagram/",
+      "status": "??"
+     }
+    ]
+   },
+   {
+    "key": "demo-diary",
+    "kind": "prompt",
+    "name": "demo-diary",
+    "tracked": false,
+    "added": 0,
+    "removed": 0,
+    "files": [
+     {
+      "path": "demo-diary/",
+      "status": "??"
+     }
+    ]
+   },
+   {
+    "key": "demo-weekly",
+    "kind": "prompt",
+    "name": "demo-weekly",
+    "tracked": false,
+    "added": 0,
+    "removed": 0,
+    "files": [
+     {
+      "path": "demo-weekly/",
+      "status": "??"
+     }
+    ]
+   },
+   {
+    "key": "__categories",
+    "kind": "categories",
+    "name": null,
+    "tracked": true,
+    "added": 31,
+    "removed": 1,
+    "files": [
+     {
+      "path": "categories.json",
+      "status": "M"
+     },
+     {
+      "path": "index.json",
+      "status": "M"
+     }
+    ]
+   }
+  ],
+  "files": {
+   "smart-ass": [
+    {
+     "path": "nous.json",
+     "size": 168
+    },
+    {
+     "path": "PROMPT.md",
+     "size": 7685
+    }
+   ]
+  },
+  "text": {
+   "smart-ass/PROMPT.md": "# Clear, Concise, Actionable Communication\n\n## Purpose \n\nYou and I maintain a no-bs, clear concise, actionable relationship.\n\nEvery word we say together reinforces our clear, concise, actionable communication.\n\nWe're here to solve problems and create value, and communication reflects that.\n\nPay close attention to the details throughout `## Instructions` to maintain our great communication patterns.\n\nWhy? So we can deliver the best possible results for our team, business and customers.\n\n## Instructions\n\n### 1. Positive Patterns and Negative Patterns\n\nReplicate the `#### Positive Patterns` as behavioral references. Avoid the `#### negative Patterns`.\n\n#### Positive Patterns\n\n- I always see the last thing you write first. Place the most important information there.\n- Use plain, specific language.\n- State each fact once.\n- Match the level of detail to the level of task and request.\n- Challenge incorrect assumptions directly and explain why.\n- Optimize for clarity and engineering value, not quotability.\n- Use the simplest domain terminology that compresses information.\n- If you can communicate the idea in 1 paragraph instead of 2 without losing valuable information, do so. Same idea for 1 sentence vs 2 sentences.\n- Don't use overloaded terms that could mean more than one thing. Use the simplest word(s) that satisfies the idea your trying to communicate.\n- Clearly communicate what system you're discussing with clear headers. \n- Use our shared terminology to communicate ideas instead of using other terms or industry terms where we have them.\n- We think of work in 'Efforts'. As we work, clearly identify what 'Effort' (high level area of focus, feature, plan, whatever the thing is) we're working on. The effort should be made clear with every response you write.\n- Limit your response paragraphs to 3-4 sentences max. It gets hard to read in a terminal after a while so spread out content appropriately so its easy to read and use headers or good bold starter sections to center the key ideas of each sentence/paragraph.\n- When discussing net new work, answering questions, debating, etc - we often will restate what the other is saying so we confirm we're on the same page.\n\n#### Negative Patterns\n\n- IMPORTANT: Avoid words, and phrases in this list:\n    - \"load-bearing\"\n    - \"worth stating plainly\"\n    - \"here's the honest truth\"\n    - \"the real tension\"\n    - \"carry the argument\"\n    - \"minable\"\n    - \"invariant\"\n    - \"no-op\"\n    - \"·\"\n    - \"rung\"\n- Avoid analogies. Discuss what's right in front of us.\n- Do not over use em dashes or dash chaining.\n- Do not flatter, praise, validate, or agree without reason.\n- Do not use decorative headings, emoji, or motivate language.\n- Avoid semicolons, fragments, and non-standard punctuation.\n- Do not repeat yourself. State every idea once, only repeat if its relevant to subsequent queries.\n\n### 2. Reference Points\n\nWe use reference points to communicate quickly with each other.\n\n- Use numbered lists and markdown headings when the improve navigation.\n- When presenting three or more findings, decisions, options, risks, questions, or actions assign every one a short code.\n    - Use `D1`, `D2`, `DN` for decisions.\n    - Use `O1`, ... for options.\n    - Use `F1`, ... for findings.\n    - Use `R1`, ... for risks.\n    - Use `Q1`, ... for questions.\n    - Use `A1`, ... for actions.\n    - Use `EFF <effort>` to clearly communicate the effort we're focused on (see `## Positive Patterns`).\n    - Invent new references for sections we don't have.\n    - Preserve the same codes throughout the conversation.\n    - Do not create codes for short simple answers.\n\n### 3. Hard Operational Boundaries\n\nIn addition to clearly communicating. It's important that we clearly communicate our work operational boundaries.\n\n- Deliver only what was requested at the intended scope.\n- Do not widen work into cleanup, refactoring, documentation, or any adjacent features.\n- Do not speculate on abstractions for future requirements.\n- Do not claim completion without evidence.\n- Never add a co-author to a commit message.\n- For completed work, concisely restate it but do not overload with response detail.\n\n### 4. Aliases\n\nAliases are reminders of great communication and patterns we want to upload.\n\nWhen you see these exact aliases, expand them and act as if their expansions were given to you directly.\n\nIf these are referenced in a longer string, consider the context, they may be aliases or they maybe something else. If they are not aliases, do not expand.\n\nscr = `Simplify, compress, and repeat your response.`\neli = `Explain this like I'm 18. Simplify your language. Shorten your response.`\nfoc = `Focus on what matters most here. Whats the true signal? Whats the true value? Boil your response down into the most important thing we need to focus on.`\nref = `Rewrite your responses with reference points`\nco = `Chat Only. Do not build, change, or modify any files. Let's talk through this and get a concrete direction first`\nrp = `Re-present the information back to me so we can continue discussing with changes requested applied`\ndec = `What decisions or actions do you need answered from me to push this work forward?`\ncmiir = `Correct me if I'm wrong`\nyon = `Yes or no. Answer concisely and directly with a short explanation.`\n\n### Examples\n\nHere are concrete examples of how we DO and DO NOT communicate together. \nReplicate how we DO communicate together and avoid how we DO NOT communicate together.\n\n#### Simple Investigation\nUser: `Is legacy-config.json still referenced?`\n\nTo do:\n```text\nNo. The only match is the file itself.\n```\n\nNot to do:\n```text\nGreat question. I will search the repository and determine whether this file is still load-bearing.\nAfter a comprehensive review, the answer is no. I can also remove it and inspect adjacent files if you would like.\n```\n\n#### Engineering Recommendation\nUser: `Should we add redis to this system`\n\nTo do:\n```text\nDo not add Redis here. The process has one writer, restores from SQLite, and has no cross-host coordination requirement. \n\nRedis adds a failure domain without solving a current constraint.\n```\n\nNot to do:\n```text\nYou are absolutely right that Redis could help. The real tension is larger: this is not about caching, it is about architectural leverage.\n```\n\n#### Summarizing a blog\nUser: `Summarize the blog: <>`\n\nTo do:\n```text\nThe whole essay rests on one idea: safety comes from balance of power, not from alignment technology. Zuckerberg explicitly rejects the mainstream AI safety framing — that with enough time and care you can build a single \"aligned,\" benevolent superintelligence. \n\nHis counterargument is that humanity isn't a monoculture; any singular superintelligence would have to prioritize some people's values over others, so \"there is no such thing as a singular benevolent superintelligence.\".\n\nThe safe path, in his view, is the same one liberal democracies use: give everyone power so competing interests naturally check each other.\n```\n\nNot to do:\n```text\nHere's a breakdown of Mark Zuckerberg's \"The Future is for\nEveryone\" (Aug 10, 2026) — Meta's superintelligence manifesto.\n\nThe core thesis\n\nThree claims form the spine of the whole piece:\n\n1. Individual empowerment is the source of prosperity — progress\ncomes from the Wright brothers, Faraday, Jobs in a garage; not\nfrom institutions.\n2. Invention, not automation, is superintelligence's purpose — a\nperson can only ask so many questions per day, but the number\nof things AI can invent for you is unbounded.\n3. Balance of power is the foundation of safety — not alignment,\nnot caution. Distribution.\n\nEverything else in the document is downstream of these.\n```",
+   "one-sentence/PROMPT.md": "# One Sentence\n\nAnswer in one sentence unless the user asks for more detail. Tool calls are not limited; only your reply to the user is.\n",
+   "smart-ass/nous.json": "{\n  \"name\": \"smart-ass\",\n  \"summary\": \"Clear, concise, actionable: conclusions last, reference codes, no filler, banned-word list.\",\n  \"category\": [\n    \"Basics\"\n  ]\n}\n"
+  }
+ },
+ "exts": {
+  "root": "/opt/Nous-extend",
+  "repo": {
+   "path": "/opt/Nous-extend",
+   "lock": "c69a2004f7b7f15250fe8e19baa7bbb1bbd28447",
+   "head": "07b9e0b9089b9428ed0bc2afaf1855fb1f9c8c6b",
+   "drift": true,
+   "pullError": "当前分支没有跟踪信息。\n请指定您要合并哪一个分支。\n详见 git-pull(1)。\n\n    git pull <远程> <分支>\n\n如果您想要为此分支创建跟踪信息，您可以执行：\n\n    git branch --set-upstream-to=origin/<分支> feat/skills-upstream-source"
+  },
+  "installed": [
+   "nous",
+   "skills",
+   "prompts",
+   "123"
+  ],
+  "loadable": [
+   "nous",
+   "skills",
+   "prompts",
+   "123"
+  ],
+  "builtin": [
+   "coding-tools"
+  ],
+  "defaults": [
+   "nous",
+   "skills",
+   "prompts"
+  ],
+  "protected": [
+   "Basics"
+  ],
+  "categories": [
+   "工具",
+   "工具/搜索",
+   "工具/文件",
+   "观察",
+   "记忆",
+   "记忆/向量",
+   "Basics",
+   "Basics/234"
+  ],
+  "catalog": [
+   {
+    "name": "123",
+    "version": "0.1.0",
+    "file": "index.js",
+    "entry": "default",
+    "sections": [],
+    "summary": "213",
+    "needs": {},
+    "category": [
+     "工具/搜索"
+    ],
+    "tracked": true
+   },
+   {
+    "name": "nous",
+    "version": "0.1.0",
+    "file": "index.js",
+    "entry": "default",
+    "sections": [
+     "preamble",
+     "cwd"
+    ],
+    "default": true,
+    "summary": "agent 在 Nous 里的自我介绍 + 当前工作目录",
+    "needs": {},
+    "category": [
+     "观察",
+     "记忆/向量",
+     "Basics"
+    ],
+    "tracked": true
+   },
+   {
+    "name": "prompts",
+    "version": "0.1.0",
+    "file": "index.js",
+    "entry": "createPrompts",
+    "sections": [
+     "prompts"
+    ],
+    "default": true,
+    "summary": "扫 Nous-prompts 私库，把这条会话选中的那条模板正文整段渲染进系统提示词（单选）",
+    "needs": {
+     "promptsDir": "提示词私库根目录（绝对路径，通常是 /opt/Nous-prompts）",
+     "registry": "要把每条模板的空白名牌（prompt:<名>）装进去的 registry"
+    },
+    "category": [
+     "观察",
+     "Basics"
+    ],
+    "tracked": true
+   },
+   {
+    "name": "skills",
+    "version": "0.2.0",
+    "file": "index.js",
+    "entry": [
+     "createSkills",
+     "skillNamesOf"
+    ],
+    "sections": [
+     "skills"
+    ],
+    "default": true,
+    "summary": "扫 Nous-skills 仓库里的技能目录，把这条会话选中的渲染成 <available_skills>",
+    "needs": {
+     "dir": "技能仓库的根目录（绝对路径，通常是 /opt/Nous-skills）",
+     "registry": "要把每条技能的空白名牌（skill:<名>）装进去的 registry"
+    },
+    "category": [
+     "工具",
+     "Basics"
+    ],
+    "tracked": true
+   }
+  ],
+  "archived": [
+   {
+    "name": "demo",
+    "version": "0.1.0",
+    "summary": "凑数用的测试扩展：专门拿来练「删除本地 / 安装回来」",
+    "category": [
+     "Basics"
+    ],
+    "archivedAt": "2026-11-04T21:25:37+08:00"
+   }
+  ],
+  "variants": {
+   "123": [
+    {
+     "id": "123",
+     "source": "local",
+     "params": {},
+     "dir": "/opt/nous-ext-123-123/123",
+     "branch": "ext/123-123",
+     "key": "123@123",
+     "unmerged": 0,
+     "remoteBranch": false,
+     "installed": false,
+     "load": {
+      "state": "failed",
+      "error": "Cannot find module '/opt/nous-ext-123-123/123/index.js' imported from /opt/Nous/content/new1/map/qrd3wh/server.js",
+      "at": 1794813498717,
+      "version": "0.1.0"
+     }
+    }
+   ]
+  },
+  "load": {
+   "123": {
+    "state": "ok",
+    "error": null,
+    "at": 1794813498714,
+    "version": "0.1.0"
+   },
+   "123@123": {
+    "state": "failed",
+    "error": "Cannot find module '/opt/nous-ext-123-123/123/index.js' imported from /opt/Nous/content/new1/map/qrd3wh/server.js",
+    "at": 1794813498717,
+    "version": "0.1.0"
+   }
+  },
+  "local": {
+   "_about": [
+    "本机装卸清单：哪些扩展这台不装。不在 Nous-extend 仓库里，也不该被提交。"
+   ],
+   "deleted": {},
+   "variants": {
+    "123": {
+     "123": {
+      "dir": "/opt/nous-ext-123-123/123",
+      "branch": "ext/123-123"
+     }
+    }
+   },
+   "core": [
+    "nous",
+    "skills",
+    "prompts"
+   ]
+  },
+  "nameplates": {
+   "prefixes": [
+    "skill:",
+    "prompt:"
+   ],
+   "count": 11,
+   "names": [
+    "skill:ask-matt",
+    "skill:code-review",
+    "skill:deep-dive",
+    "skill:incident-postmortem",
+    "skill:scratch-notes",
+    "skill:weekly-report",
+    "prompt:demo-diagram",
+    "prompt:demo-diary",
+    "prompt:demo-weekly",
+    "prompt:one-sentence",
+    "prompt:smart-ass"
+   ]
+  },
+  "live": {
+   "nous": [
+    "preamble",
+    "cwd"
+   ],
+   "skills": [
+    "skills"
+   ],
+   "prompts": [
+    "prompts"
+   ]
+  },
+  "files": {
+   "skills": [
+    {
+     "path": "index.js",
+     "kind": "javascript",
+     "size": 18035,
+     "mtime": 1793959405000
+    },
+    {
+     "path": "nous.json",
+     "kind": "json",
+     "size": 531,
+     "mtime": 1793956219000
+    }
+   ]
+  },
+  "text": {},
+  "snippet": {
+   "skills/index.js": "// createSkills：把 Nous-skills 里选中的技能渲染成 <available_skills>\nexport function createSkills({ dir, registry }) {\n  const skills = new Map();\n\n  const render = (names) => {\n    const picked = names.map((n) => skills.get(n)).filter(Boolean);\n    if (!picked.length) return \"\";\n    const body = picked.map((s) => `- ${s.name}: ${s.summary}`).join(\"\\n\");\n    return `<available_skills>\\n${body}\\n</available_skills>`;\n  };\n\n  return {\n    section: \"skills\",\n    render,\n    async load() { /* 扫目录、读 frontmatter */ },\n  };\n}\n\nexport const skillNamesOf = (list) => list.map((s) => `skill:${s.name}`);\n"
+  }
+ }
+};
+
+</script>
+<script>
+
+const V = () => ({ rail:'one2' });
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ic = (n,cls='') => `<svg class="ic ${cls}"><use href="#i-${n}"/></svg>`;
+const kb = n => n==null?'—':n<1024?`${n} B`:`${(n/1024).toFixed(1)} KB`;
+
+const S = { shot:'new-skill', section:'content', content:'skills',
+  form:{
+    skill:{name:'weekly-digest',description:'把这几天的会议、邮件、聊天整理成一份周报',category:'写作, 效率'},
+    prompt:{name:'strict-review',summary:'审查时按标准 + 规格两条轴走，不混成一股感觉',category:'工程'},
+    ext:{name:'my-tools',summary:'给会话加几个顺手的工具入口'}
+  } };
+
+/* ── 九个镜头：4 个是新增的写操作屏，5 个沿用只读骨架 ──── */
+const SHOTS = [
+  ['new-skill','新建 · 技能','三张表各说各的必填：技能要 description'],
+  ['new-prompt','新建 · 提示词','必填 summary；建完直接进编辑器'],
+  ['new-ext','新建 · 扩展','必填 name + 说明 ≤ 200；核心三条不让用'],
+  ['created','建完 · 未发布','新条目停在未发布并选中；不自动发布'],
+  ['edit','编辑 · 整页工作台','整页画布；左边文件树，右边正文，不是抽屉'],
+  ['publish','发布 · 三个仓各走各','技能 / 提示词 / 扩展各一个按钮'],
+  ['readonly-skill','只读 · 技能','03 骨架：内容 → 技能'],
+  ['readonly-prompt','只读 · 提示词','内容 → 提示词，共用一套列表/详情'],
+  ['readonly-ext','只读 · 扩展','扩展段：catalog / builtin / variants 五类'],
+];
+const shotT = () => SHOTS.find(s=>s[0]===S.shot)[1];
+
+/* ── 校验：照引擎原话，不泛化 ─────────────────────────── */
+const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
+const CORE = ['nous','skills','prompts'];
+function validate(kind,f){
+  const e={};
+  if(!f.name.trim()) e.name='名字不能空';
+  else if(f.name.length>64) e.name='名字最多 64 字';
+  else if(!NAME_RE.test(f.name)) e.name='只能用小写字母、数字、点、下划线、连字符，且以字母数字开头';
+  if(kind==='skill'&&!f.description.trim()) e.description='description 必填';
+  if(kind==='prompt'&&!f.summary.trim()) e.summary='summary 必填';
+  if(kind==='ext'){
+    if(CORE.includes(f.name)) e.name=`${f.name} 是核心扩展，不能新建`;
+    if(f.summary.length>200) e.summary='说明最多 200 字';
+  }
+  return e;
+}
+function setForm(kind,key,val){ S.form[kind][key]=val; render(); }
+
+/* ── 落盘预览：三张表各写各的文件 ─────────────────────── */
+function previewOf(kind,f){
+  const escJson = v => JSON.stringify(v,null,2);
+  if(kind==='skill'){
+    const cats=f.category.trim()?f.category.split(/[,，\s]+/).filter(Boolean):[];
+    return {path:'/opt/Nous-skills/'+ (f.name||'<name>') +'/nous.json',
+      text:escJson({name:f.name||'<name>',description:f.description||'<description>',category:cats})};
+  }
+  if(kind==='prompt'){
+    const cats=f.category.trim()?f.category.split(/[,，\s]+/).filter(Boolean):[];
+    return {path:'/opt/Nous-prompts/'+ (f.name||'<name>') +'/nous.json',
+      text:'---\n'+cats.map(c=>'  - '+c).join('\n')+(cats.length?'\n':'')+'---\n\n# '+(f.name||'<name>')+'\n\n'+(f.summary||'<summary>')};
+  }
+  return {path:'/opt/Nous-extend/extensions/'+ (f.name||'<name>') +'/nous.json',
+    text:escJson({name:f.name||'<name>',description:f.summary||'<summary>'})};
+}
+
+/* ── 左侧 rail ─────────────────────────────────────────── */
+function rail(){
+  const items=[['chats','chat','聊天'],['templates','book','模板'],['triggers','bolt','触发器'],['res','layers','资源'],['data','db','数据']];
+  return `<aside class="rail">${items.map(([id,n,t])=>`<button class="rbtn ${id==='res'?'on':''}" title="${t}">${ic(n)}</button>`).join('')}
+    <div class="rsp"></div><button class="rbtn">${ic('menu')}</button></aside>`;
+}
+function segs03(){
+  const onContent=S.section==='content';
+  return `<div class="segs03"><button class="${onContent?'on':''}" data-act="sec:content">内容 ${D.skills.items.length+D.prompts.items.length}</button>
+    <button class="${!onContent?'on':''}" data-act="sec:ext">扩展 ${D.exts.catalog.length}</button></div>`+
+    (onContent?`<div class="sub03"><button class="${S.content==='skills'?'on':''}" data-act="con:skills">技能</button>
+    <button class="${S.content==='prompts'?'on':''}" data-act="con:prompts">提示词</button></div>`:'');
+}
+
+/* ── 各屏 ─────────────────────────────────────────────── */
+function tree03(){
+  const counts={skills:D.skills.items.length,prompts:D.prompts.items.length,ext:D.exts.catalog.length};
+  const cats=S.content==='skills'?D.skills.categories:S.content==='prompts'?D.prompts.categories:D.exts.categories;
+  return `<aside class="tree">${segs03()}<div class="tree-body scroll">
+    <div class="cat on"><span class="nm">全部</span><span class="n">${counts[S.content]}</span></div>
+    ${cats.map(c=>`<div class="cat"><span class="nm">${esc(c)}</span><span class="n">${Math.floor(counts[S.content]/2)}</span></div>`).join('')}
+    </div><div class="tree-foot"><div class="frow"><span class="dot warn"></span><span>有未提交的改动</span></div></div></aside>`;
+}
+function list03(){
+  const kind=S.content==='skills'?'skills':S.content==='prompts'?'prompts':'ext';
+  const rows=kind==='skills'?D.skills.items:kind==='prompts'?D.prompts.items:D.exts.catalog;
+  const nm=r=>r.name;
+  return `<div class="list"><div class="list-head"><div class="list-title"><h3>${kind==='skills'?'技能':kind==='prompts'?'提示词':'扩展'}</h3>
+    <span class="n">${rows.length} 条</span><span class="acts"><button class="btn sm pri" data-act="new:${kind}">${ic('plus')}新建</button></span></div></div>
+    <div class="list-body scroll">${rows.map(r=>`<div class="row on" data-act="sel:${esc(nm(r))}">
+      <div class="av">${esc(nm(r)[0].toUpperCase())}</div><div class="main"><div class="nm"><span class="t mono">${esc(nm(r))}</span></div>
+      <div class="sum">${esc(r.description||r.summary||'')}</div></div></div>`).join('')}</div></div>`;
+}
+function detail03(){
+  return `<div class="detail"><div class="det-head"><div class="top"><h2 class="mono">code-review</h2><span class="chip accent">已发布</span></div>
+    <div class="sub"><span class="mono">skill:code-review</span><span>·</span><span>工程</span></div></div>
+    <div class="det-body scroll"><div class="det-inner"><dl class="metas"><dt>摘要</dt><dd>审查从某个点以来的改动；标准 + 规格两条轴</dd></dl>
+    <div class="sec-title">文件</div><div class="files"><div class="file on">${ic('file')}<span class="p">SKILL.md</span><span class="sz">413 B</span></div></div>
+    <div class="sec-title">SKILL.md</div><div class="prose"><p>有人让你 review 一个分支、一个 PR、或者「看看我这几天改的」。</p></div>
+    </div></div></div>`;
+}
+function readonlyPage(){
+  return rail()+`<div class="page">${tree03()}${list03()}${detail03()}</div>`;
+}
+
+const CFG={skill:{label:'技能',dir:'Nous-skills',req:'description'},prompt:{label:'提示词',dir:'Nous-prompts',req:'summary'},ext:{label:'扩展',dir:'Nous-extend',req:'说明'}};
+function newForm(kind){
+  const f=S.form[kind], err=validate(kind,f), pv=previewOf(kind,f), good=Object.keys(err).length===0;
+  const catField=kind!=='ext'?`<div class="field"><label>类别 <span class="tip" style="display:inline">（逗号分隔，可空）</span></label>
+    <input data-k="${kind}" data-k="category" value="${esc(f.category)}" placeholder="工程, 写作"></div>`:'';
+  return rail()+`<div class="page"><div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <div class="det-head"><div class="top"><h2>新建${CFG[kind].label}</h2><span class="chip line" style="margin-left:auto">建完停在「未发布」</span></div>
+    <div class="sub">必填项各表不同；右边是<strong>马上要落盘的内容</strong>，边填边看。</div></div>
+    <div class="wb"><div class="formcard"><h3>这条${CFG[kind].label}是什么</h3>
+      <div class="hint">名字规则照引擎原话：<code>^[a-z0-9][a-z0-9._-]*$</code>，≤ 64 字。</div>
+      <div class="field"><label>名字 <span class="req">*</span></label>
+        <input data-k="${kind}" data-f="name" value="${esc(f.name)}" placeholder="my-${kind}">
+        <div class="err">${err.name||''}</div></div>
+      ${kind==='skill'?`<div class="field"><label>description <span class="req">*</span></label>
+        <textarea data-k="${kind}" data-f="description" placeholder="一句话说清这条技能干什么">${esc(f.description)}</textarea>
+        <div class="err">${err.description||''}</div></div>`:''}
+      ${kind==='prompt'?`<div class="field"><label>summary <span class="req">*</span></label>
+        <textarea data-k="${kind}" data-f="summary" placeholder="一句话说清这条提示词往哪个方向纠">${esc(f.summary)}</textarea>
+        <div class="err">${err.summary||''}</div></div>`:''}
+      ${kind==='ext'?`<div class="field"><label>说明 <span class="req">*</span></label>
+        <textarea data-k="${kind}" data-f="summary" placeholder="这条扩展往系统提示词塞什么">${esc(f.summary)}</textarea>
+        <div class="err">${err.summary||''}</div><div class="tip">≤ 200 字。核心三条 <code>nous/skills/prompts</code> 不让新建。</div></div>`:''}
+      ${catField}</div>
+      <div class="previewcard"><div class="cap">落盘预览 · 改一个字这里就跟着变</div>
+        <div class="path">${esc(pv.path)}</div><pre>${esc(pv.text)}</pre></div></div>
+    <div class="wbfoot"><div class="st">${good?'<b>都填对了</b> · 建完这条会停在未发布并选中':`还差：${Object.values(err).join('、')}`}</div>
+      <button class="btn2" data-act="cancel">取消</button>
+      <button class="btn2 pri ${good?'':'dis'}" data-act="create:${kind}">建，去编辑</button></div>
+    </div></div>`;
+}
+function created(){
+  return rail()+`<div class="page"><div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <div class="det-head"><div class="top"><h2 class="mono">weekly-digest</h2><span class="unpub">● 未发布</span></div>
+    <div class="sub">新建完停在这一态，<strong>不自动发布</strong>。新条目已选中，直接进编辑器。</div></div>
+    <div class="wb" style="grid-template-columns:1fr 1fr">
+      <div class="formcard"><h3>刚建好的这条</h3><div class="hint">新条目已选中并带「未发布」；列表里其它条目是普通态。</div>
+        <div class="list" style="border:0"><div class="list-head"><div class="list-title"><h3>技能</h3><span class="n">${D.skills.items.length+1} 条</span></div></div>
+        <div class="list-body scroll">${D.skills.items.concat([{name:'weekly-digest',description:'把这几天的会议、邮件、聊天整理成一份周报'}]).map(r=>`<div class="row ${r.name==='weekly-digest'?'on':''}">
+          <div class="av">${esc(r.name[0].toUpperCase())}</div><div class="main"><div class="nm"><span class="t mono">${esc(r.name)}</span>${r.name==='weekly-digest'?'<span class="unpub">● 未发布</span>':''}</div>
+          <div class="sum">${esc(r.description||'')}</div></div></div>`).join('')}</div></div></div>
+      <div class="previewcard"><div class="cap">下一步</div>
+        <div style="display:flex;flex-direction:column;gap:9px;margin-top:4px">
+          <button class="btn2 pri" data-act="shot:edit">进编辑器写内容 →</button>
+          <button class="btn2" data-act="shot:publish">去发布面板（单独发这个仓）</button>
+          <div class="pubnote">提示词的「建完进编辑器」是同样的流程 —— 它的正文就是编辑器里的内容；
+          技能的 <code>SKILL.md</code>、扩展的清单也在这步写。</div></div></div></div>
+    </div></div>`;
+}
+function edit(){
+  return rail()+`<div class="page"><div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <div class="det-head"><div class="top"><h2 class="mono">weekly-digest</h2><span class="unpub">● 未发布</span>
+      <span class="chip line" style="margin-left:auto">整页工作台 · 不是抽屉</span></div>
+      <div class="sub">左边文件树、中间正文、右边状态；<strong>占满主内容区</strong>，不盖在列表上。</div></div>
+    <div style="flex:1;display:grid;grid-template-columns:160px 1fr 240px;gap:0;min-height:0">
+      <div class="tree" style="border-right:1px solid var(--line)"><div class="tree-body scroll">
+        <div class="cat on"><span class="nm">nous.json</span></div><div class="cat on"><span class="nm">SKILL.md</span></div>
+        <div class="cat"><span class="nm">+ 新文件</span></div></div></div>
+      <div style="padding:14px 18px;overflow-y:auto;background:var(--panel)">
+        <div class="cap" style="font-size:10px;color:var(--muted);margin-bottom:8px">SKILL.md</div>
+        <textarea style="width:100%;height:340px;box-sizing:border-box;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:12px;font:12px/1.8 JBMono,monospace"># weekly-digest
+
+把这几天的会议、邮件、聊天整理成一份周报。
+
+## 何时用
+周五下午，或者有人问「我这周干了啥」。
+
+## 两条规矩
+1. 只写做成的事，不写计划。
+2. 每条附一个可点开的链接。</textarea></div>
+      <div style="border-left:1px solid var(--line);padding:14px 15px;overflow-y:auto;background:var(--bg)">
+        <div class="lead" style="font-size:9.5px;color:var(--faint);text-transform:uppercase">状态</div>
+        <p style="font-size:10.5px;line-height:1.8;color:var(--muted)">● 未发布<br>改动还没写进仓，发布前不会出现在别人那边。</p>
+        <div class="lead" style="font-size:9.5px;color:var(--faint);text-transform:uppercase;margin-top:12px">改动</div>
+        <p style="font-size:10.5px;line-height:1.8;color:var(--muted)">SKILL.md · +8 行<br>nous.json · 没动</p>
+        <button class="btn2" style="margin-top:10px" data-act="noop">存草稿</button></div></div>
+    <div class="wbfoot"><div class="st">改完回来列表里，这条带琥珀脏点（有未提交改动）。</div>
+      <button class="btn2" data-act="noop">放弃改动</button><button class="btn2 pri" data-act="noop">保存</button></div>
+    </div></div>`;
+}
+function publish(){
+  const rows=[['技能','/opt/Nous-skills','2 处待发布','发布技能'],['提示词','/opt/Nous-prompts','3 处待发布','发布提示词'],['扩展','/opt/Nous-extend','和远端分叉（pull 失败）','发布扩展']];
+  return rail()+`<div class="page"><div style="flex:1;display:flex;flex-direction:column;overflow:hidden;padding:18px 20px">
+    <h2 style="font-size:14px;font-weight:500;margin:0 0 4px">发布</h2>
+    <div class="sub" style="font-size:10.5px;color:var(--muted);margin-bottom:14px">三个仓各走各的，<strong>不做一键全发</strong> —— 谁失败只染谁，别的照发。</div>
+    <div class="pubpanel">${rows.map(([label,dir,st,btn])=>`<div class="pubrow">
+      <span class="nm">${label}</span><span class="mono" style="font-size:9.5px;color:var(--faint)">${dir}</span>
+      <span class="st"><b>●</b> ${st}</span><button data-act="noop">${btn}</button></div>`).join('')}</div>
+    <div class="pubnote" style="margin-top:14px">为什么不做一键全发：三个仓是三件独立的事，
+      <code>/opt/Nous-extend</code> 当前分叉且 pull 失败 —— 一键发会卡死在扩展上，技能 / 提示词也发不出去。</div>
+    </div></div>`;
+}
+
+function render(){
+  const app=document.getElementById('app');
+  const sh=S.shot;
+  app.innerHTML= sh==='new-skill'?newForm('skill') : sh==='new-prompt'?newForm('prompt') : sh==='new-ext'?newForm('ext')
+    : sh==='created'?created() : sh==='edit'?edit() : sh==='publish'?publish() : readonlyPage();
+  if(sh.startsWith('readonly')){
+    const [_,kind]=sh.split('-'); S.section=kind==='ext'?'ext':'content'; if(kind!=='ext')S.content=kind;
+  }
+  renderSide();
+}
+function renderSide(){
+  const side=document.getElementById('side');
+  side.innerHTML=`<h2>镜头</h2>${SHOTS.map(([id,t,d])=>`<div class="shot ${S.shot===id?'on':''}" data-act="shot:${id}">
+    <div class="n">${id}</div><div class="t">${t}</div></div>`).join('')}
+    <div class="lead">你采纳的四条，落在哪</div>
+    <p><b>①</b> 新建三张表各说各的必填，右边实时预览落盘内容 → 镜头 <code>new-*</code>。</p>
+    <p><b>②</b> 建完停在未发布并选中；提示词建完进编辑器 → 镜头 <code>created</code>。</p>
+    <p><b>③</b> 发布三个仓各走各的，不做一键全发 → 镜头 <code>publish</code>。</p>
+    <p><b>④</b> 编辑是整页工作台，不是右栏抽屉 → 镜头 <code>edit</code>。</p>
+    <div class="lead">03 骨架（跟只读第一刀一致）</div>
+    <p>一个「资源」图标，页内两段：内容（技能 / 提示词子开关）+ 扩展。
+    技能 / 提示词共用一套树 / 列表 / 详情；扩展五类不硬合成一种。</p>`;
+}
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]'); if(!el)return;
+  const a=el.dataset.act;
+  if(a.startsWith('shot:')){ goto(a.slice(5)); return; }
+  if(a.startsWith('new:')){ goto('new-'+a.slice(4)); return; }
+  if(a.startsWith('sec:')){ S.section=a.slice(4); render(); return; }
+  if(a.startsWith('con:')){ S.content=a.slice(4); render(); return; }
+  if(a==='create:skill'||a==='create:prompt'||a==='create:ext'){ goto('created'); return; }
+  if(a==='cancel'){ goto('readonly-'+S.content); return; }
+  if(a==='noop') return;
+});
+document.addEventListener('input',e=>{
+  const el=e.target, k=el.dataset.k, f=el.dataset.f;
+  if(k&&f){ S.form[k][f]=el.value; render();
+    const again=document.querySelector(`[data-k="${k}"][data-f="${f}"]`);
+    if(again){ again.focus(); again.setSelectionRange(again.value.length,again.value.length); } }
+});
+function goto(id){ if(!SHOTS.some(s=>s[0]===id))return; S.shot=id; location.hash=id; render(); }
+window.addEventListener('hashchange',()=>{ const id=location.hash.slice(1); if(SHOTS.some(s=>s[0]===id)){S.shot=id;render();} });
+window.addEventListener('DOMContentLoaded',()=>{ const id=location.hash.slice(1); if(SHOTS.some(s=>s[0]===id)){S.shot=id;render();} });
+
+function fit(){
+  const st=document.querySelector('.stage'), sc=document.getElementById('scaler');
+  const s=Math.max(.4,Math.min(1,(st.clientWidth-28)/1280,(st.clientHeight-28)/800));
+  sc.style.width=(1280*s)+'px'; sc.style.height=(800*s)+'px';
+  document.getElementById('app').style.transform='scale('+s+')';
+}
+window.addEventListener('resize',fit);
+const initId=location.hash.slice(1); if(SHOTS.some(x=>x[0]===initId))S.shot=initId;
+render(); fit();
+
+</script>
+</body>
+</html>
