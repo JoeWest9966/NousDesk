@@ -44,9 +44,12 @@ impl SessionTarget {
     }
 }
 
-/// 菜单的出口。接线那票按这个 match：打开 / 置顶 / 复制 / 归档 / 撕原件都有真分支；
-/// 重命名是**待接协议**的入口（`wire.md` 里还没有改名端点）—— 点了必须给用户一句
-/// 说明，不许静默丢（AGENTS「按钮点下去没反应…都算 bug」）。
+/// 菜单的出口。接线那票按这个 match：打开 / 置顶 / 复制 / 归档 / 撕原件 / 重命名都有真分支。
+///
+/// 每一项点下去都必须有可见结果（AGENTS「按钮点下去没反应…都算 bug」）。
+/// 重命名早先只是弹一句「端点还没接」—— 那时 `wire.md` 确实漏了
+/// `POST /v1/sessions/:id/rename`（引擎一直有）。2026-11-16 补上了协议，
+/// 现在走 `rename_box` 那个居中对话框。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionMenuAction {
     Open {
