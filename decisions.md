@@ -999,6 +999,60 @@ AGENTS 里写的是「Tesla 那 9 套」全要。**只落一套是有意的**：
 反悔点：如果哪天终极模板的开关不再以引擎为准（比如改成纯本地草稿），
 那才把状态挪回 spec；在那之前别碰这条。
 
+## 2026-11-16 · `extensions` 只能**加**不能**减** —— 勾掉核心三条是假动作
+
+排查起因：`验证.md` 里「`extensions` 真发出去建会话」一直挂着未验。
+真发了五种请求（都建临时会话，验完 archive+purge 清掉）：
+
+| 发的 `extensions` | 回包 `extensions` |
+| --- | --- |
+| `[]`（一个都不要） | `coding-tools, nous, skills, prompts` |
+| `["nous"]` | 同上 |
+| `["不存在の扩展xyz"]` | 同上 + `missingExtensions: [xyz]` |
+| `["123"]`（非核心） | 上面四个 **+ 123** |
+| `["nous","skills","prompts"]`（不勾 123） | 只有上面四个，123 没加上 |
+
+**结论：`extensions` 这个键是 additive 的。** 内核 `server.js:1839` 在
+`harness.createConversation` 的 `settings.extensions` 里**无条件**放了
+`CodingTools + nous + skills + prompts`；`:2190` 读到的 `askedExt` 只用来
+**额外 add**（`:2233`），从不 remove。所以：
+
+- **勾上非核心扩展：真的生效**（`123` 出现在 201 里）。
+- **勾掉任何东西：一律不生效** —— 核心三条勾掉照样在，`[]` 想「一个都不要」照样全开。
+- `missingExtensions` 那条**是真的**：假 id 被如实点名，客户端那条红提示分支没写错。
+
+**所以 UI 上「核心三条能勾掉」这个承诺是假的。** 现在盘面让核心三条能取消勾选、
+设置页也跟着画空心圆，但建出来的会话永远带着它们。这是「界面说能做、引擎做不到」——
+按项目纪律，静默的假动作算 bug，不是「先这样」。
+
+**这一刀选 A：把核心钉死，UI 不再骗人**（用户 2026-11-16 采纳建议）。
+
+理由：核心那几条是 `agent 在 Nous 里的自我介绍 + 当前目录 + 技能系统 + 模板系统`，
+减掉它们会话就不完整了——它们本来就是「上下文的地基」，不是可选项。
+引擎把它们写死在 `settings.extensions` 里正是这个意思。客户端跟着钉死，
+比假装能减要诚实。
+
+落地（`board.rs`）：
+- `ExtKind::Core`（catalog 里 `is_default` 的那三条）现在和 `Builtin` / `Broken` /
+  `Archived` 一样是**锁住的**：虚线框 + ✓ + 不可点，没有 hover。
+- `core_exts()` 取的是 `builtin[0]`（coding-tools）+ `defaults`（nous/skills/prompts）——
+  **不从 `installed` 推**（coding-tools 不在 installed 里），
+  **也不把 catalog 里其他 `default: true` 的扩展算进来**（那是「新会话默认勾」，
+  跟「引擎无条件带上」不是一回事）。
+- `picked_exts` 初始化时无条件插入这四条。
+- `ext_pickable()` / Extensions 卡上的 `N/M` **只数能勾的**——现在这台机器是 `1/1`
+  （只有 `123`），不再是骗人的 `4/4`。
+- 弹层副标题改成「勾的是这次会话额外带哪些 · 核心四条引擎总带上，勾不掉」。
+
+**反悔点**：
+1. 用户改主意要「引擎支持减」→ 去 qrd3wh 改 `createConversation` 的
+   `settings.extensions`：`askedExt === undefined` 才用默认四条，否则按请求清单
+   （空数组就是空）。改完回来把 `wire.md` 那条 ⚠ 和这里的决定一起改掉，
+   `ExtKind::Core` 恢复可勾、`core_exts()` 不再无条件插入。
+2. 想继续装作能勾掉：不行，静默 = bug。
+
+---
+
 ## 2026-11-16 · 资源三页选 03：一个「资源」图标，两段（内容 / 扩展）
 
 外观稿 `demo/resource-pages/preview.html` 五套里挑了 **03**：左栏一个「资源」入口，
