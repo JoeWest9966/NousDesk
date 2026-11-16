@@ -418,6 +418,12 @@ pub struct Desktop {
     pub(crate) sections: [crate::templates::Section; 2],
     /// 当前选中的段。
     pub(crate) section: usize,
+    /// 终极模板的组合开关清单。**开关状态只信引擎**（`/v1/combos`），
+    /// 不读 `preset.json` 的 `enabled` 自己算 —— spec §4.3 的硬规矩。
+    /// `None` = 还没拉过；`Some(vec![])` 是一条组合也没有（两段共用一份，段无关）。
+    pub(crate) combos: Option<Vec<nous_engine::types::Combo>>,
+    /// 正在翻开关的组合名（防连点：翻到一半再点会发出两条相反的 POST）。
+    pub(crate) combo_flying: Option<String>,
     /// Template 页里选中的类别路径。`None` = 全部；`Some("∅")` = 未分类（不是词表里的类别）。
     pub(crate) preset_cat: Option<String>,
     /// 折叠着的类别路径。**纯内存**：它不是事实，是「我眼下展开到哪」。
@@ -1033,6 +1039,8 @@ impl Desktop {
             ],
             triggers: crate::triggers::State::new(window, cx),
             section: 0,
+            combos: None,
+            combo_flying: None,
             preset_cat: None,
             preset_filter,
             preset_copy: None,
