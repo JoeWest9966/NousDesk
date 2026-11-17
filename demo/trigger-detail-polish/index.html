@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>触发器抛光 · A/B 对照</title>
+<style>
+@font-face{font-family:Inter;src:url(fonts/inter-400.woff2) format("woff2");font-display:swap}
+@font-face{font-family:JBM;src:url(fonts/jetbrainsmono-400.woff2) format("woff2");font-display:swap}
+:root{--bg:#0b0c0e;--panel:#131417;--panel2:#181a1e;--line:#26282e;--line2:#31343c;
+--text:#e8e9ec;--t2:#a8abb3;--muted:#6b6f79;--accent:#e8b64c;--accent-soft:#3a2f18;
+--danger:#e05a5a;--warn:#e0a64c;--green:#4caf7a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:13px/1.5 Inter,system-ui,sans-serif;padding:26px 30px}
+.mono{font-family:JBM,ui-monospace,monospace}
+h1{font-size:20px;font-weight:600;letter-spacing:-.3px;margin-bottom:4px}
+.sub{color:var(--muted);font-size:12px;margin-bottom:24px}
+.wrap{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:1500px}
+@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+.plan{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.plan-h{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.plan-h .tag{background:var(--accent);color:#111;font:600 11px JBM,monospace;padding:2px 7px;border-radius:4px}
+.plan-h .name{font-size:14px;font-weight:600}
+.plan-h .why{color:var(--muted);font-size:11px;margin-left:auto}
+.plan-b{padding:16px}
+.sec{font-size:12px;color:var(--t2);margin:2px 0 10px;font-weight:600}
+/* ── 参数卡：共同骨架 ── */
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:10px 12px;margin-bottom:8px}
+.card-top{display:flex;align-items:center;gap:8px}
+.pname{font-size:11.5px;color:var(--text);font-family:JBM,monospace}
+.pkind{font-size:9.5px;color:var(--muted);background:#22242a;border-radius:3px;padding:1px 5px}
+.req{font-size:9px;color:var(--warn);background:#3a2f18;border-radius:3px;padding:1px 5px}
+.ptitle{margin-left:auto;font-size:9.5px;color:var(--muted)}
+.help{font-size:10px;color:var(--muted);margin-top:6px}
+/* A：一行明细流 */
+.meta-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.chip{font-size:9.5px;border:1px solid var(--line2);border-radius:4px;padding:1px 6px;color:var(--t2)}
+.chip b{color:var(--text);font-family:JBM,monospace;font-weight:400}
+.chip.opts{border-color:#3d3520;color:var(--accent)}
+/* B：两列对齐的 kv 表 */
+.kv{display:grid;grid-template-columns:56px 1fr;gap:3px 10px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.kv dt{font-size:9.5px;color:var(--muted);text-align:right}
+.kv dd{font-size:10.5px;color:var(--t2);font-family:JBM,monospace;word-break:break-all}
+.kv dd.warn{color:var(--accent)}
+/* ── 文件列表 ── */
+.filewrap{background:var(--panel2);border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.fhead{font-size:9px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--line)}
+.frow{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-bottom:1px solid #1c1e22;font-size:10.5px}
+.frow:last-child{border-bottom:0}
+.frow.on{background:#22242a}
+.frow .fi{color:var(--muted);font-size:11px}
+.frow .fn{flex:1;color:var(--t2);font-family:JBM,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow.on .fn{color:var(--text)}
+.frow .sz{font-size:9px;color:var(--muted);font-family:JBM,monospace}
+.diffadd{color:var(--green);font-family:JBM,monospace;font-size:9.5px}
+.diffdel{color:var(--danger);font-family:JBM,monospace;font-size:9.5px}
+/* A：右侧字节 + 脏圆点，选中靠底色 */
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.dot.hide{visibility:hidden}
+/* B：左侧选中竖条 + 中间 +N−M 对齐列 + 脏圆点 */
+.frow.on.v2{box-shadow:inset 2px 0 0 var(--accent)}
+.frow .bar{width:2px;align-self:stretch;flex:none;background:transparent}
+.frow.on.v2 .bar{background:var(--accent)}
+.frow .dc{width:74px;flex:none;text-align:right;white-space:nowrap}
+.pick-note{font-size:10.5px;color:var(--muted);margin-top:10px;padding:8px 10px;background:#101114;border-left:2px solid var(--accent);border-radius:0 4px 4px 0}
+.legend{font-size:10px;color:var(--muted);margin-top:14px}
+.legend code{font-family:JBM,monospace;color:var(--t2)}
+</style>
+</head>
+<body>
+<h1>触发器页 · B 方向抛光对照</h1>
+<div class="sub">真数据形状 · 两刀各两方案 · 顶部是「详情页参数卡」，底部是「代码页文件列表」</div>
+
+<div class="wrap">
+  <!-- 参数卡 A -->
+  <section class="plan">
+    <div class="plan-h"><span class="tag">1A</span><span class="name">参数卡 · 明细 chip 流</span><span class="why">紧凑，一眼扫完</span></div>
+    <div class="plan-b">
+      <div class="sec">详情页 · 参数（single-shot 有 1 个，dep-alert 有 0 个）</div>
+      <div class="card">
+        <div class="card-top">
+          <span class="pname">at</span><span class="pkind">epoch</span><span class="req">必填</span>
+          <span class="ptitle">每天几点</span>
+        </div>
+        <div class="help">例：每天的 09:00，Unix 时间戳由调度器算</div>
+        <div class="meta-row">
+          <span class="chip">默认 <b>28800</b></span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-top">
+          <span class="pname">tone</span><span class="pkind">select</span>
+          <span class="ptitle">语气</span>
+        </div>
+        <div class="help">控制回复的啰嗦程度</div>
+        <div class="meta-row">
+          <span class="chip opts">简洁 · 详细 · 只列结论</span>
+          <span class="chip">默认 <b>简洁</b></span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-top"><span class="pname">dry_run</span><span class="pkind">boolean</span><span class="ptitle">只试不写</span></div>
+        <div class="meta-row"><span class="chip">默认 <b>false</b></span></div>
+      </div>
+      <div class="pick-note">这套想干什么：字段少时一卡一行，default 和 options 作为小 chip 挂在下面，不撑高卡片。</div>
+    </div>
+  </section>
+
+  <!-- 参数卡 B -->
+  <section class="plan">
+    <div class="plan-h"><span class="tag">1B</span><span class="name">参数卡 · 对齐 kv 表</span><span class="why">字段多时整齐</span></div>
+    <div class="plan-b">
+      <div class="sec">详情页 · 参数（同一份数据）</div>
+      <div class="card">
+        <div class="card-top">
+          <span class="pname">at</span><span class="pkind">epoch</span><span class="req">必填</span>
+          <span class="ptitle">每天几点</span>
+        </div>
+        <div class="help">例：每天的 09:00，Unix 时间戳由调度器算</div>
+        <dl class="kv">
+          <dt>默认</dt><dd class="warn">28800</dd>
+        </dl>
+      </div>
+      <div class="card">
+        <div class="card-top">
+          <span class="pname">tone</span><span class="pkind">select</span>
+          <span class="ptitle">语气</span>
+        </div>
+        <div class="help">控制回复的啰嗦程度</div>
+        <dl class="kv">
+          <dt>选项</dt><dd class="warn">简洁 / 详细 / 只列结论</dd>
+          <dt>默认</dt><dd>简洁</dd>
+        </dl>
+      </div>
+      <div class="card">
+        <div class="card-top"><span class="pname">dry_run</span><span class="pkind">boolean</span><span class="ptitle">只试不写</span></div>
+        <dl class="kv"><dt>默认</dt><dd>false</dd></dl>
+      </div>
+      <div class="pick-note">这套想干什么：left-label 对齐成一条轴（Tesla 那条主内容轴），选项一长串换行也不乱。</div>
+    </div>
+  </section>
+
+  <!-- 文件列表 A -->
+  <section class="plan">
+    <div class="plan-h"><span class="tag">2A</span><span class="name">文件列表 · 最小改</span><span class="why">只加脏圆点</span></div>
+    <div class="plan-b">
+      <div class="sec">代码页 · 左栏文件（现状 + 一个脏圆点）</div>
+      <div class="filewrap">
+        <div class="fhead">文件</div>
+        <div class="frow on"><span class="dot hide"></span><span class="fi">◆</span><span class="fn">nous.json</span><span class="sz">412 B</span></div>
+        <div class="frow"><span class="dot"></span><span class="fi">◆</span><span class="fn">src/main.rs</span><span class="diffadd">+1</span><span class="diffdel">−0</span></div>
+        <div class="frow"><span class="dot hide"></span><span class="fi">◆</span><span class="fn">Cargo.toml</span><span class="sz">389 B</span></div>
+        <div class="frow"><span class="dot hide"></span><span class="fi">◆</span><span class="fn">README.md</span><span class="sz">1.2 K</span></div>
+      </div>
+      <div class="pick-note">这套想干什么：改动最小 —— 只在每个文件前面加个琥珀圆点表示「改了没保存」，+N−M 沿用 preflight 里那套。</div>
+    </div>
+  </section>
+
+  <!-- 文件列表 B -->
+  <section class="plan">
+    <div class="plan-h"><span class="tag">2B</span><span class="name">文件列表 · tab 手感</span><span class="why">选中竖条 + 整齐 diff 列</span></div>
+    <div class="plan-b">
+      <div class="sec">代码页 · 左栏文件（同一份数据）</div>
+      <div class="filewrap">
+        <div class="fhead">文件 · 4</div>
+        <div class="frow v2"><span class="bar"></span><span class="fi">◆</span><span class="fn">nous.json</span><span class="dc"><span class="sz">412 B</span></span></div>
+        <div class="frow v2 on"><span class="bar"></span><span class="fi">◆</span><span class="fn">src/main.rs</span><span class="dc"><span class="diffadd">+1</span> <span class="diffdel">−0</span> <span class="dot"></span></span></div>
+        <div class="frow v2"><span class="bar"></span><span class="fi">◆</span><span class="fn">Cargo.toml</span><span class="dc"><span class="sz">389 B</span></span></div>
+        <div class="frow v2"><span class="bar"></span><span class="fi">◆</span><span class="fn">README.md</span><span class="dc"><span class="sz">1.2 K</span></span></div>
+      </div>
+      <div class="pick-note">这套想干什么：选中态从「整行底色」升级成「左竖条 + 底色」（像 IDE tab），diff 数右对齐成一列，脏圆点排最后。信息更清楚，代价是多几像素宽度。</div>
+    </div>
+  </section>
+</div>
+
+<div class="legend">
+要挑就给四个字母：参数卡 <code>1A</code>/<code>1B</code>，文件列表 <code>2A</code>/<code>2B</code>。例如「1B + 2B」。
+脏圆点 = 编辑态改了没保存（不是 git 的 dirty）；<code>+N −M</code> = 相对 HEAD 的增删，来自 /files 的 changed/added/removed。
+</div>
+</body>
+</html>

@@ -3658,7 +3658,72 @@ impl Desktop {
                     .text_color(rgb(t().p.muted))
                     .child(h.clone())
             }))
+            // 1B：default / options 用左标签右值的对齐轴 —— 跟向导里填的
+            // 是同一份数据，填了就能在这里看到（原来详情页只显示 name/type/required/help）。
+            .children(
+                (!p.options.is_empty() || p.default.is_some()).then(|| {
+                    div()
+                        .mt(t().d(7.))
+                        .pt(t().d(7.))
+                        .border_t(t().d(1.))
+                        .border_color(rgb(t().p.line))
+                        .flex()
+                        .flex_col()
+                        .gap(t().d(3.))
+                        .children(
+                            p.options
+                                .iter()
+                                .map(|o| param_meta_row("选项", o.clone(), true))
+                                .collect::<Vec<_>>(),
+                        )
+                        .children(
+                            p.default
+                                .as_ref()
+                                .map(|d| param_meta_row("默认", json_scalar_text(d), true))
+                                .into_iter()
+                                .collect::<Vec<_>>(),
+                        )
+                }),
+            )
             .into_any_element()
+    }
+}
+
+/// 参数卡里一行「左标签 · 右值」：标签右对齐成一条轴（Tesla 那条主内容轴）。
+fn param_meta_row(label: &str, value: String, accent: bool) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(t().d(10.))
+        .child(
+            div()
+                .w(t().d(30.))
+                .flex_none()
+                .text_align(gpui::TextAlign::Right)
+                .text_size(t().fs(9.5))
+                .text_color(rgb(t().p.muted))
+                .child(label.to_string()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(t().d(0.))
+                .text_size(t().fs(10.))
+                .text_color(rgb(if accent { t().p.accent_fg } else { t().p.text_2 }))
+                .child(value),
+        )
+        .into_any_element()
+}
+
+/// serde_json::Value 显示成一行短文本：标量取原值，复合类型是紧凑 JSON。
+fn json_scalar_text(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => "null".into(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -3727,12 +3792,65 @@ fn kv(key: &str, value: String) -> AnyElement {
 impl Desktop {
     fn trigger_code(&self, cx: &mut Context<Self>) -> AnyElement {
         let code = &self.triggers.code;
+        // 2B：选中态升级成「左竖条 + 底色」；diff 增删右对齐成一列；
+        // 编辑态改了没保存的文件挂一个琥珀圆点（跟 git dirty 是两码事）。
+        let editing_dirty = code.editing
+            && code.text.read(cx).value().as_ref() != code.base.as_str();
         let file_tabs: Vec<AnyElement> = code
             .files
             .iter()
             .map(|f| {
                 let path = f.path.clone();
                 let on = code.path.as_deref() == Some(f.path.as_str());
+                let unsaved = on && editing_dirty;
+                // 右列：有增删就显示 +N −M，否则显示字节数；末尾再挂脏圆点。
+                let right: AnyElement = if f.added != 0 || f.removed != 0 {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t().d(5.))
+                        .child(
+                            div()
+                                .text_size(t().fs(9.))
+                                .text_color(rgb(t().p.ok))
+                                .child(format!("+{}", f.added)),
+                        )
+                        .child(
+                            div()
+                                .text_size(t().fs(9.))
+                                .text_color(rgb(t().p.danger))
+                                .child(format!("−{}", f.removed)),
+                        )
+                        .when(unsaved, |el| {
+                            el.child(
+                                div()
+                                    .size(t().d(6.))
+                                    .rounded(t().r(3.))
+                                    .bg(rgb(t().p.accent)),
+                            )
+                        })
+                        .into_any_element()
+                } else {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t().d(5.))
+                        .child(
+                            div()
+                                .text_size(t().fs(9.))
+                                .text_color(rgb(t().p.muted))
+                                .child(format!("{} B", f.size)),
+                        )
+                        .when(unsaved, |el| {
+                            el.child(
+                                div()
+                                    .size(t().d(6.))
+                                    .rounded(t().r(3.))
+                                    .bg(rgb(t().p.accent)),
+                            )
+                        })
+                        .into_any_element()
+                };
                 div()
                     .id(ElementId::Name(format!("tfile-{}", f.path).into()))
                     .flex()
@@ -3742,6 +3860,8 @@ impl Desktop {
                     .px(t().d(7.))
                     .rounded(t().r(5.))
                     .cursor_pointer()
+                    .border_l(t().d(2.))
+                    .border_color(rgba(if on { t().p.accent } else { t().p.transparent }))
                     .when(on, |el| el.bg(rgb(t().p.hover)))
                     .hover(|h| h.bg(rgb(t().p.hover)))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -3755,17 +3875,13 @@ impl Desktop {
                     )
                     .child(
                         div()
+                            .flex_1()
+                            .min_w(t().d(0.))
                             .text_size(t().fs(10.))
                             .text_color(rgb(if on { t().p.text_2 } else { t().p.muted }))
                             .child(f.path.clone()),
                     )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_size(t().fs(9.))
-                            .text_color(rgb(t().p.muted))
-                            .child(format!("{} B", f.size)),
-                    )
+                    .child(right)
                     .into_any_element()
             })
             .collect();
