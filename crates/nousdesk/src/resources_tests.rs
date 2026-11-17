@@ -25,7 +25,7 @@ mod tests {
                 skill("deep-dive", "深挖", &["写作", "写作/长文"], false),
             ],
             categories: vec!["工程".into(), "写作".into(), "写作/长文".into()],
-            root: None, pending: Vec::new(), extra: Default::default(),
+            root: None, extra: Default::default(),
         };
         let all = visible_skills(&skills, None, "");
         assert_eq!(all.len(), 2, "隐藏的不在主列表");
@@ -44,7 +44,7 @@ mod tests {
                 skill("weekly", "周报", &["写作"], false),
             ],
             categories: vec!["工程".into(), "工程/事故".into(), "写作".into()],
-            root: None, pending: Vec::new(), extra: Default::default(),
+            root: None, extra: Default::default(),
         };
         let eng = visible_skills(&skills, Some("工程"), "");
         assert_eq!(eng.len(), 2, "父类别含后代");
@@ -58,6 +58,7 @@ mod tests {
     #[test]
     fn 默认提示词有标记_筛选能捞出() {
         let p = |name: &str, cats: &[&str]| Prompt {
+            tracked: true,
             name: name.into(), description: None,
             summary: Some(format!("摘要 of {name}")),
             category: cats.iter().map(|c| c.to_string()).collect(),
@@ -68,8 +69,7 @@ mod tests {
             prompts: vec![p("smart-ass", &[]), p("deep", &["写作"])],
             categories: vec!["写作".into()], default: Some("smart-ass".into()),
             root: None,
-            pending: Vec::new(),
-            extra: Default::default(),
+                        extra: Default::default(),
         };
         let def = visible_prompts(&prompts, Some("@default"), "");
         assert_eq!(def.len(), 1);
@@ -111,7 +111,7 @@ mod tests {
     fn 段切换计数是可见条数不是总条数() {
         let skills = Skills {
             skills: vec![skill("a", "", &[], false), skill("hidden", "", &[], true)],
-            categories: vec![], root: None, pending: Vec::new(), extra: Default::default(),
+            categories: vec![], root: None, extra: Default::default(),
         };
         let (n, _, _) = counts(Some(&skills), None, None);
         assert_eq!(n, 1, "隐藏的不算进段按钮");

@@ -540,7 +540,7 @@ impl Desktop {
 
         cx.spawn_in(window, async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else { return };
-            let repo = kind.repo().path();
+            let repo = kind.repo().key();
             let (n, first) = (name.clone(), kind.primary_file().to_string());
             let res = handle
                 .spawn(async move {
@@ -608,7 +608,7 @@ impl Desktop {
 
         cx.spawn_in(window, async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else { return };
-            let repo = kind.repo().path();
+            let repo = kind.repo().key();
             let eng = engine.clone();
             let saved = if dirty {
                 let (n, p, txt, base) = (name.clone(), old_path, current, etag);
@@ -670,7 +670,7 @@ impl Desktop {
 
         cx.spawn_in(window, async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else { return };
-            let repo = kind.repo().path();
+            let repo = kind.repo().key();
             let (n, p, base) = (name.clone(), path.clone(), etag.clone());
             let (txt, txt2) = (text.clone(), text.clone());
             let res = handle
@@ -753,7 +753,7 @@ impl Desktop {
         cx.spawn_in(window, async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else { return };
             let res = handle
-                .spawn(async move { engine.resource_publish(repo.path(), None).await })
+                .spawn(async move { engine.resource_publish(repo.key(), None).await })
                 .await;
 
             let _ = this.update_in(cx, |this, window, cx| {
@@ -882,7 +882,7 @@ impl Desktop {
                 ConfirmAct::Purge => "purge",
                 ConfirmAct::DiscardEdit => unreachable!(),
             };
-            let repo = kind.repo().path();
+            let repo = kind.repo().key();
             let (n, body) = (name.clone(), serde_json::json!({ "name": name }));
             let res = handle
                 .spawn(async move { engine.resource_op(repo, op, &body).await })
@@ -999,6 +999,7 @@ fn field(label: &str, req: bool, hint: &str, input: AnyElement) -> AnyElement {
     div()
         .flex()
         .flex_col()
+        .w_full()
         .gap(t().d(5.))
         .child(
             div()
@@ -1057,21 +1058,29 @@ pub(crate) fn render_new(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElemen
     let mut left = div()
         .flex()
         .flex_col()
+        .w_full()
         .gap(t().d(15.))
-        .flex_1()
         .px(t().d(22.))
         .py(t().d(18.))
         .child(field(
             "名字",
             true,
             name_hint,
-            div().h(t().d(31.)).child(Input::new(&form.name)).into_any_element(),
+            div()
+                .w_full()
+                .h(t().d(31.))
+                .child(Input::new(&form.name).appearance(true))
+                .into_any_element(),
         ))
         .child(field(
             text_label,
             true,
             text_hint,
-            div().h(t().d(70.)).child(Input::new(&form.text)).into_any_element(),
+            div()
+                .w_full()
+                .h(t().d(70.))
+                .child(Input::new(&form.text).appearance(true))
+                .into_any_element(),
         ));
 
     if kind == Kind::Prompt {
@@ -1079,14 +1088,22 @@ pub(crate) fn render_new(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElemen
             "正文（可空）",
             false,
             "空着就落一个 # 名字 的标题 —— 标题也会进提示词。",
-            div().h(t().d(70.)).child(Input::new(&form.body)).into_any_element(),
+            div()
+                .w_full()
+                .h(t().d(70.))
+                .child(Input::new(&form.body).appearance(true))
+                .into_any_element(),
         ));
     }
     left = left.child(field(
         "类别（逗号分隔，可空）",
         false,
         "写进 nous.json 的 category，父类别不存在会自动补进词表。",
-        div().h(t().d(31.)).child(Input::new(&form.category)).into_any_element(),
+        div()
+            .w_full()
+            .h(t().d(31.))
+            .child(Input::new(&form.category).appearance(true))
+            .into_any_element(),
     ));
 
     if let Some(err) = form.err.as_ref() {
@@ -1107,8 +1124,11 @@ pub(crate) fn render_new(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElemen
         .flex()
         .flex_col()
         .gap(t().d(10.))
+        .id("res-new-preview")
         .w(t().d(400.))
         .flex_shrink_0()
+        .min_h(t().d(0.))
+        .overflow_y_scroll()
         .border_l(t().d(1.))
         .border_color(rgb(t().p.line_soft))
         .bg(rgb(t().p.panel_alt))
@@ -1189,8 +1209,10 @@ pub(crate) fn render_new(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElemen
                     div()
                         .id("res-new-form")
                         .flex()
+                        .flex_col()
                         .flex_1()
                         .min_w(t().d(0.))
+                        .min_h(t().d(0.))
                         .overflow_y_scroll()
                         .child(left),
                 )
@@ -1483,7 +1505,7 @@ pub(crate) fn render_publish(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyEl
                 )
                 .child(
                     btn(
-                        &format!("res-pub-{}", repo.path().replace('/', "-")),
+                        &format!("res-pub-{}", repo.key()),
                         if done {
                             "已发布"
                         } else if busy {
@@ -1650,12 +1672,12 @@ fn pending_count(desk: &Desktop, repo: Repo) -> usize {
         Repo::Skills => r
             .skills
             .as_ref()
-            .map(|s| s.pending.iter().filter(|x| x.name.is_some() && !x.tracked).count())
+            .map(|s| s.skills.iter().filter(|x| !x.tracked).count())
             .unwrap_or(0),
         Repo::Prompts => r
             .prompts
             .as_ref()
-            .map(|p| p.pending.iter().filter(|x| x.name.is_some() && !x.tracked).count())
+            .map(|p| p.prompts.iter().filter(|x| !x.tracked).count())
             .unwrap_or(0),
         Repo::Extensions => r
             .exts
@@ -1675,11 +1697,13 @@ pub(crate) fn is_untracked(kind: Kind, name: &str, desk: &Desktop) -> bool {
         Kind::Skill => r
             .skills
             .as_ref()
-            .is_some_and(|s| s.pending.iter().any(|x| x.is_untracked(name))),
+            .and_then(|s| s.skills.iter().find(|x| x.name == name))
+            .is_some_and(|s| !s.tracked),
         Kind::Prompt => r
             .prompts
             .as_ref()
-            .is_some_and(|p| p.pending.iter().any(|x| x.is_untracked(name))),
+            .and_then(|p| p.prompts.iter().find(|x| x.name == name))
+            .is_some_and(|p| !p.tracked),
         Kind::Ext => r
             .exts
             .as_ref()

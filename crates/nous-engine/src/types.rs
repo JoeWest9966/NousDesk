@@ -781,31 +781,6 @@ impl Model {
     }
 }
 
-/// 一条待提交的单元（`GET /v1/{skills,prompts}/pending` 的 `pending` 数组）。
-///
-/// `tracked=false` + 有 `name` = 这条条目还没进 HEAD。`__categories` 这种
-/// 没有 `name` 的是词表改动，不算某一条的「未发布」。
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct PendingItem {
-    #[serde(default)]
-    pub key: String,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub tracked: bool,
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
-}
-
-impl PendingItem {
-    /// 这条 `name` 还没提交吗。
-    pub fn is_untracked(&self, name: &str) -> bool {
-        !self.tracked && self.name.as_deref() == Some(name)
-    }
-}
-
 /// `GET /v1/skills`。只列 `load.state == "ok" && !hidden` 的那些（判据在 UI，不在类型里）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct Skills {
@@ -813,9 +788,6 @@ pub struct Skills {
     pub skills: Vec<Skill>,
     #[serde(default)]
     pub categories: Vec<String>,
-    /// 待提交清单（引擎也顺带给了一份）。判「这条未发布」只用它，不自己推。
-    #[serde(default)]
-    pub pending: Vec<PendingItem>,
     pub root: Option<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -963,9 +935,6 @@ pub struct Prompts {
     /// 私库根目录：落盘预览和状态栏要写全路径，只写相对路径等于让人猜。
     #[serde(default)]
     pub root: Option<String>,
-    /// 待提交清单。提示词没有 `tracked` 字段，未发布只能从这份清单看。
-    #[serde(default)]
-    pub pending: Vec<PendingItem>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -978,6 +947,9 @@ pub struct Prompt {
     pub summary: Option<String>,
     #[serde(default)]
     pub category: Vec<String>,
+    /// `false` = 还没进 HEAD。**引擎在这个 GET 里就给了**，不用另打 `/pending`。
+    #[serde(default)]
+    pub tracked: bool,
     pub load: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,

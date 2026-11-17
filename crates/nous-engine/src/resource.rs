@@ -114,6 +114,16 @@ pub enum Repo {
 }
 
 impl Repo {
+    /// 引擎那几个写接口认的**仓名**（`/v1/{key}/file`）。路径前缀不要往 body / query 里塞。
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Skills => "skills",
+            Self::Prompts => "prompts",
+            Self::Extensions => "extensions",
+        }
+    }
+
+    /// 带 `v1/` 的路径前缀，只给「拼 URL」的地方用。
     pub fn path(self) -> &'static str {
         match self {
             Self::Skills => "v1/skills",
@@ -242,6 +252,8 @@ mod tests {
 
     #[test]
     fn repo_paths_and_from_str() {
+        assert_eq!(Repo::Skills.key(), "skills");
+        assert_eq!(Repo::Extensions.key(), "extensions");
         assert_eq!(Repo::Skills.path(), "v1/skills");
         assert_eq!(Repo::Extensions.path(), "v1/extensions");
         assert_eq!("prompts".parse::<Repo>(), Ok(Repo::Prompts));

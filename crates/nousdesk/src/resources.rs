@@ -472,7 +472,7 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         View::Edit => crate::resource_write::render_edit(desk, cx),
         View::Publish => crate::resource_write::render_publish(desk, cx),
         View::Browse => {
-            let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
+            let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.)).bg(rgb(0x00ff00));
             if !narrow {
                 root = root.child(render_tree(&desk.resources, cx));
             }
@@ -482,20 +482,8 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         }
     };
 
-    // 确认层压在整页上面（归档 / 真删 / 丢掉改动）。
-    div()
-        .relative()
-        .flex()
-        .flex_row()
-        .flex_1()
-        .h_full()
-        .min_w(t().d(0.))
-        .bg(rgb(t().p.list_bg))
-        .child(body)
-        .when(desk.resources.confirm.is_some(), |el| {
-            el.child(crate::resource_write::render_confirm(desk, cx))
-        })
-        .into_any_element()
+    let _ = cx;
+    body
 }
 
 fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
@@ -939,7 +927,6 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         .h_full()
         .min_w(t().d(0.))
         .bg(rgb(t().p.panel))
-        .overflow_y_scroll()
         .px(t().d(22.))
         .py(t().d(18.))
         .gap(t().d(10.));
@@ -1153,10 +1140,7 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         }
         Selected::Prompt(name) => {
             if let Some(p) = r.prompts.as_ref().and_then(|p| p.prompts.iter().find(|x| &x.name == name)) {
-                let untracked = r
-                    .prompts
-                    .as_ref()
-                    .is_some_and(|pp| pp.pending.iter().any(|x| x.is_untracked(name)));
+                let untracked = !p.tracked;
                 body = body
                     .child(detail_kv("摘要", p.summary.as_deref().or(p.description.as_deref()).unwrap_or("—")))
                     .child({
