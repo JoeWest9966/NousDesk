@@ -932,6 +932,9 @@ pub struct Prompts {
     #[serde(default)]
     pub categories: Vec<String>,
     pub default: Option<String>,
+    /// 私库根目录：落盘预览和状态栏要写全路径，只写相对路径等于让人猜。
+    #[serde(default)]
+    pub root: Option<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -944,6 +947,9 @@ pub struct Prompt {
     pub summary: Option<String>,
     #[serde(default)]
     pub category: Vec<String>,
+    /// `false` = 还没进 HEAD。**引擎在这个 GET 里就给了**，不用另打 `/pending`。
+    #[serde(default)]
+    pub tracked: bool,
     pub load: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,

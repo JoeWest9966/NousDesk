@@ -695,6 +695,18 @@ impl EngineClient {
         query: &[(&str, &str)],
         body: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value, EngineError> {
+        self.resource_call(method, kind, op, query, body).await
+    }
+
+    /// 跟 `resource_req` 同一条路，但直接解析成调用方要的类型。
+    async fn resource_call<T: serde::de::DeserializeOwned>(
+        &self,
+        method: reqwest::Method,
+        kind: &str,
+        op: &str,
+        query: &[(&str, &str)],
+        body: Option<&serde_json::Value>,
+    ) -> Result<T, EngineError> {
         let root = Self::resource_root(kind)?;
         let mut url = self.url(&format!("{root}/{op}"))?;
         if !query.is_empty() {
@@ -708,40 +720,79 @@ impl EngineClient {
         self.json(req.send().await?).await
     }
 
+    /// 把调用方的 body 结构体转成 JSON。转不出来算调用方的错（400 语义），
+    /// 不假装是网络问题。
+    fn body_json<B: serde::Serialize + ?Sized>(
+        body: &B,
+    ) -> Result<serde_json::Value, EngineError> {
+        serde_json::to_value(body).map_err(|e| EngineError::Engine {
+            status: 400,
+            message: format!("请求体序列化不了：{e}"),
+        })
+    }
+
     /// `POST /v1/{skills,prompts,extensions}/create`。
-    /// 校验（名字 / 必填项）全在引擎，这边一个字都不改。
-    pub async fn skill_create(
+    /// 校验（名字 / 必填项）全在引擎，这边一个字都不改 —— 收 `NewSkill` /
+    /// `NewPrompt` / `NewExtension`，也收裸 `serde_json::Value`（测试和边角用）。
+    pub async fn skill_create<B: serde::Serialize + ?Sized>(
         &self,
-        body: &serde_json::Value,
+        body: &B,
     ) -> Result<serde_json::Value, EngineError> {
-        self.resource_req(reqwest::Method::POST, "skills", "create", &[], Some(body))
+        let v = Self::body_json(body)?;
+        self.resource_call(reqwest::Method::POST, "skills", "create", &[], Some(&v))
             .await
     }
 
-    pub async fn prompt_create(
+    pub async fn prompt_create<B: serde::Serialize + ?Sized>(
         &self,
-        body: &serde_json::Value,
+        body: &B,
     ) -> Result<serde_json::Value, EngineError> {
-        self.resource_req(reqwest::Method::POST, "prompts", "create", &[], Some(body))
+        let v = Self::body_json(body)?;
+        self.resource_call(reqwest::Method::POST, "prompts", "create", &[], Some(&v))
             .await
     }
 
-    pub async fn extension_create(
+    pub async fn extension_create<B: serde::Serialize + ?Sized>(
         &self,
-        body: &serde_json::Value,
+        body: &B,
     ) -> Result<serde_json::Value, EngineError> {
-        self.resource_req(reqwest::Method::POST, "extensions", "create", &[], Some(body))
+        let v = Self::body_json(body)?;
+        self.resource_call(reqwest::Method::POST, "extensions", "create", &[], Some(&v))
             .await
     }
 
     /// `PUT /v1/{kind}/file` —— 写一个文件，只落盘不提交。
-    pub async fn resource_file_put(
+    pub async fn resource_file_put<B: serde::Serialize + ?Sized>(
         &self,
         kind: &str,
-        body: &serde_json::Value,
+        body: &B,
     ) -> Result<serde_json::Value, EngineError> {
-        self.resource_req(reqwest::Method::PUT, kind, "file", &[], Some(body))
+        let v = Self::body_json(body)?;
+        self.resource_call(reqwest::Method::PUT, kind, "file", &[], Some(&v))
             .await
+    }
+
+    /// 一次「对某一条做点什么」的写操作：`archive` / `restore` / `purge` /
+    /// `install` / `uninstall` / `reload` / `sessions` 那些都是同形状
+    /// （`POST /v1/{kind}/{op}`，body `{"name": …}`）。UI 层不用知道动词。
+    pub async fn resource_op<B: serde::Serialize + ?Sized>(
+        &self,
+        kind: &str,
+        op: &str,
+        body: &B,
+    ) -> Result<serde_json::Value, EngineError> {
+        let v = Self::body_json(body)?;
+        self.resource_call(reqwest::Method::POST, kind, op, &[], Some(&v))
+            .await
+    }
+
+    /// `PUT /v1/{kind}/file` 的类型化版本：body 是 `SaveFile`（带 `base` 才算并发安全）。
+    pub async fn resource_save(
+        &self,
+        kind: &str,
+        body: &crate::resource::SaveFile<'_>,
+    ) -> Result<serde_json::Value, EngineError> {
+        self.resource_file_put(kind, body).await
     }
 
     /// `POST /v1/{kind}/publish`。message 省掉就不发这个键（引擎有默认文案）。
@@ -766,6 +817,39 @@ impl EngineClient {
     ) -> Result<serde_json::Value, EngineError> {
         self.resource_req(reqwest::Method::GET, kind, "files", &[("name", name)], None)
             .await
+    }
+
+    /// `GET /v1/{kind}/files?name=` —— 类型化。
+    pub async fn resource_file_list(
+        &self,
+        kind: &str,
+        name: &str,
+    ) -> Result<crate::resource::ResourceFiles, EngineError> {
+        self.resource_call(
+            reqwest::Method::GET,
+            kind,
+            "files",
+            &[("name", name)],
+            None,
+        )
+        .await
+    }
+
+    /// `GET /v1/{kind}/file?name=&path=` —— 类型化（带 `etag`，写回时当 `base`）。
+    pub async fn resource_file_read(
+        &self,
+        kind: &str,
+        name: &str,
+        path: &str,
+    ) -> Result<crate::resource::ResourceFile, EngineError> {
+        self.resource_call(
+            reqwest::Method::GET,
+            kind,
+            "file",
+            &[("name", name), ("path", path)],
+            None,
+        )
+        .await
     }
 
     /// `GET /v1/{kind}/file?name=&path=`。

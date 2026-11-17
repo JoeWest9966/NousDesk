@@ -223,3 +223,104 @@ async fn unknown_kind_is_rejected_before_http() {
         .unwrap();
     assert!(matches!(err, EngineError::Engine { status: 400, .. }));
 }
+
+// ── 类型化读 / 保存（UI 真正会用的那两个） ─────────────────────────────
+
+use nous_engine::resource::{NewSkill, SaveFile};
+
+#[tokio::test]
+async fn typed_files_list_parses_and_puts_body_first() {
+    let (base, rx) = fake_engine(
+        200,
+        r#"{"name":"code-review","files":[{"path":"nous.json","size":112},{"path":"SKILL.md","size":413}]}"#,
+    )
+    .await;
+    let f = client(&base).resource_file_list("skills", "code-review").await.unwrap();
+    assert_eq!(f.name, "code-review");
+    assert_eq!(f.ordered()[0].path, "SKILL.md", "正文排最前");
+    let req = rx.await.unwrap();
+    assert_eq!(req.method, "GET");
+    assert!(req.path.starts_with("/v1/skills/files?name=code-review"));
+}
+
+#[tokio::test]
+async fn typed_file_read_keeps_etag() {
+    let (base, rx) = fake_engine(
+        200,
+        r#"{"name":"code-review","path":"SKILL.md","text":"---\n","etag":"a2adba91"}"#,
+    )
+    .await;
+    let f = client(&base)
+        .resource_file_read("skills", "code-review", "SKILL.md")
+        .await
+        .unwrap();
+    assert_eq!(f.etag, "a2adba91");
+    assert_eq!(f.text, "---\n");
+    let req = rx.await.unwrap();
+    assert_eq!(req.method, "GET");
+    assert!(req.path.contains("path=SKILL.md"), "path 要带上去：{}", req.path);
+}
+
+#[tokio::test]
+async fn save_sends_base_so_engine_can_reject_stale_writes() {
+    let (base, rx) = fake_engine(200, r#"{"ok":true}"#).await;
+    client(&base)
+        .resource_save(
+            "prompts",
+            &SaveFile {
+                name: "strict-review",
+                path: "PROMPT.md",
+                text: "# 新正文\n",
+                base: Some("etag-old"),
+            },
+        )
+        .await
+        .unwrap();
+    let req = rx.await.unwrap();
+    assert_eq!(req.method, "PUT");
+    assert_eq!(req.path, "/v1/prompts/file");
+    assert_eq!(
+        serde_json::from_str::<Value>(&req.body).unwrap(),
+        json!({"name":"strict-review","path":"PROMPT.md","text":"# 新正文\n","base":"etag-old"})
+    );
+}
+
+#[tokio::test]
+async fn typed_create_body_shape() {
+    let (base, rx) = fake_engine(200, r#"{"skill":{}}"#).await;
+    client(&base)
+        .skill_create(&NewSkill {
+            name: "weekly-digest".into(),
+            description: "周报".into(),
+            category: vec!["写作".into()],
+        })
+        .await
+        .unwrap();
+    let req = rx.await.unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&req.body).unwrap(),
+        json!({"name":"weekly-digest","description":"周报","category":["写作"]})
+    );
+}
+
+/// 409 的并发闸原文（etag 撞了）也得原样透传 —— UI 要拿它提示「先重读」。
+#[tokio::test]
+async fn stale_save_409_passes_through() {
+    const ERROR: &str = "文件被人改过了，先重读再写（base 已过期）";
+    let (base, _rx) = fake_engine(409, json!({"error": ERROR}).to_string()).await;
+    let err = client(&base)
+        .resource_save(
+            "skills",
+            &SaveFile { name: "d", path: "SKILL.md", text: "x", base: Some("old") },
+        )
+        .await
+        .err()
+        .unwrap();
+    match err {
+        EngineError::Engine { status, message } => {
+            assert_eq!(status, 409);
+            assert_eq!(message, ERROR);
+        }
+        other => panic!("该是引擎错误，得到 {other:?}"),
+    }
+}

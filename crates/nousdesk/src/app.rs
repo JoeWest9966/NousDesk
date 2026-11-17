@@ -5216,7 +5216,9 @@ impl Render for Desktop {
             // **空的也别占位**：它带着 `flex_1`，会把主栏挤到一半宽 —— 640 宽时
             // 模板列表 240 之后只剩 52px，右栏的图/空状态全被压成一条（见 坑.md 64）。
             .children(
-                (self.tab != Tab::Templates || page_open).then(|| {
+                // **资源页也有自己的第三栏**，跟模板页同理：这一格必须空着不挂，
+                // 否则那个空 `flex_1` 会把主栏挤成一半宽（坑.md 64；资源页就是漏了这一条）。
+                (!matches!(self.tab, Tab::Templates | Tab::Resources) || page_open).then(|| {
                     div()
                         .flex_1()
                         .min_w(t().d(0.))

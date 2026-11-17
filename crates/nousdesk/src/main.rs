@@ -35,6 +35,7 @@ mod preview;
 mod preset_menu;
 mod recent;
 mod rename_box;
+mod resource_write;
 mod resources;
 #[cfg(test)]
 mod resources_tests;
