@@ -1571,7 +1571,7 @@ pub(crate) fn render_confirm(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyEl
         .flex()
         .items_center()
         .justify_center()
-        .bg(rgb(t().p.scrim))
+        .bg(rgba(t().p.scrim))
         .child(
             div()
                 .flex()

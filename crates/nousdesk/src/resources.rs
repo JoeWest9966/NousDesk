@@ -472,7 +472,7 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         View::Edit => crate::resource_write::render_edit(desk, cx),
         View::Publish => crate::resource_write::render_publish(desk, cx),
         View::Browse => {
-            let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.)).bg(rgb(0x00ff00));
+            let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
             if !narrow {
                 root = root.child(render_tree(&desk.resources, cx));
             }
@@ -482,7 +482,21 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         }
     };
 
-    let _ = cx;
+    // 确认层压在整页上面（归档 / 恢复 / 真删 / 丢掉改动）。
+    // 它要盖住整块内容，所以只在有确认时套一层壳 —— 平时不多一层 flex，少一个
+    // 「空的 flex_1 抢宽度」的机会（坑.md 64/94）。
+    if desk.resources.confirm.is_some() {
+        return div()
+            .relative()
+            .flex()
+            .flex_row()
+            .flex_1()
+            .h_full()
+            .min_w(t().d(0.))
+            .child(body)
+            .child(crate::resource_write::render_confirm(desk, cx))
+            .into_any_element();
+    }
     body
 }
 
@@ -1190,6 +1204,7 @@ fn detail_title(name: &str) -> AnyElement {
 fn detail_kv(k: &str, v: &str) -> AnyElement {
     div()
         .flex()
+        .min_w(t().d(0.))
         .gap(t().d(12.))
         .text_size(t().fs(12.))
         .child(
@@ -1199,8 +1214,10 @@ fn detail_kv(k: &str, v: &str) -> AnyElement {
                 .child(k.to_string()),
         )
         .child(
+            // 长串（引擎的报错原文）要能在标签后面折行，不能把整行撑出窗口。
             div()
                 .flex_1()
+                .min_w(t().d(0.))
                 .text_color(rgb(text_color()))
                 .child(v.to_string()),
         )
