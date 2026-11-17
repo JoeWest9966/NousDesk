@@ -29,7 +29,9 @@
   archived: null | {at, gen, purged} }
 ```
 
-我们依赖：`id` `name` `parent` `model` `thinkingLevel` `readOnly` `busy` `updatedAt` `last` `archived`。
+我们依赖：`id` `name` `parent` `model` `thinkingLevel` `readOnly` `busy` `updatedAt` `last` `archived` `pinned`。
+
+- `pinned` 由内核算好：置顶在前、其余保持原序。客户端只读它分组，不自己存置顶表。
 
 - `archived` 是**归档墓碑**，`null` = 没归档过（捞回之后也回到 `null`），对象 = `{at, gen, purged}`，
   `at` 是 epoch **毫秒**。老引擎整个字段缺席时也是 `null` —— 别当布尔用，也别拿它判断
@@ -102,6 +104,10 @@ body `{ content, requestId?, waitMs?, whenBusy? }`。
 
 **合帧铁律**：`text_delta` 只改内存里的 `Map<contentIndex, String>`，16ms 定时器读一次再
 `cx.notify()`。一个 token 一次 notify 会在 `Entity<T>` 不匹配报错之前，先把 CPU 烧穿。
+
+### POST /v1/sessions/:id/pin
+
+置顶进内核；具体形状以快照测试为准。
 
 ### POST /v1/sessions/:id/abort
 

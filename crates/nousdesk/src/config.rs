@@ -29,8 +29,6 @@ pub const ENGINE_BLOCK: &str = "qrd3wh";
 /// 触发器管理块（n8qkkj）：清单 / 文件 / 发布 / 归档都住在这儿。
 /// 它和会话引擎是两个进程，地址同样只从 `__nous/resolve` 拿。
 pub const TRIGGER_BLOCK: &str = "n8qkkj";
-/// 手机端那块。**只用来读写置顶**（`pins.json` 的单源在它那儿，见 `decisions.md`）。
-pub const MOBILE_BLOCK: &str = "bjes6b";
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Config {

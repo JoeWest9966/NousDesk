@@ -115,7 +115,7 @@ impl Bar {
     }
 }
 
-use crate::config::{Config, ENGINE_BLOCK, MOBILE_BLOCK, SELF_BLOCK};
+use crate::config::{Config, ENGINE_BLOCK, SELF_BLOCK};
 use crate::live::Live;
 use crate::md::{chat_md, code_copy_button, code_highlighter, md_style, strip_harness};
 
@@ -426,11 +426,14 @@ pub struct Desktop {
     pub(crate) expanded: std::collections::HashSet<i64>,
     /// 这一轮是**用户自己按的停止**。abort 会让流断开，那不是错误，别弹红条。
     user_stopped: bool,
-    /// 手机端那块（bjes6b）的客户端：**只用来读写置顶**。
-    /// `None` = 那个块没部署 / 连不上 —— 这时不显示置顶功能，绝不弹错。
+    /// 内核（qrd3wh）的置顶客户端：和会话/历史同一个地址，走 `/v1/sessions/:id/pin`。
+    /// `None` = 内核还没连上 —— 这时不显示置顶功能，绝不弹错。
     pins_client: Option<Arc<PinClient>>,
-    /// 置顶的会话 id，**顺序就是显示顺序**（来自 `pins.json`）。
+    /// 置顶的会话 id，**顺序就是显示顺序**（来自内核 `GET /v1/sessions`）。
     pins: Vec<i64>,
+    /// 每条会话最后一次置顶提交的版本（回包 `version`）。只用来给**下一次切换**
+    /// 生成稳定的幂等锚：同一目标态重试用同一个 requestId，切回时带上版本就不撞旧锚。
+    pin_seqs: std::collections::HashMap<i64, u64>,
     /// Template 页的两个段（同一个私仓，两套词表、两套条目）。
     /// 索引 0 = 会话模板（`Session-Template`），1 = 终极模板（`Ultimate-Template`）。
     pub(crate) sections: [crate::templates::Section; 2],
@@ -1080,6 +1083,7 @@ impl Desktop {
             user_stopped: false,
             pins_client: None,
             pins: vec![],
+            pin_seqs: std::collections::HashMap::new(),
             sections: [
                 crate::templates::Section::new(0),
                 crate::templates::Section::new(1),
@@ -1169,7 +1173,7 @@ impl Desktop {
                         this.engine = Some(engine);
                         this.sessions = sessions;
                         this.engine_node = node;
-                        this.engine_url = Some(url);
+                        this.engine_url = Some(url.clone());
                         // 换了盘之后，原来选中的那条可能不在新引擎上 —— 别留个空壳。
                         if this
                             .selected
@@ -1191,8 +1195,8 @@ impl Desktop {
                         if this.tab == Tab::Resources {
                             this.load_resources(false, cx);
                         }
-                        // 置顶单独去 bjes6b 拿（单源在它那儿）。
-                        this.load_pins(cx);
+                        // 置顶来自内核（同一份 resolve、同一个地址）。
+                        this.load_pins(cx, url.clone());
                         // `/` 面板的技能清单：失败就认了（面板给提示）。
                         this.load_skills(cx);
                         // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在 New Manual 盘面上，
@@ -1229,39 +1233,19 @@ impl Desktop {
         .detach();
     }
 
-    /// 连 bjes6b 拿置顶。**失败就静默降级**：`pins_client` 留 `None`，
-    /// 界面上没有置顶功能，但不影响聊天 —— 客户端不该因为别人的块没装就红一片。
-    fn load_pins(&mut self, cx: &mut Context<Self>) {
-        let Some(host) = pins_host() else { return };
-        let board = pins_board();
-        cx.spawn(async move |this, cx| {
-            let Some(handle) = crate::TOKIO.get().cloned() else {
+    /// 从内核拿置顶。**失败就静默降级**：`pins_client` 留 `None`，
+    /// 界面上没有置顶功能，但不影响聊天。地址就是引擎那次 resolve 的 url ——
+    /// 不再单独 resolve 手机端那块，它停不停都跟置顶无关。
+    fn load_pins(&mut self, cx: &mut Context<Self>, engine_url: String) {
+        let client = match PinClient::new(&engine_url, Duration::from_secs(8)) {
+            Ok(c) => Arc::new(c),
+            Err(e) => {
+                log::warn!("置顶客户端建不起来：{e}");
                 return;
-            };
-            let url = match handle
-                .spawn(async move {
-                    nous_engine::resolve::resolve_engine(&host, &board, SELF_BLOCK, MOBILE_BLOCK)
-                        .await
-                })
-                .await
-            {
-                Ok(Ok(url)) => url,
-                Ok(Err(e)) => {
-                    log::info!("手机端那块 resolve 不到，置顶功能关掉：{e}");
-                    return;
-                }
-                Err(e) => {
-                    log::info!("resolve 任务挂了，置顶功能关掉：{e}");
-                    return;
-                }
-            };
-            let client = match PinClient::new(url.as_str(), Duration::from_secs(8)) {
-                Ok(c) => Arc::new(c),
-                Err(e) => {
-                    log::warn!("置顶客户端建不起来：{e}");
-                    return;
-                }
-            };
+            }
+        };
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
             let ids = {
                 let c = client.clone();
                 handle.spawn(async move { c.pinned_ids().await }).await
@@ -1271,6 +1255,7 @@ impl Desktop {
                     log::info!("置顶读到了：{ids:?}");
                     this.pins_client = Some(client);
                     this.pins = ids;
+                    this.pin_seqs.clear(); // 服务端重排过，旧版本不再当锚用
                     cx.notify();
                 }
                 Ok(Err(e)) => log::info!("置顶读不到，功能关掉：{e}"),
@@ -1295,17 +1280,30 @@ impl Desktop {
         }
         cx.notify();
 
+        // 幂等锚：**同一个会话、同一个目标态**就同一个 requestId —— 回包丢了再点一次
+        // 也不会落第二条提交。时间戳不行：那会把重试变成新的一次决定。
+        let version = self.pin_seqs.get(&id).copied().unwrap_or(0);
+        let request_id = format!("desk-pin-{id}-{}-{version}", if want { "on" } else { "off" });
+
         cx.spawn(async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else {
                 return;
             };
             let res = handle
-                .spawn(async move { client.set_pin(id, want).await })
+                .spawn(async move { client.set_pin(id, want, &request_id).await })
                 .await;
             let failed = match res {
-                Ok(Ok(())) => {
-                    log::info!("置顶写进去了：{id} -> {want}");
-                    false
+                Ok(Ok(receipt)) => {
+                    if receipt.pinned == want {
+                        log::info!("置顶写进去了：{id} -> {want}（version {}）", receipt.version);
+                        let _ = this.update(cx, |this, _cx| {
+                            this.pin_seqs.insert(id, receipt.version);
+                        });
+                        false
+                    } else {
+                        log::warn!("置顶回包不是要的状态：{id} -> {}", receipt.pinned);
+                        true
+                    }
                 }
                 Ok(Err(e)) => {
                     log::warn!("置顶没写进去：{id} -> {want}：{e}");
@@ -3364,7 +3362,7 @@ impl Desktop {
 
     /// 搜索中的列表：**先过滤，再按组摆**。
     ///
-    /// 顺序是固定的「置顶 → 今天 → 7 天内 → 更早」，跟 `pins.json` 和 `updated_at` 走；
+    /// 顺序是固定的「置顶 → 今天 → 7 天内 → 更早」，跟内核置顶和 `updated_at` 走；
     /// 组内保持 `ordered` 里的先后（置顶组就是 `pins` 给的顺序）。
     ///
     /// 没搜到不画空列表：给一句「没有找到」比一片白好认，至少知道是搜不到而不是列表塌了。
@@ -4271,7 +4269,7 @@ impl Desktop {
         let busy = s.busy.is_some();
         let id = s.id;
         let pinned = self.pins.contains(&id);
-        // 置顶要 bjes6b（`pins_client`），归档只要 qrd3wh。两件事的门不能串在一起：
+        // 置顶和归档都在 qrd3wh，但门不能串在一起：
         // 置顶服务没连上时菜单照样要挂上，只是那一项画成禁用态（见 `archive_menu`）。
         let pins_available = self.pins_client.is_some();
 
@@ -4442,7 +4440,7 @@ impl Desktop {
         // 条目顺序、文案、动作映射都在那个模块里；这里只把产出的动作送回 `Desktop`。
         //
         // 菜单**永远挂上**：归档 / 撕原件 / 复制都走 qrd3wh，和置顶服务无关 ——
-        // 早先按 `pins_client` 判了一刀，bjes6b 一挂就整摞菜单（含「更多 › 归档」）
+        // 早先按 `pins_client` 判了一刀，置顶一挂就整摞菜单（含「更多 › 归档」）
         // 跟着消失（评审必修 1）。置顶不可用时由 `archive_menu` 把那一条画成禁用态。
         //
         // 只能在链尾分支：`context_menu()` 返回的是 `ContextMenu<Stateful<Div>>`，
@@ -4469,7 +4467,7 @@ impl Desktop {
     /// 会话行右键菜单的出口（票 #5 / #6）。
     ///
     /// 每一项点下去都必须有可见结果（AGENTS：「按钮点下去没反应…都算 bug」）：
-    /// 打开换会话、置顶写穿 bjes6b、归档 / 撕原件走引擎、复制写剪贴板后弹确认。
+    /// 打开换会话、置顶写进内核、归档 / 撕原件走引擎、复制写剪贴板后弹确认。
     /// 重命名是唯一还没端点的项（`wire.md` 里没有改名路由），点它给一句说明，
     /// 不偷偷发请求、也不静默吞掉。
     pub(crate) fn on_session_menu(
@@ -4921,17 +4919,6 @@ fn order_ids(in_order: &[i64], pins: &[i64]) -> Vec<i64> {
         }
     }
     out
-}
-
-/// 读配置拿「宿主地址 / 盘名」，供置顶那次 resolve 用。读不到就用默认值。
-fn pins_host() -> Option<String> {
-    Config::load().ok().map(|c| c.host)
-}
-
-fn pins_board() -> String {
-    Config::load()
-        .map(|c| c.board)
-        .unwrap_or_else(|_| Config::default().board)
 }
 
 /// 错误原文可能很长（引擎把上游 400 的整段 JSON 递上来）。红条只给人看前 90 个字，

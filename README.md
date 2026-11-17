@@ -84,7 +84,7 @@ crates/nousdesk/      GPUI 应用：三栏布局、会话、输入、置顶。
 
 1. 引擎地址只从 `resolve` 拿，不写进配置、不写进常量。
 2. 协议是哑的：不加业务字段、不在客户端算状态。字段变化先改 `nous-engine`。
-3. 置顶的真相在 bjes6b，桌面端跨块写，不自己存一份。
+3. 置顶的真相在内核 qrd3wh，桌面端读写 `/v1/sessions/:id/pin`，不自己存一份。
 
 详情见 `AGENTS.md`（给 agent 的）和 `wire.md`（协议契约）。
 

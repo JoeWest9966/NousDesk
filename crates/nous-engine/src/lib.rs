@@ -5,7 +5,7 @@
 //! - [`sse`]：SSE 帧解析。
 //! - [`client`]：HTTP 转发（qrd3wh：会话/历史/流）。
 //! - [`resource`]：三个资源仓（技能 / 提示词 / 扩展）的**文件读写**形状。
-//! - [`pins`]：置顶的写穿客户端（bjes6b：`pins.json` 是单源）。
+//! - [`pins`]：置顶的哑客户端（qrd3wh：Sessions 文档里的提交日志是单源）。
 //! - [`console`]：d6s4v1 面板的哑客户端（`/p/<board>/d6s4v1/api/*`，不是引擎）。
 //!
 //! 不认业务规则，不碰 GPUI。UI 层要 16ms 合帧，那归 UI 层。
