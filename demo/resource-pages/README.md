@@ -106,4 +106,6 @@ python3 build-preview.py      # 把字体和 data.js 内嵌成 preview.html
 
 ## 状态
 
-**等挑**（2026-11-16 清账时归位）。挑完把结论写进 `decisions.md`，再开 `feat/resource-pages`。
+**已定方案**：一个图标 + 三段（02），段按钮定为 B（药丸 + 脏点）—— 结论见 `decisions.md`
+「2026-11-16 · 资源页（技能 / 提示词 / 扩展）定为『一个图标 + 三段』」。
+落地稿在 `demo/resource-page`，对照稿在 `demo/ia-compare`；下一步开 `feat/resource-pages` 写 Rust。
