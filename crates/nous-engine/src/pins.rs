@@ -7,7 +7,7 @@
 //!
 //! 桌面端不存一份置顶表（`decisions.md`：宁可多一次 HTTP，也不要两份互不相干的置顶表）。
 //! `requestId` 是幂等锚：同一条重放十次只落第一次的提交，回包里的 `version` 不涨。
-//! `version` 是这条会话置顶日志里的第几次真提交 —— 不是 durable 的 commit_seq。
+//! `version` 是置顶日志的全局第几次提交（跨会话单调；重放不涨）—— 不是 durable 的 commit_seq。
 //! 地址来自宿主的 `__nous/resolve/qrd3wh`，不写进配置、不写进常量。
 
 use std::time::Duration;
@@ -43,8 +43,8 @@ pub struct PinSession {
     pub extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
-/// `POST /v1/sessions/:id/pin` 的回包。`version` 是这条会话置顶日志的第几次真提交：
-/// 新决定 +1，重放同锚原样返回（不涨）。durable 的 commit_seq 不对外，它是提交线共用的。
+/// `POST /v1/sessions/:id/pin` 的回包。`version` 是置顶日志的全局第几次提交：
+/// 新决定 +1（跨会话单调），重放同锚原样返回（不涨）。durable 的 commit_seq 不对外，它是提交线共用的。
 #[derive(Debug, Clone, Deserialize)]
 pub struct PinReceipt {
     pub id: i64,
