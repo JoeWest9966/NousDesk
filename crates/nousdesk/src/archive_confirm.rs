@@ -1,7 +1,11 @@
-//! 「撕原件」危险确认弹层（票 #3）。
+//! 「归档并撕原件」危险确认弹层。
 //!
 //! 纯 UI 的一层：不认引擎、不发 HTTP、不碰 `Desktop` 的状态。调用方注入
 //! 回调，本模块只决定「关掉还是把 `(id, name)` 交给回调」。
+//!
+//! **手输名字才解锁**：前面一步是归档（可逆），这一步撕原件不可撤销 —— 必须
+//! 让用户再动手打一遍会话名，红色按钮才亮。输入框由调用方注入，本模块只问
+//! 「输入框里是不是这个名字」（[`PurgeConfirm::matches_typed`]，纯函数）。
 //!
 //! 对外三个面：[`PurgeConfirm`]（状态）、[`render_purge_confirm`]（渲染）、
 //! [`PurgeConfirm::request`]（请求确认）。
@@ -16,6 +20,8 @@
 //! 会话 id 是**数字**（`wire.md`：`id` 不是字符串），所以这里直接收 `i64`，
 //! 不存字符串、也不在调用方再 `parse` 一次（那会留下一个永不发生的兜底分支）。
 
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 /// 这一帧的皮。和 `settings.rs` / `board.rs` 同一个写法 —— 渲染层不自己存主题，
@@ -29,12 +35,20 @@ fn t() -> crate::theme::Skin {
 pub struct ConfirmAction {
     pub session_id: i64,
     pub session_name: String,
+    /// `true` = 先归档成功再撕（右键一步到位）；`false` = 已经归档过，只撕。
+    pub chain_archive: bool,
 }
 
 /// 弹层状态。`None` = 没开；`Some` = 盖在最上层等用户表态。
 #[derive(Default)]
 pub struct PurgeConfirm {
     pending: Option<(i64, String)>,
+    /// `true` = 这次要先归档再撕（从右键「归档并撕原件」来的）；
+    /// `false` = 已经归档过，只撕（从归档库页来的）。
+    chain_archive: bool,
+    /// 刚打开、输入框还没清。渲染帧里 `take_fresh()` 拿一次就作废 ——
+    /// 和 `rename_box` 同一个套路：清值 / 抢焦点要 `&mut Window`，打开回调手上没有。
+    fresh: std::cell::Cell<bool>,
 }
 
 impl PurgeConfirm {
@@ -43,8 +57,18 @@ impl PurgeConfirm {
     }
 
     /// 请求确认。重复请求覆盖前一条 —— 弹层永远只代表「最后点的那一个」。
-    pub fn request(&mut self, session_id: i64, session_name: impl Into<String>) {
+    ///
+    /// `chain_archive` 见字段说明：右键来的是 true（先归档再撕），
+    /// 归档库页来的是 false（已经归档过，只撕）。
+    pub fn request(&mut self, session_id: i64, session_name: impl Into<String>, chain_archive: bool) {
         self.pending = Some((session_id, session_name.into()));
+        self.chain_archive = chain_archive;
+        self.fresh.set(true);
+    }
+
+    /// 该不该在这一帧清空输入框 + 抢焦点。问一次就作废。
+    pub fn take_fresh(&self) -> bool {
+        self.fresh.replace(false)
     }
 
     pub fn is_open(&self) -> bool {
@@ -72,7 +96,17 @@ impl PurgeConfirm {
         Some(ConfirmAction {
             session_id,
             session_name,
+            chain_archive: self.chain_archive,
         })
+    }
+
+    /// 输入框里打的名字和正在确认的会话**完全一致**（trim 后）才解锁按钮。
+    ///
+    /// 抽成纯函数是为了单测：少一个字、多一个空格、空着 —— 都得是 `false`。
+    pub fn matches_typed(&self, typed: &str) -> bool {
+        self.pending
+            .as_ref()
+            .is_some_and(|(_, name)| !name.is_empty() && typed.trim() == name)
     }
 
     fn dismiss(&mut self) -> Option<ConfirmAction> {
@@ -87,6 +121,8 @@ impl PurgeConfirm {
 /// 也不该知道。两个回调都是 `on_click` 的形状，直接吃 `cx.listener(...)`。
 pub fn render_purge_confirm(
     state: &PurgeConfirm,
+    input: &Entity<InputState>,
+    typed: &str,
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_close: impl Fn(&ClickEvent, &mut Window, &mut App) + Clone + 'static,
 ) -> AnyElement {
@@ -107,7 +143,7 @@ pub fn render_purge_confirm(
             .on_click(on_close.clone())
     };
 
-    let title = format!("撕原件：{name}");
+    let title = format!("归档并撕原件：{name}");
 
     // 这一层是**整屏**的居中容器，它同时是「点空白」的接收方：
     // 点卡片时卡片的处理器 `stop_propagation`，点到卡片外面就落到这里 → 关。
@@ -155,16 +191,16 @@ pub fn render_purge_confirm(
                 .child(
                     div()
                         .px(t().d(20.))
-                        .pb(t().d(12.))
+                        .pb(t().d(10.))
                         .text_size(t().fs(12.5))
                         .text_color(rgb(t().p.muted))
-                        .child("这一条会被真删。归档库里那份复印件也一起销毁。"),
+                        .child("两步连着做：先复印进归档库，再真删活库里的原件。撕完不能撤销。"),
                 )
-                // 红框：撕完不能撤销。
+                // 红框：必须打对名字才往下走。
                 .child(
                     div()
                         .mx(t().d(20.))
-                        .mb(t().d(16.))
+                        .mb(t().d(12.))
                         .px(t().d(10.))
                         .py(t().d(7.))
                         .rounded(t().r(5.))
@@ -173,7 +209,23 @@ pub fn render_purge_confirm(
                         .border_color(rgb(t().p.danger))
                         .text_size(t().fs(12.))
                         .text_color(rgb(t().p.danger_fg))
-                        .child("撕完不能撤销"),
+                        .child("这一步会删掉原件和它的复印件 —— 把你打的会话名核对一遍。"),
+                )
+                // 手输名字：把名字打对，红色按钮才亮。
+                .child(
+                    div()
+                        .px(t().d(20.))
+                        .pb(t().d(14.))
+                        .flex()
+                        .flex_col()
+                        .gap(t().d(5.))
+                        .child(
+                            div()
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.text_2))
+                                .child(format!("输入「{name}」以确认")),
+                        )
+                        .child(Input::new(input).text_size(t().fs(12.))),
                 )
                 .child(
                     div()
@@ -204,12 +256,15 @@ pub fn render_purge_confirm(
                                 .hover(|el| el.bg(rgb(t().p.hover)))
                                 .child("取消"),
                         )
-                        .child(
+                        .child({
+                            let ready = state.matches_typed(typed);
                             div()
                                 .id(ElementId::Name("purge-confirm".into()))
-                                .on_click(move |ev: &ClickEvent, window: &mut Window, cx: &mut App| {
-                                    on_confirm(ev, window, cx);
-                                    cx.stop_propagation();
+                                .when(ready, |el| {
+                                    el.on_click(move |ev: &ClickEvent, window: &mut Window, cx: &mut App| {
+                                        on_confirm(ev, window, cx);
+                                        cx.stop_propagation();
+                                    })
                                 })
                                 .flex()
                                 .items_center()
@@ -217,12 +272,12 @@ pub fn render_purge_confirm(
                                 .h(t().d(30.))
                                 .px(t().d(14.))
                                 .rounded(t().r(5.))
-                                .bg(rgb(t().p.danger))
+                                .bg(rgb(if ready { t().p.danger } else { t().p.disabled }))
                                 .text_color(rgb(t().p.on_accent))
                                 .text_size(t().fs(12.))
-                                .hover(|el| el.bg(rgb(t().p.danger_fg)))
-                                .child("撕掉原件"),
-                        ),
+                                .when(ready, |el| el.hover(|el| el.bg(rgb(t().p.danger_fg))))
+                                .child("撕掉原件")
+                        }),
                 ),
         );
 
@@ -244,7 +299,7 @@ mod tests {
     /// 且重复关 / 关后再点确认也不许凭空冒出一次。
     fn assert_close_path(close: fn(&mut PurgeConfirm) -> Option<ConfirmAction>) {
         let mut dialog = PurgeConfirm::new();
-        dialog.request(42, "会话归档怎么设计");
+        dialog.request(42, "会话归档怎么设计", false);
         assert!(dialog.is_open(), "请求确认后弹层应当在场");
 
         assert_eq!(close(&mut dialog), None, "关闭路径不该产出确认动作");
@@ -271,13 +326,14 @@ mod tests {
     #[test]
     fn confirming_hands_session_identity_to_caller_exactly_once() {
         let mut dialog = PurgeConfirm::new();
-        dialog.request(42, "会话归档怎么设计");
+        dialog.request(42, "会话归档怎么设计", false);
 
         assert_eq!(
             dialog.on_confirm(),
             Some(ConfirmAction {
                 session_id: 42,
                 session_name: "会话归档怎么设计".into(),
+                chain_archive: false,
             })
         );
         assert_eq!(dialog.on_confirm(), None, "一次请求只产出一次确认");
@@ -288,8 +344,8 @@ mod tests {
     #[test]
     fn repeated_request_replaces_the_pending_session() {
         let mut dialog = PurgeConfirm::new();
-        dialog.request(1, "旧会话");
-        dialog.request(2, "新会话");
+        dialog.request(1, "旧会话", false);
+        dialog.request(2, "新会话", false);
 
         assert_eq!(
             dialog.on_confirm().map(|a| (a.session_id, a.session_name)),
@@ -303,5 +359,50 @@ mod tests {
         let mut dialog = PurgeConfirm::new();
         assert_eq!(dialog.on_confirm(), None);
         assert!(!dialog.is_open());
+    }
+
+    /// 手输名字：只有**一字不差**才解锁，多空格 / 少字 / 空着都不行。
+    #[test]
+    fn typed_name_must_match_exactly() {
+        let mut dialog = PurgeConfirm::new();
+        dialog.request(42, "会话归档怎么设计", false);
+
+        assert!(!dialog.matches_typed(""), "空着不能解锁");
+        assert!(!dialog.matches_typed("会话归档怎么设"), "少一个字不能解锁");
+        assert!(dialog.matches_typed("会话归档怎么设计"), "一字不差才解锁");
+        // 前后空白算手滑，trim 一下放行（和 rename_box 的口径一致）。
+        assert!(dialog.matches_typed("  会话归档怎么设计  "));
+        assert!(dialog.matches_typed("会话归档怎么设计 "));
+    }
+
+    /// 右键来的确认带着 `chain_archive: true`，归档库页来的带 false ——
+    /// 调用方靠这个字段决定"先归档再撕"还是"只撕"，传错了会撕错东西。
+    #[test]
+    fn chain_flag_flows_into_the_action() {
+        let mut d = PurgeConfirm::new();
+        d.request(1, "右键来的", true);
+        let a = d.on_confirm().unwrap();
+        assert!(a.chain_archive, "右键一步到位必须带 chain=true");
+
+        d.request(2, "归档库来的", false);
+        let a = d.on_confirm().unwrap();
+        assert!(!a.chain_archive, "归档库页那条已经归档过，chain=false");
+    }
+
+    /// fresh 标记问一次就作废：不能每帧都清空输入框（用户正打到一半）。
+    #[test]
+    fn fresh_is_consumed_once() {
+        let mut d = PurgeConfirm::new();
+        assert!(!d.take_fresh(), "没请求过不该 fresh");
+        d.request(1, "x", true);
+        assert!(d.take_fresh(), "刚请求应当 fresh");
+        assert!(!d.take_fresh(), "问过一次就作废");
+    }
+
+    #[test]
+    fn empty_session_name_never_unlocks() {
+        let mut dialog = PurgeConfirm::new();
+        dialog.request(42, "", false);
+        assert!(!dialog.matches_typed(""), "空名字的会话不该存在这种确认");
     }
 }

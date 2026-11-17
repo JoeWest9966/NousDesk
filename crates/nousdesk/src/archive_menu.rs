@@ -62,7 +62,7 @@ pub enum SessionMenuAction {
         id: i64,
         name: String,
     },
-    Purge {
+    ArchiveAndPurge {
         id: i64,
         name: String,
     },
@@ -94,7 +94,7 @@ pub enum SessionMenuEntry {
     CopyName,
     Fork,
     Archive,
-    Purge,
+    ArchiveAndPurge,
     CopyId,
 }
 
@@ -127,11 +127,11 @@ pub fn top_lines() -> Vec<MenuLine> {
     ]
 }
 
-/// 「更多 ›」的子菜单：归档 / 撕原件 / ─── / 复制会话 id。
+/// 「更多 ›」的子菜单：归档 / 归档并撕原件 / ─── / 复制会话 id。
 pub fn more_lines() -> Vec<MenuLine> {
     vec![
         MenuLine::Item(SessionMenuEntry::Archive),
-        MenuLine::Item(SessionMenuEntry::Purge),
+        MenuLine::Item(SessionMenuEntry::ArchiveAndPurge),
         MenuLine::Separator,
         MenuLine::Item(SessionMenuEntry::CopyId),
     ]
@@ -153,7 +153,7 @@ pub fn label(entry: SessionMenuEntry, pinned: bool) -> &'static str {
         SessionMenuEntry::CopyName => "复制名字",
         SessionMenuEntry::Fork => "新建分支",
         SessionMenuEntry::Archive => "归档该聊天…",
-        SessionMenuEntry::Purge => "撕原件…",
+        SessionMenuEntry::ArchiveAndPurge => "归档并撕原件…",
         SessionMenuEntry::CopyId => "复制会话 id",
     }
 }
@@ -165,19 +165,18 @@ pub fn label(entry: SessionMenuEntry, pinned: bool) -> &'static str {
 pub const PIN_UNAVAILABLE_HINT: &str = "置顶服务没连上";
 
 /// 这一项此刻能不能点。只可能因为「置顶服务没连上」变灰 ——
-/// 「撕原件…」永远可点（前置条件归引擎判，409 原文给用户看）。
+/// 「归档并撕原件…」永远可点（归档的前置条件归引擎判，409 原文给用户看）。
 pub fn entry_enabled(entry: SessionMenuEntry, pins_available: bool) -> bool {
     !(matches!(entry, SessionMenuEntry::TogglePin) && !pins_available)
 }
 
-/// 行尾的灰色副标题。`撕原件` 写清前置条件，但**不禁用** ——
+/// 行尾的灰色副标题。「归档并撕原件」自己会先归档，没有前置条件 ——
 /// 点下去该走归档流程或把引擎的 409 原文给用户，不是灰在那儿让人猜。
 ///
 /// `新建分支` 写明分叉点：引擎 `fork` 的 body `{ entryId?, name? }` 里 `entryId`
 /// 省略就是从最后一条分叉（见 `wire.md`），不点也讲得清。
 pub fn hint(entry: SessionMenuEntry) -> Option<&'static str> {
     match entry {
-        SessionMenuEntry::Purge => Some("先归档"),
         SessionMenuEntry::Fork => Some("从最后一条分叉"),
         _ => None,
     }
@@ -195,7 +194,7 @@ pub fn entry_action(entry: SessionMenuEntry, target: &SessionTarget) -> Option<S
         SessionMenuEntry::CopyName => SessionMenuAction::CopyName { name: name() },
         SessionMenuEntry::Fork => SessionMenuAction::Fork { id },
         SessionMenuEntry::Archive => SessionMenuAction::Archive { id, name: name() },
-        SessionMenuEntry::Purge => SessionMenuAction::Purge { id, name: name() },
+        SessionMenuEntry::ArchiveAndPurge => SessionMenuAction::ArchiveAndPurge { id, name: name() },
         SessionMenuEntry::CopyId => SessionMenuAction::CopyId { id },
     })
 }
@@ -388,7 +387,7 @@ mod tests {
             more_lines(),
             vec![
                 MenuLine::Item(SessionMenuEntry::Archive),
-                MenuLine::Item(SessionMenuEntry::Purge),
+                MenuLine::Item(SessionMenuEntry::ArchiveAndPurge),
                 MenuLine::Separator,
                 MenuLine::Item(SessionMenuEntry::CopyId),
             ]
@@ -403,7 +402,7 @@ mod tests {
         assert_eq!(label(SessionMenuEntry::CopyName, false), "复制名字");
         assert_eq!(label(SessionMenuEntry::Fork, false), "新建分支");
         assert_eq!(label(SessionMenuEntry::Archive, false), "归档该聊天…");
-        assert_eq!(label(SessionMenuEntry::Purge, false), "撕原件…");
+        assert_eq!(label(SessionMenuEntry::ArchiveAndPurge, false), "归档并撕原件…");
         assert_eq!(label(SessionMenuEntry::CopyId, false), "复制会话 id");
     }
 
@@ -420,7 +419,7 @@ mod tests {
             SessionMenuEntry::CopyName,
             SessionMenuEntry::Fork,
             SessionMenuEntry::Archive,
-            SessionMenuEntry::Purge,
+            SessionMenuEntry::ArchiveAndPurge,
             SessionMenuEntry::CopyId,
         ] {
             assert_eq!(
@@ -445,8 +444,8 @@ mod tests {
             .collect();
 
         assert!(
-            entries.contains(&SessionMenuEntry::Purge),
-            "撕原件必须在菜单里，且是普通条目"
+            entries.contains(&SessionMenuEntry::ArchiveAndPurge),
+            "归档并撕原件必须在菜单里，且是普通条目"
         );
         assert!(
             entries
@@ -454,12 +453,12 @@ mod tests {
                 .all(|entry| !label(*entry, false).contains("彻底删除")),
             "会话列表的菜单里不许出现「彻底删除」"
         );
-        assert_eq!(hint(SessionMenuEntry::Purge), Some("先归档"));
+        assert_eq!(hint(SessionMenuEntry::ArchiveAndPurge), None);
         assert_eq!(
-            entry_action(SessionMenuEntry::Purge, &target())
-                .map(|a| matches!(a, SessionMenuAction::Purge { .. })),
+            entry_action(SessionMenuEntry::ArchiveAndPurge, &target())
+                .map(|a| matches!(a, SessionMenuAction::ArchiveAndPurge { .. })),
             Some(true),
-            "撕原件要产出动作，不是摆设"
+            "归档并撕原件要产出动作，不是摆设"
         );
     }
 
@@ -498,8 +497,8 @@ mod tests {
             })
         );
         assert_eq!(
-            entry_action(SessionMenuEntry::Purge, &target),
-            Some(SessionMenuAction::Purge {
+            entry_action(SessionMenuEntry::ArchiveAndPurge, &target),
+            Some(SessionMenuAction::ArchiveAndPurge {
                 id,
                 name: name.clone()
             })
@@ -546,8 +545,8 @@ mod tests {
         );
         for pins_available in [true, false] {
             assert!(
-                entry_enabled(SessionMenuEntry::Purge, pins_available),
-                "「撕原件…」永远可点"
+                entry_enabled(SessionMenuEntry::ArchiveAndPurge, pins_available),
+                "「归档并撕原件…」永远可点"
             );
         }
         assert!(!entry_enabled(SessionMenuEntry::TogglePin, false));
