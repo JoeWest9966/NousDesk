@@ -8,6 +8,33 @@
 
 ---
 
+
+## 这份合同**不完整**（2026-11-18 摸清）
+
+`crates/nous-engine/src/client.rs` 实际调 **44 条（方法 × 路径）**，覆盖 **41 条路径**；
+本文件只写了 **19 条**，其中还有 1 条我们是带 query 调的。多出来的 **27 条**列在文末
+「合同外调用」。
+
+这不是谁偷懒：本文件抄的是「我们**依赖**的字段」，而下面这些端点我们是**整包转发**
+（`serde_json::Value` 进、`Value` 出，不看里面），所以当初没写进来。但后果是 ——
+**只看这份文件会以为某些调用没有依据**。改客户端调用前先扫一眼文末那节。
+
+## 与 Rust 版 Nous 的差距
+
+Nous 已重写成 Rust（一个进程 `nous-app`，块/`resolve` 会消失）。转换表：
+
+| 类别 | 条数 | Rust 版状态 |
+|---|---|---|
+| 会话面（`sessions` / `entries` / `events` / `messages` / `abort` / `fork` / `models` / `machines`） | 8 条路径 | ✅ **已实现** |
+| 能连上还缺的 | 7 条 | 🚧 Nous `#47`（`device` / `unread` / `read` / `rename` / `selection` / `skills` / `prompts` + `/v1/capabilities`） |
+| `presets/*` 那 16 条 | 16 | ⏸ **先不做**：`/v1/capabilities` 会声明 `presets: false`，客户端把入口灰掉；将来由 `documents` 模块统一（Nous `#48`） |
+| `archive` / `combos` / `triggers` / `extensions` / `fs` | 10 | ⏸ 同上，能力表关掉 |
+| 发消息**有回复** | — | 🚧 Nous `#44`（`nous-sessions` 最小轮次）：没有它，连上去也只能看历史 |
+
+**结论：`#47` + `#44` 都落地之前不要切引擎。** 切的时候配置里换个 `host` 就能回退。
+
+---
+
 ## 通用
 
 - 会话 id 是 **数字**（不是字符串）。`GET /v1/sessions/:id/...` 里的 `:id` 是数字。
@@ -438,3 +465,65 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 - 面板崩的时候回的是**整页 HTML**（502 网关那种）。错误文案必须先压平去标签再上屏，
   否则一个红框能把整页顶下去（`console::flatten`）。
 - 这些端点是**只读**的：没有 POST。归档 / 打捞 / 撕原件仍然走引擎 `/v1/*`。
+
+---
+
+## 合同外调用（客户端在用，本文件没写）
+
+**27 条**。来源是**真引擎的行为**，不是某份文档 —— 当初它们都是整包转发（`serde_json::Value`
+进、`Value` 出），所以没进「我们依赖的字段」清单。**形状以 `crates/nous-engine/src/types.rs`
+为准**（那是客户端真实期望），要改这里先改那份类型。
+
+### 归档（2）
+
+| 方法 | 路径 |
+|---|---|
+| `GET` | `/v1/archive` |
+| `POST` | `/v1/archive/:id/restore` |
+
+### 会话配置 / 归档 / 撕原件（3）
+
+| 方法 | 路径 |
+|---|---|
+| `POST` | `/v1/sessions/:id/archive` |
+| `POST` | `/v1/sessions/:id/purge` |
+| `POST` | `/v1/sessions/:id/config` |
+
+### 预设编辑器（16，整套都在合同外）
+
+`GET /v1/presets/:section` 这一条在本文件里写过（列表），其余 16 条没有：
+
+| 方法 | 路径 |
+|---|---|
+| `GET` | `/v1/presets/:section/files` |
+| `GET` / `PUT` | `/v1/presets/:section/file` |
+| `GET` | `/v1/presets/:section/validate` |
+| `GET` | `/v1/presets/:section/history` |
+| `GET` | `/v1/presets/:section/history/diff` |
+| `GET` | `/v1/presets/:section/pending` |
+| `GET` | `/v1/presets/:section/pending/diff` |
+| `POST` | `/v1/presets/:section/create` |
+| `POST` | `/v1/presets/:section/rename` |
+| `POST` | `/v1/presets/:section/order` |
+| `POST` | `/v1/presets/:section/category` |
+| `POST` | `/v1/presets/:section/categories` |
+| `POST` | `/v1/presets/:section/publish` |
+| `POST` | `/v1/presets/:section/reload` |
+| `POST` | `/v1/presets/:section/{op}` |
+
+> 这 16 条是**同一个东西抄 16 遍**（读文件 / 校验 / 写版本 / 发布 / 列历史 / 算 diff）。
+> Rust 版不打算照抄，要收敛成一个 `documents` 模块（Nous `#48`）。
+
+### 其余（6）
+
+| 方法 | 路径 | 备注 |
+|---|---|---|
+| `GET` | `/v1/combos` | 组合预设 |
+| `POST` | `/v1/combos/:name/:action` | |
+| `GET` | `/v1/extensions` | Rust 版先返回空清单（扩展运行时已冻结） |
+| `GET` | `/v1/triggers` | 触发器目前只有 trait，没有实现 |
+| `POST` | `/v1/selection` | 写当前选择（板 / 机器 / 模型） |
+| `GET` | `/v1/fs/dirs` | 列的是 **引擎那台机器**的目录，不是客户端的 |
+
+**规矩**：往这张表里加一条 = 客户端多了一处没有字段合同的调用。要么先在本文件写清形状，
+要么确认它是整包转发并且在 `types.rs` 里有类型 —— 两者都没有的话，别加。

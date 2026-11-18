@@ -16,8 +16,16 @@ Nous 的**桌面客户端**。GPUI + `gpui-kit` 原生应用，不是网页。
 > <https://github.com/longbridge/gpui-kit> · 文档 <https://gpui-kit.com>。
 > 要换框架先说清楚为什么，写进 `decisions.md`，别默默换。
 
-- **引擎在 `qrd3wh`**（Nous 的 session 块）。这一块**不跑引擎，也不是引擎的一部分**。
-- 手机端是 `bjes6b`（Nous-Mobile）。两边是同一个产品的两个客户端，对同一个引擎。
+- **引擎是 Nous**。这一块**不跑引擎，也不是引擎的一部分**。
+- **Nous 已经重写成 Rust**（`/opt/Nous-src`）：一个进程一个产物（`nous-app`），插件化
+  （内核只剩契约 / 装载器 + 版本闸 / 调度，其余是可装可卸的模块）。所以：
+  - **没有 `qrd3wh` 块了**，也没有 `bjes6b` / `d6s4v1` / `n8qkkj` —— 那是「一个功能一个进程」
+    时代的东西，手机端那个仓会被删。
+  - **过渡期**：这一块今天仍连 TS 版引擎（`qrd3wh`），地址从 `__nous/resolve` 现拿。
+    Rust 版还没补齐端点（见下条），**别提前切**。
+- **迁移状态**（改这一块的代码前先看）：桌面端实际调 **41 条路径**，Rust 版实现了 **8 条**。
+  对齐顺序是 Nous 的 `#47`（7 端点 + `capabilities`）→ `#44`（会话轮次，消息才会有回复）
+  → `#48`（`documents` 模块）→ `#49`（砍 `resolve`）。账在 `README.md` 的「换引擎」一节。
 - 这一块是**项目本体 + 文档的落脚处**。源码放这儿，跑在你自己的桌面上。
 
 ## 开发宗旨
@@ -90,8 +98,11 @@ Nous 的**桌面客户端**。GPUI + `gpui-kit` 原生应用，不是网页。
 2. **构建/测试在 Linux 上做。** 主力是 Debian 13 + Wayland；headless 机器（ssh 进去的、CI）
    没 DISPLAY 就只跑 `cargo check` / `clippy` / `test`，看得见的东西去自己的桌面上跑。
    别再把 Windows 当默认目标。
-3. **地址只有一个来源。** 引擎地址从宿主的 `__nous/resolve/qrd3wh` 拿，配置里只写
-   **宿主地址 + board**，禁止把引擎路径写进 `Cargo.toml` / 常量 / 文档示例。
+3. **地址只有一个来源。** 禁止把引擎路径写进 `Cargo.toml` / 常量 / 文档示例。
+   - **过渡期（今天）**：从宿主的 `__nous/resolve/qrd3wh` 现拿，配置里只写**宿主地址 + board**。
+   - **目标态**：一个地址 + `GET /v1/capabilities` 里的服务表（Nous `#49` 会砍掉
+     `board` / `block` / `resolve`，`board` 降级成显示名，不再进 URL 路径）。
+   - 两态之间**不许混**：不许为了少改一处，在新代码里又拼一次 `/p/<board>/<block>/…`。
 
 ## 分支与交付（硬要求）
 
@@ -138,8 +149,12 @@ git worktree remove /var/tmp/…                              # 收工（先合�
 
 ## 置顶的真相
 
-在 **bjes6b**（`data/pins.json`）。桌面端不自己存一份 —— 写穿过去走
-`POST /p/demo/bjes6b/api/sessions/:id/pin`，地址从 `resolve` 拿。宁可多一次 HTTP、
+在 **Nous 内核**（Rust 版已经把置顶做进去了）。桌面端不自己存一份 —— 写穿过去。
+
+- **过渡期（今天）**：写穿到 `bjes6b` 的 `POST /p/demo/bjes6b/api/sessions/:id/pin`，地址从 `resolve` 拿。
+- **目标态**：`POST /v1/sessions/:id/pin`，一个地址（`bjes6b` 会被删，见 Nous `#49`）。
+
+宁可多一次 HTTP、
 坏了 404 响得很明显，也不要两份互不相干的置顶表。要改这条，见 `decisions.md`。
 
 **已验证**（2026-11-09，Windows 真机）：右键菜单「置顶该聊天 / 取消置顶」点得动，
@@ -242,13 +257,17 @@ board = "new1"
 `theme = "default"`。理由见 `decisions.md`（便携包的那份 `desktop.toml` 在 exe 旁边，
 可能只读；再说它只有 host / board 两个键）。加一套皮只改 `crates/nousdesk/src/theme.rs`。
 
-启动时打一次 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎。
+启动时打一次 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎
+（**过渡期行为**；目标态是一个地址 + 能力表，见上面第 3 条）。`board` 将来只当显示名用。
 引擎版本进日志 + About 面板 —— 以后「怎么突然坏了」先看是不是引擎先动的。
 
 ## 文档
 
 - `README.md` —— 给人看的：这是什么、怎么跑。
 - `wire.md` —— **唯一会漂的那份**：我们依赖了引擎 `/v1/*` 的哪些字段、引擎改了会怎么坏。
+  **注意它不完整**：那份文件只写了 19 条端点，而 `crates/nous-engine/src/client.rs` 实际调
+  **41 条**；多出来的 22 条在 `wire.md` 末尾「合同外调用」一节（来自真引擎，不是合同）。
+  改客户端调用前先扫一眼那节，否则会以为某个调用"没有合同依据"。
 - `decisions.md` —— 选了什么 + 为什么 + 什么时候该反悔。一行一条，追加式。
 - `坑.md` —— **开发中踩的每个坑**。症状 / 根因 / 解，三行以内。踩到新的就加。
 - `验证.md` —— **哪些东西真机验过**（带日期和怎么验的），以及还没验的清单。
