@@ -4,15 +4,14 @@
 //! 每条断言打一行 `ASSERT …`，末行 `DONE`。`--negative` 是负向哨兵：
 //! 错 token 必须 401，且库里的 entries 条数不许变。
 //!
-//! 置顶往返（#10）也在这一份里：pin true → `GET /v1/sessions` 里 `pinned=true` 且排第一
-//! → 同锚重放 `changed=false`、顺序不动 → pin false → 回到原位；不存在的会话必须 404。
+//! 置顶往返（#10）也在这一份里：pin true → `GET /v1/sessions` 里 `pinned=true` 且跳到第一行
+//! → 同锚重放 `version` 不涨、顺序不动 → pin false → 回到原位；不存在的会话必须 404。
 
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use nous_engine::sse::SseEvent;
 use nous_engine::types::{CreateSession, Entries};
-use nous_engine::types::Session;
 use nous_engine::{EngineClient, EngineError, PinClient, PinError};
 
 fn assert_line(ok: bool, label: &str, detail: impl std::fmt::Display) {
@@ -22,12 +21,16 @@ fn assert_line(ok: bool, label: &str, detail: impl std::fmt::Display) {
     }
 }
 
-/// `GET /v1/sessions` 的 `items[].pinned`（引擎按 `pins.ids` 排好序，这里只读那一行）。
-fn pinned_flag(s: &Session) -> bool {
-    s.extra
-        .get("pinned")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
+/// `GET /v1/sessions` 的 id 顺序（引擎按 `pins.ids` 排好序，这里只读它）。
+async fn session_order(client: &EngineClient) -> Vec<i64> {
+    client
+        .sessions()
+        .await
+        .expect("会话列表可读")
+        .items
+        .iter()
+        .map(|s| s.id)
+        .collect()
 }
 
 fn usage() -> ! {
@@ -166,22 +169,18 @@ async fn main() {
         .id;
     let pins = PinClient::with_token(&host, Duration::from_secs(10), Some(&token))
         .expect("置顶客户端建得起来");
-    let order_before: Vec<i64> = good
-        .sessions()
-        .await
-        .expect("会话列表可读")
-        .items
-        .iter()
-        .map(|s| s.id)
-        .collect();
+    let order_before = session_order(&good).await;
     assert_line(
         order_before == vec![other, id],
         "pin.baseline.order",
-        format!("新的在前：{order_before:?}（要 [other, id] = [{other}, {id}]）"),
+        format!("新的在前：{order_before:?}（要 [{other}, {id}]）"),
     );
 
-    let pin_on = format!("desk-probe-pin-{id}-on");
-    let receipt = pins.set_pin(id, true, &pin_on).await.expect("置顶 200");
+    let request_id_on = format!("desk-probe-pin-{id}-on");
+    let receipt = pins
+        .set_pin(id, true, &request_id_on)
+        .await
+        .expect("置顶 200");
     assert_line(
         receipt.changed && receipt.pinned,
         "pin.changed",
@@ -197,7 +196,10 @@ async fn main() {
         ),
     );
     assert_line(
-        pinned_list.iter().find(|s| s.id == id).is_some_and(pinned_flag),
+        pinned_list
+            .iter()
+            .find(|s| s.id == id)
+            .is_some_and(|s| s.pinned),
         "pin.pinned_true",
         format!("{id} pinned"),
     );
@@ -212,10 +214,13 @@ async fn main() {
     //
     // 注意 `changed`：内核的合同是「重放回**第一次的回执**」，所以重放拿到的还是
     // `changed=true`（那一次确实改了）。可验的幂等证据是 `version` 不涨 + 顺序不动；
-    // 票面写的「重放 → changed:false」和内核对不上（`坑.md` 有这一条）。
-    let replay = pins.set_pin(id, true, &pin_on).await.expect("重放 200");
+    // 票面写的「重放 → changed:false」和内核对不上（`坑.md` 99）。
+    let replay = pins
+        .set_pin(id, true, &request_id_on)
+        .await
+        .expect("重放 200");
     assert_line(
-        replay.request_id == pin_on,
+        replay.request_id == request_id_on,
         "pin.replay.same_receipt",
         format!("requestId={}", replay.request_id),
     );
@@ -227,14 +232,7 @@ async fn main() {
             receipt.version, replay.version
         ),
     );
-    let order_after_replay: Vec<i64> = good
-        .sessions()
-        .await
-        .expect("会话列表可读")
-        .items
-        .iter()
-        .map(|s| s.id)
-        .collect();
+    let order_after_replay = session_order(&good).await;
     assert_line(
         order_after_replay == order_pinned,
         "pin.replay.order_stable",
@@ -242,8 +240,11 @@ async fn main() {
     );
 
     // 取消置顶 → 回到原顺序、pinned=false。
-    let pin_off = format!("desk-probe-pin-{id}-off");
-    let receipt = pins.set_pin(id, false, &pin_off).await.expect("取消置顶 200");
+    let request_id_off = format!("desk-probe-pin-{id}-off");
+    let receipt = pins
+        .set_pin(id, false, &request_id_off)
+        .await
+        .expect("取消置顶 200");
     assert_line(
         receipt.changed && !receipt.pinned,
         "pin.unpin.changed",
@@ -257,7 +258,10 @@ async fn main() {
         format!("{order_before:?} -> {order_after:?}"),
     );
     assert_line(
-        unpinned.iter().find(|s| s.id == id).is_some_and(|s| !pinned_flag(s)),
+        unpinned
+            .iter()
+            .find(|s| s.id == id)
+            .is_some_and(|s| !s.pinned),
         "pin.unpinned_false",
         format!("{id} not pinned"),
     );

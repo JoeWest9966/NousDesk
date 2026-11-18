@@ -13,7 +13,7 @@
 //!
 //! 不认业务规则，不碰 GPUI。UI 层要 16ms 合帧，那归 UI 层。
 
-mod auth;
+pub mod auth;
 pub mod capabilities;
 pub mod client;
 pub mod console;

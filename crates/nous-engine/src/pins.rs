@@ -82,8 +82,10 @@ impl PinClient {
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
-        let headers =
-            crate::auth::headers(token).map_err(|message| PinError::Engine { status: 400, message })?;
+        let headers = crate::auth::headers(token).map_err(|message| PinError::Engine {
+            status: 400,
+            message,
+        })?;
         let http = reqwest::Client::builder()
             .timeout(timeout)
             .default_headers(headers)

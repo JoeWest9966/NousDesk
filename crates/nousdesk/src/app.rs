@@ -5656,6 +5656,7 @@ mod tests {
             updated_at: None,
             last: None,
             archived: None,
+            pinned: false,
             extra: HashMap::new(),
         };
         assert_eq!(brief_of(&base), "", "什么都没有就是空串，不是四个点");

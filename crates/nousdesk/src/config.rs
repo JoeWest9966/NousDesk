@@ -81,33 +81,10 @@ impl Config {
     /// token 的唯一解析顺序：环境变量 → `desktop.toml` → `~/.config/nousdesk/token`。
     ///
     /// 文件兜底是为了便携包那份只读 `desktop.toml`；权限不是 0600 只警告、不拦。
+    /// **实现只有一份**：`nous_engine::auth::resolve`（各 client 也走它），
+    /// 两边各写一份就是「只改了一边」的温床（`坑.md` 98）。
     pub fn resolve_token(&self) -> Option<String> {
-        if let Ok(token) = std::env::var("NOUS_DESK_TOKEN")
-            && !token.trim().is_empty()
-        {
-            return Some(token.trim().to_string());
-        }
-        if let Some(token) = self.token.as_deref()
-            && !token.trim().is_empty()
-        {
-            return Some(token.trim().to_string());
-        }
-        let path = dirs::config_dir()?.join(APP_DIR).join("token");
-        let text = std::fs::read_to_string(&path).ok()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(mode) = std::fs::metadata(&path).map(|m| m.permissions().mode())
-                && mode & 0o777 != 0o600
-            {
-                eprintln!(
-                    "nousdesk: warning: token 文件 {} 权限不是 0600（建议 chmod 600）",
-                    path.display()
-                );
-            }
-        }
-        let token = text.trim().to_string();
-        (!token.is_empty()).then_some(token)
+        nous_engine::auth::resolve(self.token.as_deref())
     }
 
     /// 实际用的那一个配置文件（不存在就是 None，会用默认值）。

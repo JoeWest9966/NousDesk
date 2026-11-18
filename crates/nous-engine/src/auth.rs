@@ -6,10 +6,13 @@
 
 use std::path::PathBuf;
 
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
 /// 取值顺序：环境变量 → 显式传入（配置文件）→ token 文件。空串一律当没给。
-pub(crate) fn resolve(explicit: Option<&str>) -> Option<String> {
+///
+/// 公开给桌面端的 `Config::resolve_token` 用：两边各写一份「env → toml → 文件」
+/// 就会有一天只改了一边（`坑.md` 98）。
+pub fn resolve(explicit: Option<&str>) -> Option<String> {
     let env = std::env::var("NOUS_DESK_TOKEN").ok();
     choose(env.as_deref(), explicit, token_from_file())
 }
@@ -85,7 +88,11 @@ mod tests {
 
     #[test]
     fn 环境变量压过显式和文件() {
-        let got = choose(Some(" env-token "), Some("toml-token"), Some("file-token".into()));
+        let got = choose(
+            Some(" env-token "),
+            Some("toml-token"),
+            Some("file-token".into()),
+        );
         assert_eq!(got.as_deref(), Some("env-token"));
     }
 

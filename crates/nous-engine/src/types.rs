@@ -46,6 +46,10 @@ pub struct Session {
     /// `?archived=1` 的全量会话树每一项都带，别拿它当布尔。
     #[serde(default)]
     pub archived: Option<ArchiveTombstone>,
+    /// 置顶。内核按 `pins.ids` 排好序（置顶在前、新置顶最前），这个字段只回答
+    /// 「这条是不是置顶」—— 别拿它再排一次。缺了当 `false`（老引擎不发这个字段）。
+    #[serde(default)]
+    pub pinned: bool,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
