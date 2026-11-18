@@ -2,8 +2,14 @@
 
 Nous 的桌面客户端。**骨架照微信桌面版，设计语言照 Tesla**，原生应用，不是网页。
 
-- **引擎**：`qrd3wh`（session 引擎）。这个客户端只做皮 + 一个哑的协议层，不跑 agent。
-- **手机端**：`bjes6b`（Nous-Mobile），同一套引擎，另一个客户端。
+- **引擎**：Nous。这个客户端只做皮 + 一个哑的协议层，不跑 agent。
+  - **现状（能用）**：连的是 **TS 版引擎 `qrd3wh`**（Nous 的 session 块），地址从宿主
+    `__nous/resolve` 现拿。
+  - **目标（迁移中）**：Nous 已经**重写成 Rust**，一个进程一个产物（`nous-app`），
+    插件化（对标 Magento 2：内核只剩契约 / 装载器 / 调度，其余都是可装可卸的模块）。
+    没有 `qrd3wh` 块、没有 `bjes6b`、`__nous/resolve` 会被砍掉。**见下面「换引擎」那一节。**
+- **客户端只有这一个**：`bjes6b`（Nous-Mobile）被 Rust 版 Nous 取代 —— 手机端那个仓会被删，
+  置顶、触发器这些以前写穿到 `bjes6b` 的东西都改由 Nous 内核承担。
 - **技术**：Rust + GPUI，UI 框架是 [longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)（`gpui-kit 0.9`）。没有 webview，没有 PWA。
 - **平台**：只做 **Linux**（开发机：Debian 13 trixie + GNOME **Wayland**，AMD 核显）。
   Windows 的源码与打包配置**原地保留**（`.github/workflows/windows.yml`、`[package.metadata.packager]`），
@@ -54,6 +60,32 @@ board = "new1"
 一个都没有也能开：用默认值（`192.168.1.7:4790`），连不上时左栏会把该改的路径显示出来。
 
 启动时从 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎。
+（**过渡期行为**：Rust 版 Nous 落地后这一段会变成「一个地址 + 能力表」，见下节。）
+
+## 换引擎：TS 版 Nous → Rust 版 Nous（进行中，2026-11-18 起）
+
+Nous 已经整体重写成 Rust（`/opt/Nous-src`，约 10 万行，判据 15 条绿 14）。这次重写的
+关键差异**不在语言，在形状**：
+
+| | TS 版（今天连的） | Rust 版（目标） |
+|---|---|---|
+| 进程 | 一个功能一个块（`qrd3wh` / `bjes6b` / `d6s4v1` / `n8qkkj`） | **一个** `nous-app` |
+| 寻址 | `__nous/resolve/<block>`（三个块名常量） | **一个地址** + `/v1/capabilities` 服务表 |
+| 扩展 | 单独进程 + 文件 | 三种装载形态（编译期内置 / 运行时外挂 / 声明式） |
+| 发行版 | 一份代码全开 | 一张清单（`features` / 模块声明决定装了什么） |
+
+**现在的差距（这才是要点）**：桌面端实际调 **41 条路径**，Rust 版实现了 **8 条**。
+所以「换上 Rust 版 Nous」这一步之前，得先让服务端补齐能连上的那几条：
+
+| 我们开的票 | 内容 | 解锁什么 |
+|---|---|---|
+| Nous `#47` | 7 个端点 + `GET /v1/capabilities` | 能连上：列表 / 看历史 / 发消息 / 改名 / 已读 |
+| Nous `#48` | `documents` 模块（16 条 `presets/*` 收敛成 6 条）+ `/v1/_routes` | 模板编辑器（现在**不做**，能力表先关掉） |
+| Nous `#49` | 砍 `board` / `block` / `resolve` | 配置只剩一个地址；本仓库删 `resolve.rs` |
+| Nous `#44` | `nous-sessions` 最小轮次（pi 本体） | **发出去的消息真的会有回复** |
+
+在 `#44` 落地之前，Rust 版 Nous 连上去也只能看历史、发不出回复 —— 所以**别提前切**。
+切的时候按上面四张票的顺序走，每一步都能回退到 TS 版引擎（配置里换个 `host` 而已）。
 
 ## 出包（Linux）
 
@@ -84,7 +116,8 @@ crates/nousdesk/      GPUI 应用：三栏布局、会话、输入、置顶。
 
 1. 引擎地址只从 `resolve` 拿，不写进配置、不写进常量。
 2. 协议是哑的：不加业务字段、不在客户端算状态。字段变化先改 `nous-engine`。
-3. 置顶的真相在 bjes6b，桌面端跨块写，不自己存一份。
+3. 置顶的真相在**引擎**，桌面端不自己存一份：过渡期写穿 `bjes6b`，目标态是
+   `POST /v1/sessions/:id/pin`（Rust 版 Nous 已把置顶做进内核）。
 
 详情见 `AGENTS.md`（给 agent 的）和 `wire.md`（协议契约）。
 
