@@ -222,12 +222,20 @@ impl crate::app::Desktop {
 
     /// 合同主版本不匹配时出横幅，不猜。
     pub(crate) fn contract_mismatch(&self) -> bool {
-        const CLIENT_CONTRACT: u32 = 1;
         self.caps
             .as_ref()
             .is_some_and(|c| contract_mismatch(c, CLIENT_CONTRACT))
     }
+
+    /// 引擎自报的合同主版本（横幅上要显示的那个数）。没连上 → `None`。
+    pub(crate) fn engine_contract(&self) -> Option<u32> {
+        self.caps.as_ref().map(|c| c.contract)
+    }
 }
+
+/// 本客户端认的合同主版本。**只有这一处**：横幅上的「客户端 contract N」也从这里取，
+/// 别在 UI 里再写一个 1 —— 涨版本时改一处，另一处忘改就是自欺的横幅。
+pub const CLIENT_CONTRACT: u32 = 1;
 
 /// 客户端与引擎的主版本不匹配时出横幅，不做降级猜测。
 pub fn contract_mismatch(caps: &Capabilities, client_major: u32) -> bool {

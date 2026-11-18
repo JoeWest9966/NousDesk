@@ -68,17 +68,25 @@ pub fn title_bar(window: &mut Window, demo_mode: bool) -> impl IntoElement {
                 .child(BRAND),
         )
         // 演示模式的**唯一分界线**：faux provider 的回复看着像真的，人不能靠猜。
+        //
+        // 形态（demo/desk8/preview.html 方案 B，已挑定）：**强调色描边的小徽标**。
+        // 为什么不用灰底胶囊：禁用灰在这个皮肤里已经表示「不可用」，角标借用它等于说
+        // 「这是个点不动的东西」——两种意思长得一样，人只会认错。用强调色 + 英文
+        // `DEMO` 是为了在 34px 标题栏里足够短，同时靠字义把「假」说死（不靠颜色表意）。
         .when(demo_mode, |bar| {
             bar.child(
                 div()
                     .ml(t().d(8.))
-                    .px(t().d(6.))
+                    .px(t().d(5.))
                     .py(t().d(1.))
                     .rounded(t().r(3.))
-                    .bg(rgb(t().p.disabled))
+                    .border_1()
+                    .border_color(rgb(t().p.accent))
+                    .bg(rgb(t().p.panel))
                     .text_size(t().fs(10.))
-                    .text_color(rgb(t().p.list_bg))
-                    .child("演示模式"),
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(t().p.accent_fg))
+                    .child("DEMO"),
             )
         })
 }

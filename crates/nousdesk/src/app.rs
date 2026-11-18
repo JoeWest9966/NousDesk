@@ -359,6 +359,8 @@ pub struct Desktop {
     pub(crate) archive: crate::archive_page::ArchivePageState,
     /// 数据监控室（左列第四个入口）的全部状态：五份数据 + 屏 + 拉片档 + 时间线。
     pub(crate) console: crate::data_console::ConsoleState,
+    /// 版本不匹配横幅的「详情」展开了没有（方案 B：横幅一行 + 可展开的第二行）。
+    pub(crate) contract_banner_open: bool,
     /// 「资源」页（一个图标、内容 / 扩展两段）的全部状态。
     pub(crate) resources: crate::resources::ResourceState,
     /// 「撕原件」危险确认的状态机（票 #3）。本票只负责把它接到引擎上。
@@ -1007,6 +1009,7 @@ impl Desktop {
             archive_open: false,
             archive: crate::archive_page::ArchivePageState::new(),
             console: crate::data_console::ConsoleState::new(),
+            contract_banner_open: false,
             resources,
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
             purge_input,
@@ -5358,19 +5361,67 @@ impl Render for Desktop {
             .size_full()
             .child(shell_root)
             // 合同主版本不匹配：明确报，不猜、不降级。只是一条横幅，不动别的布局。
+            //
+            // 形态（demo/desk8/preview.html 方案 B，已挑定）：淡红底 + 3px 左边条 + 深红字，
+            // 右侧「详情」展开第二行（两个版本号 + 一句该怎么办）。
+            // 为什么不用整条红底白字：那是「正在出事」的响度，而版本不匹配是**持续状态**，
+            // 整条红挂一天会让人要么习惯它、要么把整个窗口关掉 —— 两种都糟。
+            // 红色只留一条 3px 的线：眼睛扫到就停，不抢内容的体积。
             .children(self.contract_mismatch().then(|| {
+                let open = self.contract_banner_open;
+                let engine = self.engine_contract();
                 div()
                     .absolute()
                     .top_0()
                     .left_0()
                     .right_0()
-                    .py(t().d(3.))
                     .flex()
-                    .justify_center()
-                    .bg(rgb(t().p.danger))
-                    .text_color(rgb(t().p.danger_fg))
+                    .flex_col()
+                    .bg(rgb(t().p.danger_soft))
+                    .border_l(t().d(3.))
+                    .border_color(rgb(t().p.danger))
                     .text_size(t().fs(11.5))
-                    .child("客户端与引擎版本不匹配")
+                    .text_color(rgb(t().p.danger_fg))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(t().d(10.))
+                            .px(t().d(12.))
+                            .py(t().d(3.))
+                            .child(match engine {
+                                Some(engine) => format!(
+                                    "! 客户端与引擎版本不匹配（客户端 contract {} · 引擎 {engine}）",
+                                    crate::capability::CLIENT_CONTRACT
+                                ),
+                                None => "! 客户端与引擎版本不匹配".to_string(),
+                            })
+                            .child(div().flex_1())
+                            .child(
+                                Button::new("contract-banner-detail")
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .label(if open { "收起" } else { "详情" })
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.contract_banner_open = !this.contract_banner_open;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .when(open, |el| {
+                        el.child(
+                            div()
+                                .px(t().d(12.))
+                                .pb(t().d(4.))
+                                .text_size(t().fs(11.))
+                                .child(format!(
+                                    "本客户端只认 contract {}；引擎报的是 {}。                                     主版本不同意味着字段形状可能已变 —— 这里不猜、不降级：                                     要么换客户端，要么把引擎换回同一代。",
+                                    crate::capability::CLIENT_CONTRACT,
+                                    engine.map_or_else(|| "（没连上）".to_string(), |n| n.to_string()),
+                                )),
+                        )
+                    })
             }))
             .children(self.cfg_overlay(window, cx))
             // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
