@@ -29,7 +29,7 @@ use nous_engine::triggers::{
 };
 
 use crate::app::Desktop;
-use crate::config::TRIGGER_BLOCK;
+use crate::capability::{Feature, Gate};
 
 const ARCHIVED: &str = "__archived__";
 const UNCATEGORIZED: &str = "∅";
@@ -269,42 +269,29 @@ impl State {
 // ── 数据 ───────────────────────────────────────────────────────────────────
 
 impl Desktop {
-    /// 启动 / 重连时 resolve `n8qkkj` 并拉清单。
+    /// 启动 / 重连时按 capabilities 决定是否拉触发器清单。
     pub(crate) fn load_triggers(&mut self, cx: &mut Context<Self>) {
         let cfg = self.conn.clone();
+        let blocked = match self.feature_gate(Feature::Triggers) {
+            Some(Gate::Enabled) => None,
+            Some(Gate::Disabled { code, reason }) => {
+                Some(crate::capability::disabled_text(code, &reason.message))
+            }
+            Some(Gate::Unknown) | None => Some(crate::capability::disabled_text(
+                nous_engine::ReasonCode::Unknown,
+                "服务端未声明 triggers",
+            )),
+        };
+        if let Some(message) = blocked {
+            self.triggers.error = Some(message);
+            cx.notify();
+            return;
+        }
         cx.spawn(async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else {
                 return;
             };
-            let url = handle
-                .spawn(async move {
-                    nous_engine::resolve::resolve_engine(
-                        &cfg.host,
-                        &cfg.board,
-                        crate::config::SELF_BLOCK,
-                        TRIGGER_BLOCK,
-                    )
-                    .await
-                })
-                .await;
-            let url = match url {
-                Ok(Ok(url)) => url,
-                Ok(Err(e)) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.triggers.error = Some(format!("触发器块 resolve 不到：{e}"));
-                        cx.notify();
-                    });
-                    return;
-                }
-                Err(e) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.triggers.error = Some(format!("resolve 任务挂了：{e}"));
-                        cx.notify();
-                    });
-                    return;
-                }
-            };
-            let client = match nous_engine::TriggerClient::new(url.as_str(), Duration::from_secs(30)) {
+            let client = match nous_engine::TriggerClient::new(cfg.host.as_str(), Duration::from_secs(30)) {
                 Ok(c) => Arc::new(c),
                 Err(e) => {
                     let _ = this.update(cx, |this, cx| {

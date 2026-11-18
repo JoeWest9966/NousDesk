@@ -385,6 +385,15 @@ impl Desktop {
         if self.tab == tab {
             return;
         }
+        // 灰入口的第二道闸：键盘 Action / 调试开关也能走到这里，不能只靠按钮不挂 click。
+        let feature = match tab {
+            Tab::Templates => Some(crate::capability::Feature::Presets),
+            Tab::Triggers => Some(crate::capability::Feature::Triggers),
+            _ => None,
+        };
+        if feature.is_some_and(|f| !self.feature_enabled(f)) {
+            return;
+        }
         self.tab = tab;
         if tab == Tab::Templates {
             self.load_all_sections(false, cx);
@@ -415,6 +424,9 @@ impl Desktop {
     /// 副作用是想要的：引擎**连上之前**打开过 Template 页会留下「还没连上引擎」，
     /// 这里跑一遍会把它清掉（`load_section` 开头就 `error = None`）。
     pub(crate) fn load_all_sections(&mut self, force: bool, cx: &mut Context<Self>) {
+        if !self.feature_enabled(crate::capability::Feature::Presets) {
+            return;
+        }
         for i in 0..SECTIONS.len() {
             self.load_section(i, force, cx);
         }
@@ -423,6 +435,9 @@ impl Desktop {
     /// 拉组合清单。开关状态只认引擎的回包（`combos[].enabled`），
     /// 不读 `preset.json` 自己算 —— 那是 spec §4.3 的硬规矩。
     pub(crate) fn load_combos(&mut self, force: bool, cx: &mut Context<Self>) {
+        if !self.feature_enabled(crate::capability::Feature::Combos) {
+            return;
+        }
         if !force && self.combos.is_some() {
             return;
         }
@@ -454,6 +469,10 @@ impl Desktop {
     /// 翻一条组合的开关。乐观更新 + 失败回滚；
     /// 回包里的 `enabled` 是盘上的真相，拿它覆盖（引擎可能顺手改了别的）。
     pub(crate) fn toggle_combo(&mut self, name: String, cx: &mut Context<Self>) {
+        if let Some(reason) = self.disabled_reason(crate::capability::Feature::Combos) {
+            self.notify(reason, crate::app::NoticeKind::Info, cx);
+            return;
+        }
         if self.combo_flying.is_some() {
             return;
         }
@@ -5354,7 +5373,14 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
                         // 终极模板的组合开关：状态只信引擎，点了走
                         // POST /v1/combos/:name/enable|disable，回包再覆盖。
                         .when(is_ultimate, |el| {
-                            let label = combo_label(combo_enabled, combo_flying);
+                            let combos_off = self
+                                .disabled_reason(crate::capability::Feature::Combos)
+                                .unwrap_or_default();
+                            let label = if combos_off.is_empty() {
+                                combo_label(combo_enabled, combo_flying).to_string()
+                            } else {
+                                combos_off.clone()
+                            };
                             let (bg, fg) = match combo_enabled {
                                 Some(true) => (t().p.accent_soft, t().p.accent_fg),
                                 Some(false) => (t().p.hover, t().p.text_2),
@@ -5371,7 +5397,8 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
                                     .text_color(rgb(fg))
                                     .text_size(t().fs(11.))
                                     .cursor_pointer()
-                                    .when(!combo_enabled.is_none() && !combo_flying, |el| {
+                                    .when(!combos_off.is_empty(), |el| el.opacity(0.45))
+                                    .when(!combo_enabled.is_none() && !combo_flying && combos_off.is_empty(), |el| {
                                         el.hover(|h| h.bg(rgb(t().p.hover)))
                                     })
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {

@@ -21,6 +21,7 @@
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
 use gpui_kit::component::TitleBar;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 /// 自绘标题栏的高度（gpui-kit `TitleBar` 固定 34px）。
@@ -42,7 +43,7 @@ fn title_fg() -> u32 { t().p.text_2 }
 ///
 /// 第一次画的时候把「当前是哪种装饰 / WM 允许哪些按钮」打进日志：窗口没有关闭按钮时，
 /// 第一个要问的就是这两个值（X11 无 WM 时是 `Server` + 全 false，那时按钮本来就该没有）。
-pub fn title_bar(window: &mut Window) -> impl IntoElement {
+pub fn title_bar(window: &mut Window, demo_mode: bool) -> impl IntoElement {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         let controls = window.window_controls();
@@ -66,6 +67,28 @@ pub fn title_bar(window: &mut Window) -> impl IntoElement {
                 .text_color(rgb(title_fg()))
                 .child(BRAND),
         )
+        // 演示模式的**唯一分界线**：faux provider 的回复看着像真的，人不能靠猜。
+        //
+        // 形态（demo/desk8/preview.html 方案 B，已挑定）：**强调色描边的小徽标**。
+        // 为什么不用灰底胶囊：禁用灰在这个皮肤里已经表示「不可用」，角标借用它等于说
+        // 「这是个点不动的东西」——两种意思长得一样，人只会认错。用强调色 + 英文
+        // `DEMO` 是为了在 34px 标题栏里足够短，同时靠字义把「假」说死（不靠颜色表意）。
+        .when(demo_mode, |bar| {
+            bar.child(
+                div()
+                    .ml(t().d(8.))
+                    .px(t().d(5.))
+                    .py(t().d(1.))
+                    .rounded(t().r(3.))
+                    .border_1()
+                    .border_color(rgb(t().p.accent))
+                    .bg(rgb(t().p.panel))
+                    .text_size(t().fs(10.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(t().p.accent_fg))
+                    .child("DEMO"),
+            )
+        })
 }
 
 #[cfg(test)]

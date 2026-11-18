@@ -3,11 +3,10 @@
 Nous 的桌面客户端。**骨架照微信桌面版，设计语言照 Tesla**，原生应用，不是网页。
 
 - **引擎**：Nous。这个客户端只做皮 + 一个哑的协议层，不跑 agent。
-  - **现状（能用）**：连的是 **TS 版引擎 `qrd3wh`**（Nous 的 session 块），地址从宿主
-    `__nous/resolve` 现拿。
-  - **目标（迁移中）**：Nous 已经**重写成 Rust**，一个进程一个产物（`nous-app`），
-    插件化（对标 Magento 2：内核只剩契约 / 装载器 / 调度，其余都是可装可卸的模块）。
-    没有 `qrd3wh` 块、没有 `bjes6b`、`__nous/resolve` 会被砍掉。**见下面「换引擎」那一节。**
+  - **现状**：连的是 **Rust 版引擎 `nous-app` 的一个地址**，启动拉一次 `/v1/capabilities`，
+    按声明开功能面；未声明的一律当没有。
+  - **旧版（已下线）**：TS 版 `qrd3wh` / `bjes6b` / `d6s4v1` / `n8qkkj` 靠 `__nous/resolve`
+    换地址那套已经删掉（`resolve.rs` 不在了）。**见下面「换引擎」那一节。**
 - **客户端只有这一个**：`bjes6b`（Nous-Mobile）被 Rust 版 Nous 取代 —— 手机端那个仓会被删，
   置顶、触发器这些以前写穿到 `bjes6b` 的东西都改由 Nous 内核承担。
 - **技术**：Rust + GPUI，UI 框架是 [longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)（`gpui-kit 0.9`）。没有 webview，没有 PWA。
@@ -54,38 +53,56 @@ cargo build --release -p nousdesk   # 出包：target/release/nousdesk
 
 ```toml
 host = "http://192.168.1.7:4790"
-board = "new1"
+# token = "…"     # 可选；也可以不写在这里，见下面
 ```
 
 一个都没有也能开：用默认值（`192.168.1.7:4790`），连不上时左栏会把该改的路径显示出来。
 
-启动时从 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎。
-（**过渡期行为**：Rust 版 Nous 落地后这一段会变成「一个地址 + 能力表」，见下节。）
+**老配置里的 `board = "…"` 会被警告并忽略**，不会让升级后的客户端开不起来（便携包那份
+`desktop.toml` 是手工放的，不能因为升级就开不了）。
 
-## 换引擎：TS 版 Nous → Rust 版 Nous（进行中，2026-11-18 起）
+### token 取值顺序（只有一个注入点）
 
-Nous 已经整体重写成 Rust（`/opt/Nous-src`，约 10 万行，判据 15 条绿 14）。这次重写的
+```
+NOUS_DESK_TOKEN 环境变量  →  desktop.toml 的 token = "…"  →  ~/.config/nousdesk/token
+```
+
+- `EngineClient::new` / `with_token` 在 **http 和 sse 两个 reqwest builder** 上各挂一次
+  `Authorization: Bearer …`；41 个调用点谁也不许再拼这个头。
+- 文件兜底是给便携包那份**只读** `desktop.toml` 用的。
+- `~/.config/nousdesk/token` 权限不是 `0600` 只警告、不拦启动（容器里常见），建议
+  `chmod 600 ~/.config/nousdesk/token`。
+- 服务端那边的 token 在 `~/.config/nous/token`（`nous-app --print-token` 可打印）。
+
+启动时直连 `host`，拉一次 `GET /v1/capabilities`；`contract` 主版本不匹配出顶部横幅，
+`modules[].enabled=false` 的入口灰掉并写人话，`runtime.provider.kind == "faux"` 时标题栏
+挂「演示模式」。`configured=false` **不灰输入框**，只是发送前提示可能 503。
+
+## 换引擎：TS 版 Nous → Rust 版 Nous（2026-11-18 已切）
+
+Nous 已经整体重写成 Rust（`/opt/Nous`，一个 `nous-app`）。这次重写的
 关键差异**不在语言，在形状**：
 
-| | TS 版（今天连的） | Rust 版（目标） |
+| | TS 版（已下线） | Rust 版（现在连的） |
 |---|---|---|
 | 进程 | 一个功能一个块（`qrd3wh` / `bjes6b` / `d6s4v1` / `n8qkkj`） | **一个** `nous-app` |
 | 寻址 | `__nous/resolve/<block>`（三个块名常量） | **一个地址** + `/v1/capabilities` 服务表 |
 | 扩展 | 单独进程 + 文件 | 三种装载形态（编译期内置 / 运行时外挂 / 声明式） |
 | 发行版 | 一份代码全开 | 一张清单（`features` / 模块声明决定装了什么） |
 
-**现在的差距（这才是要点）**：桌面端实际调 **41 条路径**，Rust 版实现了 **8 条**。
-所以「换上 Rust 版 Nous」这一步之前，得先让服务端补齐能连上的那几条：
+**切换已完成的范围**：桌面端仍留着 41 条调用路径，服务端按 `capabilities` 声明开放
+会话面 / `documents` / 设备族；`presets` / `archive` / `combos` / `triggers` / `ext`
+在清单里关着，入口灰掉但**调用点保留**，等后续模块落地一次性切换。
 
-| 我们开的票 | 内容 | 解锁什么 |
+| Nous 的票 | 内容 | 这边怎么用 |
 |---|---|---|
-| Nous `#47` | 7 个端点 + `GET /v1/capabilities` | 能连上：列表 / 看历史 / 发消息 / 改名 / 已读 |
-| Nous `#48` | `documents` 模块（16 条 `presets/*` 收敛成 6 条）+ `/v1/_routes` | 模板编辑器（现在**不做**，能力表先关掉） |
-| Nous `#49` | 砍 `board` / `block` / `resolve` | 配置只剩一个地址；本仓库删 `resolve.rs` |
-| Nous `#44` | `nous-sessions` 最小轮次（pi 本体） | **发出去的消息真的会有回复** |
+| `#47` | 7 端点 + `GET /v1/capabilities` | 功能面唯一真相；未知 → 不可用 |
+| `#48` | `documents` + `/v1/_routes` | 能力表已声明，编辑器暂不接 |
+| `#49` | 砍 `board` / `block` / `resolve` | 本仓库删 `resolve.rs`，配置只剩 host(+可选 token) |
+| `#44` / `#51` | 最小轮次 + faux provider | 验收脚本能收到一条确定回复；faux 挂「演示模式」角标 |
 
-在 `#44` 落地之前，Rust 版 Nous 连上去也只能看历史、发不出回复 —— 所以**别提前切**。
-切的时候按上面四张票的顺序走，每一步都能回退到 TS 版引擎（配置里换个 `host` 而已）。
+自动验收：`scripts/check-desk.sh`（起真 `nous-app` + `desk_probe`，含错 token 哨兵）；
+真机四眼见 `验证.md`。**未声明的功能不许猜着调用** —— 这是这一版的硬边界。
 
 ## 出包（Linux）
 
@@ -114,10 +131,10 @@ crates/nousdesk/      GPUI 应用：三栏布局、会话、输入、置顶。
 
 ## 三条规矩
 
-1. 引擎地址只从 `resolve` 拿，不写进配置、不写进常量。
+1. 引擎地址就是配置里那一个 `host`，不再从 `resolve` 或块名推导。
 2. 协议是哑的：不加业务字段、不在客户端算状态。字段变化先改 `nous-engine`。
-3. 置顶的真相在**引擎**，桌面端不自己存一份：过渡期写穿 `bjes6b`，目标态是
-   `POST /v1/sessions/:id/pin`（Rust 版 Nous 已把置顶做进内核）。
+3. 置顶的真相在**引擎**，桌面端不自己存一份：`POST /v1/sessions/:id/pin`。
+4. 功能面只认 `/v1/capabilities`；`capability.rs::gate()` 是唯一判定处。
 
 详情见 `AGENTS.md`（给 agent 的）和 `wire.md`（协议契约）。
 

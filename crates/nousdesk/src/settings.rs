@@ -4,8 +4,8 @@
 //! 不出「消息通知」「快捷键」「退出登录」这种假入口 —— 没实现的东西摆在那儿，
 //! 用户点一次就等于被晃一次。
 //!
-//! 设置里只有 `host` 和 `board` 两个可编辑项。引擎地址**不**给输入框：
-//! 它只能从 `__nous/resolve` 拿，写进配置就有了第二个真相。
+//! 设置里只有 `host` 一个可编辑项。引擎地址**就这一个**，不再从别处解析。
+//! token 走环境变量 / 配置文件 / token 文件，见 README。
 
 // 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
@@ -117,11 +117,64 @@ impl Desktop {
                         true,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
                     ))
+                    .children(
+                        self.disabled_reason(crate::capability::Feature::Presets)
+                            .map(|reason| {
+                                menu_row(
+                                    "menu-templates-disabled",
+                                    IconName::BookUser,
+                                    format!("模板 · {reason}"),
+                                    false,
+                                    |_, _, _| {},
+                                )
+                            }),
+                    )
+                    .children(
+                        self.disabled_reason(crate::capability::Feature::Triggers)
+                            .map(|reason| {
+                                menu_row(
+                                    "menu-triggers-disabled",
+                                    IconName::Bolt,
+                                    format!("触发器 · {reason}"),
+                                    false,
+                                    |_, _, _| {},
+                                )
+                            }),
+                    )
+                    // `needs_credentials` 是四个 code 里唯一要人去做事的：
+                    // 给一个真能点的「去设置」，别只写一句人话让人自己找。
+                    .children(
+                        [
+                            crate::capability::Feature::Presets,
+                            crate::capability::Feature::Archive,
+                            crate::capability::Feature::Combos,
+                            crate::capability::Feature::Triggers,
+                        ]
+                        .into_iter()
+                        .any(|f| {
+                            self.disabled_code(f)
+                                == Some(nous_engine::ReasonCode::NeedsCredentials)
+                        })
+                        .then(|| {
+                            menu_row(
+                                "menu-needs-credentials",
+                                IconName::Settings,
+                                "去设置凭证",
+                                true,
+                                cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.settings_tab = SettingsTab::Connection;
+                                    this.open_settings(cx);
+                                }),
+                            )
+                        }),
+                    )
                     .child(menu_row(
                         "menu-archive",
                         IconName::Archive,
-                        "归档库",
-                        true,
+                        self.disabled_reason(crate::capability::Feature::Archive)
+                            .map(|r| format!("归档库 · {r}"))
+                            .unwrap_or_else(|| "归档库".to_string()),
+                        self.feature_enabled(crate::capability::Feature::Archive),
                         cx.listener(|this, _: &ClickEvent, _, cx| this.open_archive(cx)),
                     )),
             )
@@ -160,6 +213,27 @@ impl Desktop {
                     .child(info_row(
                         "引擎",
                         self.engine_node.clone().unwrap_or_else(|| "未知".into()),
+                    ))
+                    .child(info_row(
+                        "服务",
+                        self.caps
+                            .as_ref()
+                            .map(|c| c.server.name.clone())
+                            .unwrap_or_else(|| "未知".into()),
+                    ))
+                    .child(info_row(
+                        "引擎版本",
+                        self.caps
+                            .as_ref()
+                            .map(|c| c.server.version.clone())
+                            .unwrap_or_else(|| "未知".into()),
+                    ))
+                    .child(info_row(
+                        "合同",
+                        self.caps
+                            .as_ref()
+                            .map(|c| format!("v{}", c.contract))
+                            .unwrap_or_else(|| "未知".into()),
                     )),
             )
             .into_any_element()
@@ -171,7 +245,7 @@ impl Desktop {
         } else if self.error.is_some() {
             ("连不上 · 去设置看看".to_string(), bad())
         } else {
-            (format!("已连接 · {}", self.conn.board), good())
+            ("已连接".to_string(), good())
         };
 
         div()
@@ -370,16 +444,15 @@ impl Desktop {
                 div()
                     .text_size(t().fs(11.5))
                     .text_color(rgb(muted()))
-                    .child("改完保存会写到下面那个文件，然后重新 resolve 一次。"),
+                    .child("改完保存会写到下面那个文件，然后重新连一次。"),
             )
-            .child(field("宿主地址 host", Input::new(&self.host_input)))
-            .child(field("Board", Input::new(&self.board_input)))
+            .child(field("引擎地址 host", Input::new(&self.host_input)))
             .child(readonly(
-                "引擎地址（只读）",
+                "当前连接",
                 self.engine_url
                     .clone()
-                    .unwrap_or_else(|| "未连接 —— 先 resolve 到才会显示".into()),
-                "由 <host>/p/<board>/<self>/__nous/resolve/<engine> 现拿，不写进配置。",
+                    .unwrap_or_else(|| "未连接 —— 保存后会重连".into()),
+                "一个地址 + /v1/capabilities，不再从别处解析。",
             ))
             .child(readonly(
                 "配置文件（保存写这里）",
@@ -699,23 +772,18 @@ impl Desktop {
 
     // ── 保存 ────────────────────────────────────────────────
 
-    /// 把输入框里的两个值写回配置文件，然后重连。
+    /// 把输入框里的 host 写回配置文件，然后重连。
     ///
-    /// 校验只挡「一定错」的：空值、host 不带协议、board 带斜杠。剩下的交给 resolve 报错 ——
+    /// 校验只挡「一定错」的：空值、host 不带协议。剩下的交给连接时报 ——
     /// 客户端猜地址对不对就等于有了第二个真相。
     pub(crate) fn save_settings(&mut self, cx: &mut Context<Self>) {
         let host = self.host_input.read(cx).value().trim().to_string();
-        let board = self.board_input.read(cx).value().trim().to_string();
 
         let bad = |msg: String| Some((msg, true));
         let problem = if host.is_empty() {
             bad("host 不能为空".into())
         } else if !(host.starts_with("http://") || host.starts_with("https://")) {
             bad("host 要以 http:// 或 https:// 开头".into())
-        } else if board.is_empty() {
-            bad("board 不能为空".into())
-        } else if board.contains('/') {
-            bad("board 里不能有 /".into())
         } else {
             None
         };
@@ -725,7 +793,7 @@ impl Desktop {
             return;
         }
 
-        let next = Config { host, board };
+        let next = Config { host, token: self.conn.token.clone() };
         match next.save() {
             Ok(path) => {
                 self.conn = next;

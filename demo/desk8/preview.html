@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>NousDesk #8 · 演示模式角标 / 版本不匹配横幅 / 灰入口</title>
+<style>
+  @font-face { font-family: InterFallback; src: local("Inter"), local("Manrope"), local("Noto Sans CJK SC"), local("Source Han Sans SC"); }
+  :root{
+    --sidebar:#2e2e2e; --sidebar-hover:#3a3a3a; --sidebar-idle:#9a9a9a;
+    --list-bg:#f7f7f7; --panel:#ffffff; --text:#1a1a1a; --text-2:#333333;
+    --muted:#999999; --accent:#07c160; --danger:#d32f2f; --danger-fg:#c0392b;
+    --disabled:#b2b2b2; --titlebar:#f7f7f7;
+  }
+  *{box-sizing:border-box; margin:0}
+  body{
+    font-family: InterFallback, system-ui, sans-serif;
+    background:#e9e9e9; color:var(--text);
+    padding:28px 32px 64px; -webkit-font-smoothing:antialiased;
+  }
+  h1{font-size:18px; font-weight:600; letter-spacing:-.01em; margin-bottom:4px}
+  .sub{font-size:12.5px; color:#666; margin-bottom:20px}
+  .tabs{display:flex; gap:8px; margin-bottom:18px}
+  .tabs button{
+    font:inherit; font-size:12.5px; padding:7px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid #d5d5d5; background:#fff; color:#333;
+  }
+  .tabs button[aria-selected="true"]{background:#1a1a1a; border-color:#1a1a1a; color:#fff}
+  .note{font-size:12px; color:#555; margin:10px 0 22px; line-height:1.6; max-width:760px}
+  .note b{color:#1a1a1a}
+
+  /* ── 窗口外壳：34px 标题栏 + 40px 图标条 + 列表 + 内容 ── */
+  .win{
+    width:1040px; background:var(--panel); border-radius:10px; overflow:hidden;
+    box-shadow:0 12px 34px rgba(0,0,0,.16); border:1px solid #dcdcdc;
+  }
+  .titlebar{
+    height:34px; display:flex; align-items:center; gap:0;
+    background:var(--titlebar); border-bottom:1px solid #e6e6e6; padding:0 10px;
+  }
+  .brand{font-size:11.5px; font-weight:600; letter-spacing:.02em; color:#333}
+  .titlebar .spacer{flex:1}
+  .winbtns{display:flex; gap:6px}
+  .winbtn{width:22px; height:22px; border-radius:6px; display:grid; place-items:center; color:#6b6b6b; font-size:11px}
+  .winbtn:hover{background:#e8e8e8}
+
+  .body{display:flex; height:300px}
+  .rail{
+    width:56px; background:var(--sidebar); display:flex; flex-direction:column;
+    align-items:center; gap:6px; padding:10px 0;
+  }
+  .rail .icon{
+    width:40px; height:40px; border-radius:8px; display:grid; place-items:center;
+    color:var(--sidebar-idle); font-size:16px; cursor:pointer;
+  }
+  .rail .icon:hover{background:var(--sidebar-hover)}
+  .rail .icon.active{color:var(--accent)}
+  .rail .icon.gated{opacity:.4; cursor:not-allowed}
+  .rail .icon.gated:hover{background:transparent}
+  .rail .grow{flex:1}
+  .list{width:232px; background:var(--list-bg); border-right:1px solid #e9e9e9; padding:10px 8px}
+  .row{display:flex; gap:8px; align-items:center; padding:8px; border-radius:6px}
+  .row:hover{background:#efefef}
+  .avatar{width:26px; height:26px; border-radius:4px; background:#d9d9d9}
+  .row .t{font-size:12.5px; color:var(--text)}
+  .row .s{font-size:11px; color:var(--muted); margin-top:2px}
+  .main{flex:1; padding:16px 20px; display:flex; flex-direction:column; gap:10px}
+  .msg{font-size:13px; line-height:1.6; color:var(--text-2); max-width:520px}
+  .msg.ai{color:#444}
+
+  /* ── 三个待定外观，各方案一份 ── */
+  /* 角标 · A 现状：灰底胶囊 */
+  .badge-a{
+    margin-left:8px; padding:1px 6px; border-radius:3px; background:var(--disabled);
+    color:var(--list-bg); font-size:10px; font-weight:500;
+  }
+  /* 角标 · B 描边徽标：不抢眼但一直亮，跟强调色同族 */
+  .badge-b{
+    margin-left:8px; padding:1px 5px; border-radius:3px; border:1px solid var(--accent);
+    color:#0b8a4a; font-size:10px; font-weight:600; letter-spacing:.06em; background:#fff;
+  }
+  /* 角标 · C 纯文字后缀：不加新控件，靠字重与颜色 */
+  .badge-c{ margin-left:6px; font-size:11.5px; font-weight:400; color:var(--muted) }
+
+  /* 横幅 · A 现状：整条红底白字 */
+  .banner-a{
+    background:var(--danger); color:#fff; font-size:11.5px;
+    padding:5px 12px;
+  }
+  /* 横幅 · B 分级：淡底 + 左边条 + 深红字 + 右侧动作 */
+  .banner-b{
+    display:flex; align-items:center; gap:10px;
+    background:#fdecea; border-left:3px solid var(--danger);
+    color:var(--danger-fg); font-size:11.5px; padding:5px 12px;
+  }
+  .banner-b .action{margin-left:auto; color:#8c2b21; text-decoration:underline; text-underline-offset:2px}
+  /* 横幅 · C 压扁：仍整条红，高度 28px，右侧给链接 */
+  .banner-c{
+    display:flex; align-items:center; gap:10px;
+    background:var(--danger); color:#fff; font-size:11.5px; height:28px; padding:0 12px;
+  }
+  .banner-c .action{margin-left:auto; color:#ffe3e3; text-decoration:underline; text-underline-offset:2px}
+
+  /* 灰入口的 tooltip（三套共用） */
+  .tt{
+    position:absolute; transform:translate(52px, -6px); white-space:nowrap;
+    background:#1f1f1f; color:#f2f2f2; font-size:11px; padding:4px 8px; border-radius:5px;
+    box-shadow:0 6px 18px rgba(0,0,0,.22);
+  }
+  .tt:before{
+    content:""; position:absolute; left:-4px; top:50%; margin-top:-4px;
+    border:4px solid transparent; border-right-color:#1f1f1f;
+  }
+  .stage{position:relative}
+
+  .legend{display:flex; gap:24px; margin-top:14px; font-size:11.5px; color:#555; flex-wrap:wrap}
+  .legend span b{color:#1a1a1a; font-weight:600}
+  .caption{font-size:12.5px; color:#333; margin:14px 0 0; line-height:1.7; max-width:900px}
+  .caption b{font-weight:600}
+  footer{margin-top:34px; font-size:11.5px; color:#777; line-height:1.7; max-width:900px}
+  code{font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11px; background:#f2f2f2; padding:1px 4px; border-radius:3px}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+
+<h1>NousDesk #8 · 三处待定外观</h1>
+<div class="sub">演示模式角标 · 客户端/引擎版本不匹配横幅 · 灰入口 —— 真字号、真栏宽、真配色（默认皮，Manrope/Inter 走本机可用字体）</div>
+<div class="note" style="margin:-8px 0 16px"><b>已采纳：方案 B</b>（2026-11-18）。A / C 留在这里当对照，别再回改。</div>
+
+<div class="tabs" role="tablist">
+  <button role="tab" data-v="a" aria-selected="true">方案 A · 票面直译（当前代码）</button>
+  <button role="tab" data-v="b" aria-selected="false">方案 B · 分级（推荐）</button>
+  <button role="tab" data-v="c" aria-selected="false">方案 C · 不新增控件</button>
+</div>
+
+<div class="note">
+  三套都用同一份骨架（微信式三栏）和同一份配色（黑白灰 + 一个强调色 <code>#07c160</code>、危险 <code>#d32f2f</code>）。
+  差别只在两件事：<b>「这是假的回复」怎么让人一直看得见</b>、<b>「版本不匹配」要多响</b>。
+</div>
+
+<!-- ══════════ 方案 A ══════════ -->
+<section class="stage" data-pane="a">
+  <div class="win">
+    <div class="titlebar">
+      <span class="brand">NousDesk</span><span class="badge-a">演示模式</span>
+      <span class="spacer"></span>
+      <div class="winbtns"><div class="winbtn">–</div><div class="winbtn">□</div><div class="winbtn">✕</div></div>
+    </div>
+    <div class="banner-a">客户端与引擎版本不匹配</div>
+    <div class="body">
+      <div class="rail">
+        <div class="icon active">💬</div>
+        <div class="icon">📄</div>
+        <div class="icon gated">🔔</div>
+        <div class="icon">🗂</div>
+        <div class="icon">🗄</div>
+        <div class="grow"></div>
+        <div class="icon">≡</div>
+        <div class="tt" style="top:150px; left:16px">触发器：该引擎未实现（not_implemented）</div>
+      </div>
+      <div class="list">
+        <div class="row"><div class="avatar"></div><div><div class="t">夜报触发器</div><div class="s">hello from faux</div></div></div>
+        <div class="row"><div class="avatar"></div><div><div class="t">测试会话</div><div class="s">分析一下这份日志</div></div></div>
+      </div>
+      <div class="main">
+        <div class="msg">分析一下这份日志</div>
+        <div class="msg ai">hello from faux　<span style="color:#999;font-size:11px">← 这句话是假的</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="legend">
+    <span>角标：<b>灰底胶囊 10px</b>，贴品牌名右侧</span>
+    <span>横幅：<b>整条红底白字 11.5px</b>，横穿整个窗口</span>
+    <span>灰入口：<b>opacity .4</b>、不挂点击（人话在设置页与 ≡ 更多，不在 tooltip）</span>
+  </div>
+  <p class="caption"><b>这套想干什么：</b>票面怎么写就怎么画。角标用「禁用灰」当底，等于说是「一个不能点的东西」；横幅整条铺红，最响。</p>
+  <p class="caption"><b>代价：</b>角标和灰入口用了同一个灰，两个不同意思长得一样；横幅整条红在 34px 标题栏下面像报警条，长时间开着会烦。</p>
+</section>
+
+<!-- ══════════ 方案 B ══════════ -->
+<section class="stage" data-pane="b" hidden>
+  <div class="win">
+    <div class="titlebar">
+      <span class="brand">NousDesk</span><span class="badge-b">DEMO</span>
+      <span class="spacer"></span>
+      <div class="winbtns"><div class="winbtn">–</div><div class="winbtn">□</div><div class="winbtn">✕</div></div>
+    </div>
+    <div class="banner-b">
+      <span>! 客户端与引擎版本不匹配（客户端 contract 1 · 引擎 2）</span>
+      <span class="action">详情</span>
+    </div>
+    <div class="body">
+      <div class="rail">
+        <div class="icon active">💬</div>
+        <div class="icon">📄</div>
+        <div class="icon gated">🔔</div>
+        <div class="icon">🗂</div>
+        <div class="icon">🗄</div>
+        <div class="grow"></div>
+        <div class="icon">≡</div>
+        <div class="tt" style="top:150px; left:16px">触发器：该引擎未实现（not_implemented）</div>
+      </div>
+      <div class="list">
+        <div class="row"><div class="avatar"></div><div><div class="t">夜报触发器</div><div class="s">hello from faux</div></div></div>
+        <div class="row"><div class="avatar"></div><div><div class="t">测试会话</div><div class="s">分析一下这份日志</div></div></div>
+      </div>
+      <div class="main">
+        <div class="msg">分析一下这份日志</div>
+        <div class="msg ai">hello from faux　<span style="color:#999;font-size:11px">← 这句话是假的</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="legend">
+    <span>角标：<b>强调色描边徽标 DEMO</b>，10px，白底</span>
+    <span>横幅：<b>淡红底 + 3px 左边条 + 深红字</b>，右侧「详情」</span>
+    <span>灰入口：<b>opacity .4</b>、不挂点击（人话在设置页与 ≡ 更多，不在 tooltip）</span>
+  </div>
+  <p class="caption"><b>这套想干什么：</b>分清三种「不对」的响度 —— 假回复（角标，常驻但不刺眼，用强调色族而不是禁用灰）、版本不匹配（横幅，用淡底 + 左边条，红只出现在一条线上）、不可用功能（灰入口，只压灰不给颜色）。三种东西三种长相，谁也不会认错。</p>
+  <p class="caption"><b>代价：</b>角标用了强调色，和「已连接/在线」这类正向状态同族，得靠 <b>DEMO 字样</b>把意思说死（英文单词比中文短，34px 标题栏里不挤）。横幅多了一个「详情」链接 = 多一个入口，要接到真正能看到 contract 版本的地方。</p>
+</section>
+
+<!-- ══════════ 方案 C ══════════ -->
+<section class="stage" data-pane="c" hidden>
+  <div class="win">
+    <div class="titlebar">
+      <span class="brand">NousDesk<span class="badge-c">· 演示</span></span>
+      <span class="spacer"></span>
+      <div class="winbtns"><div class="winbtn">–</div><div class="winbtn">□</div><div class="winbtn">✕</div></div>
+    </div>
+    <div class="banner-c">
+      <span>客户端与引擎版本不匹配</span>
+      <span class="action">详情</span>
+    </div>
+    <div class="body">
+      <div class="rail">
+        <div class="icon active">💬</div>
+        <div class="icon">📄</div>
+        <div class="icon gated">🔔</div>
+        <div class="icon">🗂</div>
+        <div class="icon">🗄</div>
+        <div class="grow"></div>
+        <div class="icon">≡</div>
+        <div class="tt" style="top:150px; left:16px">触发器：该引擎未实现（not_implemented）</div>
+      </div>
+      <div class="list">
+        <div class="row"><div class="avatar"></div><div><div class="t">夜报触发器</div><div class="s">hello from faux</div></div></div>
+        <div class="row"><div class="avatar"></div><div><div class="t">测试会话</div><div class="s">分析一下这份日志</div></div></div>
+      </div>
+      <div class="main">
+        <div class="msg">分析一下这份日志</div>
+        <div class="msg ai">hello from faux　<span style="color:#999;font-size:11px">← 这句话是假的</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="legend">
+    <span>角标：<b>不加控件</b>，品牌名后跟「· 演示」，11.5px muted</span>
+    <span>横幅：<b>整条红但压到 28px</b>，右侧「详情」</span>
+    <span>灰入口：<b>opacity .4</b>、不挂点击（人话在设置页与 ≡ 更多，不在 tooltip）</span>
+  </div>
+  <p class="caption"><b>这套想干什么：</b>先删后加 —— 演示模式不值得一个徽标控件，把标题栏那行字延长就够了；横幅仍最响，但用高度省掉一半视觉重量，右侧补「详情」把「然后呢」交代掉。</p>
+  <p class="caption"><b>代价：</b>「· 演示」跟正文同色同字号，缩到 90% 或远看基本看不见，等于没提示；版本不匹配仍然是一条红杠，压扁只是减少体积、没有分级。</p>
+</section>
+
+<footer>
+  三个方案都只用已存在的语义色槽（<code>danger</code> / <code>danger_soft</code> / <code>disabled</code> / <code>muted</code> / <code>accent</code>），不引入新颜色、不加渐变、不加动效。<br>
+  尺寸照代码：标题栏 34px、图标条 40px 按钮 / 56px 栏宽、角标 10px、横幅 11.5px、灰入口 <code>opacity(0.4)</code>。<br>
+  挑定之后按方案改 <code>chrome.rs</code>（角标）、<code>app.rs</code>（横幅 / 灰入口），再跑 <code>scripts/check-desk.sh</code> 与真机一眼。
+</footer>
+
+<script>
+  const tabs = [...document.querySelectorAll('.tabs button')];
+  const panes = [...document.querySelectorAll('[data-pane]')];
+  tabs.forEach(btn => btn.addEventListener('click', () => {
+    tabs.forEach(b => b.setAttribute('aria-selected', String(b === btn)));
+    panes.forEach(p => p.hidden = p.dataset.pane !== btn.dataset.v);
+  }));
+</script>
+</body>
+</html>

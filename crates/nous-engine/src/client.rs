@@ -8,6 +8,7 @@ use futures_util::Stream;
 use serde::Serialize;
 use url::Url;
 
+use crate::capabilities::Capabilities;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
@@ -36,27 +37,99 @@ pub struct EngineClient {
     /// 直接把响应体掐了，客户端看到的是 `HTTP 流断了：error decoding response body` ——
     /// 长回答必死，而且看起来像「引擎挂了」。这条流只掐「连不上」和「一直不来数据」。
     sse: reqwest::Client,
-    /// 引擎地址，保证以 `/` 结尾。来源只能是宿主的 `__nous/resolve`，别自己拼。
+    /// 引擎地址，保证以 `/` 结尾。**就是配置里那一个地址**，不再 resolve。
     base: Url,
 }
 
 impl EngineClient {
+    /// `host` 直接当 base（路径会补尾斜杠）。token 从 `NOUS_DESK_TOKEN` 或
+    /// `~/.config/nousdesk/token` 拿；配置里那颗由 [`Self::with_token`] 传。
     pub fn new(base: &str, timeout: Duration) -> Result<Self, EngineError> {
+        Self::with_token(base, timeout, None)
+    }
+
+    /// token 注入的**唯一入口**：两个 builder（http + sse）都挂 `default_headers`。
+    /// 41 个调用点谁也不许再拼 `Authorization`。
+    pub fn with_token(
+        base: &str,
+        timeout: Duration,
+        token: Option<&str>,
+    ) -> Result<Self, EngineError> {
         let mut url = Url::parse(base)?;
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
-        let http = reqwest::Client::builder().timeout(timeout).build()?;
+        // 顺序必须是 env → 显式（desktop.toml）→ 文件；和配置里的 resolve_token 一致。
+        let token = std::env::var("NOUS_DESK_TOKEN")
+            .ok()
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty())
+            .or_else(|| {
+                token
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .map(str::to_owned)
+            })
+            .or_else(Self::token_from_file);
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Some(token) = token {
+            let value = format!("Bearer {token}")
+                .parse::<reqwest::header::HeaderValue>()
+                .map_err(|e| EngineError::Engine {
+                    status: 400,
+                    message: format!("token 不能放进 HTTP 头：{e}"),
+                })?;
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+        }
+        let http = reqwest::Client::builder()
+            .timeout(timeout)
+            .default_headers(headers.clone())
+            .build()?;
         let sse = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             // 空闲读超时：只有「连着但一直没数据」才算坏。有心跳就永远不会触发。
             .read_timeout(Duration::from_secs(180))
+            .default_headers(headers)
             .build()?;
         Ok(Self {
             http,
             sse,
             base: url,
         })
+    }
+
+    fn token_from_file() -> Option<String> {
+        let path = Self::dirs_config_token_path();
+        let text = std::fs::read_to_string(&path).ok()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(mode) = std::fs::metadata(&path).map(|m| m.permissions().mode())
+                && mode & 0o777 != 0o600
+            {
+                eprintln!(
+                    "nousdesk: warning: token 文件 {} 权限不是 0600（建议 chmod 600）",
+                    path.display()
+                );
+            }
+        }
+        let token = text.trim().to_owned();
+        (!token.is_empty()).then_some(token)
+    }
+
+    fn dirs_config_token_path() -> std::path::PathBuf {
+        // 不依赖 `dirs` crate（engine 层保持轻）：Linux/BSD 用 XDG_CONFIG_HOME，
+        // 其它平台退回 ~/.config；和桌面端 Config::resolve_token 同一路径。
+        #[cfg(unix)]
+        let base = std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
+            .unwrap_or_else(|| std::path::PathBuf::from(".config"));
+        #[cfg(not(unix))]
+        let base = std::env::var_os("APPDATA")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        base.join("nousdesk").join("token")
     }
 
     fn url(&self, path: &str) -> Result<Url, EngineError> {
@@ -88,6 +161,12 @@ impl EngineClient {
 
     pub async fn device(&self) -> Result<Device, EngineError> {
         let resp = self.http.get(self.url("v1/device")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/capabilities`：功能面的唯一真相。未知字段原样留在类型里。
+    pub async fn capabilities(&self) -> Result<Capabilities, EngineError> {
+        let resp = self.http.get(self.url("v1/capabilities")?).send().await?;
         self.json(resp).await
     }
 

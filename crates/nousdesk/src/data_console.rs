@@ -774,8 +774,14 @@ impl Desktop {
             };
             let got = handle
                 .spawn(async move {
+                    // 基址 = `cfg.host` + `/api/*`。**现在这条路是断的**，而且是有意的：
+                    // 旧面板（`/p/<board>/d6s4v1/api/*`）2026-11-18 已下线，Rust 版引擎
+                    // 不提供 `/api/*`，所以这个面板只会拿到 404 并把它显示成红字。
+                    // 票面 #8 只授权砍 resolve/board，这里是「board 没了、路径无处可拼」的
+                    // 必然结果，不是顺手改的拓扑。等引擎真出 `/api`（或这个面板改走 /v1）
+                    // 再接回来；在那之前别把 404 当成 bug 去修 —— 修的是对面缺的东西。
                     let client =
-                        ConsoleClient::new(&cfg.host, &cfg.board, Duration::from_secs(15))?;
+                        ConsoleClient::new(&cfg.host, Duration::from_secs(15))?;
                     let (ov, cv, co, he) = tokio::join!(
                         client.overview(),
                         client.conversations(),
@@ -861,7 +867,7 @@ impl Desktop {
             let got = handle
                 .spawn(async move {
                     let client =
-                        ConsoleClient::new(&cfg.host, &cfg.board, Duration::from_secs(20))?;
+                        ConsoleClient::new(&cfg.host, Duration::from_secs(20))?;
                     client.conversation(id).await
                 })
                 .await;

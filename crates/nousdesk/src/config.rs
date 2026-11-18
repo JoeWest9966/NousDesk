@@ -1,6 +1,7 @@
 //! 配置：`~/.config/nousdesk/desktop.toml`（或 `NOUS_DESKTOP_CONFIG` 指的文件）。
 //!
-//! 只有两个键。引擎地址**不**写这里 —— 它从宿主的 resolve 现拿。
+//! 只有两个键：`host`（引擎/宿主的那一个地址）和可选 `token`。
+//! 引擎地址**不**从别处推导 —— 目标态就是这一个地址 + `/v1/capabilities`。
 //!
 //! **文件不存在时不报错，用默认值。** 装好就能开，别让用户先去手写 toml。
 //! （默认值是「这台机器上的 Nous」，换机器就改那一份文件。）
@@ -19,32 +20,20 @@ pub const LEGACY_APP_DIR: &str = "nous";
 /// 写进 `desktop.toml`，别改这里（这里是所有人共用的默认值）。
 pub const DEFAULT_HOST: &str = "http://192.168.1.7:4790";
 
-/// 盘名。你自己那盘的 id，换盘就改。
-pub const DEFAULT_BOARD: &str = "new1";
-
-/// 自己的块 id 和引擎块 id：`resolve` 的路径里要用。
-/// 换一块部署就改这两个（它们是这一份安装的坐标，不是协议的一部分）。
-pub const SELF_BLOCK: &str = "h58ga5";
-pub const ENGINE_BLOCK: &str = "qrd3wh";
-/// 触发器管理块（n8qkkj）：清单 / 文件 / 发布 / 归档都住在这儿。
-/// 它和会话引擎是两个进程，地址同样只从 `__nous/resolve` 拿。
-pub const TRIGGER_BLOCK: &str = "n8qkkj";
-/// 手机端那块。**只用来读写置顶**（`pins.json` 的单源在它那儿，见 `decisions.md`）。
-pub const MOBILE_BLOCK: &str = "bjes6b";
-
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Config {
-    /// 宿主地址，可带路径前缀（如 `https://…/nous`）。
+    /// 引擎地址，可带路径前缀（如 `https://…/nous`）。
     pub host: String,
-    /// 盘名。
-    pub board: String,
+    /// 可选 token。取值顺序：环境变量 → 这里 → `~/.config/nousdesk/token`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             host: DEFAULT_HOST.to_string(),
-            board: DEFAULT_BOARD.to_string(),
+            token: None,
         }
     }
 }
@@ -68,15 +57,55 @@ impl Config {
             Err(e) => return Err(format!("读不了 {}：{e}", path.display())),
         };
 
+        // 老配置里的 `board` 不能让升级后的客户端开不起来：先当通用 toml 读，
+        // 警告（stderr + 日志）后忽略这个键，再按现在的形状解析。
+        if let Ok(raw) = toml::from_str::<toml::Value>(&text)
+            && raw.get("board").is_some()
+        {
+            eprintln!(
+                "nousdesk: warning: {} 里的 board 已废弃（现在只有一个地址），已忽略",
+                path.display()
+            );
+            log::warn!("{} 里的 board 已废弃，已忽略", path.display());
+        }
         let cfg: Config =
             toml::from_str(&text).map_err(|e| format!("{} 不是合法 toml：{e}", path.display()))?;
         if cfg.host.trim().is_empty() {
             return Err(format!("{} 里的 host 是空的", path.display()));
         }
-        if cfg.board.trim().is_empty() {
-            return Err(format!("{} 里的 board 是空的", path.display()));
-        }
         Ok(cfg)
+    }
+
+    /// token 的唯一解析顺序：环境变量 → `desktop.toml` → `~/.config/nousdesk/token`。
+    ///
+    /// 文件兜底是为了便携包那份只读 `desktop.toml`；权限不是 0600 只警告、不拦。
+    pub fn resolve_token(&self) -> Option<String> {
+        if let Ok(token) = std::env::var("NOUS_DESK_TOKEN")
+            && !token.trim().is_empty()
+        {
+            return Some(token.trim().to_string());
+        }
+        if let Some(token) = self.token.as_deref()
+            && !token.trim().is_empty()
+        {
+            return Some(token.trim().to_string());
+        }
+        let path = dirs::config_dir()?.join(APP_DIR).join("token");
+        let text = std::fs::read_to_string(&path).ok()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(mode) = std::fs::metadata(&path).map(|m| m.permissions().mode())
+                && mode & 0o777 != 0o600
+            {
+                eprintln!(
+                    "nousdesk: warning: token 文件 {} 权限不是 0600（建议 chmod 600）",
+                    path.display()
+                );
+            }
+        }
+        let token = text.trim().to_string();
+        (!token.is_empty()).then_some(token)
     }
 
     /// 实际用的那一个配置文件（不存在就是 None，会用默认值）。
@@ -189,15 +218,15 @@ mod tests {
     /// 改环境变量的测试得串行：`candidates()` 现读 `dirs::config_dir()`。
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// 写回去的文件必须**只有**这两行 —— 多出来的键会让「配置文件就两个键」这句话变成假的。
+    /// 写回去的文件必须**只有** host 一个键 —— 多出来的键会让「配置文件就一个键」变成假的。
     #[test]
-    fn save_writes_only_host_and_board() {
+    fn save_writes_only_host() {
         let _guard = ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("nousdesk-cfg-{}", std::process::id()));
         let path = dir.join("nested").join("desktop.toml");
         let cfg = Config {
             host: "http://example.test:4790".into(),
-            board: "probe".into(),
+            token: None,
         };
 
         cfg.save_to(&path).expect("写得进去（父目录会自己建）");
@@ -207,18 +236,73 @@ mod tests {
             text.contains("host = \"http://example.test:4790\""),
             "host 没写对：{text}"
         );
-        assert!(text.contains("board = \"probe\""), "board 没写对：{text}");
         assert_eq!(
             text.lines().filter(|l| !l.trim().is_empty()).count(),
-            2,
-            "不该有第三个键：{text}"
+            1,
+            "不该有第二个键：{text}"
         );
 
         let back: Config = toml::from_str(&text).expect("还是合法的 toml");
         assert_eq!(back.host, cfg.host);
-        assert_eq!(back.board, cfg.board);
+        assert_eq!(back.token, cfg.token);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// token 顺序：env > desktop.toml > 用户目录的 token 文件（0600 只警告）。
+    #[test]
+    fn token_order_env_then_toml_then_file() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let root = std::env::temp_dir().join(format!("nousdesk-token-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join(APP_DIR);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("token"), "from-file").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.join("token"), std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+        }
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &root);
+            std::env::set_var("APPDATA", &root);
+            std::env::remove_var("NOUS_DESK_TOKEN");
+        }
+        let cfg = Config { host: DEFAULT_HOST.into(), token: None };
+        assert_eq!(cfg.resolve_token().as_deref(), Some("from-file"));
+        let cfg = Config { host: DEFAULT_HOST.into(), token: Some("from-toml".into()) };
+        assert_eq!(cfg.resolve_token().as_deref(), Some("from-toml"));
+        unsafe { std::env::set_var("NOUS_DESK_TOKEN", "from-env") };
+        assert_eq!(cfg.resolve_token().as_deref(), Some("from-env"));
+        unsafe {
+            std::env::remove_var("NOUS_DESK_TOKEN");
+            std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::remove_var("APPDATA");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 老便携包里的 `board` 只警告、不拦启动，也不进写回去的文件。
+    #[test]
+    fn legacy_board_is_warned_and_ignored() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("nousdesk-board-{}", std::process::id()));
+        let path = dir.join("desktop.toml");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            "host = \"http://old.test:1\"\nboard = \"new1\"\n",
+        )
+        .unwrap();
+
+        // SAFETY: 本模块测试用 ENV_LOCK 串行；这里只改这一个测试进程的环境。
+        unsafe { std::env::set_var("NOUS_DESKTOP_CONFIG", &path) };
+        let cfg = Config::load().expect("老配置必须还能启动");
+        unsafe { std::env::remove_var("NOUS_DESKTOP_CONFIG") };
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(cfg.host, "http://old.test:1");
     }
 
     /// 改名迁移：旧的 `%APPDATA%\nous\desktop.toml` 还得读得到，新的那份一出现就盖过它。
@@ -249,10 +333,7 @@ mod tests {
         // 只有旧的那份：旧目录要能接住。
         assert_eq!(Config::path(), Some(legacy.join("desktop.toml")));
         let cfg = Config::load().expect("旧的配置读得出来");
-        assert_eq!(
-            (cfg.host.as_str(), cfg.board.as_str()),
-            ("http://old.test:1", "old")
-        );
+        assert_eq!(cfg.host.as_str(), "http://old.test:1");
 
         // 新的那份一存在，优先级就在前面。
         std::fs::create_dir_all(&current).unwrap();
@@ -263,10 +344,7 @@ mod tests {
         .unwrap();
         assert_eq!(Config::path(), Some(current.join("desktop.toml")));
         let cfg = Config::load().expect("新的配置读得出来");
-        assert_eq!(
-            (cfg.host.as_str(), cfg.board.as_str()),
-            ("http://new.test:2", "new")
-        );
+        assert_eq!(cfg.host.as_str(), "http://new.test:2");
 
         // 一份都没有 → 新建的那份落在新目录，不是旧目录。
         std::fs::remove_dir_all(&root).unwrap();
