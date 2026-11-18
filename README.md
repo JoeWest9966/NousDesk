@@ -52,11 +52,11 @@ cargo build --release -p nousdesk   # 出包：target/release/nousdesk
    写回时仍然写回它（不搬家，免得用户以为配置丢了）
 
 ```toml
-host = "http://192.168.1.7:4790"
+host = "http://192.168.1.7:4789"
 # token = "…"     # 可选；也可以不写在这里，见下面
 ```
 
-一个都没有也能开：用默认值（`192.168.1.7:4790`），连不上时左栏会把该改的路径显示出来。
+一个都没有也能开：用默认值（`192.168.1.7:4789`），连不上时左栏会把该改的路径显示出来。
 
 **老配置里的 `board = "…"` 会被警告并忽略**，不会让升级后的客户端开不起来（便携包那份
 `desktop.toml` 是手工放的，不能因为升级就开不了）。
@@ -109,7 +109,7 @@ Nous 已经整体重写成 Rust（`/opt/Nous`，一个 `nous-app`）。这次重
 ```bash
 scripts/package-linux.sh                  # 编 release + 出 dist/ 下两个包
 scripts/package-linux.sh --no-build       # 复用已有的 target/release/nousdesk
-NOUS_HOST=http://192.168.1.7:4790 scripts/package-linux.sh   # 顺手把宿主地址写进便携包
+NOUS_HOST=http://192.168.1.7:4789 scripts/package-linux.sh   # 顺手把宿主地址写进便携包
 ```
 
 | 产物 | 怎么用 |

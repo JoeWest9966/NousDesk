@@ -6,10 +6,14 @@
 //! - [`client`]：HTTP 转发（qrd3wh：会话/历史/流）。
 //! - [`resource`]：三个资源仓（技能 / 提示词 / 扩展）的**文件读写**形状。
 //! - [`pins`]：置顶的哑客户端（qrd3wh：Sessions 文档里的提交日志是单源）。
+//!
+//! token 注入只有一处实现（`auth`）：`EngineClient` 和 `PinClient` 共用，
+//! 否则「配置里有 token，置顶却 401」这种事会安静地发生一遍（#10）。
 //! - [`console`]：d6s4v1 面板的哑客户端（`/p/<board>/d6s4v1/api/*`，不是引擎）。
 //!
 //! 不认业务规则，不碰 GPUI。UI 层要 16ms 合帧，那归 UI 层。
 
+pub mod auth;
 pub mod capabilities;
 pub mod client;
 pub mod console;

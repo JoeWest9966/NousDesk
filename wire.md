@@ -139,7 +139,10 @@ body `{ content, requestId?, waitMs?, whenBusy? }`。
 
 ### POST /v1/sessions/:id/pin
 
-置顶进内核；具体形状以快照测试为准。
+请求体 `{pinned, requestId}`，回执 `{id, pinned, changed, requestId, version}`。
+`requestId` 必填（缺了 400，幂等锚）；**重放同一个 `requestId` 回的是第一次的回执** ——
+`version` 不涨说明没落第二条提交，但 `changed` 还是那一次的值（不是 false）。
+会话不存在 → 404：客户端不许把它当成功（`坑.md` 98/99，`check-desk.sh` 的 `pin.missing.404` 钉着）。
 
 ### POST /v1/sessions/:id/abort
 

@@ -18,7 +18,9 @@ pub const LEGACY_APP_DIR: &str = "nous";
 ///
 /// 默认指向本机 —— 对任何跑着 Nous 的机器都成立。走 tailnet / 反代 / 域名的
 /// 写进 `desktop.toml`，别改这里（这里是所有人共用的默认值）。
-pub const DEFAULT_HOST: &str = "http://192.168.1.7:4790";
+/// 端口是 Rust 版引擎的默认值（`NOUS_LISTEN` 缺省 4789）。旧面板的 4790 已于
+/// 2026-11-18 停用 —— 指着它是「无配置的新装连一个死地址」。
+pub const DEFAULT_HOST: &str = "http://192.168.1.7:4789";
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Config {
@@ -79,33 +81,10 @@ impl Config {
     /// token 的唯一解析顺序：环境变量 → `desktop.toml` → `~/.config/nousdesk/token`。
     ///
     /// 文件兜底是为了便携包那份只读 `desktop.toml`；权限不是 0600 只警告、不拦。
+    /// **实现只有一份**：`nous_engine::auth::resolve`（各 client 也走它），
+    /// 两边各写一份就是「只改了一边」的温床（`坑.md` 98）。
     pub fn resolve_token(&self) -> Option<String> {
-        if let Ok(token) = std::env::var("NOUS_DESK_TOKEN")
-            && !token.trim().is_empty()
-        {
-            return Some(token.trim().to_string());
-        }
-        if let Some(token) = self.token.as_deref()
-            && !token.trim().is_empty()
-        {
-            return Some(token.trim().to_string());
-        }
-        let path = dirs::config_dir()?.join(APP_DIR).join("token");
-        let text = std::fs::read_to_string(&path).ok()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(mode) = std::fs::metadata(&path).map(|m| m.permissions().mode())
-                && mode & 0o777 != 0o600
-            {
-                eprintln!(
-                    "nousdesk: warning: token 文件 {} 权限不是 0600（建议 chmod 600）",
-                    path.display()
-                );
-            }
-        }
-        let token = text.trim().to_string();
-        (!token.is_empty()).then_some(token)
+        nous_engine::auth::resolve(self.token.as_deref())
     }
 
     /// 实际用的那一个配置文件（不存在就是 None，会用默认值）。
@@ -217,6 +196,14 @@ mod tests {
 
     /// 改环境变量的测试得串行：`candidates()` 现读 `dirs::config_dir()`。
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 兜底地址必须是**引擎**的端口。4790 是旧面板（2026-11-18 停用），
+    /// 指着它 = 无配置的新装连一个死地址（#10）。改这一行先想清楚。
+    #[test]
+    fn 没有配置时的兜底指向引擎的端口() {
+        assert!(DEFAULT_HOST.ends_with(":4789"), "{DEFAULT_HOST}");
+        assert_eq!(Config::default().host, DEFAULT_HOST);
+    }
 
     /// 写回去的文件必须**只有** host 一个键 —— 多出来的键会让「配置文件就一个键」变成假的。
     #[test]

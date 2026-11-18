@@ -138,6 +138,7 @@ mod tests {
             updated_at: None,
             last: None,
             archived: None,
+            pinned: false,
             extra: HashMap::new(),
         }
     }

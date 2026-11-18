@@ -60,27 +60,11 @@ impl EngineClient {
             url.set_path(&format!("{}/", url.path()));
         }
         // 顺序必须是 env → 显式（desktop.toml）→ 文件；和配置里的 resolve_token 一致。
-        let token = std::env::var("NOUS_DESK_TOKEN")
-            .ok()
-            .map(|t| t.trim().to_owned())
-            .filter(|t| !t.is_empty())
-            .or_else(|| {
-                token
-                    .map(str::trim)
-                    .filter(|t| !t.is_empty())
-                    .map(str::to_owned)
-            })
-            .or_else(Self::token_from_file);
-        let mut headers = reqwest::header::HeaderMap::new();
-        if let Some(token) = token {
-            let value = format!("Bearer {token}")
-                .parse::<reqwest::header::HeaderValue>()
-                .map_err(|e| EngineError::Engine {
-                    status: 400,
-                    message: format!("token 不能放进 HTTP 头：{e}"),
-                })?;
-            headers.insert(reqwest::header::AUTHORIZATION, value);
-        }
+        // 这段住在 `auth`，`PinClient` 也走同一份，别在调用点另拼 Bearer。
+        let headers = crate::auth::headers(token).map_err(|message| EngineError::Engine {
+            status: 400,
+            message,
+        })?;
         let http = reqwest::Client::builder()
             .timeout(timeout)
             .default_headers(headers.clone())
@@ -96,40 +80,6 @@ impl EngineClient {
             sse,
             base: url,
         })
-    }
-
-    fn token_from_file() -> Option<String> {
-        let path = Self::dirs_config_token_path();
-        let text = std::fs::read_to_string(&path).ok()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(mode) = std::fs::metadata(&path).map(|m| m.permissions().mode())
-                && mode & 0o777 != 0o600
-            {
-                eprintln!(
-                    "nousdesk: warning: token 文件 {} 权限不是 0600（建议 chmod 600）",
-                    path.display()
-                );
-            }
-        }
-        let token = text.trim().to_owned();
-        (!token.is_empty()).then_some(token)
-    }
-
-    fn dirs_config_token_path() -> std::path::PathBuf {
-        // 不依赖 `dirs` crate（engine 层保持轻）：Linux/BSD 用 XDG_CONFIG_HOME，
-        // 其它平台退回 ~/.config；和桌面端 Config::resolve_token 同一路径。
-        #[cfg(unix)]
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .map(std::path::PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|| std::path::PathBuf::from(".config"));
-        #[cfg(not(unix))]
-        let base = std::env::var_os("APPDATA")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
-        base.join("nousdesk").join("token")
     }
 
     fn url(&self, path: &str) -> Result<Url, EngineError> {

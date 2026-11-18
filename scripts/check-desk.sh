@@ -69,6 +69,15 @@ run_probe positive
 grep -E '^ASSERT OK' "$WORK/positive.log"
 grep -q '^DONE$' "$WORK/positive.log" || { echo "FAIL: positive 没有 DONE"; exit 1; }
 
+# 置顶往返（#10）：这几条都得真的验到，别让 probe 少跑一段还全绿。
+# 写进去 → 跳到第一行且 pinned=true → 重放同锚不落第二条（version 不涨）→ 取消回原位
+# → 不存在的会话 404（不静默降级）。
+for pin_assert in pin.changed pin.jumps_to_top pin.pinned_true pin.replay.version_stable \
+                  pin.unpinned_restored pin.missing.404; do
+  grep -q "^ASSERT OK $pin_assert" "$WORK/positive.log" \
+    || { echo "FAIL: 置顶往返少了一条断言：$pin_assert"; exit 1; }
+done
+
 # 负向哨兵：错 token 必须 401，且会话 / entries 条数不变。
 # 若这里居然全绿，说明 401 闸门失效 —— 把 sentinel 反过来验一次：
 # 探针自己会把「没被挡住」报 FAIL，脚本跟着红。
