@@ -154,8 +154,12 @@ git worktree remove /var/tmp/…                              # 收工（先合�
 宁可多一次 HTTP、坏了 404 响得很明显，也不要两份互不相干的置顶表。
 不再写手机端那块：它停不停都不该让置顶坏掉。要改这条，见 `decisions.md`。
 
-**已验证**（2026-11-09，Windows 真机）：右键菜单「置顶该聊天 / 取消置顶」点得动，
-失败会回滚。合成鼠标点不动就走 `PostMessage`（见 `坑.md` 23）。
+**协议层已验证**（2026-11-18，faux 引擎）：`scripts/check-desk.sh` 的置顶往返全绿 ——
+写进去 → `GET /v1/sessions` 里 `pinned=true` 且排到最前 → 同 `requestId` 重放 `version` 不涨
+→ 取消回原顺序 → 不存在的会话 404（不静默降级）。**真桌面那一眼（右键菜单立刻上浮/回落）待补。**
+
+旧的菜单行为是 2026-11-09 在 Windows 真机验的（那时还写穿 bjes6b）：点得动、失败会回滚。
+合成鼠标点不动就走 `PostMessage`（见 `坑.md` 23）—— 这条验法仍然有效。
 
 ## 启动 / 开发
 
@@ -242,11 +246,11 @@ DISPLAY=:99 import -window root /tmp/shot.png   # 截图看
 → `~/.config/nousdesk/desktop.toml`（旧目录 `~/.config/nous/` 只读兜底）。
 发布包里的 `desktop.toml` 目前是手工放（Linux 出包流程见 `decisions.md`）；
 Windows 那条 CI 还在仓库里，但只手动触发，不再是发布路径。
-源码里的默认值 `DEFAULT_HOST` 是「一个配置文件都没有」时的兜底，现在指向内网 `192.168.1.7:4790`。
+源码里的默认值 `DEFAULT_HOST` 是「一个配置文件都没有」时的兜底，现在指向内网 `192.168.1.7:4789`。
 只有两个键：
 
 ```toml
-host = "http://192.168.1.7:4790"
+host = "http://192.168.1.7:4789"
 board = "new1"
 ```
 

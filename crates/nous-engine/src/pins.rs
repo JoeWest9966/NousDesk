@@ -8,7 +8,8 @@
 //! 桌面端不存一份置顶表（`decisions.md`：宁可多一次 HTTP，也不要两份互不相干的置顶表）。
 //! `requestId` 是幂等锚：同一条重放十次只落第一次的提交，回包里的 `version` 不涨。
 //! `version` 是置顶日志的全局第几次提交（跨会话单调；重放不涨）—— 不是 durable 的 commit_seq。
-//! 地址来自宿主的 `__nous/resolve/qrd3wh`，不写进配置、不写进常量。
+//! 地址就是配置里那一个引擎地址；token 和 `EngineClient` 走同一条注入（`crate::auth`），
+//! 少了它就是「配置里有 token → 置顶 401 → 静默降级 → 等于没有」。
 
 use std::time::Duration;
 
@@ -66,12 +67,27 @@ pub struct PinClient {
 }
 
 impl PinClient {
+    /// token 只从 `NOUS_DESK_TOKEN` / token 文件拿；配置里那颗由 [`Self::with_token`] 传。
     pub fn new(base: &str, timeout: Duration) -> Result<Self, PinError> {
+        Self::with_token(base, timeout, None)
+    }
+
+    /// 和 `EngineClient::with_token` 同一个注入点：`crate::auth`，不在这里另拼 `Bearer`。
+    pub fn with_token(
+        base: &str,
+        timeout: Duration,
+        token: Option<&str>,
+    ) -> Result<Self, PinError> {
         let mut url = Url::parse(base)?;
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
-        let http = reqwest::Client::builder().timeout(timeout).build()?;
+        let headers =
+            crate::auth::headers(token).map_err(|message| PinError::Engine { status: 400, message })?;
+        let http = reqwest::Client::builder()
+            .timeout(timeout)
+            .default_headers(headers)
+            .build()?;
         Ok(Self { http, base: url })
     }
 

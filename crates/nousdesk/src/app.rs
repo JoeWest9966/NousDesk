@@ -1237,7 +1237,11 @@ impl Desktop {
     /// 界面上没有置顶功能，但不影响聊天。地址就是配置里那一个引擎地址 ——
     /// 不再单独 resolve 手机端那块，它停不停都跟置顶无关。
     fn load_pins(&mut self, cx: &mut Context<Self>, engine_url: String) {
-        let client = match PinClient::new(&engine_url, Duration::from_secs(8)) {
+        // token 跟聊天走同一条注入（`EngineClient` 那颗）：少了它，配了 token 的机器上
+        // 置顶就是 401 → 这里静默降级 → 界面上「置顶等于没有」（#10）。
+        let token = self.conn.resolve_token();
+        let client = match PinClient::with_token(&engine_url, Duration::from_secs(8), token.as_deref())
+        {
             Ok(c) => Arc::new(c),
             Err(e) => {
                 log::warn!("置顶客户端建不起来：{e}");

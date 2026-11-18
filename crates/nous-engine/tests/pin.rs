@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use nous_engine::PinClient;
+use nous_engine::{PinClient, PinError};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -18,6 +18,8 @@ struct Recorded {
     method: String,
     path: String,
     body: String,
+    /// `Authorization` 头原样。缺了就是 `None` —— 「配置里有 token，置顶却 401」就是它。
+    auth: Option<String>,
 }
 
 async fn fake_engine(
@@ -58,6 +60,11 @@ async fn fake_engine(
             buf.extend_from_slice(&tmp[..n]);
         }
         let body = String::from_utf8_lossy(&buf[header_end..header_end + len]).to_string();
+        let auth = head.lines().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.eq_ignore_ascii_case("authorization")
+                .then(|| v.trim().to_string())
+        });
         let first = head.lines().next().unwrap_or("");
         let mut parts = first.split_whitespace();
         let method = parts.next().unwrap_or("").to_string();
@@ -68,7 +75,12 @@ async fn fake_engine(
         );
         sock.write_all(response.as_bytes()).await.unwrap();
         sock.flush().await.unwrap();
-        let _ = tx.send(Recorded { method, path, body });
+        let _ = tx.send(Recorded {
+            method,
+            path,
+            body,
+            auth,
+        });
     });
     (format!("http://127.0.0.1:{port}/"), rx)
 }
@@ -123,4 +135,51 @@ fn pin_receipt_keeps_unknown_fields() {
     let r: nous_engine::pins::PinReceipt = serde_json::from_str(raw).unwrap();
     assert_eq!(r.version, 7);
     assert_eq!(r.extra["future"], 1);
+}
+
+#[tokio::test]
+async fn set_pin_carries_bearer_token() {
+    // 判据：配置里有 token（desktop.toml / 环境 / token 文件）时，置顶也得带上它。
+    // 不带 → 引擎回 401 → `load_pins` 静默降级 → 界面上置顶又「等于没有」。
+    let (base, rx) = fake_engine(
+        200,
+        r#"{"id":14,"pinned":true,"changed":true,"requestId":"a","version":1}"#,
+    )
+    .await;
+    PinClient::with_token(&base, Duration::from_secs(3), Some("t0ken"))
+        .unwrap()
+        .set_pin(14, true, "a")
+        .await
+        .unwrap();
+    let req = rx.await.unwrap();
+    assert_eq!(req.auth.as_deref(), Some("Bearer t0ken"));
+}
+
+#[tokio::test]
+async fn pinned_ids_carries_bearer_token() {
+    let (base, rx) = fake_engine(200, r#"{"items":[]}"#).await;
+    PinClient::with_token(&base, Duration::from_secs(3), Some("t0ken"))
+        .unwrap()
+        .pinned_ids()
+        .await
+        .unwrap();
+    let req = rx.await.unwrap();
+    assert_eq!(req.auth.as_deref(), Some("Bearer t0ken"));
+}
+
+#[tokio::test]
+async fn set_pin_surfaces_404_instead_of_swallowing_it() {
+    // 判据：不存在的会话必须把 404 原样带出来，不许静默降级。
+    let (base, _rx) = fake_engine(404, r#"{"error":"session 42 not found"}"#).await;
+    let err = client(&base)
+        .set_pin(42, true, "desk-pin-42")
+        .await
+        .expect_err("404 不该被吞掉");
+    match err {
+        PinError::Engine { status, message } => {
+            assert_eq!(status, 404);
+            assert!(message.contains("not found"), "{message}");
+        }
+        other => panic!("应该是 Engine 错误，拿到 {other:?}"),
+    }
 }

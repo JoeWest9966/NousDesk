@@ -18,7 +18,9 @@ pub const LEGACY_APP_DIR: &str = "nous";
 ///
 /// 默认指向本机 —— 对任何跑着 Nous 的机器都成立。走 tailnet / 反代 / 域名的
 /// 写进 `desktop.toml`，别改这里（这里是所有人共用的默认值）。
-pub const DEFAULT_HOST: &str = "http://192.168.1.7:4790";
+/// 端口是 Rust 版引擎的默认值（`NOUS_LISTEN` 缺省 4789）。旧面板的 4790 已于
+/// 2026-11-18 停用 —— 指着它是「无配置的新装连一个死地址」。
+pub const DEFAULT_HOST: &str = "http://192.168.1.7:4789";
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Config {
@@ -217,6 +219,14 @@ mod tests {
 
     /// 改环境变量的测试得串行：`candidates()` 现读 `dirs::config_dir()`。
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 兜底地址必须是**引擎**的端口。4790 是旧面板（2026-11-18 停用），
+    /// 指着它 = 无配置的新装连一个死地址（#10）。改这一行先想清楚。
+    #[test]
+    fn 没有配置时的兜底指向引擎的端口() {
+        assert!(DEFAULT_HOST.ends_with(":4789"), "{DEFAULT_HOST}");
+        assert_eq!(Config::default().host, DEFAULT_HOST);
+    }
 
     /// 写回去的文件必须**只有** host 一个键 —— 多出来的键会让「配置文件就一个键」变成假的。
     #[test]

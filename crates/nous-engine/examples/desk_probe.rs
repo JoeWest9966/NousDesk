@@ -3,19 +3,31 @@
 //! 只打真 `nous-app`（faux provider + token + 临时库），不连任何线上引擎。
 //! 每条断言打一行 `ASSERT …`，末行 `DONE`。`--negative` 是负向哨兵：
 //! 错 token 必须 401，且库里的 entries 条数不许变。
+//!
+//! 置顶往返（#10）也在这一份里：pin true → `GET /v1/sessions` 里 `pinned=true` 且排第一
+//! → 同锚重放 `changed=false`、顺序不动 → pin false → 回到原位；不存在的会话必须 404。
 
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use nous_engine::sse::SseEvent;
 use nous_engine::types::{CreateSession, Entries};
-use nous_engine::{EngineClient, EngineError};
+use nous_engine::types::Session;
+use nous_engine::{EngineClient, EngineError, PinClient, PinError};
 
 fn assert_line(ok: bool, label: &str, detail: impl std::fmt::Display) {
     println!("ASSERT {} {} | {}", if ok { "OK" } else { "FAIL" }, label, detail);
     if !ok {
         std::process::exit(1);
     }
+}
+
+/// `GET /v1/sessions` 的 `items[].pinned`（引擎按 `pins.ids` 排好序，这里只读那一行）。
+fn pinned_flag(s: &Session) -> bool {
+    s.extra
+        .get("pinned")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn usage() -> ! {
@@ -131,6 +143,142 @@ async fn main() {
         "sessions-created",
         format!("{before} -> {}", list.len()),
     );
+
+    // ── 置顶往返：POST /v1/sessions/:id/pin + GET /v1/sessions 的 pinned/排序 ──
+    //
+    // 判据来自 #10：写进去 → 列表里 `pinned=true` **且排到最前**；同锚重放不落第二条提交；
+    // 取消 → 回到原位。**读的是引擎回的清单**，不是客户端的乐观更新 —— 所以
+    // 「set_pin 假装成功」这种假实现会在这里变红。
+    //
+    // 先造第二条会话：只有一条时「排第一」是白送的，顺序断言等于没验。
+    let other = good
+        .create(&CreateSession {
+            name: Some("desk-probe-pin-shift".into()),
+            model: Some(serde_json::json!({
+                "provider": "faux",
+                "modelId": "echo",
+            })),
+            template: Some(None),
+            ..Default::default()
+        })
+        .await
+        .expect("建第二条会话 201")
+        .id;
+    let pins = PinClient::with_token(&host, Duration::from_secs(10), Some(&token))
+        .expect("置顶客户端建得起来");
+    let order_before: Vec<i64> = good
+        .sessions()
+        .await
+        .expect("会话列表可读")
+        .items
+        .iter()
+        .map(|s| s.id)
+        .collect();
+    assert_line(
+        order_before == vec![other, id],
+        "pin.baseline.order",
+        format!("新的在前：{order_before:?}（要 [other, id] = [{other}, {id}]）"),
+    );
+
+    let pin_on = format!("desk-probe-pin-{id}-on");
+    let receipt = pins.set_pin(id, true, &pin_on).await.expect("置顶 200");
+    assert_line(
+        receipt.changed && receipt.pinned,
+        "pin.changed",
+        format!("changed={} pinned={}", receipt.changed, receipt.pinned),
+    );
+    let pinned_list = good.sessions().await.expect("会话列表可读").items;
+    assert_line(
+        pinned_list.first().map(|s| s.id) == Some(id),
+        "pin.jumps_to_top",
+        format!(
+            "第一行是 {:?}，该是 {id}（原来第一行是 {other}）",
+            pinned_list.first().map(|s| s.id)
+        ),
+    );
+    assert_line(
+        pinned_list.iter().find(|s| s.id == id).is_some_and(pinned_flag),
+        "pin.pinned_true",
+        format!("{id} pinned"),
+    );
+    let order_pinned: Vec<i64> = pinned_list.iter().map(|s| s.id).collect();
+    assert_line(
+        order_pinned == vec![id, other],
+        "pin.pinned.order",
+        format!("{order_pinned:?}（要 [{id}, {other}]）"),
+    );
+
+    // 幂等：同一个 requestId 重放 → 不落第二条提交、version 不涨、顺序不动。
+    //
+    // 注意 `changed`：内核的合同是「重放回**第一次的回执**」，所以重放拿到的还是
+    // `changed=true`（那一次确实改了）。可验的幂等证据是 `version` 不涨 + 顺序不动；
+    // 票面写的「重放 → changed:false」和内核对不上（`坑.md` 有这一条）。
+    let replay = pins.set_pin(id, true, &pin_on).await.expect("重放 200");
+    assert_line(
+        replay.request_id == pin_on,
+        "pin.replay.same_receipt",
+        format!("requestId={}", replay.request_id),
+    );
+    assert_line(
+        replay.version == receipt.version,
+        "pin.replay.version_stable",
+        format!(
+            "{} -> {}（涨了就是落了第二条提交）",
+            receipt.version, replay.version
+        ),
+    );
+    let order_after_replay: Vec<i64> = good
+        .sessions()
+        .await
+        .expect("会话列表可读")
+        .items
+        .iter()
+        .map(|s| s.id)
+        .collect();
+    assert_line(
+        order_after_replay == order_pinned,
+        "pin.replay.order_stable",
+        format!("{order_pinned:?} -> {order_after_replay:?}"),
+    );
+
+    // 取消置顶 → 回到原顺序、pinned=false。
+    let pin_off = format!("desk-probe-pin-{id}-off");
+    let receipt = pins.set_pin(id, false, &pin_off).await.expect("取消置顶 200");
+    assert_line(
+        receipt.changed && !receipt.pinned,
+        "pin.unpin.changed",
+        format!("changed={} pinned={}", receipt.changed, receipt.pinned),
+    );
+    let unpinned = good.sessions().await.expect("会话列表可读").items;
+    let order_after: Vec<i64> = unpinned.iter().map(|s| s.id).collect();
+    assert_line(
+        order_after == order_before,
+        "pin.unpinned_restored",
+        format!("{order_before:?} -> {order_after:?}"),
+    );
+    assert_line(
+        unpinned.iter().find(|s| s.id == id).is_some_and(|s| !pinned_flag(s)),
+        "pin.unpinned_false",
+        format!("{id} not pinned"),
+    );
+
+    // 负向哨兵：不存在的会话必须 404。静默降级（吞掉错误）会让这条变红。
+    match pins
+        .set_pin(999_999_999, true, "desk-probe-pin-missing")
+        .await
+    {
+        Err(PinError::Engine { status, .. }) => {
+            assert_line(status == 404, "pin.missing.404", format!("HTTP {status}"))
+        }
+        Ok(receipt) => {
+            println!("ASSERT FAIL pin.missing.404 | 不存在的会话竟然成功：{receipt:?}");
+            std::process::exit(1);
+        }
+        Err(other) => {
+            println!("ASSERT FAIL pin.missing.404 | 拿到了 {other:?}");
+            std::process::exit(1);
+        }
+    }
 
     // ── SSE：先订阅、等 snapshot，再发消息 ──────────────────────────
     let mut stream = good.events(id).await.expect("SSE 200").boxed_local();
