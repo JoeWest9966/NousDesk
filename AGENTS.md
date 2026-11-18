@@ -1,277 +1,220 @@
-# h58ga5 · NousDesk
+# NousDesk
 
-Nous 的**桌面客户端**。GPUI + `gpui-kit` 原生应用，不是网页。
+Nous 的**桌面客户端**。GPUI + `gpui-kit` 原生应用，不是网页、不跑 agent。
 
-**设计参考两回事：微信给骨架，Tesla 给设计语言。** 见下面「设计参考」那一节。
+**一句话**：内核在另一台机器上（`nous-app`），这里只做两件事 —— **皮**（微信的骨架 +
+Tesla 的设计语言）和**哑协议层**（`crates/nous-engine`）。一个地址、一个 token、一堆
+`/v1/*`，中间没有 resolve、没有 board。
 
 > **平台：只做 Linux**（2026-11-12 起）。开发机是 Debian 13 + GNOME **Wayland**。
 > Windows 的源码与打包配置（`windows.yml`、packager 元数据）**原地保留、冻结**：
 > 不删、不改、不再出包；要重启 Windows 线，先把这份文档和 `README.md` 的平台段改回来。
-> 理由见 `decisions.md` 的「2026-11-12 · 只做 Linux」。
 
-> **UI 框架钉死：必须用 [longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)**
+> **UI 框架钉死：[longbridge/gpui-kit](https://github.com/longbridge/gpui-kit)**
 > （`gpui-kit = "0.9"`，crates.io 同名包，Apache-2.0）。
-> **不许换框架、不许绕开它直接用 `gpui-pre-*`、不许把 Tauri / Slint / egui 加进来。**
-> 组件怎么用、文档在哪、有哪些现成的例子 —— 一律以那个仓库为准：
-> <https://github.com/longbridge/gpui-kit> · 文档 <https://gpui-kit.com>。
-> 要换框架先说清楚为什么，写进 `decisions.md`，别默默换。
+> 不许换框架、不许绕开它直接用 `gpui-pre-*`、不许把 Tauri / Slint / egui 加进来。
+> 组件怎么用一律以那个仓库为准：<https://github.com/longbridge/gpui-kit> · <https://gpui-kit.com>。
+> 要换框架先说清楚为什么，写进 `decisions.md`。
 
-- **引擎是 Nous**。这一块**不跑引擎，也不是引擎的一部分**。
-- **Nous 已经重写成 Rust**（`/opt/Nous-src`）：一个进程一个产物（`nous-app`），插件化
-  （内核只剩契约 / 装载器 + 版本闸 / 调度，其余是可装可卸的模块）。所以：
-  - **没有 `qrd3wh` 块了**，也没有 `bjes6b` / `d6s4v1` / `n8qkkj` —— 那是「一个功能一个进程」
-    时代的东西，手机端那个仓会被删。
-  - **过渡期**：这一块今天仍连 TS 版引擎（`qrd3wh`），地址从 `__nous/resolve` 现拿。
-    Rust 版还没补齐端点（见下条），**别提前切**。
-- **迁移状态**（改这一块的代码前先看）：桌面端实际调 **41 条路径**，Rust 版实现了 **8 条**。
-  对齐顺序是 Nous 的 `#47`（7 端点 + `capabilities`）→ `#44`（会话轮次，消息才会有回复）
-  → `#48`（`documents` 模块）→ `#49`（砍 `resolve`）。账在 `README.md` 的「换引擎」一节。
-- 这一块是**项目本体 + 文档的落脚处**。源码放这儿，跑在你自己的桌面上。
+## 两台机器、一个地址
+
+```
+NousDesk（你的桌面）──HTTP + Bearer token──▶ nous-app（j1900:4789，另一台机器）
+     一个地址，来自 desktop.toml           /v1/* · 数据 /var/lib/nous/
+```
+
+- 客户端**永远不和引擎同机**，所以全部走 HTTP；引擎绑 `0.0.0.0:4789`，必须带 token。
+- 客户端不跑引擎、不是引擎的一部分、不往 j1900 部署。
+- 连不上先分三层：地址通不通 → token 对不对（无/错都 401）→ contract 对不对（界面会出
+  「版本不匹配」横幅）。探针是 `GET /v1/device`（带 token），没有 `/health`。
 
 ## 开发宗旨
 
 **体验好、性能好、灵活性强 —— 不惜增加开发成本。**
 
-这句话是取舍的唯一标准，写在这里就是为了以后别再拿「这样写得快」当理由：
-
 - **体验好**：不到 60fps 的动画不上、输入延迟能感觉到就先量再改；按钮点下去没反应、
-  等半天没反馈，都算 bug，不算「可以以后再补」。中文输入法、剪贴板、HiDPI、
-  窗口拖拽缩放在 Linux 上是首屏体验的一部分，不是边角料。
+  等半天没反馈，都算 bug。中文输入法、剪贴板、HiDPI、窗口拖拽缩放是首屏体验的一部分。
 - **性能好**：虚拟列表、增量渲染、SSE 合帧、避免每秒重建整棵元素树 —— 宁可多写一层缓存和
-  状态机，也不让用户看到卡顿。慢要慢得可解释（有 profiling 数据），不能慢得莫名其妙。
-- **灵活性强**：协议层/UI 层分家（`nous-engine` vs `nousdesk`）、配置与常量分开、
-  后端可换。宁可多一个抽象层、多几个 trait / interface，也不要为了少写一行把
-  引擎地址、平台、主题写死在调用点上。
+  状态机。慢要慢得可解释（有 profiling 数据），不能慢得莫名其妙。
+- **灵活性强**：协议层/UI 层分家（`nous-engine` vs `nousdesk`）、配置与常量分开、后端可换。
 
-**硬要求**：上述三项要付的代价（多写测试、多拆一层、多做一次测量）**算开发成本，不算超支**；
-反过来，「为了省事牺牲体验/性能/灵活性」要先写进 `decisions.md` 并给出反悔点。
+代价（多写测试、多拆一层、多做一次测量）**算开发成本，不算超支**；反过来，为了省事牺牲
+体验/性能/灵活性，要先写进 `decisions.md` 并给出反悔点。
 
 ## 设计参考：微信的骨架 + Tesla 的设计语言
 
-一句话：**信息架构照微信桌面版，排版 / 字体 / 配色 / 功能设计照 Tesla。**
-不是「做个微信皮肤」，也不是「做个特斯拉风 App」—— 两个都要，各管一半。
+**信息架构照微信桌面版，排版 / 字体 / 配色 / 功能设计照 Tesla。** 不是「做个微信皮肤」，
+也不是「做个特斯拉风 App」——两个都要，各管一半。
 
-**骨架（照微信）**：窄图标条 → 列表 → 主内容区三栏；会话行的头像 + 摘要 + 时间 + 未读角标；
-右键菜单、置顶、搜索、`≡ 更多` 这些入口的位置。理由是**用户已经会操作了**，
-换个位置就是白丢一层肌肉记忆。动这块之前先问「微信为什么这么做」。
+- **骨架（照微信）**：窄图标条 → 列表 → 主内容区三栏；会话行的头像 + 摘要 + 时间 + 未读角标；
+  右键菜单、置顶、搜索、`≡ 更多` 的位置。用户已经会操作了，挪一个位置就是白丢一层肌肉记忆。
+- **设计语言（照 Tesla）**：几何无衬线（Inter / Manrope 这一路）、字重字号当层级、黑白灰打底
+  加一个强调色、大留白少分隔线、动效短直有目的、**先删后加**（同一个动作只留一个入口，
+  能用默认值解决的不做成设置项，不可逆的操作要多走一步）。
+- **打架时**：习惯动作（点哪儿、右键出什么）听微信；长相和手感（字号、间距、颜色、反馈节奏）
+  听 Tesla。判不下来写进 `decisions.md`。
 
-**设计语言（照 Tesla）**：
-
-- **字体**：几何无衬线（Inter / Manrope / Archivo / IBM Plex 这一路），字重和字号当层级，
-  不靠颜色堆层级。数字要能对齐（表格感），别混两套字体。
-- **配色**：黑白灰打底 + 一个强调色。不做彩色分区、不用渐变当装饰、不拿色块代替留白。
-- **排版**：大留白、少分隔线、一条主内容轴对齐到底。宁可少放一个控件，不要塞满。
-- **动效**：短、直、有目的。状态变化要立刻可见；不做无意义的入场动画、不加到位移弹性。
-- **功能设计**：先删后加。同一个动作只留一个入口；能用默认值解决的不做成设置项；
-  不可逆的操作放到必须多走一步才够得到的地方。
-
-**两边打架时**：习惯动作（点哪儿、右键出什么）听微信，**长相和手感**（字号、间距、颜色、
-反馈节奏）听 Tesla。判不下来就写进 `decisions.md` 写清理由，别在代码里各写一半。
-
-具体落地在两处：`crates/nousdesk/src/theme.rs`（「默认」皮 = 微信基线，
-`ModelS`/`Model3`/`Cybertruck`/`Mcu`/`Editorial`/`NightDrive`/`Energy`/`Plaid`/`NoRail` = Tesla 那 9 套），
-以及 `decisions.md` 里「2026-11-14 · 设计参考定为微信骨架 + Tesla 设计语言」那条。
+落地在 `crates/nousdesk/src/theme.rs`（默认皮 + `ModelS`/`Model3`/`Cybertruck`/`Mcu`/
+`Editorial`/`NightDrive`/`Energy`/`Plaid`/`NoRail` 九套）。
 
 ## 碰外观就先出 HTML demo（硬规矩）
 
-**凡是牵涉外观的，先做 HTML demo 让用户挑，挑完再写 Rust。** 不要直接改 `*.rs` 然后
-让人对着截图提意见 —— 那等于拿编译等待时间换来回拉锯。
+**凡是牵涉外观的，先做 HTML demo 让用户挑，挑完再写 Rust。** 别直接改 `*.rs` 让人对着
+截图提意见 —— 那等于拿编译等待时间换来回拉锯。
 
 - **算外观**：布局与分区、间距 / 留白、字号 / 字重 / 行高、颜色、圆角 / 边线 / 阴影、
-  图标形态、动效、以及新控件长什么样。
-- **不算外观**：协议与请求、状态机、数据模型、校验逻辑、键盘绑定的语义（但**按键提示
-  摆哪里**算外观）。不涉外观的活儿直接干，别拿 demo 拖时间。
-- **demo 怎么做**：放 `demo/<主题>/`（独立目录，**不进构建**、不碰 `Cargo.toml`），
-  一份静态 HTML + CSS，`python3 -m http.server` 就能开；用**真字号真栏宽真字体**，
-  多个方案在一个页面里编号并排或可切换，每套配一句「这套想干什么」。
-- **交付方式**：做完直接给**完整绝对路径**的单文件 `preview.html`（字体、demo 数据全内嵌，
-  双击就开）。**不给端口、不给 `localhost:xxxx`** —— 那要用户先起一个 server 才能看，
-  等于把一步活推给用户。`index.html + data.js + fonts/` 那套留着改，`preview.html` 是发出去的那份。
-- **确认之后**：挑中的方案写进 `decisions.md`（为什么是这套），再动 Rust；
-  落地后截一张图对照，不一致算没做完。
-- **一个方案也要出**：用户说「就一个方案」时，照样先出 demo 确认观感，再落地。
+  图标形态、动效、新控件长什么样。
+- **不算外观**：协议与请求、状态机、数据模型、校验逻辑、键盘绑定的语义（但**按键提示摆哪里**算）。
+- **怎么做**：放 `demo/<主题>/`（不进构建、不碰 `Cargo.toml`），静态 HTML + CSS；用**真字号真栏宽
+  真字体**；多方案编号并排或可切换，每套配一句「这套想干什么」。
+- **交付**：给**完整绝对路径**的单文件 `preview.html`（字体与数据内嵌，双击就开）。
+  **不给端口、不给 `localhost:xxxx`**。
+- **确认之后**：挑中的方案写进 `decisions.md`（为什么是这套），再动 Rust；落地后截一张图对照，
+  不一致算没做完。用户说「就一个方案」也照样先出 demo。
 
 ## 三条硬规矩
 
-1. **这一块不是块页面。** 没有 `package.json` —— 有了 `scripts.start` 宿主就当它是网站，
-   spawn 进程、给空白页、崩了留墓碑。别为此加脚手架。
-2. **构建/测试在 Linux 上做。** 主力是 Debian 13 + Wayland；headless 机器（ssh 进去的、CI）
-   没 DISPLAY 就只跑 `cargo check` / `clippy` / `test`，看得见的东西去自己的桌面上跑。
-   别再把 Windows 当默认目标。
-3. **地址只有一个来源。** 禁止把引擎路径写进 `Cargo.toml` / 常量 / 文档示例。
-   - **过渡期（今天）**：从宿主的 `__nous/resolve/qrd3wh` 现拿，配置里只写**宿主地址 + board**。
-   - **目标态**：一个地址 + `GET /v1/capabilities` 里的服务表（Nous `#49` 会砍掉
-     `board` / `block` / `resolve`，`board` 降级成显示名，不再进 URL 路径）。
-   - 两态之间**不许混**：不许为了少改一处，在新代码里又拼一次 `/p/<board>/<block>/…`。
+1. **这不是网页。** 没有 `package.json` / vite / 前端 bundle：加了脚手架，宿主会当它是网站
+   spawn 起来、给空白页、崩了留墓碑。别为此加。
+2. **构建/测试在 Linux 上做。** headless 机器（ssh 进去的、CI）没 `DISPLAY` 就只跑
+   `cargo check` / `clippy` / `test`；看得见的东西去自己的桌面上跑。
+3. **地址只有一个来源。** `desktop.toml` 的 `host`，没有第二个。禁止把引擎路径写进代码常量、
+   禁止再拼 `/p/<board>/<block>/…` —— `board` / `block` / `resolve` 那一套在 2026-11-18
+   随旧面板一起没了（`#8`）。功能有没有，问 `GET /v1/capabilities`，不猜。
 
-## 分支与交付（硬要求）
+## 配置与启动
 
-1. **每一件事都开分支做**，不直接在 `main` 上改：`feat/…`、`fix/…`、`docs/…`。
-2. **做完就停**：本地 commit、跑完 `cargo test` / `cargo clippy` / 构建，然后把分支和
-   验证方法交给用户；**不要自己合并、不要推 `main`、不要删分支**。
-3. 用户人工验过、明确说「没问题」之后，才允许合并、推送、删分支；合并方式默认
-   `git merge --no-ff`（保留这条分支的证据），除非用户另有要求。
-4. **一个 worktree 一个分支；`/opt/NousDesk` 只放 `main`。** 要开工先
-   `git worktree add /opt/NousDesk-<主题> -b feat/<主题> origin/main`，在自己的目录里改；
-   干完就 `--no-ff` 并进 `main`，再 `git worktree remove` 掉。
-
-**为什么第 4 条是硬要求**（2026-11-16 立的，一天内绊到两次）：多人 / 多会话共用一个工作树时，
-未提交的改动会一直挂在上面 —— 别人 `git checkout` 切不动、`git branch -d` 删不掉，
-`git add` 还能一不小心把别人的未完成代码卷进自己的提交（真发生过一次）。
-一条规则抵掉三种事故，比每次提交前逐 hunk 挑干净便宜得多。
-
-一个 worktree 里同时只能有一个分支，所以「并行」靠目录并行，不靠切来切去：
-
-```bash
-git worktree list                                           # 现在谁在哪儿、干什么
-git worktree add /opt/NousDesk-tpl -b feat/xxx origin/main  # 开工
-git worktree remove /var/tmp/…                              # 收工（先合进 main）
+```toml
+# ~/.config/nousdesk/desktop.toml（查找顺序：NOUS_DESKTOP_CONFIG → 二进制旁边的
+# desktop.toml（发布包那份）→ ~/.config/nousdesk/；旧目录 ~/.config/nous/ 只读兜底）
+host = "http://192.168.1.7:4789"
+token = "…"            # 可选；也可放 ~/.config/nousdesk/token（0600），或 env NOUS_DESK_TOKEN
 ```
 
-例外：只改文档/注释且不动代码的琐碎改动（改错别字、补一行说明）可以直推 `main`，
-但**平台、协议、配置路径**相关的文档改动仍走分支。
+- token 取值顺序：`NOUS_DESK_TOKEN` → `desktop.toml` 的 `token` → `~/.config/nousdesk/token`。
+  文件权限不是 0600 只警告、不拦（便携包那份 `desktop.toml` 可能只读）。
+- 主题**不在**这份文件里：`~/.config/nousdesk/theme.toml` 的 `theme = "default"`。
+- 启动打一次 `/v1/capabilities`：引擎版本进日志 + About 面板；`contract` 不匹配就出横幅
+  （不猜、不降级）；`runtime.provider.kind == "faux"` 时标题栏挂 `DEMO` 徽标。
 
 ## 工程规矩（别破）
 
-- **踩一个坑就往 `坑.md` 加一条。** 三行以内：症状 → 根因 → 解。追加到末尾、编号顺延，
-  别改写旧条目、别写成日记。同一个坑踩第二次是这一条失灵的信号。
-- **追加式文档合冲突必须两边都留。** `坑.md` / `decisions.md` / `验证.md` 永远只往末尾追加，
-  所以冲突就是「两边各加了几条」—— 解完两份都在。**不许整份取一边**：2026-11-16 有人这么干，
-  `坑.md` 的 68–71 四条从 `main` 上蒸发了（隔天才由另一条线补回；`验证.md` / `decisions.md` 侥幸没受影响）。
-- **SSE 合帧到 16ms 再 `cx.notify()`。** `bytes_stream` 往 buffer 里塞，定时器读一次再通知 UI。
-  一个 token 一次 `cx.notify()` 是这一层最容易犯的错，和 bjes6b 手机上那条 rAF 规矩一个字不差。
-- **未知字段用 `serde_json::Value` 收着原样透传。** 不许 `deny_unknown_fields` —— 那个 flag
-  会让引擎每加一个字段这边就编译不过。
-- **协议是哑的。** 客户端只转发 `/v1/*`，不加业务字段、不在客户端算状态。
-  `/v1/*` 的类型变化先改 `crates/nous-engine`，UI 层一行 HTTP 都不许碰。
-- **只吃 `gpui-kit` 的重导出。** 永远别在自己的 `Cargo.toml` 里再写一条 `gpui-pre`，
-  否则版本对不上时会在 `Entity<T>` 不匹配上耗一整天。
+- **踩一个坑就往 `坑.md` 加一条。** 症状 → 根因 → 解，三行以内，追加到末尾。
+- **追加式文档合冲突必须两边都留**（`坑.md` / `decisions.md` / `验证.md`）。不许整份取一边：
+  2026-11-16 有人这么干，`坑.md` 68–71 四条从 `main` 上蒸发过。
+- **SSE 合帧到 16ms 再 `cx.notify()`。** `bytes_stream` 往 buffer 塞，定时器读一次再通知 UI。
+  一个 token 一次 `cx.notify()` 是这一层最容易犯的错。
+- **未知字段用 `serde_json::Value` 收着原样透传**，不许 `deny_unknown_fields`。
+- **协议是哑的。** 客户端只转发 `/v1/*`，不加业务字段、不在客户端算状态。类型变化先改
+  `crates/nous-engine`，UI 层一行 HTTP 都不许碰。
+- **只吃 `gpui-kit` 的重导出。** 别在自己的 `Cargo.toml` 里再写一条 `gpui-pre`。
+- **能力判定只有一处。** 哪个入口灰掉、为什么灰，全在 `crates/nousdesk/src/capability.rs`
+  （`Feature` → `probe_path`/`module_name` → `gate`）；UI 只消费 `disabled_reason()`，
+  判定函数只有一份。灰掉 = 不挂点击 + 键盘 Action 也拦住；理由另一处给（设置页每项一行、
+  `≡ 更多` 一行），别在注释里写「tooltip 说人话」而实际没挂。
 
-## 置顶的真相
+## 分支与交付（硬要求）
 
-在 **Nous 内核**（Rust 版已经把置顶做进去了）。桌面端不自己存一份 —— 写穿过去。
+1. **每一件事都开分支做**：`feat/…`、`fix/…`、`docs/…`。不直接在 `main` 上改。
+2. **做完就停**：本地 commit、跑完 `cargo test` / `cargo clippy` / 构建 / `scripts/check-desk.sh`，
+   把分支和验证方法交给用户；**不自己合并、不推 `main`、不删分支**。
+3. 用户人工验过、明确说「没问题」之后才合并、推送、删分支；默认 `git merge --no-ff`。
+4. **一个 worktree 一个分支；`/opt/NousDesk` 只放 `main`。**
+   `git worktree add /opt/NousDesk-<主题> -b feat/<主题> origin/main` → 干完 `--no-ff` 并进
+   `main` → `git worktree remove`。理由：多人/多会话共用一个工作树时，未提交的改动会一直挂着 ——
+   别人切不动、删不掉，`git add` 还能把别人的半成品卷进自己的提交（真发生过）。
 
-- **过渡期（今天）**：写穿到 `bjes6b` 的 `POST /p/demo/bjes6b/api/sessions/:id/pin`，地址从 `resolve` 拿。
-- **目标态**：`POST /v1/sessions/:id/pin`，一个地址（`bjes6b` 会被删，见 Nous `#49`）。
+例外：只改文档/注释的琐碎改动可以直推 `main`，但**平台、协议、配置路径**相关的仍走分支。
 
-宁可多一次 HTTP、
-坏了 404 响得很明显，也不要两份互不相干的置顶表。要改这条，见 `decisions.md`。
-
-**已验证**（2026-11-09，Windows 真机）：右键菜单「置顶该聊天 / 取消置顶」点得动，
-写入 `pins.json` 后左栏顺序跟着变，失败会回滚。合成鼠标点不动就走 `PostMessage`（见 `坑.md` 23）。
-
-## 启动 / 开发
+## 怎么验
 
 ```bash
-cargo check                        # 日常
-cargo run                          # 你自己的桌面上（Wayland / X11 都行）
-scripts/package-linux.sh           # 出 dist/ 下的 tar.gz + deb（CI 里跑的就是这一份）
+cargo check                                  # 日常
+cargo test --workspace                       # 单元 + 集成
+cargo clippy --workspace --all-targets       # 与 main 基线比条数，别新增
+scripts/check-desk.sh                        # 一个地址 + capabilities 的自动验收（真引擎 faux + 负向哨兵）
+scripts/package-linux.sh                     # 出 dist/ 下的 tar.gz + deb
 ```
+
+`check-desk.sh` 要一个能跑的 `nous-app`（`NOUS_APP_BIN=…` 指定，默认 `./target/debug/nous-app`）。
+它起一个 faux 引擎、建会话、收 SSE 三帧、看 assistant entry，再打负向哨兵（错 token 必须 401，
+且**会话条数与 entries 条数都不能变**）。`SKIP` 打印不是通过。
 
 出包脚本是**唯一**的打包真相：`.github/workflows/linux.yml` 只装依赖、跑测试、调这个脚本。
-别在 workflow 里另写一套 `tar` / `dpkg-deb`。
 
-### 窗口装饰（Linux）怎么验
+### 窗口装饰（Linux）
 
 ```bash
-cargo run                                   # 真桌面上看一眼
-rg 标题栏 ~/.local/share/nousdesk/desktop.log   # 日志里那行「装饰=… 最小化=… 最大化=…」
+cargo run                                        # 真桌面上看一眼
+rg 标题栏 ~/.local/share/nousdesk/desktop.log   # 日志那行「装饰=… 最小化=… 最大化=…」
 ```
 
-- GNOME 不给 server-side decorations，所以窗口**必须**由我们画标题栏（`src/chrome.rs`，
-  只在 `target_os = "linux"` 编译）。日志里应该看到 `装饰=Client … 最小化=true 最大化=true`。
-- 日志里是 `装饰=Server`（X11 无 WM 的裸 Xvfb 就是这种）：按钮本来就不画，那是预期。
-- 肉眼要看的四件事：拖动标题栏能不能移窗、双击是不是最大化/还原、三个按钮点了有没有反应、
-  任务栏/概览里窗口名是不是 `NousDesk`（读的是 `WindowOptions.titlebar.title`，不是我们画的那行字）。
+GNOME 不给 server-side decorations，所以标题栏由我们画（`src/chrome.rs`，只在
+`target_os = "linux"` 编译）。日志该是 `装饰=Client … 最小化=true 最大化=true`；
+裸 Xvfb 上是 `装饰=Server`（按钮本来就不画，那是预期）。肉眼四件事：拖标题栏能移窗 /
+双击最大化还原 / 三个按钮有反应 / 任务栏里窗口名是 `NousDesk`。
 
-### 中文输入法（IME）怎么验
-
-两段，一段机器验、一段人验 —— 别把两段混成「我这边看着没问题」：
+### 中文输入法（IME）
 
 ```bash
 scripts/check-ime.sh                 # 协议层：enable / set_cursor_rectangle / commit
 cargo run -p nousdesk --example ime  # 人工：敲拼音，看组字下划线和上屏
 ```
 
-- **协议层（自动化）**：`check-ime.sh` 在 `WAYLAND_DEBUG=1` 下起 `examples/ime`，钉住
-  `zwp_text_input_v3.enable()` / `set_cursor_rectangle()` / `commit()` 三个请求。少了 enable
-  输入法根本不认这个窗口；少了矩形，候选框飘到左上角。这两种都不崩，只是打不出中文。
-- **上屏（人工）**：`examples/ime` 是**生产用的那个 `Textarea`** 单独摆出来，终端每变一次打
-  一行 `TEXT: "…"`。切到中文输入法敲 `nihao`，组字时框里该有下划线、终端**不该**多行；
-  按空格上屏后终端出现 `TEXT: "你好"`。
-- **为什么自动化只能到协议层**：Wayland 下没有哪个进程能伪装成输入法（`zwp_text_input_v3`
-  只接受合成器的 `commit_string`），所以上屏这一环只能人敲。
-- **X11 / XWayland** 走 `zed-xim`（XIM），不经过上面那几个 Wayland 请求：查 IME 问题时
-  先分清跑在哪个后端（`WAYLAND_DEBUG=1` 有输出就是 Wayland）。
+少了 `enable` 输入法根本不认这个窗口；少了矩形，候选框飘到左上角；两种都不崩，只是打不出中文。
+上屏只能人验：Wayland 下没有进程能伪装成输入法（`zwp_text_input_v3` 只接受合成器的
+`commit_string`）。X11 / XWayland 走 `zed-xim`（XIM），排查前先分清后端
+（`WAYLAND_DEBUG=1` 有输出就是 Wayland）。
 
-### 剪贴板怎么验
+### 剪贴板
 
 ```bash
 scripts/check-clipboard.sh                # 读 + 粘贴（自动）
 cargo run -p nousdesk --example clipboard # 写（人工）：Ctrl+A、Ctrl+C，再 wl-paste
 ```
 
-- **读 + 粘贴**：脚本先 `wl-copy` 一段带中文的哨兵，再起 `examples/clipboard`，断言日志里出现
-  `READ1: Some("…")`（平台读通）和 `TEXT: "…"`（组件把读到的插进了输入框）。
-- **写**：`set_selection` 在 Wayland 上**必须带最近一次输入事件的 serial**。脚本里没有真实输入，
-  合成器会直接丢掉请求 —— 表现出来就是「写剪贴板坏了」，其实是测试方式不对。所以写只能人工：
-  窗口里 `Ctrl+A` 选中、`Ctrl+C` 复制，然后终端跑 `wl-paste` 看。
-- **排查顺序**：`wl-paste` 有内容 → 平台写没问题；`wl-paste` 空 → 看程序是不是压根没拿到焦点
-  （Wayland 里没有焦点就没有 serial）。别一上来怀疑 `Textarea`。
-- **mime 类型**：我们只声明 `text/plain;charset=utf-8` / `UTF8_STRING` / `text/plain`，
-  也只接受前两种。中文被截成乱码/空，先怀疑这条，不是渲染。
+`set_selection` 在 Wayland 上必须带最近一次输入事件的 serial，所以**写**只能人工验：
+`wl-paste` 有内容 = 平台写通；空 = 先看程序有没有拿到焦点。mime 只声明
+`text/plain;charset=utf-8` / `UTF8_STRING`，中文乱码先怀疑这条，不是渲染。
 
-### headless 机器上看窗口（本机 99966 已配好）
+### headless 机器上看窗口
 
-GPUI 能在 Xvfb 里跑，三个坑都踩过了：
-
-1. **mesa 必须 ≥ 25.0.7**（bookworm-backports）。22.3.6 的 llvmpipe Vulkan WSI
-   会让窗口黑屏/灰屏（swapchain 内容落不到窗口），症状是截图纯黑且无报错。
-2. **要跑一个 compositor**（`picom --backend xrender`）：GPUI 用 depth32 带 alpha 的
-   Visual，没有 compositor 合成，画面一样出不来。
-3. **GPU 程序不需要指定**：GPUI 自己枚举并测试 adapter，选 llvmpipe (Vulkan)。
+GPUI 能在 Xvfb 里跑，三个前提：mesa ≥ 25.0.7（22.x 的 llvmpipe Vulkan WSI 会黑屏且无报错）、
+跑一个 compositor（`picom --backend xrender`，GPUI 用 depth32 带 alpha 的 Visual）、
+GPU 程序不用指定（GPUI 自己枚举 adapter）。
 
 ```bash
 Xvfb :99 -screen 0 1280x800x24 &
 DISPLAY=:99 picom --backend xrender &
-DISPLAY=:99 target/debug/nousdesk &
-DISPLAY=:99 import -window root /tmp/shot.png   # 截图看
+DISPLAY=:99 ./target/debug/nousdesk &     # 跑产物，别用 cargo run（换 HOME 会触发 rustup 重装）
+DISPLAY=:99 import -window root /tmp/shot.png
 ```
 
-注意 `CARGO_TARGET_DIR` 在这台机器上全局指向 `/opt/Warehousetui/target`，
-二进制不在项目的 `target/` 里。
+这台机器的全局 `CARGO_TARGET_DIR` 指向仓外，产物不在项目的 `target/` 里 —— 跑脚本一律
+`env -u CARGO_TARGET_DIR`，跑产物就写绝对路径。
 
-配置查找顺序：`NOUS_DESKTOP_CONFIG` → **二进制旁边的 `desktop.toml`**（发布包带的那份）
-→ `~/.config/nousdesk/desktop.toml`（旧目录 `~/.config/nous/` 只读兜底）。
-发布包里的 `desktop.toml` 目前是手工放（Linux 出包流程见 `decisions.md`）；
-Windows 那条 CI 还在仓库里，但只手动触发，不再是发布路径。
-源码里的默认值 `DEFAULT_HOST` 是「一个配置文件都没有」时的兜底，现在指向内网 `192.168.1.7:4790`。
-只有两个键：
+## 置顶的真相
 
-```toml
-host = "http://192.168.1.7:4790"
-board = "new1"
-```
+在**引擎**里（会话的 `pinned` 列）。桌面端不自己存一份 —— 写穿 `POST /v1/sessions/:id/pin`，
+读 `GET /v1/sessions` 的 `pinned`（服务端已排好：置顶在前）。
 
-主题（设置页第三项）**不在这份文件里**：存 `~/.config/nousdesk/theme.toml` 的
-`theme = "default"`。理由见 `decisions.md`（便携包的那份 `desktop.toml` 在 exe 旁边，
-可能只读；再说它只有 host / board 两个键）。加一套皮只改 `crates/nousdesk/src/theme.rs`。
+宁可多一次 HTTP、坏了 404 响得很明显，也不要两份互不相干的置顶表。
 
-启动时打一次 `<host>/p/<board>/h58ga5/__nous/resolve/qrd3wh` 拿引擎地址，然后直连引擎
-（**过渡期行为**；目标态是一个地址 + 能力表，见上面第 3 条）。`board` 将来只当显示名用。
-引擎版本进日志 + About 面板 —— 以后「怎么突然坏了」先看是不是引擎先动的。
+**当前状态（2026-11-18）**：`crates/nous-engine/src/pins.rs` 还在打旧手机端的
+`/api/sessions*`（旧面板时代的路径），Rust 引擎没有 `/api/*`，于是 `pins_client` 建起来也
+404、置顶在界面上等于没有（静默降级）。改成 `/v1/sessions/{id}/pin` 是**待办**，
+别以为它已经能用。
 
 ## 文档
 
 - `README.md` —— 给人看的：这是什么、怎么跑。
-- `wire.md` —— **唯一会漂的那份**：我们依赖了引擎 `/v1/*` 的哪些字段、引擎改了会怎么坏。
-  **注意它不完整**：那份文件只写了 19 条端点，而 `crates/nous-engine/src/client.rs` 实际调
-  **41 条**；多出来的 22 条在 `wire.md` 末尾「合同外调用」一节（来自真引擎，不是合同）。
-  改客户端调用前先扫一眼那节，否则会以为某个调用"没有合同依据"。
-- `decisions.md` —— 选了什么 + 为什么 + 什么时候该反悔。一行一条，追加式。
-- `坑.md` —— **开发中踩的每个坑**。症状 / 根因 / 解，三行以内。踩到新的就加。
-- `验证.md` —— **哪些东西真机验过**（带日期和怎么验的），以及还没验的清单。
-  **动手前先看一眼：验过的别再验**，除非用户主动要求、或者你改了它依赖的那段代码。
+- `wire.md` —— 我们依赖引擎 `/v1/*` 的哪些字段、引擎改了会怎么坏。它**不完整**：
+  末尾有「合同外调用」一节列着客户端在用、正文没写的端点。改客户端调用前先扫那节，
+  否则会以为某个调用"没有合同依据"。
+- `decisions.md` —— 选了什么 + 为什么 + 什么时候该反悔。追加式。
+- `坑.md` —— 开发中踩的每个坑。症状 / 根因 / 解，三行以内。
+- `验证.md` —— 哪些东西真机验过（带日期和怎么验），以及还没验的清单。
+  **动手前先看一眼：验过的别再验**，除非你改了它依赖的那段代码。
 
 ## Agent skills
 
