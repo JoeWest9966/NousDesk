@@ -133,7 +133,7 @@ crates/nousdesk/      GPUI 应用：三栏布局、会话、输入、置顶。
 
 1. 引擎地址就是配置里那一个 `host`，不再从 `resolve` 或块名推导。
 2. 协议是哑的：不加业务字段、不在客户端算状态。字段变化先改 `nous-engine`。
-3. 置顶的真相在**引擎**，桌面端不自己存一份：`POST /v1/sessions/:id/pin`。
+3. 置顶的真相在内核 qrd3wh，桌面端读写 `/v1/sessions/:id/pin`，带 `requestId` 幂等锚，不自己存一份。
 4. 功能面只认 `/v1/capabilities`；`capability.rs::gate()` 是唯一判定处。
 
 详情见 `AGENTS.md`（给 agent 的）和 `wire.md`（协议契约）。

@@ -112,7 +112,7 @@ pub enum MenuLine {
 /// 一条不动、顺序不挪 —— 微信骨架里肌肉记忆那部分不碰。
 ///
 /// 置顶态只改文案（「置顶该聊天」↔「取消置顶」），不改形状 —— 所以这里不收 `pinned`。
-/// 置顶服务（bjes6b）没连上时也**不改形状**：那一项画成禁用态并写清原因，见
+/// 置顶服务没连上时也**不改形状**：那一项画成禁用态并写清原因，见
 /// [`entry_enabled`] 与 [`PIN_UNAVAILABLE_HINT`]。
 pub fn top_lines() -> Vec<MenuLine> {
     vec![
@@ -158,7 +158,7 @@ pub fn label(entry: SessionMenuEntry, pinned: bool) -> &'static str {
     }
 }
 
-/// 置顶服务（bjes6b）没连上时，「置顶该聊天」那行的副标题。
+/// 置顶服务没连上时，「置顶该聊天」那行的副标题。
 ///
 /// 写清为什么点了没用，而不是灰在那里让人猜 —— 归档走的是 qrd3wh，
 /// 和置顶服务无关，所以整摞菜单不能因为置顶不可用而消失。
@@ -522,11 +522,11 @@ mod tests {
         assert_eq!(
             entry_enabled(SessionMenuEntry::Fork, false),
             true,
-            "fork 走 qrd3wh，跟置顶服务无关，不能因为 bjes6b 挂了就灰掉"
+            "fork 走 qrd3wh，跟置顶服务无关，不能因为置顶服务挂了就灰掉"
         );
     }
 
-    /// 置顶服务（bjes6b）没连上时：菜单形状不变（归档入口不能跟着消失），
+    /// 置顶服务没连上时：菜单形状不变（归档入口不能跟着消失），
     /// 只有「置顶该聊天」变禁用态并给出原因；其它项（尤其「撕原件…」）照旧可点。
     #[test]
     fn pin_item_is_disabled_but_never_removed_when_pin_service_is_down() {

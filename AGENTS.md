@@ -149,16 +149,13 @@ git worktree remove /var/tmp/…                              # 收工（先合�
 
 ## 置顶的真相
 
-在 **Nous 内核**（Rust 版已经把置顶做进去了）。桌面端不自己存一份 —— 写穿过去。
-
-- **过渡期（今天）**：写穿到 `bjes6b` 的 `POST /p/demo/bjes6b/api/sessions/:id/pin`，地址从 `resolve` 拿。
-- **目标态**：`POST /v1/sessions/:id/pin`，一个地址（`bjes6b` 会被删，见 Nous `#49`）。
-
-宁可多一次 HTTP、
-坏了 404 响得很明显，也不要两份互不相干的置顶表。要改这条，见 `decisions.md`。
+在**内核 qrd3wh**（Sessions 文档里的提交日志）。桌面端不自己存一份 —— 走
+`POST /v1/sessions/:id/pin`，带 `requestId` 幂等锚；地址就是配置里那一个引擎地址。
+宁可多一次 HTTP、坏了 404 响得很明显，也不要两份互不相干的置顶表。
+不再写手机端那块：它停不停都不该让置顶坏掉。要改这条，见 `decisions.md`。
 
 **已验证**（2026-11-09，Windows 真机）：右键菜单「置顶该聊天 / 取消置顶」点得动，
-写入 `pins.json` 后左栏顺序跟着变，失败会回滚。合成鼠标点不动就走 `PostMessage`（见 `坑.md` 23）。
+失败会回滚。合成鼠标点不动就走 `PostMessage`（见 `坑.md` 23）。
 
 ## 启动 / 开发
 
