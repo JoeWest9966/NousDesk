@@ -60,12 +60,29 @@ async fn main() {
             }
         };
         assert_line(sse_status == 401, "wrong-token-sse-401", sse_status);
-        let after = good.sessions().await.expect("好 token 仍可读").items.len();
+        let after_list = good.sessions().await.expect("好 token 仍可读");
+        let after = after_list.items.len();
         assert_line(
             after == before,
             "sessions-unchanged",
             format!("{before} -> {after}"),
         );
+        // 票面要的是「会话条数 + entries 条数都不变」两样。只比会话条数会漏掉
+        // 「某个写路径被错 token 触发了」这种副作用：会话数没变，但多了几条 entry。
+        if let Some(id) = after_list.items.first().map(|s| s.id) {
+            let guards_before = good.entries(id).await.expect("好 token 可读 entries").items.len();
+            // 用错 token 再打一次 entries（401），然后再读一遍数。
+            let _ = bad.entries(id).await;
+            let guards_after = good.entries(id).await.expect("好 token 仍可读 entries").items.len();
+            assert_line(
+                guards_after == guards_before,
+                "entries-unchanged",
+                format!("会话 {id}: {guards_before} -> {guards_after}"),
+            );
+        } else {
+            // 没有会话就没有 entries 可数 —— 明说跳过，不假装验过。
+            println!("SKIP entries-unchanged | 引擎上一条会话都没有，没有 entries 可数");
+        }
         println!("DONE");
         return;
     }

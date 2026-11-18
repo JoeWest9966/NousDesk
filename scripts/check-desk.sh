@@ -4,9 +4,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NOUS_BIN="${NOUS_APP_BIN:-/opt/Nous/target/debug/nous-app}"
+NOUS_BIN="${NOUS_APP_BIN:-${CARGO_TARGET_DIR:-./target}/debug/nous-app}"
 if [[ ! -x "$NOUS_BIN" ]]; then
-  echo "SKIP: 没有 $NOUS_BIN（先在 /opt/Nous 的 integration/desk-connect 分支 cargo build -p nous-server --bin nous-app）"
+  echo "SKIP: 没有 $NOUS_BIN（先在 Nous 仓里 cargo build -p nous-server --bin nous-app；或用 NOUS_APP_BIN 指定）"
   exit 77
 fi
 
@@ -18,14 +18,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$WORK/home/.config/nous"
 TOKEN="probe-token-$(date +%s)-$$"
+# 这个文件是给**引擎**读的，不是给 Desk 的：nous-app 的默认 token 路径是
+# `$HOME/.config/nous/token`（`auth::default_token_path()`），Desk 的兜底是
+# `~/.config/nousdesk/token` —— 两个应用、两个目录。文件不写，服务端就是**无 token**
+# 启动，于是负向哨兵里「错 token 必须 401」会 FAIL（实测踩过：删了这三行，哨兵立刻红）。
+mkdir -p "$WORK/home/.config/nous"
 printf '%s\n' "$TOKEN" > "$WORK/home/.config/nous/token"
 chmod 600 "$WORK/home/.config/nous/token"
 
 # 端口 0 由内核选；绑定行是 stdout 唯一一行，脚本靠它拿真实地址。
 HOME="$WORK/home" NOUS_PROVIDER=faux NOUS_LISTEN=127.0.0.1:0 \
-  NOUS_DB="$WORK/nous.db" NOUS_TRIGGER_DB="$WORK/nous-triggers.db" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
+  NOUS_DB="$WORK/nous.db" NOUS_PLUGINS_DB="$WORK/nous-plugins.db" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
 SERVER_PID=$!
 
 ADDR=""

@@ -3055,8 +3055,13 @@ impl Desktop {
             )
     }
 
-    /// 灰入口：不可用时不挂点击、图标压灰、tooltip 说人话。
+    /// 灰入口：不可用时不挂点击 + 图标压灰。
     /// 这是 capability 判定的**显示层**，判定本身只在 `capability.rs`。
+    ///
+    /// **人话不在这里**：灰图标没有 tooltip（`Div::tooltip` 要一个 view builder，
+    /// 为一个图标它不值这个钱）。理由那句话在设置页每项一行、`≡ 更多` 一行，
+    /// 都来自同一个 `disabled_reason()` —— 别在注释里写「tooltip 说人话」，
+    /// 那会让人以为已经有 tooltip 了（本行就是被这么写错过一次）。
     fn gated_tab_button(
         &self,
         name: IconName,
