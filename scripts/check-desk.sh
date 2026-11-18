@@ -25,7 +25,7 @@ chmod 600 "$WORK/home/.config/nous/token"
 
 # 端口 0 由内核选；绑定行是 stdout 唯一一行，脚本靠它拿真实地址。
 HOME="$WORK/home" NOUS_PROVIDER=faux NOUS_LISTEN=127.0.0.1:0 \
-  NOUS_DB="$WORK/nous.db" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
+  NOUS_DB="$WORK/nous.db" NOUS_TRIGGER_DB="$WORK/nous-triggers.db" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
 SERVER_PID=$!
 
 ADDR=""
