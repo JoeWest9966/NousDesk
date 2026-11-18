@@ -775,7 +775,7 @@ impl Desktop {
             let got = handle
                 .spawn(async move {
                     let client =
-                        ConsoleClient::new(&cfg.host, &cfg.board, Duration::from_secs(15))?;
+                        ConsoleClient::new(&cfg.host, Duration::from_secs(15))?;
                     let (ov, cv, co, he) = tokio::join!(
                         client.overview(),
                         client.conversations(),
@@ -861,7 +861,7 @@ impl Desktop {
             let got = handle
                 .spawn(async move {
                     let client =
-                        ConsoleClient::new(&cfg.host, &cfg.board, Duration::from_secs(20))?;
+                        ConsoleClient::new(&cfg.host, Duration::from_secs(20))?;
                     client.conversation(id).await
                 })
                 .await;

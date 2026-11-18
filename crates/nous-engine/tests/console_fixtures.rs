@@ -89,8 +89,7 @@ fn health_有别_status_和慢任务() {
 #[ignore = "要真宿主：cargo test -p nous-engine --test console_fixtures -- --ignored"]
 fn 真实面板能解析() {
     let host = std::env::var("NOUS_HOST").unwrap_or_else(|_| "http://192.168.1.7:4790".into());
-    let board = std::env::var("NOUS_BOARD").unwrap_or_else(|_| "new1".into());
-    let c = ConsoleClient::new(&host, &board, std::time::Duration::from_secs(8)).unwrap();
+    let c = ConsoleClient::new(&host, std::time::Duration::from_secs(8)).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let o = c.overview().await.expect("overview");

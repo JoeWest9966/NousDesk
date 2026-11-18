@@ -696,7 +696,9 @@ pub struct Renamed {
 pub struct CreatedSession {
     pub id: i64,
     pub name: String,
-    pub model: Option<String>,
+    /// 新引擎回 `ModelRef` 对象、老引擎回 `"provider/model"` 字符串：
+    /// 这里用 `Value` 同时收下，别让建会话因为类型漂移整个失败。
+    pub model: Option<serde_json::Value>,
     pub thinking_level: Option<serde_json::Value>,
     pub skills: Vec<String>,
     pub template: Option<String>,

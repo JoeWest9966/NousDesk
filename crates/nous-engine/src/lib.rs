@@ -10,15 +10,16 @@
 //!
 //! 不认业务规则，不碰 GPUI。UI 层要 16ms 合帧，那归 UI 层。
 
+pub mod capabilities;
 pub mod client;
 pub mod console;
 pub mod pins;
-pub mod resolve;
 pub mod resource;
 pub mod sse;
 pub mod triggers;
 pub mod types;
 
+pub use capabilities::{Capabilities, Module, Provider, Reason, ReasonCode, Runtime, Server};
 pub use client::{EngineClient, EngineError};
 pub use console::{ConsoleClient, ConsoleError};
 pub use pins::{PinClient, PinError};

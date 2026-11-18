@@ -1,7 +1,7 @@
 //! d6s4v1（`agent.sqlite` 的 X 光机）的哑客户端。
 //!
-//! 它**不是引擎**：qrd3wh 走 `/v1/*`，这个面板走 `/p/<board>/d6s4v1/api/*`。
-//! 地址同样只有一个来源 —— 配置里的宿主 + board，别在调用点拼路径。
+//! 它**不是引擎**：Rust 版 `/v1/*` 由 `EngineClient` 负责，这个面板走宿主自己的 `/api/*`。
+//! 地址同样只有一个来源 —— 配置里那一个 host，别在调用点拼路径。
 //!
 //! ```text
 //! GET api/overview                → 文件 / pragmas / 表 / 索引 / integrity
@@ -24,8 +24,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use url::Url;
 
-/// 面板这一块固定挂在 `/p/<board>/d6s4v1/` 下。
-pub const CONSOLE_BLOCK: &str = "d6s4v1";
+
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConsoleError {
@@ -671,17 +670,16 @@ pub struct Maintenance {
 #[derive(Debug, Clone)]
 pub struct ConsoleClient {
     http: reqwest::Client,
-    /// 已经带到 `/p/<board>/d6s4v1/api/` 的基地址。
+    /// 已经带到 `<host>/api/` 的基地址。
     base: Url,
 }
 
 impl ConsoleClient {
-    /// `host` 是宿主（`http://192.168.1.7:4790`），`board` 是板子名（`new1`）。
-    pub fn new(host: &str, board: &str, timeout: Duration) -> Result<Self, ConsoleError> {
+    /// `host` 是配置里那一个地址（`http://127.0.0.1:4790`）。
+    pub fn new(host: &str, timeout: Duration) -> Result<Self, ConsoleError> {
         let mut url = Url::parse(host)?;
         let prefix = url.path().trim_end_matches('/').to_string();
-        let board = board.trim_matches('/');
-        url.set_path(&format!("{prefix}/p/{board}/{CONSOLE_BLOCK}/api/"));
+        url.set_path(&format!("{prefix}/api/"));
         let http = reqwest::Client::builder().timeout(timeout).build()?;
         Ok(Self { http, base: url })
     }
@@ -743,21 +741,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 地址按_host_board_拼成面板那一块() {
-        let c = ConsoleClient::new("http://192.168.1.7:4790", "new1", Duration::from_secs(1))
+    fn 地址按_host_拼成面板_api() {
+        let c = ConsoleClient::new("http://192.168.1.7:4790", Duration::from_secs(1))
             .expect("拼得起来");
         assert_eq!(
             c.url("overview").unwrap().as_str(),
-            "http://192.168.1.7:4790/p/new1/d6s4v1/api/overview"
+            "http://192.168.1.7:4790/api/overview"
         );
     }
 
     #[test]
     fn 宿主带尾巴斜杠和路径也不双斜杠() {
-        let c = ConsoleClient::new("http://h:1/nous/", "b2", Duration::from_secs(1)).unwrap();
+        let c = ConsoleClient::new("http://h:1/nous/", Duration::from_secs(1)).unwrap();
         assert_eq!(
             c.url("cost").unwrap().as_str(),
-            "http://h:1/nous/p/b2/d6s4v1/api/cost"
+            "http://h:1/nous/api/cost"
         );
     }
 

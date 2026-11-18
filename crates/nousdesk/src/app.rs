@@ -28,7 +28,6 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use nous_engine::pins::PinClient;
-use nous_engine::resolve::resolve_engine;
 use nous_engine::types::{ConfigPatch, Entry, Session, Unread};
 use nous_engine::{EngineClient, EngineError};
 use smol::Timer;
@@ -115,7 +114,7 @@ impl Bar {
     }
 }
 
-use crate::config::{Config, ENGINE_BLOCK, MOBILE_BLOCK, SELF_BLOCK};
+use crate::config::Config;
 use crate::live::Live;
 use crate::md::{chat_md, code_copy_button, code_highlighter, md_style, strip_harness};
 
@@ -391,11 +390,12 @@ pub struct Desktop {
     /// 不叫 `cfg` —— 那个名字已经被 `config_panel` 的界面状态占了。
     pub(crate) conn: Config,
     pub(crate) host_input: Entity<InputState>,
-    pub(crate) board_input: Entity<InputState>,
     /// resolve 拿到的引擎地址 —— 只用来显示，不存盘。
     pub(crate) engine_url: Option<String>,
     /// 引擎版本（`GET /v1/device` 的 `node`）。
     pub(crate) engine_node: Option<String>,
+    /// 能力表：功能面的唯一真相。连接时拉一次，失败为 `None`（全部 Unknown）。
+    pub(crate) caps: Option<nous_engine::Capabilities>,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
     focused: bool,
     /// 当前常连着 SSE 的会话。`None` = 没连。切会话就换一个，不叠加。
@@ -512,7 +512,7 @@ impl Desktop {
         let resources = crate::resources::ResourceState::new(window, cx);
         let purge_input = cx.new(|cx| InputState::new(window, cx).placeholder("输入会话名字"));
 
-        // 配置在这里同步读掉：设置页要立刻显示 host / board，不能等 tokio。
+        // 配置在这里同步读掉：设置页要立刻显示 host，不能等 tokio。
         // 读坏了也先拿默认值把窗口支起来，错误交给 connect() 报。
         let conn = Config::load().unwrap_or_default();
         let host_input = cx.new(|cx| {
@@ -520,12 +520,6 @@ impl Desktop {
                 .placeholder("http://127.0.0.1:4790")
                 .default_value(conn.host.clone())
         });
-        let board_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("new1")
-                .default_value(conn.board.clone())
-        });
-
         // 调试用：启动就直接打开某个浮层，省得每次手点。
         // `NOUS_DESKTOP_OPEN=menu` / `=settings` / `=templates`，别的值（包括不设）就是正常启动。
         let open_at_start = std::env::var("NOUS_DESKTOP_OPEN").unwrap_or_default();
@@ -1025,8 +1019,8 @@ impl Desktop {
             notice: NoticeState::default(),
             conn,
             host_input,
-            board_input,
             engine_url: None,
+            caps: None,
             engine_node: None,
             live: None,
             live_state: Live::new(),
@@ -1147,6 +1141,7 @@ impl Desktop {
         self.loading = true;
         self.error = None;
         self.engine_url = None;
+        self.caps = None;
         cx.notify();
 
         let cfg = self.conn.clone();
@@ -1165,11 +1160,12 @@ impl Desktop {
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 match outcome {
-                    Ok((engine, sessions, node, url)) => {
+                    Ok((engine, sessions, node, url, caps)) => {
                         this.engine = Some(engine);
                         this.sessions = sessions;
                         this.engine_node = node;
                         this.engine_url = Some(url);
+                        this.caps = caps;
                         // 换了盘之后，原来选中的那条可能不在新引擎上 —— 别留个空壳。
                         if this
                             .selected
@@ -1181,7 +1177,7 @@ impl Desktop {
                         }
                         // 引擎连上之前如果点过 Template 页，「还没连上引擎」那句得自己消掉。
                         this.load_all_sections(false, cx);
-                        // 触发器管理是**另一个块**（n8qkkj），单独 resolve、单独拉。
+                        // 触发器入口由 capability 守卫；Rust 版这一族还没实现。
                         this.load_triggers(cx);
                         // 直接开在数据监控室（`NOUS_DESKTOP_OPEN=data`）时，五份数据也得
                         // 自己拉一遍 —— `switch_tab` 只在「切过去」那一刻触发。
@@ -1191,7 +1187,7 @@ impl Desktop {
                         if this.tab == Tab::Resources {
                             this.load_resources(false, cx);
                         }
-                        // 置顶单独去 bjes6b 拿（单源在它那儿）。
+                        // 置顶走同一个地址（真相在引擎）。
                         this.load_pins(cx);
                         // `/` 面板的技能清单：失败就认了（面板给提示）。
                         this.load_skills(cx);
@@ -1229,33 +1225,15 @@ impl Desktop {
         .detach();
     }
 
-    /// 连 bjes6b 拿置顶。**失败就静默降级**：`pins_client` 留 `None`，
-    /// 界面上没有置顶功能，但不影响聊天 —— 客户端不该因为别人的块没装就红一片。
+    /// 从同一个地址拿置顶。**失败就静默降级**：`pins_client` 留 `None`，
+    /// 界面上没有置顶功能，但不影响聊天。
     fn load_pins(&mut self, cx: &mut Context<Self>) {
         let Some(host) = pins_host() else { return };
-        let board = pins_board();
         cx.spawn(async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else {
                 return;
             };
-            let url = match handle
-                .spawn(async move {
-                    nous_engine::resolve::resolve_engine(&host, &board, SELF_BLOCK, MOBILE_BLOCK)
-                        .await
-                })
-                .await
-            {
-                Ok(Ok(url)) => url,
-                Ok(Err(e)) => {
-                    log::info!("手机端那块 resolve 不到，置顶功能关掉：{e}");
-                    return;
-                }
-                Err(e) => {
-                    log::info!("resolve 任务挂了，置顶功能关掉：{e}");
-                    return;
-                }
-            };
-            let client = match PinClient::new(url.as_str(), Duration::from_secs(8)) {
+            let client = match PinClient::new(host.as_str(), Duration::from_secs(8)) {
                 Ok(c) => Arc::new(c),
                 Err(e) => {
                     log::warn!("置顶客户端建不起来：{e}");
@@ -2178,6 +2156,21 @@ impl Desktop {
         if text.is_empty() {
             return false;
         }
+        // 没配凭证不是「功能关掉」：输入框照常能打、这一条照常发，
+        // 只是先把 503 说在前面（Nous #44 的语义）。
+        if self
+            .caps
+            .as_ref()
+            .is_some_and(|cap| !cap.runtime.provider.configured)
+        {
+            let message = self
+                .caps
+                .as_ref()
+                .map(|cap| cap.runtime.provider.message.clone())
+                .filter(|m| !m.is_empty())
+                .unwrap_or_else(|| "没配凭证，这一条可能回 503".to_string());
+            self.notify(message, NoticeKind::Info, cx);
+        }
 
         // 幂等锚：同一句话重发拿到同一次提交。
         let request_id = format!(
@@ -2568,6 +2561,11 @@ impl Desktop {
 
     /// 打开归档库（右栏整页）。入口在「≡ 更多」菜单里。
     pub(crate) fn open_archive(&mut self, cx: &mut Context<Self>) {
+        if !self.feature_enabled(crate::capability::Feature::Archive) {
+            self.menu_open = false;
+            cx.notify();
+            return;
+        }
         self.menu_open = false;
         self.settings_open = false;
         self.archive_open = true;
@@ -2586,6 +2584,11 @@ impl Desktop {
     /// 拉 `GET /v1/archive`。数据留着，只在页头标「刷新中」——
     /// 刷新时把整页清空，看着像「东西没了」。
     fn archive_page_load(&mut self, cx: &mut Context<Self>) {
+        if !self.feature_enabled(crate::capability::Feature::Archive) {
+            self.archive.error = self.disabled_reason(crate::capability::Feature::Archive);
+            cx.notify();
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             self.archive.error = Some("还没连上引擎 —— 去「≡ 更多」里重新连接".to_string());
             cx.notify();
@@ -3013,11 +3016,21 @@ impl Desktop {
             .items_center()
             .py(t().d(10.))
             .gap(t().d(6.))
-            .child(self.tab_button(IconName::MessageCircle, Tab::Chats, cx))
-            .child(self.tab_button(IconName::BookUser, Tab::Templates, cx))
-            .child(self.tab_button(IconName::Bolt, Tab::Triggers, cx))
-            .child(self.tab_button(IconName::Layers, Tab::Resources, cx))
-            .child(self.tab_button(IconName::Database, Tab::Data, cx))
+            .child(self.tab_button(IconName::MessageCircle, Tab::Chats, true, cx))
+            .child(self.gated_tab_button(
+                IconName::BookUser,
+                Tab::Templates,
+                crate::capability::Feature::Presets,
+                cx,
+            ))
+            .child(self.gated_tab_button(
+                IconName::Bolt,
+                Tab::Triggers,
+                crate::capability::Feature::Triggers,
+                cx,
+            ))
+            .child(self.tab_button(IconName::Layers, Tab::Resources, true, cx))
+            .child(self.tab_button(IconName::Database, Tab::Data, true, cx))
             .child(div().flex_1())
             .child(self.more_button(cx))
     }
@@ -3042,7 +3055,26 @@ impl Desktop {
             )
     }
 
-    fn tab_button(&self, name: IconName, tab: Tab, cx: &mut Context<Self>) -> impl IntoElement {
+    /// 灰入口：不可用时不挂点击、图标压灰、tooltip 说人话。
+    /// 这是 capability 判定的**显示层**，判定本身只在 `capability.rs`。
+    fn gated_tab_button(
+        &self,
+        name: IconName,
+        tab: Tab,
+        feature: crate::capability::Feature,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let reason = self.disabled_reason(feature);
+        self.tab_button(name, tab, reason.is_none(), cx)
+    }
+
+    fn tab_button(
+        &self,
+        name: IconName,
+        tab: Tab,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let active = self.tab == tab;
         let id = match tab {
             Tab::Chats => "tab-chats",
@@ -3053,9 +3085,12 @@ impl Desktop {
         };
         div()
             .id(ElementId::Name(id.into()))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.switch_tab(tab, cx);
-            }))
+            .when(enabled, |el| {
+                el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.switch_tab(tab, cx);
+                }))
+            })
+            .when(!enabled, |el| el.opacity(0.4))
             .flex()
             .items_center()
             .justify_center()
@@ -4923,15 +4958,9 @@ fn order_ids(in_order: &[i64], pins: &[i64]) -> Vec<i64> {
     out
 }
 
-/// 读配置拿「宿主地址 / 盘名」，供置顶那次 resolve 用。读不到就用默认值。
+/// 读配置拿引擎地址；读不到就不启用置顶。
 fn pins_host() -> Option<String> {
     Config::load().ok().map(|c| c.host)
-}
-
-fn pins_board() -> String {
-    Config::load()
-        .map(|c| c.board)
-        .unwrap_or_else(|_| Config::default().board)
 }
 
 /// 错误原文可能很长（引擎把上游 400 的整段 JSON 递上来）。红条只给人看前 90 个字，
@@ -4944,25 +4973,40 @@ fn short_text(text: &str, max_chars: usize) -> String {
     out
 }
 
-/// 连引擎：拿配置 → resolve 地址 → 拉会话列表 + 设备信息。全在 tokio 上。
+/// 连引擎：拿配置 → 直连这一个地址 → 拉会话列表 + 设备信息 + 能力表。全在 tokio 上。
 ///
 /// 配置**从调用方传进来**，不在这里再读一次盘：设置页刚保存完就重连，
 /// 重新读盘会让「保存了什么」和「连了什么」有可能对不上。
 async fn load_engine(
     cfg: Config,
     recent: Recent,
-) -> Result<(Arc<EngineClient>, Vec<Session>, Option<String>, String), String> {
-    let url = resolve_engine(&cfg.host, &cfg.board, SELF_BLOCK, ENGINE_BLOCK)
-        .await
+) -> Result<
+    (
+        Arc<EngineClient>,
+        Vec<Session>,
+        Option<String>,
+        String,
+        Option<nous_engine::Capabilities>,
+    ),
+    String,
+> {
+    let token = cfg.resolve_token();
+    let engine = EngineClient::with_token(&cfg.host, Duration::from_secs(10), token.as_deref())
         .map_err(|e| e.to_string())?;
-    let engine =
-        EngineClient::new(url.as_str(), Duration::from_secs(10)).map_err(|e| e.to_string())?;
     let sessions = engine.sessions().await.map_err(|e| e.to_string())?.items;
     let mut sessions = sessions;
     sort_sessions(&mut sessions, &recent);
     // 版本只是「关于」里的展示项，拿不到不妨碍连接。
     let node = engine.device().await.ok().and_then(|d| d.node);
-    Ok((Arc::new(engine), sessions, node, url.as_str().to_string()))
+    // 能力表拿不到就当没有：所有功能面按 Unknown 灰掉，不猜。
+    let caps = engine.capabilities().await.ok();
+    Ok((
+        Arc::new(engine),
+        sessions,
+        node,
+        cfg.host.clone(),
+        caps,
+    ))
 }
 
 /// 归档掉 `gone` 之后，右栏该退到哪一条。
@@ -5308,6 +5352,21 @@ impl Render for Desktop {
             .relative()
             .size_full()
             .child(shell_root)
+            // 合同主版本不匹配：明确报，不猜、不降级。只是一条横幅，不动别的布局。
+            .children(self.contract_mismatch().then(|| {
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .py(t().d(3.))
+                    .flex()
+                    .justify_center()
+                    .bg(rgb(t().p.danger))
+                    .text_color(rgb(t().p.danger_fg))
+                    .text_size(t().fs(11.5))
+                    .child("客户端与引擎版本不匹配")
+            }))
             .children(self.cfg_overlay(window, cx))
             // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
             .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
@@ -5363,7 +5422,7 @@ impl Render for Desktop {
             .flex()
             .flex_col()
             .size_full()
-            .child(crate::chrome::title_bar(window))
+            .child(crate::chrome::title_bar(window, self.demo_mode()))
             .child(div().flex_1().min_h(t().d(0.)).child(body));
 
         body
