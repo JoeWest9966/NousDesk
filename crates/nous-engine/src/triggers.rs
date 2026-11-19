@@ -1,7 +1,7 @@
 //! n8qkkj（触发器管理块）的哑客户端。
 //!
 //! **为什么是另一个 client**：触发器的清单 / 文件 / 发布 / 归档都住在 n8qkkj，
-//! 不在 qrd3wh 的 `/v1/*` 里。地址同样只能从宿主的 `__nous/resolve/n8qkkj` 拿。
+//! 同一个引擎地址 + `/v1/triggers`，不从别处解析第二地址。
 //!
 //! 这一层不加业务字段、不算状态：清单里 `tracked / dirty / error` 都是 n8qkkj 算好的，
 //! 客户端只画；发布是**一个同步长请求**（cargo check → build → index → commit → push），

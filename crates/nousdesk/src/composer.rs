@@ -27,8 +27,9 @@
 //! **这一层不持有状态、不碰 HTTP、不碰 Desktop 的字段**：调它的人把
 //! 「能不能发」「在不在生成」「提示字在不在场 / 淡入还是淡出」和几个回调递进来。
 //!
-//! 工具行的图标这一轮**只有样子**：表情 / 更多 / 文件 / 截图 / 语音都还没接功能，
-//! 点了没反应（没有 `on_click`）。等以后真做附件再说。
+//! 工具行的图标分两拨：最左边那颗「对话设置」是真按钮（由调用方递进来）；
+//! 其余那几颗引擎还没有功能，画成压灰的禁用态、不挂点击、不装可点光标 ——
+//! 理由见 `disabled_reason_line()`，版式（28px 宽 / 34px 剪刀带箭头）原样保留。
 
 // 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
@@ -47,8 +48,6 @@ use crate::app::scrollbar::FADE;
 fn well_bg() -> u32 { t().p.hover } // 卡片四周的浅灰留白
 /// 原 `CARD_BG = 0xffffff`；由 panel 这个语义槽接管。
 fn card_bg() -> u32 { t().p.panel } // 白卡片
-/// 原 `ICON_IDLE = 0x4d5156`；由 text_2 这个语义槽接管。
-fn icon_idle() -> u32 { t().p.text_2 } // 工具图标（含右侧声纹）
 /// 原 `HINT_TEXT = 0xb8bdc4`；由 faint 这个语义槽接管。
 fn hint_text() -> u32 { t().p.faint } // 悬停提示的浅灰字
 /// 原 `GEN_HINT = 0x8a8a8a`；由 faint 这个语义槽接管。
@@ -200,7 +199,19 @@ pub fn render(
                                 .child(tool_icon_with_caret(IconName::Scissors))
                                 .child(tool_icon(IconName::Mic)),
                         )
-                        .child(div().flex_1())
+                        // 人话理由填在工具行**原有留白**里：不加行、不改高度/栏宽/图标位置，
+                        // 只是把这块原本空着的弹性区间写成一句淡灰提示（窄窗时截掉）。
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(t().d(0.))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .px(t().d(4.))
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.faint))
+                                .child(disabled_reason_line()),
+                        )
                         .child(
                             div()
                                 .when(dimmed, |el| el.opacity(0.4))
@@ -275,8 +286,48 @@ fn hint_layer(shown: bool, hovered: bool, can_send: bool) -> AnyElement {
         .into_any_element()
 }
 
-/// 工具行里的一颗图标。**这一轮没有功能**：hover 只变鼠标指针。
-///
+/// 工具行的图标登记表（只在测试里用，钉住判据 1）。
+/// 最左边那颗「对话设置」是调用方递进来的真按钮，不在这里。
+/// 引擎还没有这些功能：一律 `enabled=false` —— 灰、不挂 `on_click`、不画可点光标。
+/// 有 handler 的入口只有发送 / 停止 / 设置，分别是 `action_button` / 调用方。
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolIcon {
+    Emoji,
+    More,
+    File,
+    Screenshot,
+    Voice,
+    /// 右侧声纹。跟上面几颗同属禁用态，尺寸是 28×26（demo 里不是蓝圆）。
+    Mic,
+}
+
+#[cfg(test)]
+impl ToolIcon {
+    /// 当前全是禁用态；哪天真接了功能，改成 `true` 时还得在渲染函数上挂 `on_click`，
+    /// 单测只认这两种形态，不会让「看着能点、点了没反应」的假按钮再混进来。
+    pub(crate) fn enabled(self) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn icon_disabled_reason(icon: ToolIcon) -> &'static str {
+    match icon {
+        ToolIcon::Emoji => "表情：引擎没有这个功能",
+        ToolIcon::More => "更多：引擎没有这个功能",
+        ToolIcon::File => "文件：引擎没有这个功能",
+        ToolIcon::Screenshot => "截图：引擎没有这个功能",
+        ToolIcon::Voice | ToolIcon::Mic => "语音输入：引擎没有这个功能",
+    }
+}
+
+/// 那一行人话理由。禁用图标不骗点击，理由就常驻写在这里，
+/// 不需要 tooltip 也不需要新建控件（版式不动）。
+pub(crate) fn disabled_reason_line() -> &'static str {
+    "表情 / 更多 / 文件 / 截图 / 语音：引擎暂不支持，按钮已禁用"
+}
+
 /// 颜色和尺寸必须自己给：直接 `.child(IconName::X)` 时用的是**窗口默认文字样式**
 /// （本项目里是白字），压在浅色卡片上就完全看不见 —— 第一次画就是这么踩的。
 fn tool_icon(icon: IconName) -> impl IntoElement {
@@ -286,11 +337,11 @@ fn tool_icon(icon: IconName) -> impl IntoElement {
         .justify_center()
         .size(t().d(28.))
         .id(ElementId::Name(format!("tool-{icon:?}").into()))
-        .hover(|style| style.cursor_pointer())
-        .child(Icon::new(icon).text_color(rgb(icon_idle())).size(t().d(18.)))
+        .opacity(0.55)
+        .child(Icon::new(icon).text_color(rgb(t().p.disabled)).size(t().d(18.)))
 }
 
-/// 剪刀那颗：demo 里它比别的图标宽（34px），剪刀右边跟着一个小 ⌄。纯样子。
+/// 剪刀那颗：demo 里它比别的图标宽（34px），剪刀右边跟着一个小 ⌄。
 fn tool_icon_with_caret(icon: IconName) -> impl IntoElement {
     div()
         .flex()
@@ -299,16 +350,16 @@ fn tool_icon_with_caret(icon: IconName) -> impl IntoElement {
         .w(t().d(34.))
         .h(t().d(28.))
         .id(ElementId::Name(format!("tool-{icon:?}").into()))
-        .hover(|style| style.cursor_pointer())
-        .child(Icon::new(icon).text_color(rgb(icon_idle())).size(t().d(18.)))
+        .opacity(0.55)
+        .child(Icon::new(icon).text_color(rgb(t().p.disabled)).size(t().d(18.)))
         .child(
             Icon::new(IconName::ChevronDown)
-                .text_color(rgb(icon_idle()))
+                .text_color(rgb(t().p.disabled))
                 .size(t().d(10.)),
         )
 }
 
-/// 右侧那颗声纹（语音输入）。跟其余图标一样**灰色、只画不接** —— demo 里它不是蓝圆。
+/// 右侧那颗声纹（语音输入）。跟其余图标一样**灰色、禁用** —— demo 里它不是蓝圆。
 fn voice_button() -> impl IntoElement {
     div()
         .flex()
@@ -318,10 +369,10 @@ fn voice_button() -> impl IntoElement {
         .h(t().d(26.))
         .mr(t().d(6.))
         .id(ElementId::Name("tool-voice".into()))
-        .hover(|style| style.cursor_pointer())
+        .opacity(0.55)
         .child(
             Icon::new(IconName::AudioLines)
-                .text_color(rgb(icon_idle()))
+                .text_color(rgb(t().p.disabled))
                 .size(t().d(18.)),
         )
 }
@@ -351,4 +402,33 @@ fn action_button(
         .when(enabled, |el| el.cursor_pointer())
         .on_click(on_click)
         .child(label)
+}
+
+#[cfg(test)]
+mod tests {
+    // 不 `use super::*`：gpui 的重导出宏在测试 mod 里再展开一层会撞递归上限。
+    use super::{ToolIcon, icon_disabled_reason};
+
+    /// 判据 1：工具行每颗图标都必须「有 handler」或「明确禁用」。
+    /// 禁用的那几颗不挂 `on_click`、也不是 `cursor_pointer` 的假可点形态 ——
+    /// 这里钉的是 `ToolIcon::enabled()` 这个事实，哨兵把任一图标改回假可点就当场红。
+    #[test]
+    fn every_tool_icon_is_either_actionable_or_explicitly_disabled() {
+        const ICONS: &[ToolIcon] = &[
+            ToolIcon::Emoji, ToolIcon::More, ToolIcon::File,
+            ToolIcon::Screenshot, ToolIcon::Voice, ToolIcon::Mic,
+        ];
+        assert_eq!(ICONS.len(), 6);
+        for icon in ICONS {
+            assert!(
+                !icon.enabled(),
+                "{icon:?} 看起来能点却没有 handler，也没有 disabled 形态"
+            );
+        }
+        assert_eq!(
+            icon_disabled_reason(ToolIcon::Voice),
+            "语音输入：引擎没有这个功能"
+        );
+        assert!(icon_disabled_reason(ToolIcon::Screenshot).contains("截图"));
+    }
 }

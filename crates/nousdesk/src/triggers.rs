@@ -1,6 +1,7 @@
 //! 触发器工作台（视图 1）：清单 / 详情 / 代码 / 新建向导。
 //!
-//! 数据住在 **n8qkkj**（另一个块，自己的 `/v1/triggers`），不是 qrd3wh。
+//! 数据就在同一个引擎地址（`cfg.host`）上，走 `/v1/triggers`；
+//! 不再有别的服务地址，也不从别处解析。
 //! 三层是一个页面的三种深度：
 //!
 //! - 主界面：类别树 + 状态筛选 + 卡片网格
@@ -1229,7 +1230,6 @@ impl Desktop {
                     .border_color(rgb(t().p.line))
                     .flex()
                     .flex_col()
-                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
                     .child(
                         div()
                             .text_size(t().fs(13.))

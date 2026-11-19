@@ -159,7 +159,7 @@ impl EngineClient {
     /// 这一页列的就是那台机器的目录。
     /// 列目录。`path` 空 = 起点（引擎的 START_DIRS）；`machine` 空 = 引擎那台机器本身。
     ///
-    /// `?machine=` 是远端机器的目录 —— 不给它就是 qrd3wh 那台。
+    /// `?machine=` 是远端机器的目录 —— 不给它就是引擎自己那台。
     pub async fn dirs(
         &self,
         path: Option<&str>,

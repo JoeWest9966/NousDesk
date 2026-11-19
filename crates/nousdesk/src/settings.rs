@@ -11,6 +11,10 @@
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
+/// 连接页那句查找顺序。Linux 只做 Linux，这里只写用户真正会遇到的路径。
+pub(crate) const CONFIG_PATH_HINT: &str =
+    "查找顺序：NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → ~/.config/nousdesk/";
+
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::{Icon, Sizable as _, Size};
@@ -457,7 +461,7 @@ impl Desktop {
             .child(readonly(
                 "配置文件（保存写这里）",
                 target,
-                "查找顺序：NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → %APPDATA%\\nousdesk\\",
+                CONFIG_PATH_HINT,
             ))
             .children(msg)
             .child(
@@ -673,7 +677,7 @@ impl Desktop {
                 sound_row_pending(
                     t,
                     "轮到你拍板",
-                    "工具等你批准、问题等你回答。引擎现在没有这个信号 —— 不是没做，是没数据。",
+                    "工具等你批准、问题等你回答。引擎目前没有这个信号，所以没有开关。",
                 ),
             ]))
             .child(sound_section_label(t, "手感 · 你在操作的时候"))
@@ -743,7 +747,20 @@ impl Desktop {
         let cfg_path = Config::path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "（没有配置文件，用的是默认值）".to_string());
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let facts = device_facts(self.device.as_ref(), now_ms as i128);
+        let unknown = || "未知".to_string();
+        let service = self
+            .caps
+            .as_ref()
+            .map(|c| c.server.version.clone())
+            .unwrap_or_else(unknown);
 
+        // 七个字段各有渲染点，详见 `device_field_owners()`；
+        // 没连上 / 老引擎缺字段一律「未知」，不编造。
         div()
             .flex()
             .flex_col()
@@ -754,12 +771,23 @@ impl Desktop {
                 div()
                     .text_size(t().fs(11.5))
                     .text_color(rgb(muted()))
-                    .child("引擎版本来自 GET /v1/device 的 node —— 出问题先对版本。"),
+                    .child("引擎信息来自 GET /v1/device —— 出问题先对版本和构建号。"),
             )
             .child(kv("客户端", format!("v{}", env!("CARGO_PKG_VERSION"))))
+            .child(kv("引擎（node）", facts.node.clone().unwrap_or_else(unknown)))
+            .child(kv("引擎版本", service))
+            .child(kv("构建（build）", facts.build.clone().unwrap_or_else(unknown)))
+            .child(kv("目标（target）", facts.target.clone().unwrap_or_else(unknown)))
+            .child(kv("已运行", facts.started_at.clone().unwrap_or_else(unknown)))
+            .child(kv("默认模型", facts.model.clone().unwrap_or_else(unknown)))
+            .child(kv("可用模型", format!("{} 个", facts.available)))
             .child(kv(
-                "引擎",
-                self.engine_node.clone().unwrap_or_else(|| "未知".into()),
+                "数据来源",
+                match facts.faux {
+                    Some(true) => "演示数据（faux）".into(),
+                    Some(false) => "真实引擎".into(),
+                    None => unknown(),
+                },
             ))
             .child(kv(
                 "引擎地址",
@@ -982,7 +1010,7 @@ fn sound_row_pending(t: crate::theme::Skin, name: &'static str, desc: &'static s
                                 .border_color(rgb(t.p.line))
                                 .text_size(t.fs(10.))
                                 .text_color(rgb(t.p.faint))
-                                .child("待接入"),
+                                .child("无此信号"),
                         ),
                 )
                 .child(
@@ -1242,6 +1270,77 @@ fn readonly(label: &'static str, value: String, note: &'static str) -> AnyElemen
         .into_any_element()
 }
 
+/// `GET /v1/device` 的字段明细，About 面板直接画这些行。
+/// 缺字段就不编造 —— 一律 `None`，界面显示「未知」。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DeviceFacts {
+    pub node: Option<String>,
+    pub build: Option<String>,
+    pub target: Option<String>,
+    pub started_at: Option<String>,
+    pub model: Option<String>,
+    pub faux: Option<bool>,
+    pub available: usize,
+}
+
+/// 七个字段的归属表：判据 4 要「每个字段有主」，这里写死谁在哪一屏呈现。
+/// `extra` 里那几个字段不进界面，也得写明「不用」的原因。
+#[cfg(test)]
+pub(crate) fn device_field_owners() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("node", "设置页 / 关于：引擎版本"),
+        ("build", "设置页 / 关于：构建号"),
+        ("target", "设置页 / 关于：编译目标"),
+        ("startedAt", "设置页 / 关于：引擎已运行 X"),
+        ("model", "设置页 / 关于：默认模型"),
+        ("available", "设置页 / 关于：可用模型数"),
+        ("faux", "设置页 / 关于：演示数据 + 标题栏 DEMO 角标"),
+        ("self", "不用：实例名只做服务端寻址，界面已有引擎地址"),
+        ("origin", "不用：请求源地址不面向用户"),
+        ("data", "不用：引擎侧数据目录，桌面端不碰"),
+        ("catalog", "不用：模型目录内容由 /v1/models 提供"),
+    ]
+}
+
+/// `startedAt` 是 epoch 毫秒，不是时长。客户端只做一次减法显示「引擎已运行 X」，
+/// 不缓存、不当真相源；拿不到 / 不是数字就返回 `None`（About 显示「未知」）。
+fn started_text(v: Option<&serde_json::Value>, now_ms: i128) -> Option<String> {
+    let started = v?.as_i64()? as i128;
+    let secs = (now_ms - started).max(0) / 1000;
+    if secs < 60 {
+        Some(format!("已运行 {secs} 秒"))
+    } else if secs < 3600 {
+        Some(format!("已运行 {} 分钟", secs / 60))
+    } else if secs < 86400 {
+        Some(format!("已运行 {} 小时", secs / 3600))
+    } else {
+        Some(format!("已运行 {} 天", secs / 86400))
+    }
+}
+
+/// 把 `Device` 压成 About 面板要显示的那几行。纯函数，好钉判据 4。
+/// `now_ms` 由调用方给（`std::time::SystemTime`），测试给固定值。
+pub(crate) fn device_facts(device: Option<&nous_engine::types::Device>, now_ms: i128) -> DeviceFacts {
+    let Some(d) = device else { return DeviceFacts::default() };
+    let str_of = |v: Option<&serde_json::Value>| -> Option<String> {
+        v.and_then(|v| v.as_str()).map(str::to_string)
+    };
+    let model = d.model.as_ref().and_then(|m| {
+        let provider = str_of(m.get("provider"))?;
+        let id = str_of(m.get("modelId"))?;
+        Some(format!("{provider}/{id}"))
+    });
+    DeviceFacts {
+        node: d.node.clone(),
+        build: str_of(d.extra.get("build")),
+        target: str_of(d.extra.get("target")),
+        started_at: started_text(d.started_at.as_ref(), now_ms),
+        model,
+        faux: d.faux,
+        available: d.available.len(),
+    }
+}
+
 fn kv(label: &'static str, value: String) -> AnyElement {
     div()
         .flex()
@@ -1276,4 +1375,57 @@ fn reveal_config() {
     let _ = std::process::Command::new("open").arg(&dir).spawn();
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    // 不 `use super::*`：gpui 重导出的宏再展开一层会撞递归上限。
+    use super::{device_facts, CONFIG_PATH_HINT, device_field_owners};
+    use nous_engine::types::Device;
+
+    fn device() -> Device {
+        serde_json::from_value(serde_json::json!({
+            "node": "0.1.2",
+            "build": "abc123",
+            "target": "x86_64-unknown-linux-gnu",
+            "startedAt": 1_700_000_000_000i64,
+            "model": {"provider": "volc-ark", "modelId": "deepseek-v3"},
+            "faux": true,
+            "data": "/var/lib/nous",
+            "catalog": null,
+            "available": ["a/b", "c/d"],
+            "self": "engine-1",
+            "origin": "http://127.0.0.1:4789",
+        }))
+        .unwrap()
+    }
+
+    /// 判据 4：七个字段每一个都有主（展示 / 明确不用）。哨兵删一个字段就红。
+    #[test]
+    fn every_device_field_has_an_owner() {
+        let facts = device_facts(Some(&device()), 1_700_000_060_000);
+        assert_eq!(facts.node.as_deref(), Some("0.1.2"));
+        assert_eq!(facts.build.as_deref(), Some("abc123"));
+        assert_eq!(facts.target.as_deref(), Some("x86_64-unknown-linux-gnu"));
+        assert!(facts.started_at.unwrap().contains("已运行"));
+        assert_eq!(facts.model.as_deref(), Some("volc-ark/deepseek-v3"));
+        assert_eq!(facts.available, 2);
+        assert_eq!(facts.faux, Some(true));
+        let owners = device_field_owners();
+        for key in ["node", "build", "target", "startedAt", "model", "available", "faux"] {
+            assert!(owners.iter().any(|(k, _)| *k == key), "{key} 没有渲染点 / 不用注释");
+        }
+        for key in ["self", "origin", "data", "catalog"] {
+            assert!(owners.iter().any(|(k, why)| *k == key && why.contains("不用")), "{key} 没有交代");
+        }
+        let none = device_facts(None, 0);
+        assert!(none.node.is_none() && none.faux.is_none() && none.started_at.is_none());
+    }
+
+    /// 判据 2：连接页那句人话不许再提 Windows 的路径变量。
+    #[test]
+    fn connection_hint_never_says_windows_env_var() {
+        assert!(!CONFIG_PATH_HINT.contains('%'));
+        assert!(CONFIG_PATH_HINT.contains("NOUS_DESKTOP_CONFIG"));
+    }
 }

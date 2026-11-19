@@ -62,7 +62,7 @@ pub struct PinReceipt {
 #[derive(Debug, Clone)]
 pub struct PinClient {
     http: reqwest::Client,
-    /// qrd3wh 的地址，保证以 `/` 结尾。来源只能是 `__nous/resolve`。
+    /// 引擎地址，保证以 `/` 结尾。来源只有一个：配置里的 `cfg.host`。
     base: Url,
 }
 
