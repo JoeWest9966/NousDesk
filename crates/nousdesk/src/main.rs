@@ -22,6 +22,7 @@ mod diff;
 mod config;
 mod config_panel;
 mod data_console;
+mod dead_paths;
 #[cfg(test)]
 mod data_console_tests;
 mod editor;

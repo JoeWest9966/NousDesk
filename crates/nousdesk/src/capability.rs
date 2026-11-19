@@ -66,15 +66,34 @@ pub enum Gate<'a> {
     Unknown,
 }
 
-/// `Gate::Disabled` 那句话只按 `code` 分支；`reason.message` 只显示、不解析。
+/// 灰入口的理由：`capabilities.reason.message` **原文**逐字显示，按 code 只加前缀。
+/// `Desk#13` 判据 3 钉死这条：自写文案顶掉服务端原文 = 说谎；真机 `curl /v1/capabilities`
+/// 对不上号就没法排查。文案只显示、不解析 —— 改文案不许改行为。
 pub fn disabled_text(code: ReasonCode, message: &str) -> String {
-    match code {
-        ReasonCode::NotImplemented => "服务端未提供（版本太旧？）".to_string(),
-        ReasonCode::DisabledByManifest => "发行版没装这个模块".to_string(),
-        ReasonCode::Frozen => "已冻结".to_string(),
-        ReasonCode::NeedsCredentials => format!("{message}（去设置里配置凭证）"),
-        ReasonCode::Unknown => format!("{message}（服务端未声明这个功能）"),
-    }
+    let hint = match code {
+        ReasonCode::NotImplemented => "（服务端未提供）",
+        ReasonCode::DisabledByManifest => "（发行版未启用）",
+        ReasonCode::Frozen => "（已冻结）",
+        ReasonCode::NeedsCredentials => "（去设置里配置凭证）",
+        ReasonCode::Unknown => "（服务端未声明）",
+    };
+    format!("{message}{hint}")
+}
+
+/// 把 `:id` 形态的路由模板归一成 `{id}` 形态，两处映射表共用一份。
+/// 只认 `:name` 这一种写法；已经是 `{name}` 的原样返回。
+pub fn normalize_path(path: &str) -> String {
+    path.trim_start_matches('/')
+        .split('/')
+        .map(|seg| {
+            if seg.starts_with(':') && seg.len() > 1 {
+                format!("{{{}}}", &seg[1..])
+            } else {
+                seg.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// 唯一的判定处。UI 里不许再写第二处 `if module_enabled(...)`。
@@ -107,19 +126,8 @@ pub fn gate<'a>(caps: &'a Capabilities, feature: Feature) -> Gate<'a> {
 pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     use Feature::*;
     // 两套模板写法都认：client.rs 用 `:id`，服务端 capabilities 用 `{id}`。
-    let normalized = path
-        .trim_start_matches('/')
-        .split('/')
-        .map(|seg| {
-            if seg.starts_with(':') && seg.len() > 1 {
-                format!("{{{}}}", &seg[1..])
-            } else {
-                seg.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("/");
-    let path = normalized.as_str();
+    let path = normalize_path(path);
+    let path = path.as_str();
     match (method, path) {
         // sessions（10）
         ("GET", "v1/sessions")
@@ -233,6 +241,23 @@ impl crate::app::Desktop {
     }
 }
 
+/// 灰路径的理由通道：`capabilities` 里那条模块的 `reason.message` **原文**。
+/// 端点没在 any module.endpoints 里声明时，按 `Unknown` 给统一文案（不是逐条自编）。
+pub fn endpoint_reason(caps: &Capabilities, path: &str) -> Option<String> {
+    let declared = caps.modules.iter().any(|m| {
+        m.endpoints.iter().any(|e| e.split_whitespace().nth(1) == Some(path))
+    });
+    if declared {
+        return None;
+    }
+    // 找这条路径归属的模块理由（若引擎声明了 reason，就逐字用它）。
+    caps.modules
+        .iter()
+        .find(|m| m.reason.is_some())
+        .and_then(|m| m.reason.as_ref())
+        .map(|r| disabled_text(r.code, &r.message))
+}
+
 /// 本客户端认的合同主版本。**只有这一处**：横幅上的「客户端 contract N」也从这里取，
 /// 别在 UI 里再写一个 1 —— 涨版本时改一处，另一处忘改就是自欺的横幅。
 pub const CLIENT_CONTRACT: u32 = 1;
@@ -291,11 +316,28 @@ mod tests {
         assert_eq!(gate_for_path(&c, "GET", "/v1/no-such-path"), Gate::Unknown);
     }
 
+    /// 判据 3：灰入口的文案必须带 `capabilities.reason.message` 原文，
+    /// 不许用自写文案顶掉它（`Desk#13`）。
     #[test]
-    fn disabled_text_only_branches_on_code() {
-        assert_eq!(disabled_text(ReasonCode::NotImplemented, "随便改的文案"), "服务端未提供（版本太旧？）");
-        assert_eq!(disabled_text(ReasonCode::DisabledByManifest, "随便"), "发行版没装这个模块");
-        assert_eq!(disabled_text(ReasonCode::Frozen, "随便"), "已冻结");
+    fn gray_reason_shows_server_message_verbatim() {
+        use nous_engine::ReasonCode as C;
+        for (code, msg) in [
+            (C::NotImplemented, "archive 模块尚未落地"),
+            (C::DisabledByManifest, "发行版关了"),
+            (C::Frozen, "扩展运行时已冻结"),
+            (C::NeedsCredentials, "要先配凭证"),
+            (C::Unknown, "服务端未声明这个功能"),
+        ] {
+            let shown = disabled_text(code, msg);
+            assert!(shown.contains(msg), "{code:?} 的灰理由丢了服务端原文：{shown}");
+        }
+    }
+
+    #[test]
+    fn disabled_text_keeps_message_and_adds_code_hint() {
+        assert_eq!(disabled_text(ReasonCode::NotImplemented, "服务端没做"), "服务端没做（服务端未提供）");
+        assert_eq!(disabled_text(ReasonCode::DisabledByManifest, "随便"), "随便（发行版未启用）");
+        assert_eq!(disabled_text(ReasonCode::Frozen, "随便"), "随便（已冻结）");
         assert!(disabled_text(ReasonCode::NeedsCredentials, "要 token").contains("设置"));
     }
 
