@@ -1261,3 +1261,17 @@ Nous `#47`（7 端点 + `capabilities`）→ Nous `#44`（会话轮次，消息�
 **选了**：`device.faux` 在场就压过 `caps.runtime.provider.kind`，没有 device 才用 caps 兜底。
 **为什么**：前者说的是「这一份数据是不是假的」，后者说的是「provider 用没用假实现」——界面角标是给数据贴的，跟着数据走。
 **反悔点**：如果引擎改成 `device.faux` 只标 provider（`caps` 同义），反过来也行，但要同时改单测和这行。
+
+## 2026-11-19 · Desk 不接 `documents`（#16，乙案）
+
+**决定**：桌面端不做 `documents` 编辑器。引擎实现了 Nous `#48` 的 `documents` 模块也跟本客户端无关 ——
+从 `capability.rs` 删掉 `Feature::Documents`、`probe_path` / `module_name` 两条分支、
+12 条 `v1/documents/*` 路径映射与测试表中的那一条，UI 入口不出现、也不发这些调用。
+`wire.md` 的差距表补「**Desk 不用**」一行。
+
+**为什么**：预设 16 条端点收敛成 `documents` 12 条是引擎侧的事；桌面端当前没有编辑器，
+先登记一个没人用的 Feature 只是把「能力表认得」伪装成「功能可用」，还多一份会漂的路径表。
+删干净（含路径测试表）才不会留下悬空变体或误导后来的调用点。
+
+**反悔点**：哪天真要在桌面端做文档编辑器（配置 / 技能 / 提示词的可视化编辑），
+再把 Feature 与 12 条映射加回去，并按当时引擎的 `endpoints` 重新校准；不要照抄这里删掉的版本。
