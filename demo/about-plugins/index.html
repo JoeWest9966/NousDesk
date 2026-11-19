@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NousDesk · 关于页 · 插件清单（4 套版面）</title>
+<title>NousDesk · 关于页 · 概览 + 插件（3 套插件页版面）</title>
 <link rel="stylesheet" href="fonts.css">
 <style>
 :root{
@@ -14,8 +14,8 @@
   --text:#1a1a1a; --text-2:#333; --muted:#999; --faint:#aaa;
   --line:#e6e6e6; --line-strong:#e2e2e2; --line-soft:#eee;
   --accent:#07c160; --accent-hover:#06ad56; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f;
-  --ok:#079c50; --danger:#d32f2f; --danger-soft:#fff1f0; --warn:#b26a00;
-  --badge:#fa5151; --selected:#d9d9d9;
+  --ok:#079c50; --frozen:#b26a00; --frozen-soft:#fdf6ea;
+  --danger:#d32f2f; --danger-soft:#fff1f0; --badge:#fa5151; --selected:#d9d9d9;
   --body:13px;
 }
 *{box-sizing:border-box}
@@ -27,24 +27,24 @@ body{
   padding:32px 28px 72px;
 }
 .mono{font-family:'JetBrainsMono','Inter',monospace}
+button{font:inherit}
 
 /* ── demo 页头（不是应用的一部分） ────────────────────── */
-.head{max-width:1240px;margin:0 auto 18px;display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.head{max-width:1280px;margin:0 auto 16px;display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap}
 .head h1{margin:0 0 6px;font-size:22px;font-weight:600;letter-spacing:-.01em}
-.head .sub{margin:0;font-size:12.5px;color:var(--muted);line-height:1.65;max-width:660px}
+.head .sub{margin:0;font-size:12.5px;color:var(--muted);line-height:1.65;max-width:700px}
+.head .sub b{color:var(--text-2);font-weight:500}
 .head .right{margin-left:auto;display:flex;flex-direction:column;gap:10px;align-items:flex-end}
 .sw{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
 .sw button{
-  appearance:none;border:0;background:transparent;padding:8px 13px;font:inherit;font-size:12px;
+  appearance:none;border:0;background:transparent;padding:8px 13px;font-size:12px;
   color:var(--text-2);cursor:pointer;border-right:1px solid var(--line-soft);
 }
 .sw button:last-child{border-right:0}
 .sw button:hover{background:var(--surface)}
 .sw button.on{background:var(--accent-soft);color:var(--accent-fg);font-weight:600}
-
-/* 方案说明条 */
 .note{
-  max-width:1240px;margin:0 auto 14px;background:#fff;border:1px solid var(--line);
+  max-width:1280px;margin:0 auto 14px;background:#fff;border:1px solid var(--line);
   border-radius:8px;padding:11px 14px;font-size:12px;line-height:1.7;color:var(--text-2);
   display:flex;gap:18px;flex-wrap:wrap;
 }
@@ -53,19 +53,17 @@ body{
 
 /* ── 应用窗口 ─────────────────────────────────────────── */
 .win{
-  max-width:1240px;margin:0 auto;display:flex;background:var(--panel);
+  max-width:1280px;margin:0 auto;display:flex;background:var(--panel);
   border:1px solid var(--line);border-radius:10px;overflow:hidden;
   box-shadow:0 18px 48px rgba(0,0,0,.10),0 1px 2px rgba(0,0,0,.05);
-  min-height:760px;
+  min-height:820px;
 }
-/* 图标条 */
 .rail{width:60px;flex:none;background:var(--sidebar);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
 .rail .ic{width:36px;height:36px;border-radius:7px;display:grid;place-items:center;color:var(--sidebar-idle);font-size:15px;cursor:default}
 .rail .ic:hover{background:var(--sidebar-hover);color:#fff}
 .rail .ic.on{color:var(--accent)}
 .rail .me{margin-top:auto;width:30px;height:30px;border-radius:6px;background:var(--sidebar-open);color:#ddd;display:grid;place-items:center;font-size:12px}
 
-/* 会话列表（背景板） */
 .list{width:280px;flex:none;background:var(--list-bg);border-right:1px solid var(--line-soft);display:flex;flex-direction:column}
 .list .top{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line-soft)}
 .list .search{flex:1;height:26px;border-radius:5px;background:var(--surface);color:var(--faint);font-size:11.5px;display:flex;align-items:center;padding:0 8px}
@@ -91,101 +89,144 @@ body{
 .set-nav div{padding:8px 10px;border-radius:6px;font-size:12.5px;color:var(--text-2)}
 .set-nav div:hover{background:var(--line-soft)}
 .set-nav div.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
-.pane{flex:1;min-width:0;padding:22px;overflow:visible}
+.pane{flex:1;min-width:0;padding:20px 22px 26px;overflow:visible}
 
-/* ── 关于页（四套方案共用） ───────────────────────────── */
-.about{display:flex;flex-direction:column;gap:14px;max-width:520px}
-.about.wide{max-width:686px}
-.about.mid{max-width:640px}
-.about h2{margin:0;font-size:15px;font-weight:400}
-.about .lead{margin:0;font-size:11.5px;color:var(--muted);line-height:1.6}
-.kv{display:flex;flex-direction:column;gap:3px;padding-bottom:8px;border-bottom:1px solid var(--line-soft)}
-.kv .k{font-size:11.5px;color:var(--muted)}
-.kv .v{font-size:12px;overflow-wrap:anywhere}
+/* ── 关于页：顶部菜单（固定设计，不随方案变） ──────────── */
+.ahead{
+  display:flex;align-items:center;gap:14px;padding-bottom:11px;margin-bottom:16px;
+  border-bottom:1px solid var(--line-soft);
+}
+.ahead h2{margin:0;font-size:15px;font-weight:400}
+.ahead .sub{font-size:11.5px;color:var(--muted)}
+.atabs{margin-left:auto;display:flex;gap:2px;background:var(--surface);padding:2px;border-radius:7px}
+.atabs button{
+  appearance:none;border:0;background:transparent;padding:5px 11px;font-size:12px;
+  color:var(--text-2);border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:5px;
+}
+.atabs button:hover{color:var(--text)}
+.atabs button.on{background:var(--panel);color:var(--text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.atabs .cnt{font-size:10.5px;color:var(--muted)}
+.atabs button.on .cnt{color:var(--accent-fg)}
+.tabview[hidden]{display:none}
 
-/* 插件区公共：标题行 */
-.phead{display:flex;align-items:baseline;gap:10px;margin-top:6px}
-.phead .pt{font-size:12.5px;font-weight:500}
-.phead .pc{margin-left:auto;font-size:11.5px;color:var(--muted)}
-.phead .pc b{font-weight:600;color:var(--text-2)}
-.glabel{font-size:10px;color:var(--faint);padding:0 2px;margin-top:-6px;letter-spacing:.02em}
+/* ── 概览 ─────────────────────────────────────────────── */
+.ov{max-width:560px;display:flex;flex-direction:column;gap:18px}
+.ov .lead{margin:0;font-size:11.5px;color:var(--muted);line-height:1.6}
+.ov h3{margin:0 0 2px;font-size:10px;font-weight:400;color:var(--faint);letter-spacing:.04em}
+.kv{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12px}
+.kv .k{width:88px;flex:none;color:var(--muted);font-size:11.5px}
+.kv .v{min-width:0;overflow-wrap:anywhere}
+.kv .v.mono{font-size:11px}
+.kv .tail{margin-left:auto;font-size:10.5px;color:var(--faint)}
 
-/* 01 一列清单 */
-.mlist{display:flex;flex-direction:column}
-.mrow{display:flex;align-items:center;gap:7px;height:30px;padding:0 2px}
+/* ── 插件页公共 ───────────────────────────────────────── */
+.pv{max-width:726px}
+.pv-tools{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.psearch{
+  display:flex;align-items:center;gap:6px;height:28px;padding:0 9px;border:1px solid var(--line);
+  border-radius:6px;background:var(--surface);width:220px;font-size:11.5px;color:var(--muted);
+}
+.psearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--text);width:100%}
+.psearch .kbd{font-size:10px;color:var(--faint);border:1px solid var(--line);border-radius:3px;padding:0 3px;background:#fff}
+.pcount{margin-left:auto;font-size:11px;color:var(--muted)}
+.pcount b{font-weight:600;color:var(--text-2)}
 .dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--accent)}
-.dot.off{background:transparent;border:1px solid #cfcfcf;width:6px;height:6px}
-.mrow .cn{font-size:12px}
-.mrow .mono{font-size:11px;color:var(--muted);margin-left:2px}
-.mrow .gap{flex:1}
-.mrow .right{font-size:11.5px;color:var(--muted)}
-.mrow .right.warn{color:var(--warn)}
-.mrow.dim .cn{color:var(--muted)}
-.mrow.dim:hover{background:transparent}
-.mrow.warnrow .right{color:var(--warn)}
+.dot.off{background:transparent;border:1px solid #cfcfcf}
+.badge{font-size:10px;padding:1px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent-fg);white-space:nowrap}
+.badge.off{background:var(--surface);color:var(--muted)}
+.badge.frozen{background:var(--frozen-soft);color:var(--frozen)}
+.vtag{font-size:10px;color:var(--muted);font-family:'JetBrainsMono',monospace}
+.glabel{font-size:10px;color:var(--faint);letter-spacing:.04em;padding:10px 2px 4px}
+.ep{display:flex;align-items:center;gap:7px;height:26px;border-bottom:1px solid var(--line-soft);font-family:'JetBrainsMono',monospace;font-size:10.5px}
+.ep .m{width:34px;flex:none;font-size:9.5px;letter-spacing:.02em;color:var(--muted)}
+.ep .m.post{color:var(--accent-fg)}
+.ep .p{color:var(--text-2);overflow-wrap:anywhere}
+.ep:last-child{border-bottom:0}
+.kvmini{display:grid;grid-template-columns:70px 1fr;gap:4px 10px;font-size:11.5px}
+.kvmini .k{color:var(--muted)}
+.kvmini .v{color:var(--text-2);overflow-wrap:anywhere}
+.reason{
+  display:flex;gap:8px;padding:8px 10px;border-radius:6px;background:var(--frozen-soft);
+  border:1px solid #f0e2c8;font-size:11px;line-height:1.6;color:#7a5210;
+}
+.reason .t{font-weight:500;flex:none}
+.note-inline{font-size:10.5px;color:var(--faint);line-height:1.6}
 
-/* 02 两栏小卡 */
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.card{border:1px solid var(--line-soft);border-radius:8px;padding:9px 11px;display:flex;flex-direction:column;gap:4px;min-height:54px;background:var(--panel)}
-.card .l1{display:flex;align-items:center;gap:7px}
-.card .l1 .cn{font-size:12px}
-.card .l1 .right{margin-left:auto;font-size:11px;color:var(--muted)}
-.card .l2{font-size:10.5px;color:var(--faint)}
-.card.off{border-style:dashed;border-color:var(--line);background:var(--panel-alt)}
-.card.off .l2{color:var(--muted)}
-.card.frozen{border-color:#e8dcc8;background:#fdfaf4}
+/* 方案 01：列表 + 右侧详情 */
+.split{display:grid;grid-template-columns:268px minmax(0,1fr);gap:18px;min-height:520px}
+.plist{border-right:1px solid var(--line-soft);padding-right:10px;display:flex;flex-direction:column}
+.pitem{
+  display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer;
+}
+.pitem:hover{background:var(--row-hover)}
+.pitem.on{background:var(--accent-soft)}
+.pitem .ic{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.pitem .l1{display:flex;align-items:center;gap:6px;font-size:12px}
+.pitem .l2{font-size:10px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.pitem .n{font-size:10.5px;color:var(--muted);flex:none}
+.pitem.on .l1{color:var(--accent-fg);font-weight:500}
+.detail{min-width:0;display:flex;flex-direction:column;gap:13px}
+.detail .dh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.detail .dh .cn{font-size:15px}
+.detail .dh .mono{font-size:11px;color:var(--muted)}
+.detail .dh .badge{margin-left:auto}
+.detail .meta{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;padding:10px 0;border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft)}
+.detail .sect{font-size:10px;color:var(--faint);letter-spacing:.04em}
 
-/* 03 概览 + 折叠 */
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border-radius:999px;padding:4px 11px;font-size:11.5px;color:var(--text-2)}
-.chip .dot{width:5px;height:5px}
-.fold{display:flex;align-items:center;gap:7px;padding:6px 2px;font-size:11.5px;color:var(--text-2);cursor:pointer;border-radius:5px}
-.fold:hover{background:var(--line-soft)}
-.fold .caret{width:10px;color:var(--muted);transition:transform .12s}
-.fold.open .caret{transform:rotate(90deg)}
-.fold .n{margin-left:auto;color:var(--muted);font-size:11px}
-.foldbody{display:none;padding:2px 2px 0}
-.foldbody.open{display:block}
-.foldbody .mrow{height:auto;min-height:26px;padding:3px 2px}
-.foldbody .reason{font-size:10.5px;color:var(--faint);margin-left:auto;text-align:right;padding-left:12px}
+/* 方案 02：单列折叠 */
+.acc{display:flex;flex-direction:column}
+.aitem{border-bottom:1px solid var(--line-soft)}
+.ahead2{display:flex;align-items:center;gap:8px;padding:9px 6px;cursor:pointer;border-radius:5px}
+.ahead2:hover{background:var(--row-hover)}
+.ahead2 .cn{font-size:12.5px}
+.ahead2 .mono{font-size:10.5px;color:var(--muted)}
+.ahead2 .n{margin-left:auto;font-size:10.5px;color:var(--muted)}
+.ahead2 .caret{width:10px;color:var(--muted);transition:transform .12s;flex:none}
+.aitem.open .caret{transform:rotate(90deg)}
+.abody{display:none;padding:2px 8px 14px 24px}
+.aitem.open .abody{display:block}
+.abody .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;margin-bottom:10px}
+.abody .sect{font-size:10px;color:var(--faint);letter-spacing:.04em;margin:8px 0 4px}
+.abody .note-inline{margin-top:8px}
 
-/* 04 两列对照表 */
-.tbl{display:grid;grid-template-columns:1fr 66px 52px;column-gap:10px}
-.tbl .th{font-size:10px;color:var(--faint);padding:2px 2px 4px;border-bottom:1px solid var(--line-soft)}
-.tbl .th.n{text-align:right}
-.tbl .r{display:contents}
-.tbl .c{display:flex;align-items:center;gap:6px;height:28px;border-bottom:1px solid var(--line-soft);font-size:12px}
-.tbl .c.n{justify-content:flex-end;color:var(--muted);font-size:11.5px}
-.tbl .c.s{font-size:11.5px;color:var(--ok)}
-.tbl .c.s.off{color:var(--muted)}
-.tbl .c.s.frozen{color:var(--warn)}
-.tbl .c.dim{border-bottom-color:transparent}
-.tbl .c.dim .cn{color:var(--muted)}
-.tbl .c .mono{font-size:10.5px;color:var(--muted)}
+/* 方案 03：对照表 */
+.tbl{display:flex;flex-direction:column}
+.tr{display:grid;grid-template-columns:1fr 62px 74px 44px;gap:10px;align-items:center;padding:0 6px;height:34px;border-bottom:1px solid var(--line-soft);font-size:12px;cursor:pointer}
+.tr.th{height:26px;font-size:10px;color:var(--faint);cursor:default;border-bottom:1px solid var(--line-soft)}
+.tr:not(.th):hover{background:var(--row-hover)}
+.tr .who{display:flex;align-items:baseline;gap:7px;min-width:0}
+.tr .who .mono{font-size:10.5px;color:var(--muted)}
+.tr .st{font-size:11.5px;color:var(--ok)}
+.tr .st.off{color:var(--muted)}
+.tr .st.frozen{color:var(--frozen)}
+.tr .n{text-align:right;font-size:11.5px;color:var(--muted)}
+.tr .caret{color:var(--faint);font-size:11px;text-align:right}
+.trd{grid-column:1/-1;padding:2px 8px 12px 6px;border-bottom:1px solid var(--line-soft)}
+.trd .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:8px}
+.trd .sect{font-size:10px;color:var(--faint);letter-spacing:.04em;margin:8px 0 4px}
+.trd[hidden]{display:none}
 
-.foot{max-width:1240px;margin:18px auto 0;font-size:11.5px;line-height:1.7;color:var(--muted)}
+.foot{max-width:1280px;margin:18px auto 0;font-size:11.5px;line-height:1.75;color:var(--muted)}
 .foot b{color:var(--text-2);font-weight:500}
-[hidden]{display:none !important}
 </style>
 </head>
 <body>
 
 <div class="head">
   <div>
-    <h1>关于页 · 插件清单</h1>
+    <h1>关于页 · 概览 + 插件</h1>
     <p class="sub">
-      设置 → 关于，在现有五个键值（客户端 / 引擎 / 地址 / 配置 / 日志）下面新增一段。
-      数据是 <span class="mono">GET /v1/capabilities</span> 的 <span class="mono">modules</span>
-      —— faux 引擎真实响应：<b>11 个模块，7 启用 / 4 未启用，34 个端点</b>。
-      字号、栏宽、颜色都照 <span class="mono">theme.rs</span> 的默认皮，不是示意稿。
+      <b>关于页顶部加二级菜单</b>（概览 / 插件 11），插件做成一整页。
+      插件行显示 中文名 · 英文名 · 版本 · 状态 · 类型 · 层 · 端点数，点开看端点清单和停用原因。
+      数据 = faux 引擎真实 <span class="mono">GET /v1/capabilities</span>（11 个模块，7 启用 / 4 未启用，34 端点）+
+      <span class="mono">docs/plugins.md</span> 的类型/层/必需。
     </p>
   </div>
   <div class="right">
     <div class="sw" id="sw">
-      <button data-v="01" class="on">01 一列清单</button>
-      <button data-v="02">02 两栏小卡</button>
-      <button data-v="03">03 概览 + 折叠</button>
-      <button data-v="04">04 对照表</button>
+      <button data-v="01" class="on">01 列表 + 详情</button>
+      <button data-v="02">02 单列折叠</button>
+      <button data-v="03">03 对照表</button>
     </div>
   </div>
 </div>
@@ -194,93 +235,88 @@ body{
 
 <div class="win">
   <aside class="rail">
-    <div class="ic on">◍</div>
-    <div class="ic">⌕</div>
-    <div class="ic">◷</div>
-    <div class="ic">≡</div>
+    <div class="ic on">◍</div><div class="ic">⌕</div><div class="ic">◷</div><div class="ic">≡</div>
     <div class="me">N</div>
   </aside>
 
   <aside class="list">
     <div class="top"><div class="search">搜索</div></div>
     <div class="rows">
-      <div class="row on"><div class="av"></div><div class="rmain"><div class="rt"><b>插件清单怎么摆</b><span>14:02</span></div><div class="rp">关于页里加一段…</div></div></div>
+      <div class="row on"><div class="av"></div><div class="rmain"><div class="rt"><b>插件页怎么摆</b><span>14:02</span></div><div class="rp">版本、端点、状态…</div></div></div>
       <div class="row"><div class="av b"></div><div class="rmain"><div class="rt"><span>GPUI 输入法回归</span><span>11:40</span></div><div class="rp">组字下划线正常</div></div></div>
       <div class="row"><div class="av c"></div><div class="rmain"><div class="rt"><span>j1900 部署</span><span>昨天</span></div><div class="rp">v0.1.3 已上线</div></div></div>
-      <div class="row"><div class="av"></div><div class="rmain"><div class="rt"><span>触发器账本</span><span>周一</span></div><div class="rp">fires 可读</div></div></div>
     </div>
   </aside>
 
   <main class="settings">
-    <div class="set-head">
-      <div class="back">← 返回聊天</div>
-      <div class="title">设置</div>
-    </div>
+    <div class="set-head"><div class="back">← 返回聊天</div><div class="title">设置</div></div>
     <div class="set-body">
       <nav class="set-nav">
         <div>连接</div><div>主题</div><div>声音</div><div class="on">关于</div>
       </nav>
       <section class="pane">
 
-        <!-- ── 方案 01 ───────────────────────────────── -->
-        <div class="about" id="v01">
+        <!-- 关于页顶部菜单：固定设计 -->
+        <div class="ahead">
           <h2>关于</h2>
-          <p class="lead">引擎版本来自 GET /v1/device 的 node —— 出问题先对版本。</p>
-          <div class="kv"><div class="k">客户端</div><div class="v">v0.9.7</div></div>
-          <div class="kv"><div class="k">引擎</div><div class="v">j1900</div></div>
-          <div class="kv"><div class="k">引擎地址</div><div class="v">http://192.168.1.7:4789</div></div>
-          <div class="kv"><div class="k">配置文件</div><div class="v">/home/asus/.config/nousdesk/desktop.toml</div></div>
-          <div class="kv"><div class="k">日志</div><div class="v">/home/asus/.local/share/nousdesk/desktop.log</div></div>
-          <div class="phead"><div class="pt">插件</div><div class="pc"><b>7 / 11</b> 可用 · 34 个端点</div></div>
-          <div class="mlist" id="list01"></div>
-          <div class="glabel">未启用 · 4</div>
-          <div class="mlist" id="list01off"></div>
-        </div>
-
-        <!-- ── 方案 02 ───────────────────────────────── -->
-        <div class="about wide" id="v02" hidden>
-          <h2>关于</h2>
-          <p class="lead">引擎版本来自 GET /v1/device 的 node —— 出问题先对版本。</p>
-          <div class="kv"><div class="k">客户端</div><div class="v">v0.9.7</div></div>
-          <div class="kv"><div class="k">引擎</div><div class="v">j1900</div></div>
-          <div class="kv"><div class="k">引擎地址</div><div class="v">http://192.168.1.7:4789</div></div>
-          <div class="kv"><div class="k">配置文件</div><div class="v">/home/asus/.config/nousdesk/desktop.toml</div></div>
-          <div class="kv"><div class="k">日志</div><div class="v">/home/asus/.local/share/nousdesk/desktop.log</div></div>
-          <div class="phead"><div class="pt">插件</div><div class="pc"><b>7 / 11</b> 可用 · 34 个端点</div></div>
-          <div class="grid" id="grid02"></div>
-          <div class="glabel">未启用 · 4</div>
-          <div class="grid" id="grid02off"></div>
-        </div>
-
-        <!-- ── 方案 03 ───────────────────────────────── -->
-        <div class="about" id="v03" hidden>
-          <h2>关于</h2>
-          <p class="lead">引擎版本来自 GET /v1/device 的 node —— 出问题先对版本。</p>
-          <div class="kv"><div class="k">客户端</div><div class="v">v0.9.7</div></div>
-          <div class="kv"><div class="k">引擎</div><div class="v">j1900</div></div>
-          <div class="kv"><div class="k">引擎地址</div><div class="v">http://192.168.1.7:4789</div></div>
-          <div class="kv"><div class="k">配置文件</div><div class="v">/home/asus/.config/nousdesk/desktop.toml</div></div>
-          <div class="kv"><div class="k">日志</div><div class="v">/home/asus/.local/share/nousdesk/desktop.log</div></div>
-          <div class="phead"><div class="pt">插件</div><div class="pc"><b>7</b> 启用 · 4 未启用</div></div>
-          <div class="chips" id="chips03"></div>
-          <div class="fold" id="fold03"><span class="caret">›</span><span>未启用的 4 个</span><span class="n">预设 / 归档 / 组合 / 扩展</span></div>
-          <div class="foldbody" id="foldbody03"></div>
-        </div>
-
-        <!-- ── 方案 04 ───────────────────────────────── -->
-        <div class="about mid" id="v04" hidden>
-          <h2>关于</h2>
-          <p class="lead">引擎版本来自 GET /v1/device 的 node —— 出问题先对版本。</p>
-          <div class="kv"><div class="k">客户端</div><div class="v">v0.9.7</div></div>
-          <div class="kv"><div class="k">引擎</div><div class="v">j1900</div></div>
-          <div class="kv"><div class="k">引擎地址</div><div class="v">http://192.168.1.7:4789</div></div>
-          <div class="kv"><div class="k">配置文件</div><div class="v">/home/asus/.config/nousdesk/desktop.toml</div></div>
-          <div class="kv"><div class="k">日志</div><div class="v">/home/asus/.local/share/nousdesk/desktop.log</div></div>
-          <div class="phead"><div class="pt">插件</div><div class="pc"><b>7 / 11</b> 可用 · 34 个端点</div></div>
-          <div class="tbl">
-            <div class="th">模块</div><div class="th">状态</div><div class="th n">端点</div>
-            <div id="tbl04"></div>
+          <div class="atabs" id="atabs">
+            <button data-t="ov">概览</button>
+            <button data-t="pv" class="on">插件<span class="cnt">11</span></button>
           </div>
+        </div>
+
+        <!-- 概览 -->
+        <div class="tabview ov" id="tab-ov" hidden>
+          <p class="lead">引擎版本来自 GET /v1/capabilities 的 server.version —— 出问题先对版本。</p>
+          <div>
+            <h3>版本</h3>
+            <div class="kv"><span class="k">客户端</span><span class="v">v0.9.7</span><span class="tail">CARGO_PKG_VERSION</span></div>
+            <div class="kv"><span class="k">引擎</span><span class="v">0.1.3</span><span class="tail">j1900</span></div>
+            <div class="kv"><span class="k">合同</span><span class="v">v1</span><span class="tail">不匹配出横幅</span></div>
+          </div>
+          <div>
+            <h3>运行时</h3>
+            <div class="kv"><span class="k">provider</span><span class="v">faux · 假回复，别当真</span><span class="tail">DEMO</span></div>
+            <div class="kv"><span class="k">服务</span><span class="v">engine · triggers</span><span class="tail">自带本机</span></div>
+          </div>
+          <div>
+            <h3>文件与地址</h3>
+            <div class="kv"><span class="k">引擎地址</span><span class="v mono">http://192.168.1.7:4789</span></div>
+            <div class="kv"><span class="k">配置文件</span><span class="v mono">/home/asus/.config/nousdesk/desktop.toml</span></div>
+            <div class="kv"><span class="k">日志</span><span class="v mono">/home/asus/.local/share/nousdesk/desktop.log</span></div>
+          </div>
+        </div>
+
+        <!-- 插件：三个方案 -->
+        <div class="tabview" id="tab-pv">
+
+          <div class="pv" id="v01">
+            <div class="pv-tools">
+              <label class="psearch">⌕<input id="q01" placeholder="搜插件 / 模块名"><span class="kbd">/</span></label>
+              <span class="pcount"><b>7</b> 启用 · 4 未启用 · 34 端点</span>
+            </div>
+            <div class="split">
+              <div class="plist" id="plist"></div>
+              <div class="detail" id="detail"></div>
+            </div>
+          </div>
+
+          <div class="pv" id="v02" hidden>
+            <div class="pv-tools">
+              <label class="psearch">⌕<input id="q02" placeholder="搜插件 / 模块名"><span class="kbd">/</span></label>
+              <span class="pcount"><b>7</b> 启用 · 4 未启用 · 34 端点</span>
+            </div>
+            <div class="acc" id="acc"></div>
+          </div>
+
+          <div class="pv" id="v03" hidden>
+            <div class="pv-tools">
+              <label class="psearch">⌕<input id="q03" placeholder="搜插件 / 模块名"><span class="kbd">/</span></label>
+              <span class="pcount"><b>7</b> 启用 · 4 未启用 · 34 端点</span>
+            </div>
+            <div class="tbl" id="tbl"></div>
+          </div>
+
         </div>
 
       </section>
@@ -289,109 +325,220 @@ body{
 </div>
 
 <p class="foot">
-  <b>口径说明</b>：这里的「插件」= <span class="mono">capabilities.modules</span>，
-  也就是 <span class="mono">docs/plugins.md</span> 里能对用户功能面说话的那 11 个模块
-  （sessions / documents / presets / archive / combos / triggers / device / selection / skills / prompts / ext）。
-  内核仓里 17 个 crate 的分层清单（kernel / platform / app / dev）<b>没有</b>任何端点吐出来，
-  想显示那一层得先在引擎加端点 —— 那是另一张票。
-  「端点」数 = capabilities 里该模块的 endpoints 条数。
+  <b>数据口径</b>：插件 = <span class="mono">GET /v1/capabilities</span> 的 <span class="mono">modules</span>（11 个功能模块）。
+  <b>版本</b>现在只能统一取 <span class="mono">server.version</span>（0.1.3）—— 协议里没有每模块版本；
+  类型 / 层 / 必需 / 来源 crate 来自内核 <span class="mono">docs/plugins.md</span> 的表，客户端拿不到。
+  要让插件行显示各自的版本和分层，得给 <span class="mono">capabilities.modules</span> 加
+  <span class="mono">version</span> / <span class="mono">kind</span> / <span class="mono">layer</span> /
+  <span class="mono">required</span> 四个可选字段（内核仓一张票），桌面端只负责画。
+  demo 里这四列是照目标形态画的；字段缺失时降级为「版本 = 引擎版本、类型/层 = —」。
 </p>
 
 <script>
-const MODULES = [
-  { name:'sessions',  cn:'会话',   on:true,  n:11 },
-  { name:'documents', cn:'文档',   on:true,  n:12 },
-  { name:'triggers',  cn:'触发器', on:true,  n:3  },
-  { name:'device',    cn:'设备',   on:true,  n:5  },
-  { name:'skills',    cn:'技能',   on:true,  n:1  },
-  { name:'prompts',   cn:'提示词', on:true,  n:1  },
-  { name:'selection', cn:'选择',   on:true,  n:1  },
-  { name:'ext',       cn:'扩展',   on:false, code:'frozen',
-    reason:'扩展运行时已冻结，这里只返回空清单' },
-  { name:'presets',   cn:'预设',   on:false, code:'not_implemented',
-    reason:'presets 模块尚未落地' },
-  { name:'archive',   cn:'归档',   on:false, code:'not_implemented',
-    reason:'archive 模块尚未落地' },
-  { name:'combos',    cn:'组合',   on:false, code:'not_implemented',
-    reason:'combos 模块尚未落地' },
+const M = [
+  { name:'sessions',  cn:'会话',   on:true,  n:11, kind:'编译期',   layer:'app',      req:'是', crate:'nous-sessions',  desc:'pi 本体（#44），承载最小轮次与取消收敛' },
+  { name:'documents', cn:'文档',   on:true,  n:12, kind:'编译期',   layer:'app',      req:'是', crate:'nous-documents', desc:'#48：一个实现生成 presets / prompts 两套端点' },
+  { name:'triggers',  cn:'触发器', on:true,  n:3,  kind:'运行时外挂', layer:'app',      req:'否', crate:'—',             desc:'#57：定义与账本在 store，点火走同一个 Session' },
+  { name:'device',    cn:'设备',   on:true,  n:5,  kind:'编译期',   layer:'app',      req:'是', crate:'nous-server',    desc:'机器 / 模型 / 能力表 / 路由表（server 的功能面，docs/plugins.md 里没有独立行）' },
+  { name:'skills',    cn:'技能',   on:true,  n:1,  kind:'声明式',   layer:'app',      req:'否', crate:'—',             desc:'skill 目录（提供），管理面见 skills-admin' },
+  { name:'prompts',   cn:'提示词', on:true,  n:1,  kind:'声明式',   layer:'app',      req:'是', crate:'(待建) nous-prompts', desc:'render() 纯函数：不碰盘不碰网不看时钟' },
+  { name:'selection', cn:'选择',   on:true,  n:1,  kind:'编译期',   layer:'app',      req:'否', crate:'nous-server',    desc:'写当前选择（板 / 机器 / 模型）' },
+  { name:'ext',       cn:'扩展',   on:false, n:0,  kind:'运行时外挂', layer:'app',      req:'否', crate:'nous-ext',       desc:'扩展装载 / 帧协议 / 进程监管 / 熔断 / 热加载', code:'frozen', reason:'扩展运行时已冻结，这里只返回空清单' },
+  { name:'presets',   cn:'预设',   on:false, n:0,  kind:'声明式',   layer:'app',      req:'否', crate:'—',             desc:'模板 / 终极模板名册', code:'not_implemented', reason:'presets 模块尚未落地' },
+  { name:'archive',   cn:'归档',   on:false, n:0,  kind:'运行时外挂', layer:'app',      req:'否', crate:'—',             desc:'维护动作，尚未归位', code:'not_implemented', reason:'archive 模块尚未落地' },
+  { name:'combos',    cn:'组合',   on:false, n:0,  kind:'声明式',   layer:'app',      req:'否', crate:'—',             desc:'组合预设', code:'not_implemented', reason:'combos 模块尚未落地' },
 ];
-const ON = MODULES.filter(m => m.on);
-const OFF = MODULES.filter(m => !m.on);
-const stateWord = m => m.code === 'frozen' ? '已冻结' : '未落地';
+const VERSION = '0.1.3';
+const ENDPOINTS = {
+  sessions:['GET /v1/sessions','GET /v1/unread','POST /v1/read/:id','POST /v1/sessions',
+            'GET /v1/sessions/:id/entries','POST /v1/sessions/:id/messages','GET /v1/sessions/:id/events',
+            'POST /v1/sessions/:id/abort','POST /v1/sessions/:id/fork','POST /v1/sessions/:id/rename',
+            'POST /v1/sessions/:id/pin'],
+  documents:['GET /v1/documents/{kind}','GET /v1/documents/{kind}/{section}/{name}',
+             'PUT /v1/documents/{kind}/{section}/{name}','POST /v1/documents/{kind}/{section}',
+             'POST /v1/documents/{kind}/{section}/{name}/rename',
+             'POST /v1/documents/{kind}/{section}/{name}/publish',
+             'POST /v1/documents/{kind}/{section}/{name}/reload',
+             'GET /v1/documents/{kind}/{section}/{name}/validate',
+             'GET /v1/documents/{kind}/{section}/{name}/history',
+             'GET /v1/documents/{kind}/{section}/{name}/history/diff',
+             'GET /v1/documents/{kind}/{section}/{name}/pending',
+             'GET /v1/documents/{kind}/{section}/{name}/pending/diff'],
+  triggers:['GET /v1/triggers','POST /v1/triggers/{code}/fire','GET /v1/triggers/{code}/fires'],
+  device:['GET /v1/machines','GET /v1/models','GET /v1/device','GET /v1/capabilities','GET /v1/_routes'],
+  skills:['GET /v1/skills'], prompts:['GET /v1/prompts'], selection:['GET /v1/selection'],
+};
+const stateWord = m => m.on ? '启用' : (m.code === 'frozen' ? '已冻结' : '未落地');
+const badgeCls = m => m.on ? 'badge' : (m.code === 'frozen' ? 'badge frozen' : 'badge off');
 
-/* 01 一列清单 */
-const row01 = m => `
-  <div class="mrow ${m.on ? '' : 'dim'}">
-    <span class="dot ${m.on ? '' : 'off'}"></span>
-    <span class="cn">${m.cn}</span>
-    <span class="mono">${m.name}</span>
-    <span class="gap"></span>
-    <span class="right ${m.on ? '' : (m.code === 'frozen' ? 'warn' : '')}">
-      ${m.on ? m.n + ' 端点' : stateWord(m)}
-    </span>
-  </div>`;
-document.getElementById('list01').innerHTML = ON.map(row01).join('');
-document.getElementById('list01off').innerHTML = OFF.map(row01).join('');
+const stars = s => s.replace(/[\u0026<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hit = (m, q) => !q || (m.cn + m.name + m.desc + m.crate).toLowerCase().includes(q);
 
-/* 02 两栏小卡 */
-const card02 = m => `
-  <div class="card ${m.on ? '' : (m.code === 'frozen' ? 'off frozen' : 'off')}">
-    <div class="l1">
-      <span class="dot ${m.on ? '' : 'off'}"></span>
+/* ── 01 列表 + 详情 ─────────────────────────────────── */
+const plist = document.getElementById('plist');
+const detail = document.getElementById('detail');
+let sel = 0;
+
+function renderList(q) {
+  const rows = M.map((m, i) => ({m, i})).filter(({m}) => hit(m, q));
+  plist.innerHTML = '<div class="glabel">全部 · ' + rows.length + '</div>' +
+    rows.map(({m, i}) => `
+      <div class="pitem ${m.on ? '' : 'dim'} ${i === sel ? 'on' : ''}" data-i="${i}">
+        <span class="dot ${m.on ? '' : 'off'}"></span>
+        <span class="ic">
+          <span class="l1">${m.cn}<span class="mono" style="font-size:10px;color:var(--faint)">${m.name}</span></span>
+          <span class="l2"><span class="mono">v${VERSION}</span><span>${stateWord(m)}</span></span>
+        </span>
+        <span class="n">${m.on ? m.n : '—'}</span>
+      </div>`).join('');
+  plist.querySelectorAll('.pitem').forEach(el => {
+    el.addEventListener('click', () => { sel = +el.dataset.i; renderList(q); renderDetail(); });
+  });
+}
+
+function renderDetail() {
+  const m = M[sel];
+  const eps = ENDPOINTS[m.name] || [];
+  detail.innerHTML = `
+    <div class="dh">
       <span class="cn">${m.cn}</span>
-      <span class="right">${m.on ? m.n + ' 端点' : stateWord(m)}</span>
+      <span class="mono">${m.name}</span>
+      <span class="${badgeCls(m)}">${stateWord(m)}</span>
     </div>
-    <div class="l2 mono">${m.on ? m.name : m.reason}</div>
-  </div>`;
-document.getElementById('grid02').innerHTML = ON.map(card02).join('');
-document.getElementById('grid02off').innerHTML = OFF.map(card02).join('');
+    <div class="meta">
+      <div class="kvmini"><span class="k">版本</span><span class="v mono">${VERSION}</span></div>
+      <div class="kvmini"><span class="k">合同</span><span class="v mono">v1</span></div>
+      <div class="kvmini"><span class="k">类型</span><span class="v">${m.kind}</span></div>
+      <div class="kvmini"><span class="k">层</span><span class="v mono">${m.layer}</span></div>
+      <div class="kvmini"><span class="k">必需</span><span class="v">${m.req}</span></div>
+      <div class="kvmini"><span class="k">来源</span><span class="v mono">${m.crate}</span></div>
+      <div class="kvmini"><span class="k">端点</span><span class="v">${m.on ? m.n + ' 条' : '未声明（路由未开放）'}</span></div>
+      <div class="kvmini"><span class="k">客户端</span><span class="v">已登记 · capability.rs</span></div>
+    </div>
+    ${m.on ? '' : `<div class="reason"><span class="t">${stateWord(m)}</span><span>${m.reason}</span></div>`}
+    <div>
+      <div class="sect">端点 · ${eps.length}</div>
+      ${eps.length ? eps.map(e => {
+        const [method, ...rest] = e.split(' ');
+        return `<div class="ep"><span class="m ${method === 'POST' ? 'post' : ''}">${method}</span><span class="p">${rest.join(' ')}</span></div>`;
+      }).join('') : '<div class="ep"><span class="p" style="color:var(--faint)">— 这个模块没有声明端点</span></div>'}
+    </div>
+    <div class="note-inline">${m.desc}</div>`;
+}
 
-/* 03 概览 + 折叠 */
-document.getElementById('chips03').innerHTML = ON
-  .map(m => `<span class="chip"><span class="dot"></span>${m.cn}</span>`).join('');
-document.getElementById('foldbody03').innerHTML = OFF.map(m => `
-  <div class="mrow">
-    <span class="dot off"></span>
-    <span class="cn">${m.cn}</span>
-    <span class="mono">${m.name}</span>
-    <span class="reason">${stateWord(m)} · ${m.reason}</span>
-  </div>`).join('');
-const fold = document.getElementById('fold03');
-const body = document.getElementById('foldbody03');
-fold.addEventListener('click', () => {
-  fold.classList.toggle('open');
-  body.classList.toggle('open');
+const q01 = document.getElementById('q01');
+q01.addEventListener('input', () => {
+  const q = q01.value.trim().toLowerCase();
+  const first = M.findIndex(m => hit(m, q));
+  if (first >= 0 && !hit(M[sel], q)) { sel = first; renderDetail(); }
+  renderList(q);
+});
+renderList(''); renderDetail();
+
+/* ── 02 单列折叠 ─────────────────────────────────────── */
+const acc = document.getElementById('acc');
+function renderAcc(q) {
+  const rows = M.filter(m => hit(m, q));
+  acc.innerHTML = rows.map(m => {
+    const eps = ENDPOINTS[m.name] || [];
+    return `
+      <div class="aitem">
+        <div class="ahead2">
+          <span class="dot ${m.on ? '' : 'off'}"></span>
+          <span class="cn">${m.cn}</span>
+          <span class="mono">${m.name}</span>
+          <span class="vtag">v${VERSION}</span>
+          <span class="${badgeCls(m)}">${stateWord(m)}</span>
+          <span class="n">${m.on ? m.n + ' 端点' : '—'}</span>
+          <span class="caret">›</span>
+        </div>
+        <div class="abody">
+          ${m.on ? '' : `<div class="reason" style="margin-bottom:10px"><span class="t">${stateWord(m)}</span><span>${m.reason}</span></div>`}
+          <div class="grid2">
+            <div class="kvmini"><span class="k">版本</span><span class="v mono">${VERSION} · 合同 v1</span></div>
+            <div class="kvmini"><span class="k">类型</span><span class="v">${m.kind} · 层 <span class="mono">${m.layer}</span></span></div>
+            <div class="kvmini"><span class="k">必需</span><span class="v">${m.req}</span></div>
+            <div class="kvmini"><span class="k">来源</span><span class="v mono">${m.crate}</span></div>
+          </div>
+          <div class="note-inline">${m.desc}</div>
+          <div class="sect">端点 · ${eps.length}</div>
+          ${eps.length ? eps.map(e => {
+            const [method, ...rest] = e.split(' ');
+            return `<div class="ep"><span class="m ${method === 'POST' ? 'post' : ''}">${method}</span><span class="p">${rest.join(' ')}</span></div>`;
+          }).join('') : '<div class="ep"><span class="p" style="color:var(--faint)">— 没有声明端点</span></div>'}
+        </div>
+      </div>`;
+  }).join('');
+  acc.querySelectorAll('.ahead2').forEach(h => {
+    h.addEventListener('click', () => h.parentElement.classList.toggle('open'));
+  });
+}
+const q02 = document.getElementById('q02');
+q02.addEventListener('input', () => renderAcc(q02.value.trim().toLowerCase()));
+renderAcc('');
+acc.querySelector('.aitem')?.classList.add('open');
+
+/* ── 03 对照表 ───────────────────────────────────────── */
+const tbl = document.getElementById('tbl');
+function renderTbl(q) {
+  const rows = M.filter(m => hit(m, q));
+  tbl.innerHTML = `
+    <div class="tr th"><span>插件</span><span>版本</span><span>状态</span><span class="n">端点</span></div>
+    ${rows.map(m => {
+      const eps = ENDPOINTS[m.name] || [];
+      return `
+        <div class="tr" data-n="${m.name}">
+          <span class="who"><span>${m.cn}</span><span class="mono">${m.name}</span></span>
+          <span class="mono" style="font-size:10.5px;color:var(--muted)">${VERSION}</span>
+          <span class="st ${m.on ? '' : (m.code === 'frozen' ? 'frozen' : 'off')}">${stateWord(m)}</span>
+          <span class="n">${m.on ? m.n : '—'}</span>
+        </div>
+        <div class="trd" hidden>
+          ${m.on ? '' : `<div class="reason" style="margin-bottom:8px"><span class="t">${stateWord(m)}</span><span>${m.reason}</span></div>`}
+          <div class="grid2">
+            <div class="kvmini"><span class="k">类型</span><span class="v">${m.kind} · 层 <span class="mono">${m.layer}</span></span></div>
+            <div class="kvmini"><span class="k">必需</span><span class="v">${m.req} · 合同 v1</span></div>
+            <div class="kvmini"><span class="k">来源</span><span class="v mono">${m.crate}</span></div>
+            <div class="kvmini"><span class="k">客户端</span><span class="v">已登记 · capability.rs</span></div>
+          </div>
+          <div class="note-inline">${m.desc}</div>
+          <div class="sect">端点 · ${eps.length}</div>
+          ${eps.length ? eps.map(e => {
+            const [method, ...rest] = e.split(' ');
+            return `<div class="ep"><span class="m ${method === 'POST' ? 'post' : ''}">${method}</span><span class="p">${rest.join(' ')}</span></div>`;
+          }).join('') : '<div class="ep"><span class="p" style="color:var(--faint)">— 没有声明端点</span></div>'}
+        </div>`;
+    }).join('')}`;
+  tbl.querySelectorAll('.tr:not(.th)').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const d = tr.nextElementSibling;
+      d.hidden = !d.hidden;
+    });
+  });
+}
+const q03 = document.getElementById('q03');
+q03.addEventListener('input', () => renderTbl(q03.value.trim().toLowerCase()));
+renderTbl('');
+
+/* ── 顶部菜单 + 方案切换 ─────────────────────────────── */
+const tabs = document.getElementById('atabs');
+const views = { ov: document.getElementById('tab-ov'), pv: document.getElementById('tab-pv') };
+tabs.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const t = b.dataset.t;
+  for (const k in views) views[k].hidden = k !== t;
+  [...tabs.children].forEach(x => x.classList.toggle('on', x.dataset.t === t));
 });
 
-/* 04 对照表 */
-document.getElementById('tbl04').innerHTML = MODULES.map(m => `
-  <div class="r">
-    <div class="c ${m.on ? '' : 'dim'}">
-      <span class="cn">${m.cn}</span><span class="mono">${m.name}</span>
-    </div>
-    <div class="c s ${m.on ? '' : (m.code === 'frozen' ? 'frozen' : 'off')}">
-      ${m.on ? '启用' : stateWord(m)}
-    </div>
-    <div class="c n">${m.on ? m.n : '—'}</div>
-  </div>`).join('');
-
-/* 切换 */
 const NOTES = {
-  '01': `<span><b>01 一列清单</b>：关于页还是“一列事实”，插件是最后一段；启用在上、未启用在下，靠状态点和右侧一列对齐。</span>
-         <span class="cost">代价：11 行 + 原有 5 条键值要滚一屏；停用原因只剩“未落地”，看不到原话。</span>`,
-  '02': `<span><b>02 两栏小卡</b>：一屏看完，靠卡片边界分组；未启用用虚线，冻结单独一档暖底。</span>
-         <span class="cost">代价：关于页从 520 放宽到 686（和别的设置页不一样宽），窄窗要叠回单列。</span>`,
-  '03': `<span><b>03 概览 + 折叠</b>：默认只留一行数字 + 一排名字，细节（原因、英文名）点一下才出来 —— 最符合“先删后加”。</span>
-         <span class="cost">代价：端点数完全不露；chip 换行后左右不齐，扫读比列表慢。</span>`,
-  '04': `<span><b>04 对照表</b>：中文名 + 英文名 + 状态 + 端点数四列对齐，像一张合同清单，适合排查“哪个功能没有端点”。</span>
-         <span class="cost">代价：信息最全也最重，表格感把关于页做成了运维面板；宽 640，比 520 宽。</span>`,
+  '01': `<span><b>01 列表 + 详情</b>：左边扫名字（中文 + 英文 + 版本 + 状态 + 端点数），右边一整页放详情 —— 版本、合同、类型、层、必需、来源、端点清单、停用原因。</span>
+         <span class="cost">代价：多一栏，占 268px；窄窗（<1000）右栏放不下两栏，要退化成「点开详情占满 + 返回列表」。</span>`,
+  '02': `<span><b>02 单列折叠</b>：一个插件一行，点开就地展开「版本 / 类型 / 层 / 必需 / 来源 + 端点清单」，不用第二栏，窄窗也能用。</span>
+         <span class="cost">代价：同时开三条就滚得很长；扫读端点数得看折叠头，比对表慢。</span>`,
+  '03': `<span><b>03 对照表</b>：插件 / 版本 / 状态 / 端点四列对齐，点一行展开说明和端点，像一张发版清单。</span>
+         <span class="cost">代价：表格感最重；列多了窄窗就得砍列（先砍「端点」），砍完两张表都得维护。</span>`,
 };
-const sec = {
-  '01': document.getElementById('v01'),
-  '02': document.getElementById('v02'),
-  '03': document.getElementById('v03'),
-  '04': document.getElementById('v04'),
-};
+const sec = { '01': document.getElementById('v01'), '02': document.getElementById('v02'), '03': document.getElementById('v03') };
 const sw = document.getElementById('sw');
 const note = document.getElementById('note');
 function pick(v) {
@@ -400,8 +547,7 @@ function pick(v) {
   note.innerHTML = NOTES[v];
 }
 sw.addEventListener('click', e => {
-  const b = e.target.closest('button');
-  if (b) pick(b.dataset.v);
+  const b = e.target.closest('button'); if (b) pick(b.dataset.v);
 });
 pick('01');
 </script>
