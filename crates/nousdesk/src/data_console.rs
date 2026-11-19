@@ -1,5 +1,5 @@
-//! 左列第四个入口：**数据监控室** —— 把面板 `d6s4v1`（`agent.sqlite` 的 X 光机）
-//! 和 `mcfpqm`（归档库）搬进桌面端。
+//! 左列第四个入口：**数据监控室** —— 六个数据屏（`agent.sqlite` 的 X 光机）
+//! 和归档库搬进桌面端。
 //!
 //! 三列，宽度从设计稿来（`design/d9-*`，跑在 GPUI 里的这一版是 D9-G）：
 //!
@@ -774,12 +774,8 @@ impl Desktop {
             };
             let got = handle
                 .spawn(async move {
-                    // 基址 = `cfg.host` + `/api/*`。**现在这条路是断的**，而且是有意的：
-                    // 旧面板（`/p/<board>/d6s4v1/api/*`）2026-11-18 已下线，Rust 版引擎
-                    // 不提供 `/api/*`，所以这个面板只会拿到 404 并把它显示成红字。
-                    // 票面 #8 只授权砍 resolve/board，这里是「board 没了、路径无处可拼」的
-                    // 必然结果，不是顺手改的拓扑。等引擎真出 `/api`（或这个面板改走 /v1）
-                    // 再接回来；在那之前别把 404 当成 bug 去修 —— 修的是对面缺的东西。
+                    // 这一路还是旧面板的客户端，引擎并不提供这些端点 —— 404 会显示在界面上。
+                    // 改走 /v1 由 #12 接手；在那之前别把 404 当成 bug 去修。
                     let client =
                         ConsoleClient::new(&cfg.host, Duration::from_secs(15))?;
                     let (ov, cv, co, he) = tokio::join!(

@@ -9,7 +9,6 @@
 //!
 //! token 注入只有一处实现（`auth`）：`EngineClient` 和 `PinClient` 共用，
 //! 否则「配置里有 token，置顶却 401」这种事会安静地发生一遍（#10）。
-//! - [`console`]：d6s4v1 面板的哑客户端（`/p/<board>/d6s4v1/api/*`，不是引擎）。
 //!
 //! 不认业务规则，不碰 GPUI。UI 层要 16ms 合帧，那归 UI 层。
 

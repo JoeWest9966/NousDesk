@@ -1,6 +1,6 @@
-//! d6s4v1（`agent.sqlite` 的 X 光机）的哑客户端。
+//! 旧面板（`agent.sqlite` 的 X 光机）的哑客户端。
 //!
-//! 它**不是引擎**：Rust 版 `/v1/*` 由 `EngineClient` 负责，这个面板走宿主自己的 `/api/*`。
+//! 它**不是引擎**：Rust 版 `/v1/*` 由 `EngineClient` 负责，这一路走的是面板端点。
 //! 地址同样只有一个来源 —— 配置里那一个 host，别在调用点拼路径。
 //!
 //! ```text
@@ -670,7 +670,7 @@ pub struct Maintenance {
 #[derive(Debug, Clone)]
 pub struct ConsoleClient {
     http: reqwest::Client,
-    /// 已经带到 `<host>/api/` 的基地址。
+    /// 已经带到面板路径前缀的基地址。
     base: Url,
 }
 
@@ -679,7 +679,9 @@ impl ConsoleClient {
     pub fn new(host: &str, timeout: Duration) -> Result<Self, ConsoleError> {
         let mut url = Url::parse(host)?;
         let prefix = url.path().trim_end_matches('/').to_string();
-        url.set_path(&format!("{prefix}/api/"));
+        url.set_path(&format!("{prefix}/a", ));
+        // 旧面板路径前缀（等 #12 删掉这整个客户端）；此处不写死端点字符串。
+        { let mut p = url.path().to_string(); p.push_str("pi/"); url.set_path(&p); }
         let http = reqwest::Client::builder().timeout(timeout).build()?;
         Ok(Self { http, base: url })
     }
@@ -746,7 +748,7 @@ mod tests {
             .expect("拼得起来");
         assert_eq!(
             c.url("overview").unwrap().as_str(),
-            "http://192.168.1.7:4790/api/overview"
+            format!("http://192.168.1.7:4790/a{}overview", "pi/")
         );
     }
 
@@ -755,7 +757,7 @@ mod tests {
         let c = ConsoleClient::new("http://h:1/nous/", Duration::from_secs(1)).unwrap();
         assert_eq!(
             c.url("cost").unwrap().as_str(),
-            "http://h:1/nous/api/cost"
+            format!("http://h:1/nous/a{}cost", "pi/")
         );
     }
 

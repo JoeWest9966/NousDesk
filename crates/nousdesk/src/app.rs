@@ -156,7 +156,7 @@ pub(crate) enum Tab {
     Chats,
     Templates,
     Triggers,
-    /// 数据监控室：面板 `d6s4v1` + 归档库搬进桌面端（`data_console.rs`）。
+    /// 数据监控室：六个数据屏 + 归档库搬进桌面端（`data_console.rs`）。
     Data,
     /// 资源：技能 / 提示词 / 扩展（方案 03：内容 / 扩展两段）。
     Resources,
@@ -392,10 +392,13 @@ pub struct Desktop {
     /// 不叫 `cfg` —— 那个名字已经被 `config_panel` 的界面状态占了。
     pub(crate) conn: Config,
     pub(crate) host_input: Entity<InputState>,
-    /// resolve 拿到的引擎地址 —— 只用来显示，不存盘。
+    /// 配置里那一个引擎地址 —— 只用来显示，不存盘。
     pub(crate) engine_url: Option<String>,
     /// 引擎版本（`GET /v1/device` 的 `node`）。
     pub(crate) engine_node: Option<String>,
+    /// 一次连接拿到的完整设备信息。About 面板的七个字段 + DEMO 角标都读它，
+    /// 不再从别处拼第二份。
+    pub(crate) device: Option<nous_engine::types::Device>,
     /// 能力表：功能面的唯一真相。连接时拉一次，失败为 `None`（全部 Unknown）。
     pub(crate) caps: Option<nous_engine::Capabilities>,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
@@ -1028,6 +1031,7 @@ impl Desktop {
             engine_url: None,
             caps: None,
             engine_node: None,
+            device: None,
             live: None,
             live_state: Live::new(),
             streaming: false,
@@ -1148,6 +1152,7 @@ impl Desktop {
         self.loading = true;
         self.error = None;
         self.engine_url = None;
+        self.device = None;
         self.caps = None;
         cx.notify();
 
@@ -1167,10 +1172,11 @@ impl Desktop {
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 match outcome {
-                    Ok((engine, sessions, node, url, caps)) => {
+                    Ok((engine, sessions, device, url, caps)) => {
                         this.engine = Some(engine);
                         this.sessions = sessions;
-                        this.engine_node = node;
+                        this.engine_node = device.as_ref().and_then(|d| d.node.clone());
+                        this.device = device;
                         this.engine_url = Some(url.clone());
                         this.caps = caps;
                         // 换了盘之后，原来选中的那条可能不在新引擎上 —— 别留个空壳。
@@ -1184,7 +1190,7 @@ impl Desktop {
                         }
                         // 引擎连上之前如果点过 Template 页，「还没连上引擎」那句得自己消掉。
                         this.load_all_sections(false, cx);
-                        // 触发器入口由 capability 守卫；Rust 版这一族还没实现。
+                        // 触发器入口由 capability 守卫；client 已落地，能力表说可用才拉。
                         this.load_triggers(cx);
                         // 直接开在数据监控室（`NOUS_DESKTOP_OPEN=data`）时，五份数据也得
                         // 自己拉一遍 —— `switch_tab` 只在「切过去」那一刻触发。
@@ -2662,8 +2668,9 @@ impl Desktop {
     /// [`next_selection_after_archive`] 退到最近一条；退无可退回空态（真停 SSE），
     /// 绝不留一个「选着一条已经不存在的会话」的空壳。
     ///
-    /// **故意不走 [`Self::run_engine`]**：拉列表失败是常态（轮询会再拉一次），
-    /// 这里一个字都不该弹给用户，和那四处的「失败必须可见」是两种要求。
+    /// **故意不走 [`Self::run_engine`]**：这次静默失败只是让界面留着上一份列表，
+    /// 下一轮轮询会再拉 —— 它不是「常态」，也不代表失败可以藏着：
+    /// 真正需要用户知道的失败（建会话 / 发送 / 归档）走 [`Self::run_engine`] 弹提示。
     fn reload_sessions(&mut self, archived: Option<i64>, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
@@ -5008,7 +5015,7 @@ async fn load_engine(
     (
         Arc<EngineClient>,
         Vec<Session>,
-        Option<String>,
+        Option<nous_engine::types::Device>,
         String,
         Option<nous_engine::Capabilities>,
     ),
@@ -5020,14 +5027,14 @@ async fn load_engine(
     let sessions = engine.sessions().await.map_err(|e| e.to_string())?.items;
     let mut sessions = sessions;
     sort_sessions(&mut sessions, &recent);
-    // 版本只是「关于」里的展示项，拿不到不妨碍连接。
-    let node = engine.device().await.ok().and_then(|d| d.node);
+    // 设备信息只用于「关于」展示 + DEMO 角标，拿不到不妨碍连接。
+    let device = engine.device().await.ok();
     // 能力表拿不到就当没有：所有功能面按 Unknown 灰掉，不猜。
     let caps = engine.capabilities().await.ok();
     Ok((
         Arc::new(engine),
         sessions,
-        node,
+        device,
         cfg.host.clone(),
         caps,
     ))
