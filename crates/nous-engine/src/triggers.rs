@@ -232,12 +232,30 @@ pub struct TriggerClient {
 }
 
 impl TriggerClient {
+    /// token 只从 `NOUS_DESK_TOKEN` / token 文件拿；配置里那颗由 [`Self::with_token`] 传。
     pub fn new(base: &str, timeout: Duration) -> Result<Self, EngineError> {
+        Self::with_token(base, timeout, None)
+    }
+
+    /// 和 `EngineClient::with_token` / `PinClient::with_token` 同一个注入点：`crate::auth`，
+    /// 不在这里另拼 `Bearer`。**这是第三个 client** —— 前两个各漏过一次（`坑.md` 98、100）。
+    pub fn with_token(
+        base: &str,
+        timeout: Duration,
+        token: Option<&str>,
+    ) -> Result<Self, EngineError> {
         let mut url = Url::parse(base)?;
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
-        let http = reqwest::Client::builder().timeout(timeout).build()?;
+        let headers = crate::auth::headers(token).map_err(|message| EngineError::Engine {
+            status: 400,
+            message,
+        })?;
+        let http = reqwest::Client::builder()
+            .timeout(timeout)
+            .default_headers(headers)
+            .build()?;
         Ok(Self { http, base: url })
     }
 

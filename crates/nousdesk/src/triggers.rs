@@ -287,11 +287,18 @@ impl Desktop {
             cx.notify();
             return;
         }
+        // token 跟聊天、置顶走同一条注入：少了它，配了 token 的机器上触发器永远回 401
+        // （`坑.md` 100 —— 第三个自建 client 又漏了一次）。
+        let token = self.conn.resolve_token();
         cx.spawn(async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else {
                 return;
             };
-            let client = match nous_engine::TriggerClient::new(cfg.host.as_str(), Duration::from_secs(30)) {
+            let client = match nous_engine::TriggerClient::with_token(
+                cfg.host.as_str(),
+                Duration::from_secs(30),
+                token.as_deref(),
+            ) {
                 Ok(c) => Arc::new(c),
                 Err(e) => {
                     let _ = this.update(cx, |this, cx| {
