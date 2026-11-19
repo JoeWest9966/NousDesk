@@ -10,7 +10,6 @@ use nous_engine::{Module, Reason, ReasonCode};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Feature {
     Sessions,
-    Documents,
     Presets,
     Archive,
     Combos,
@@ -28,7 +27,6 @@ impl Feature {
     fn probe_path(self) -> (&'static str, &'static str) {
         match self {
             Self::Sessions => ("GET", "v1/sessions"),
-            Self::Documents => ("GET", "v1/documents/{kind}"),
             Self::Presets => ("GET", "v1/presets/{section}"),
             Self::Archive => ("GET", "v1/archive"),
             Self::Combos => ("GET", "v1/combos"),
@@ -44,7 +42,6 @@ impl Feature {
     pub fn module_name(self) -> &'static str {
         match self {
             Self::Sessions => "sessions",
-            Self::Documents => "documents",
             Self::Presets => "presets",
             Self::Archive => "archive",
             Self::Combos => "combos",
@@ -153,19 +150,6 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
         ("GET", "v1/extensions") | ("POST", "v1/extensions/create") | ("PUT", "v1/extensions/file")
         | ("POST", "v1/extensions/{op}") | ("POST", "v1/extensions/publish")
         | ("GET", "v1/extensions/files") | ("GET", "v1/extensions/file") => Some(Ext),
-        // documents（12，#48 已实现；客户端暂未调用，先让映射表认得它）
-        ("GET", "v1/documents/{kind}")
-        | ("GET", "v1/documents/{kind}/{section}/{name}")
-        | ("PUT", "v1/documents/{kind}/{section}/{name}")
-        | ("POST", "v1/documents/{kind}/{section}")
-        | ("POST", "v1/documents/{kind}/{section}/{name}/rename")
-        | ("POST", "v1/documents/{kind}/{section}/{name}/publish")
-        | ("POST", "v1/documents/{kind}/{section}/{name}/reload")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/validate")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/history")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/history/diff")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/pending")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/pending/diff") => Some(Documents),
         // selection（2）
         ("GET", "v1/selection") | ("POST", "v1/selection") => Some(Selection),
         // presets（16）
@@ -340,7 +324,6 @@ mod tests {
             ("POST", "/v1/combos/:name/:action"), ("GET", "/v1/triggers"),
             ("GET", "/v1/selection"), ("POST", "/v1/selection"),
             ("GET", "/v1/sessions/:id/events"),
-            ("GET", "/v1/documents/{kind}"),
             // 资源仓：resource_root 只给 skills / prompts / extensions 三种字面量。
             ("POST", "/v1/skills/create"), ("PUT", "/v1/skills/file"),
             ("POST", "/v1/skills/{op}"), ("POST", "/v1/skills/publish"),

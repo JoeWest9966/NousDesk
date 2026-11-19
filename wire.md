@@ -33,6 +33,7 @@ Nous 已重写成 Rust（一个进程 `nous-app`，块/`resolve` 会消失）。
 | 会话面（`sessions` / `entries` / `events` / `messages` / `abort` / `fork` / `models` / `machines`） | 8 条路径 | ✅ **已实现** |
 | 能连上还缺的 | 7 条 | 🚧 Nous `#47`（`device` / `unread` / `read` / `rename` / `selection` / `skills` / `prompts` + `/v1/capabilities`） |
 | `presets/*` 那 16 条 | 16 | ⏸ **先不做**：`/v1/capabilities` 会声明 `presets: false`，客户端把入口灰掉；将来由 `documents` 模块统一（Nous `#48`） |
+| `documents` 模块（Nous `#48`，12 端点） | 12 | ⏸ **Desk 不用**：乙案 —— 桌面端不接编辑器，`capability.rs` 不登记这个 Feature / probe_path / 映射，入口不出现、也不发这 12 条调用（引擎仍可自己声明 `documents: true`） |
 | `archive` / `combos` / `triggers` / `extensions` / `fs` | 10 | ⏸ 同上，能力表关掉 |
 | 发消息**有回复** | — | 🚧 Nous `#44`（`nous-sessions` 最小轮次）：没有它，连上去也只能看历史 |
 
