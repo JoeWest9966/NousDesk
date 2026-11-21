@@ -123,6 +123,16 @@ mod tests {
 mod write_tests {
     use crate::resource_write::*;
 
+    /// `Desk#13`：私库写操作全删（只读私库，#63）。入口不发请求，只给一行
+    /// 从 capabilities 来的理由；三个仓的闸门只有这一处。
+    #[test]
+    fn write_entries_are_closed_by_default() {
+        for repo in ["skills", "prompts", "extensions"] {
+            assert!(!crate::resources::resource_write_enabled(repo),
+                "{repo} 的写接口已删，不该说自己能写");
+        }
+    }
+
     #[test]
     fn 类别输入框按逗号空白切() {
         assert_eq!(parse_categories("写作, 效率"), vec!["写作", "效率"]);

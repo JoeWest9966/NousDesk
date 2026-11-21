@@ -1936,6 +1936,11 @@ impl Desktop {
 
     /// 进某个目录。`None` = 从这条会话的 cwd 起。
     fn cfg_enter_dir(&mut self, path: Option<String>, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/fs/dirs") {
+            self.cfg.error = Some(reason);
+            cx.notify();
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -1964,6 +1969,11 @@ impl Desktop {
     /// 不能自己把改的值写上去：换模型时服务端会把档位按新模型重夹一次，
     /// 那个结果只有回包里有。
     fn cfg_apply(&mut self, patch: ConfigPatch, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/sessions/{id}/config") {
+            self.cfg.error = Some(reason);
+            cx.notify();
+            return;
+        }
         let Some(id) = self.selected else {
             return;
         };
@@ -2589,6 +2599,28 @@ impl Desktop {
         }
     }
 
+    /// `Desk#13`：四条灰路径共用一个判定入口（归档 2 + 会话 archive/config/purge 3，
+    /// 其中 archive 与归档库同一件事）。UI 只问这里，理由走 `disabled_reason()`。
+    pub(crate) fn dead_path_disabled_reason(&self, path: &str) -> Option<String> {
+        use crate::capability::Feature;
+        // capabilities.reason.message 是唯一真相；端点没声明走统一 Unknown 文案。
+        if let Some(caps) = self.caps.as_ref() {
+            if let Some(reason) = crate::capability::endpoint_reason(caps, path) {
+                return Some(reason);
+            }
+        }
+        match path {
+            "v1/archive" | "v1/archive/{id}/restore" | "v1/sessions/{id}/archive" => {
+                self.disabled_reason(Feature::Archive)
+            }
+            "v1/sessions/{id}/purge" | "v1/sessions/{id}/config" => {
+                self.disabled_reason(Feature::Sessions)
+            }
+            "v1/fs/dirs" => self.disabled_reason(Feature::Device),
+            _ => None,
+        }
+    }
+
     /// 打开归档库（右栏整页）。入口在「≡ 更多」菜单里。
     pub(crate) fn open_archive(&mut self, cx: &mut Context<Self>) {
         if !self.feature_enabled(crate::capability::Feature::Archive) {
@@ -2720,6 +2752,10 @@ impl Desktop {
     /// 成功后重拉主列表（那一行自己消失）、刷新开着的归档库、弹一条绿提示。
     /// 失败弹引擎 `{error}` 原文（409 会列出活分支，那些字不动）。
     fn archive_session(&mut self, id: i64, name: &str, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/sessions/{id}/archive") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -2742,6 +2778,10 @@ impl Desktop {
 
     /// 确认之后真撕。**不可撤销**，所以只能从 [`PurgeConfirm::on_confirm`] 走到这里。
     fn purge_session(&mut self, id: i64, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/sessions/{id}/purge") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -2822,6 +2862,10 @@ impl Desktop {
     /// 打捞：`POST /v1/archive/:id/restore`。成功后归档库 + 主列表都刷新 ——
     /// 只刷一边会让人以为没生效（徽标还是「已销毁」，或者列表里没回来）。
     fn restore_session(&mut self, id: i64, r#gen: String, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/archive/{id}/restore") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -5457,19 +5501,6 @@ impl Render for Desktop {
             .children(
                 (self.tab == Tab::Triggers && self.triggers.conflict.is_some())
                     .then(|| self.trigger_conflict_overlay(cx)),
-            )
-            // 类别树：右键菜单 / 新建·改名表单 / 删除确认
-            .children(
-                (self.tab == Tab::Triggers && self.triggers.cat_menu.is_some())
-                    .then(|| self.cat_menu_overlay(cx)),
-            )
-            .children(
-                (self.tab == Tab::Triggers && self.triggers.cat_form.is_some())
-                    .then(|| self.cat_form_overlay(cx)),
-            )
-            .children(
-                (self.tab == Tab::Triggers && self.triggers.cat_del.is_some())
-                    .then(|| self.cat_del_overlay(cx)),
             )
             // 「重命名会话」（居中对话框）：压在菜单之上、撕原件之下
             .children(self.rename_overlay(window, cx))

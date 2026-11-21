@@ -18,15 +18,13 @@
 //! - **失败要留话**。哪一份挂了就那一屏写红字，其余照画；不整页白屏。
 
 use std::rc::Rc;
-use std::time::Duration;
 
 use chrono::{Local, TimeZone as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use nous_engine::console::{
-    ConsoleClient, ConsoleError, Conversation as Replay, Conversations, ConvRow, Cost, CostBucket,
-    Health, Overview,
+    Conversation as Replay, Conversations, ConvRow, Cost, CostBucket, Health, Overview,
 };
 use nous_engine::types::{ArchiveGens, ArchiveItem};
 
@@ -93,6 +91,13 @@ impl Screen {
             Screen::Archive => "撕掉的原件还回不回得来",
         }
     }
+}
+
+/// 这一屏还有没有活数据源。`Desk#13`：前五屏原打 `旧面板 REST 路径`，已删客户端；
+/// #12 把六屏改接 `/v1/stats` 之前，它们只能按 capabilities 灰掉。
+/// 归档屏仍走 `Feature::Archive` 那一条通道（灰 + 理由）。
+pub(crate) fn screen_has_live_data(screen: Screen) -> bool {
+    matches!(screen, Screen::Archive)
 }
 
 /// 拉片的三档：宽卡（03 原样）/ 胶卷格（值 + 一行）/ 只剩数值。
@@ -306,13 +311,7 @@ impl ConsoleState {
         timeline(self.snapshot(), archive, self.tl_filter)
     }
 
-    /// 五份数据都拿到手了吗（回放除外 —— 它是按需的）。
-    pub fn hydrated(&self) -> bool {
-        self.overview.is_some()
-            && self.convs.is_some()
-            && self.cost.is_some()
-            && self.health.is_some()
-    }
+
 
 }
 
@@ -747,145 +746,53 @@ impl BucketAt for CostBucket {
 // ── 拉取 ─────────────────────────────────────────────────────────────
 
 impl Desktop {
-    /// 拉这一页要的一切：面板四份 + 归档库。
+    /// 拉这一页要的一切。
     ///
-    /// 四份**并发**拉（内网也快，但串行就是白等）；谁挂了只写谁的红字，
-    /// 不让一份 500 把整页染红 —— 维修页挂了还看得了解剖页。
-    pub(crate) fn load_console(&mut self, force: bool, cx: &mut Context<Self>) {
-        if self.console.loading {
-            return;
-        }
-        if !force && self.console.hydrated() && self.console.archive.is_some() {
+    /// `Desk#13`：前五屏的 `旧面板 REST 路径` 取数已删（旧客户端整文件删除），它们现在
+    /// 只显示 capabilities 给的灰理由；#12 接上 `/v1/stats` 之前不猜数据源。
+    /// 归档屏保留 `/v1/archive`，入口由 `Feature::Archive` 闸门守着。
+    pub(crate) fn load_console(&mut self, _force: bool, cx: &mut Context<Self>) {
+        self.archive_page_load_for_console(cx);
+        cx.notify();
+    }
+
+    /// 归档那一份。走归档入口的同一道闸：灰掉时不发请求，理由取 `disabled_reason()`。
+    fn archive_page_load_for_console(&mut self, cx: &mut Context<Self>) {
+        if !self.feature_enabled(crate::capability::Feature::Archive) {
+            self.console.error = self.disabled_reason(crate::capability::Feature::Archive);
             return;
         }
         let Some(engine) = self.engine.clone() else {
             self.console.error = Some("还没连上引擎 —— 去「≡ 更多」里重新连接".to_string());
-            cx.notify();
             return;
         };
-        let cfg = self.conn.clone();
-        self.console.loading = true;
-        self.console.error = None;
-        cx.notify();
-
+        let Some(handle) = crate::TOKIO.get().cloned() else {
+            return;
+        };
         cx.spawn(async move |this, cx| {
-            let Some(handle) = crate::TOKIO.get().cloned() else {
-                return;
-            };
-            let got = handle
-                .spawn(async move {
-                    // 这一路还是旧面板的客户端，引擎并不提供这些端点 —— 404 会显示在界面上。
-                    // 改走 /v1 由 #12 接手；在那之前别把 404 当成 bug 去修。
-                    let client =
-                        ConsoleClient::new(&cfg.host, Duration::from_secs(15))?;
-                    let (ov, cv, co, he) = tokio::join!(
-                        client.overview(),
-                        client.conversations(),
-                        client.cost(),
-                        client.health()
-                    );
-                    let arch = engine.archive_list().await;
-                    Ok::<_, ConsoleError>((ov, cv, co, he, arch))
-                })
-                .await;
-
-            let _ = this.update(cx, |this, cx| {
-                this.console.loading = false;
-                match got {
-                    Ok(Ok((ov, cv, co, he, arch))) => {
-                        let mut errs: Vec<String> = Vec::new();
-                        // 四份各自落地：一份 500 只让它自己那屏写红字，别的照画。
-                        match ov {
-                            Ok(v) => this.console.overview = Some(v),
-                            Err(e) => {
-                                log::warn!("数据监控室 · 解剖：{e}");
-                                errs.push(format!("解剖：{e}"));
-                            }
-                        }
-                        match cv {
-                            Ok(v) => this.console.convs = Some(v),
-                            Err(e) => {
-                                log::warn!("数据监控室 · 会话树：{e}");
-                                errs.push(format!("会话树：{e}"));
-                            }
-                        }
-                        match co {
-                            Ok(v) => this.console.cost = Some(v),
-                            Err(e) => {
-                                log::warn!("数据监控室 · 账单：{e}");
-                                errs.push(format!("账单：{e}"));
-                            }
-                        }
-                        match he {
-                            Ok(v) => this.console.health = Some(v),
-                            Err(e) => {
-                                log::warn!("数据监控室 · 维修：{e}");
-                                errs.push(format!("维修：{e}"));
-                            }
-                        }
-                        match arch {
-                            Ok(v) => this.console.archive = Some(v),
-                            Err(e) => {
-                                log::warn!("数据监控室 · 归档：{e}");
-                                errs.push(format!("归档：{e}"));
-                            }
-                        }
-                        this.console.error = (!errs.is_empty()).then(|| errs.join(" · "));
-                    }
-                    Ok(Err(e)) => {
-                        this.console.error = Some(e.to_string());
-                        log::warn!("数据监控室 · 拉取任务：{e}");
-                    }
-                    Err(e) => {
-                        this.console.error = Some(e.to_string());
-                        log::warn!("数据监控室 · 拉取任务挂了：{e}");
-                    }
+            let got = handle.spawn(async move { engine.archive_list().await }).await;
+            let _ = this.update(cx, |this, _cx| match got {
+                Ok(Ok(v)) => {
+                    this.console.archive = Some(v);
+                    this.console.error = None;
                 }
-                cx.notify();
+                Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                Err(e) => this.console.error = Some(e.to_string()),
             });
         })
         .detach();
     }
+}
 
-    /// 回放那一条按需拉。切到「回放」屏或点了别的会话才发请求。
+impl Desktop {
+    /// 回放屏的 `旧面板回放取数` 取数已删（`Desk#13`）。#12 接上
+    /// `GET /v1/sessions/:id/entries` 之前，屏上给一句真实理由，不发请求。
     pub(crate) fn load_replay(&mut self, id: i64, cx: &mut Context<Self>) {
-        if self.console.replay.as_ref().is_some_and(|r| r.id == id) {
-            return;
-        }
-        let Some(handle) = crate::TOKIO.get().cloned() else {
-            return;
-        };
-        let cfg = self.conn.clone();
         self.console.replay_id = Some(id);
-        self.console.replay_error = None;
+        self.console.replay_error = Some(self
+            .disabled_reason(crate::capability::Feature::Sessions)
+            .unwrap_or_else(|| "回放数据源已下线（Desk#12 待接 /v1）".to_string()));
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            let got = handle
-                .spawn(async move {
-                    let client =
-                        ConsoleClient::new(&cfg.host, Duration::from_secs(20))?;
-                    client.conversation(id).await
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                match got {
-                    Ok(Ok(v)) => {
-                        this.console.replay = Some(v);
-                        this.console.replay_error = None;
-                    }
-                    Ok(Err(e)) => {
-                        log::warn!("数据监控室 · 回放 #{id}：{e}");
-                        this.console.replay_error = Some(e.to_string());
-                    }
-                    Err(e) => {
-                        log::warn!("数据监控室 · 回放任务 #{id}：{e}");
-                        this.console.replay_error = Some(e.to_string());
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
     }
 }
 
@@ -1455,6 +1362,17 @@ impl Desktop {
 
     fn screen_body(&self, cx: &mut Context<Self>) -> AnyElement {
         let screen = self.console.screen;
+        // `Desk#13`：旧面板 REST 路径 取数已删。前五屏在 #12 接上 `/v1/stats` 之前，
+        // 只画一句灰理由（来自 capabilities），不再画「拿不到数据」的红字。
+        if !screen_has_live_data(screen) {
+            let reason = self
+                .disabled_reason(crate::capability::Feature::Device)
+                .unwrap_or_else(|| "服务端未提供（版本太旧？）".to_string());
+            return empty_note(
+                "这一屏的数据源还没落地",
+                &format!("{reason} · Desk#12 会把它接到 /v1"),
+            );
+        }
         let body: AnyElement = match screen {
             Screen::Overview => self.screen_overview(),
             Screen::Convs => self.screen_convs(cx),

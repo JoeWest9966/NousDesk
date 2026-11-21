@@ -9,6 +9,7 @@
 //!
 //! token 注入只有一处实现（`auth`）：`EngineClient` 和 `PinClient` 共用，
 //! 否则「配置里有 token，置顶却 401」这种事会安静地发生一遍（#10）。
+//! - [`console`]：数据监控室六屏的展示类型（旧 旧面板客户端已在 #13 删除）。
 //!
 //! 不认业务规则，不碰 GPUI。UI 层要 16ms 合帧，那归 UI 层。
 
@@ -24,7 +25,8 @@ pub mod types;
 
 pub use capabilities::{Capabilities, Module, Provider, Reason, ReasonCode, Runtime, Server};
 pub use client::{EngineClient, EngineError};
-pub use console::{ConsoleClient, ConsoleError};
+pub use client::{client_paths, CLIENT_PATHS};
+
 pub use pins::{PinClient, PinError};
 pub use resource::{NewExtension, NewPrompt, NewSkill, Repo, ResourceFile, ResourceFileEntry, ResourceFiles, SaveFile};
 pub use sse::{Change, SseError, SseEvent};

@@ -86,6 +86,13 @@ impl EngineClient {
         Ok(self.base.join(path.trim_start_matches('/'))?)
     }
 
+    /// 协议层实际会拼出的路径模板（`METHOD`, `v1/...`），白名单自检用。
+    /// 这里是唯一维护点：删掉一个客户端方法，对应行从清单里消失。
+    /// 模板写 `:id` / `{kind}` 原样，调用方归一化后再比。
+    pub fn client_paths_manifest() -> &'static [(&'static str, &'static str)] {
+        CLIENT_PATHS
+    }
+
     /// 引擎那句 `{error}` 原样带出来，不包、不美化。
     async fn json<T: serde::de::DeserializeOwned>(
         &self,
@@ -694,207 +701,63 @@ impl EngineClient {
         Ok(crate::sse::parse(resp.bytes_stream()))
     }
 
-    // ── 资源仓写接口 ─────────────────────────────────────────────────────
-    //
-    // 端点照 qrd3wh 源码（skills-api.js / prompts-api.js / server.js 头注释）。
-    // 这一层是哑的：路径白名单 + body 原样转发 + `{error}` 原样带出来，
-    // 不校验名字、不算状态、不替引擎决定能不能发布。
+    // 资源仓写接口（create / file PUT / publish / {op} / files / file GET）
+    // 已在 Desk#13 整族删除：引擎没有这些路由（只读私库，#63）。
+    // 三仓的只读 GET 由 `skills()` / `prompts()` / `extensions()` 提供。
+}
 
-    /// 三个资源仓的路径前缀。未知仓在发 HTTP 之前就挡掉 ——
-    /// 不让调用点拼出一个引擎不认识的地址还假装成功了。
-    fn resource_root(kind: &str) -> Result<&'static str, EngineError> {
-        match kind {
-            "skills" => Ok("v1/skills"),
-            "prompts" => Ok("v1/prompts"),
-            "extensions" => Ok("v1/extensions"),
-            other => Err(EngineError::Engine {
-                status: 400,
-                message: format!("未知资源仓：{other}"),
-            }),
-        }
-    }
+/// 引擎客户端会发的所有路径模板。只列路径字面量，不带 query / body。
+/// `Desk#13` 判据 1 的真相源：这里出现、却不在引擎路由也不在白名单的，
+/// 就是一条偷偷复活、必打 404 的死调用。
+pub const CLIENT_PATHS: &[(&str, &str)] = &[
+    ("GET", "v1/device"),
+    ("GET", "v1/capabilities"),
+    ("GET", "v1/models"),
+    ("GET", "v1/skills"),
+    ("GET", "v1/prompts"),
+    ("GET", "v1/extensions"),
+    ("GET", "v1/machines"),
+    ("GET", "v1/fs/dirs"),
+    ("GET", "v1/sessions"),
+    ("POST", "v1/sessions"),
+    ("GET", "v1/sessions/:id/entries"),
+    ("GET", "v1/unread"),
+    ("POST", "v1/read/:id"),
+    ("POST", "v1/sessions/:id/fork"),
+    ("POST", "v1/sessions/:id/messages"),
+    ("POST", "v1/sessions/:id/abort"),
+    ("POST", "v1/sessions/:id/rename"),
+    ("POST", "v1/sessions/:id/archive"),
+    ("GET", "v1/archive"),
+    ("POST", "v1/archive/:id/restore"),
+    ("POST", "v1/sessions/:id/purge"),
+    ("POST", "v1/sessions/:id/config"),
+    ("GET", "v1/presets/:section"),
+    ("POST", "v1/presets/:section/create"),
+    ("POST", "v1/presets/:section/{op}"),
+    ("GET", "v1/presets/:section/files"),
+    ("GET", "v1/presets/:section/file"),
+    ("GET", "v1/triggers"),
+    ("GET", "v1/presets/:section/history"),
+    ("GET", "v1/presets/:section/history/diff"),
+    ("GET", "v1/presets/:section/pending"),
+    ("GET", "v1/presets/:section/pending/diff"),
+    ("PUT", "v1/presets/:section/file"),
+    ("GET", "v1/presets/:section/validate"),
+    ("POST", "v1/presets/:section/publish"),
+    ("POST", "v1/presets/:section/reload"),
+    ("POST", "v1/presets/:section/category"),
+    ("POST", "v1/presets/:section/order"),
+    ("POST", "v1/presets/:section/rename"),
+    ("POST", "v1/presets/:section/categories"),
+    ("GET", "v1/combos"),
+    ("POST", "v1/combos/:name/:action"),
+    ("GET", "v1/selection"),
+    ("POST", "v1/selection"),
+    ("GET", "v1/sessions/:id/events"),
+];
 
-    /// 资源仓的哑请求：方法 / 路径 / query / body 全由调用方给，回包原样 `Value`。
-    /// 具体方法只是这层的一层薄壳，新增端点不用再碰 HTTP。
-    pub async fn resource_req(
-        &self,
-        method: reqwest::Method,
-        kind: &str,
-        op: &str,
-        query: &[(&str, &str)],
-        body: Option<&serde_json::Value>,
-    ) -> Result<serde_json::Value, EngineError> {
-        self.resource_call(method, kind, op, query, body).await
-    }
-
-    /// 跟 `resource_req` 同一条路，但直接解析成调用方要的类型。
-    async fn resource_call<T: serde::de::DeserializeOwned>(
-        &self,
-        method: reqwest::Method,
-        kind: &str,
-        op: &str,
-        query: &[(&str, &str)],
-        body: Option<&serde_json::Value>,
-    ) -> Result<T, EngineError> {
-        let root = Self::resource_root(kind)?;
-        let mut url = self.url(&format!("{root}/{op}"))?;
-        if !query.is_empty() {
-            url.query_pairs_mut()
-                .extend_pairs(query.iter().copied());
-        }
-        let mut req = self.http.request(method, url);
-        if let Some(body) = body {
-            req = req.json(body);
-        }
-        self.json(req.send().await?).await
-    }
-
-    /// 把调用方的 body 结构体转成 JSON。转不出来算调用方的错（400 语义），
-    /// 不假装是网络问题。
-    fn body_json<B: serde::Serialize + ?Sized>(
-        body: &B,
-    ) -> Result<serde_json::Value, EngineError> {
-        serde_json::to_value(body).map_err(|e| EngineError::Engine {
-            status: 400,
-            message: format!("请求体序列化不了：{e}"),
-        })
-    }
-
-    /// `POST /v1/{skills,prompts,extensions}/create`。
-    /// 校验（名字 / 必填项）全在引擎，这边一个字都不改 —— 收 `NewSkill` /
-    /// `NewPrompt` / `NewExtension`，也收裸 `serde_json::Value`（测试和边角用）。
-    pub async fn skill_create<B: serde::Serialize + ?Sized>(
-        &self,
-        body: &B,
-    ) -> Result<serde_json::Value, EngineError> {
-        let v = Self::body_json(body)?;
-        self.resource_call(reqwest::Method::POST, "skills", "create", &[], Some(&v))
-            .await
-    }
-
-    pub async fn prompt_create<B: serde::Serialize + ?Sized>(
-        &self,
-        body: &B,
-    ) -> Result<serde_json::Value, EngineError> {
-        let v = Self::body_json(body)?;
-        self.resource_call(reqwest::Method::POST, "prompts", "create", &[], Some(&v))
-            .await
-    }
-
-    pub async fn extension_create<B: serde::Serialize + ?Sized>(
-        &self,
-        body: &B,
-    ) -> Result<serde_json::Value, EngineError> {
-        let v = Self::body_json(body)?;
-        self.resource_call(reqwest::Method::POST, "extensions", "create", &[], Some(&v))
-            .await
-    }
-
-    /// `PUT /v1/{kind}/file` —— 写一个文件，只落盘不提交。
-    pub async fn resource_file_put<B: serde::Serialize + ?Sized>(
-        &self,
-        kind: &str,
-        body: &B,
-    ) -> Result<serde_json::Value, EngineError> {
-        let v = Self::body_json(body)?;
-        self.resource_call(reqwest::Method::PUT, kind, "file", &[], Some(&v))
-            .await
-    }
-
-    /// 一次「对某一条做点什么」的写操作：`archive` / `restore` / `purge` /
-    /// `install` / `uninstall` / `reload` / `sessions` 那些都是同形状
-    /// （`POST /v1/{kind}/{op}`，body `{"name": …}`）。UI 层不用知道动词。
-    pub async fn resource_op<B: serde::Serialize + ?Sized>(
-        &self,
-        kind: &str,
-        op: &str,
-        body: &B,
-    ) -> Result<serde_json::Value, EngineError> {
-        let v = Self::body_json(body)?;
-        self.resource_call(reqwest::Method::POST, kind, op, &[], Some(&v))
-            .await
-    }
-
-    /// `PUT /v1/{kind}/file` 的类型化版本：body 是 `SaveFile`（带 `base` 才算并发安全）。
-    pub async fn resource_save(
-        &self,
-        kind: &str,
-        body: &crate::resource::SaveFile<'_>,
-    ) -> Result<serde_json::Value, EngineError> {
-        self.resource_file_put(kind, body).await
-    }
-
-    /// `POST /v1/{kind}/publish`。message 省掉就不发这个键（引擎有默认文案）。
-    pub async fn resource_publish(
-        &self,
-        kind: &str,
-        message: Option<&str>,
-    ) -> Result<serde_json::Value, EngineError> {
-        let body = match message {
-            Some(m) => serde_json::json!({ "message": m }),
-            None => serde_json::json!({}),
-        };
-        self.resource_req(reqwest::Method::POST, kind, "publish", &[], Some(&body))
-            .await
-    }
-
-    /// `GET /v1/{kind}/files?name=`。
-    pub async fn resource_files(
-        &self,
-        kind: &str,
-        name: &str,
-    ) -> Result<serde_json::Value, EngineError> {
-        self.resource_req(reqwest::Method::GET, kind, "files", &[("name", name)], None)
-            .await
-    }
-
-    /// `GET /v1/{kind}/files?name=` —— 类型化。
-    pub async fn resource_file_list(
-        &self,
-        kind: &str,
-        name: &str,
-    ) -> Result<crate::resource::ResourceFiles, EngineError> {
-        self.resource_call(
-            reqwest::Method::GET,
-            kind,
-            "files",
-            &[("name", name)],
-            None,
-        )
-        .await
-    }
-
-    /// `GET /v1/{kind}/file?name=&path=` —— 类型化（带 `etag`，写回时当 `base`）。
-    pub async fn resource_file_read(
-        &self,
-        kind: &str,
-        name: &str,
-        path: &str,
-    ) -> Result<crate::resource::ResourceFile, EngineError> {
-        self.resource_call(
-            reqwest::Method::GET,
-            kind,
-            "file",
-            &[("name", name), ("path", path)],
-            None,
-        )
-        .await
-    }
-
-    /// `GET /v1/{kind}/file?name=&path=`。
-    pub async fn resource_file_get(
-        &self,
-        kind: &str,
-        name: &str,
-        path: &str,
-    ) -> Result<serde_json::Value, EngineError> {
-        self.resource_req(
-            reqwest::Method::GET,
-            kind,
-            "file",
-            &[("name", name), ("path", path)],
-            None,
-        )
-        .await
-    }
+/// `EngineClient::client_paths_manifest` 的自由函数别名（静态清单用）。
+pub fn client_paths() -> &'static [(&'static str, &'static str)] {
+    CLIENT_PATHS
 }

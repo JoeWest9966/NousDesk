@@ -1,63 +1,17 @@
-//! 旧面板（`agent.sqlite` 的 X 光机）的哑客户端。
+//! 数据监控室的**展示数据结构**（旧面板 REST 取数的 JSON 形状）。
 //!
-//! 它**不是引擎**：Rust 版 `/v1/*` 由 `EngineClient` 负责，这一路走的是面板端点。
-//! 地址同样只有一个来源 —— 配置里那一个 host，别在调用点拼路径。
+//! `Desk#13` 判据 4：旧的 `/api` 客户端已删 —— 它打的是旧面板的 REST 路径，
+//! Rust 引擎从来没有这些路由，页面永远只显示一行 404 红字。这里保留的是
+//! **纯解析类型**，六屏改成 `/v1/*` 驱动时继续用它们画（`Desk#12`）。
 //!
-//! ```text
-//! GET api/overview                → 文件 / pragmas / 表 / 索引 / integrity
-//! GET api/conversations           → 全部会话一行一条
-//! GET api/conversation?id=N       → 一条会话的 entries / tasks / documents / prompt
-//! GET api/cost                    → 账本：总量 + byDay / byHour / byModel / byConv
-//! GET api/health                  → 维修：卡住的任务 / 没人接的提交 / WAL / 维护建议
-//! ```
-//!
-//! 规矩和 [`crate::client`] 一样：**只转发**，不聚合、不算派生状态；未知字段用
-//! `Value` / `flatten` 收着透传 —— 面板每加一个读数，这边不该编译不过。
-//!
-//! 每份响应里还带一段 `diagrams`（mermaid 源码），桌面端不渲 mermaid，
-//! 但照样收着：哪天要做「导出这张图」就不用改协议层。
+//! 未知字段一律 `Value` / `BTreeMap` 收着透传；不在这里算业务状态。
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::Value;
-use url::Url;
 
 
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConsoleError {
-    #[error("网络：{0}")]
-    Http(#[from] reqwest::Error),
-    #[error("URL 拼不起来：{0}")]
-    Url(#[from] url::ParseError),
-    #[error("面板回 {status}：{message}")]
-    Panel { status: u16, message: String },
-}
-
-/// 面板崩的时候回的是整页 HTML（502 网关那种）。原样塞进界面会把红框撑爆，
-/// 所以压平空白、去掉标签，只留一句能读的。
-fn flatten(text: &str) -> String {
-    let mut out = String::with_capacity(text.len().min(240));
-    let mut in_tag = false;
-    for ch in text.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            c if !in_tag && !c.is_control() => out.push(c),
-            _ => {}
-        }
-    }
-    let flat = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flat.chars().count() > 160 {
-        let mut s: String = flat.chars().take(159).collect();
-        s.push('…');
-        s
-    } else {
-        flat
-    }
-}
 
 // ── 通用小件 ─────────────────────────────────────────────────────────
 
@@ -667,99 +621,9 @@ pub struct Maintenance {
 
 // ── 客户端 ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
-pub struct ConsoleClient {
-    http: reqwest::Client,
-    /// 已经带到面板路径前缀的基地址。
-    base: Url,
-}
-
-impl ConsoleClient {
-    /// `host` 是配置里那一个地址（`http://127.0.0.1:4790`）。
-    pub fn new(host: &str, timeout: Duration) -> Result<Self, ConsoleError> {
-        let mut url = Url::parse(host)?;
-        let prefix = url.path().trim_end_matches('/').to_string();
-        url.set_path(&format!("{prefix}/a", ));
-        // 旧面板路径前缀（等 #12 删掉这整个客户端）；此处不写死端点字符串。
-        { let mut p = url.path().to_string(); p.push_str("pi/"); url.set_path(&p); }
-        let http = reqwest::Client::builder().timeout(timeout).build()?;
-        Ok(Self { http, base: url })
-    }
-
-    fn url(&self, path: &str) -> Result<Url, ConsoleError> {
-        Ok(self.base.join(path.trim_start_matches('/'))?)
-    }
-
-    async fn json<T: serde::de::DeserializeOwned>(
-        &self,
-        resp: reqwest::Response,
-    ) -> Result<T, ConsoleError> {
-        let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            let message = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_owned))
-                .unwrap_or_else(|| text.chars().take(200).collect());
-            return Err(ConsoleError::Panel {
-                status: status.as_u16(),
-                message: flatten(&message),
-            });
-        }
-        serde_json::from_str(&text).map_err(|e| ConsoleError::Panel {
-            status: status.as_u16(),
-            message: format!("JSON 不像话：{e}"),
-        })
-    }
-
-    async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ConsoleError> {
-        let resp = self.http.get(self.url(path)?).send().await?;
-        self.json(resp).await
-    }
-
-    pub async fn overview(&self) -> Result<Overview, ConsoleError> {
-        self.get("overview").await
-    }
-
-    pub async fn conversations(&self) -> Result<Conversations, ConsoleError> {
-        self.get("conversations").await
-    }
-
-    pub async fn conversation(&self, id: i64) -> Result<Conversation, ConsoleError> {
-        self.get(&format!("conversation?id={id}")).await
-    }
-
-    pub async fn cost(&self) -> Result<Cost, ConsoleError> {
-        self.get("cost").await
-    }
-
-    pub async fn health(&self) -> Result<Health, ConsoleError> {
-        self.get("health").await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn 地址按_host_拼成面板_api() {
-        let c = ConsoleClient::new("http://192.168.1.7:4790", Duration::from_secs(1))
-            .expect("拼得起来");
-        assert_eq!(
-            c.url("overview").unwrap().as_str(),
-            format!("http://192.168.1.7:4790/a{}overview", "pi/")
-        );
-    }
-
-    #[test]
-    fn 宿主带尾巴斜杠和路径也不双斜杠() {
-        let c = ConsoleClient::new("http://h:1/nous/", Duration::from_secs(1)).unwrap();
-        assert_eq!(
-            c.url("cost").unwrap().as_str(),
-            format!("http://h:1/nous/a{}cost", "pi/")
-        );
-    }
 
     #[test]
     fn 未知字段收着不炸() {

@@ -455,33 +455,11 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 
 ---
 
-## 另一个来源：`d6s4v1`（`agent.sqlite` 的 X 光机）
+## 旧面板取数：已删（Desk#13）
 
-数据监控室（`crates/nousdesk/src/data_console.rs`）有一半数据**不走引擎**，走的是面板
-`d6s4v1`：`/p/<board>/d6s4v1/api/*`。地址同样是「宿主 + board」，别在调用点拼。
-
-客户端在 `crates/nous-engine/src/console.rs`，五个端点：
-
-| 端点 | 我们依赖什么 |
-|---|---|
-| `GET api/overview` | `file{db,wal,shm,mtime,walMtime}`、`pragmas{pageSize,pageCount,freelist,journalMode,schemaVersion}`、`bytes{free,used}`、`counts{<表名>: 行数}`、`tables[{name,rows,bytes,pages}]`、`indexes[]`、`entriesByKind[{kind,count,bytes}]`、`integrity{checked,ok,messages}`、`target{id,path}` |
-| `GET api/conversations` | `count`、`list[{id,entries,tokens,cost,toolCalls,models,firstAt,lastAt,title}]`、`totals{entries,tokens}` |
-| `GET api/conversation?id=N` | `id`、`entries[{seq,kind,role,tokens,bytes,at,text,isError,tool,usage}]`、`tasks[{id,kind,status,startedAt,endedAt,ms}]`、`documents[]`、`submissions[]`、`prompt{messages[{id,label,text,chars,tokens}],totals}` |
-| `GET api/cost` | `totals{entries,tokens,input,output,cacheRead,cacheWrite,reasoning,cost}`、`byDay/byHour/byModel/byConv[{label,tokens,cost,calls,input,output,cacheRead}]`、`note` |
-| `GET api/health` | `tasks{total,byStatus,stuck,sleeping,avgMs,p95,slowest[{id,conv,kind,status,startedAt,endedAt}]}`、`submissions{total,byStatus,unanswered[{id,conv,status}]}`、`documents{documents,byKind,revisions,base,delta,deltaRatio}`、`walBytes`、`freelist{free,bytes}`、`maintenance[{label,why,cmd,danger}]` |
-
-几条别忘：
-
-- **`mtime` / `walMtime` 是 epoch 毫秒**（不是秒）。乘 1000 会得到 5 万年后的时间。
-- **`file.db`（文件字节）和 `pageSize × pageCount` 不总相等**：WAL 模式下 db 文件长度会落后几页。
-  真库上差 2 页，别断言相等。
-- 每份响应都带一段 `diagrams`（mermaid 源码）。桌面端不渲 mermaid，用 `Value` / `BTreeMap`
-  收着透传，别删字段。
-- 面板崩的时候回的是**整页 HTML**（502 网关那种）。错误文案必须先压平去标签再上屏，
-  否则一个红框能把整页顶下去（`console::flatten`）。
-- 这些端点是**只读**的：没有 POST。归档 / 打捞 / 撕原件仍然走引擎 `/v1/*`。
-
----
+数据监控室前五屏原来走旧面板的四五个只读接口，那个客户端和随附快照夹具已整文件删除。
+现在这些屏按 capabilities 灰掉并给理由；`Desk#12` 接上 `/v1/stats/*` 之前不猜数据源。
+归档屏仍走 `GET /v1/archive`（未实现，灰 + 理由）。
 
 ## 合同外调用（客户端在用，本文件没写）
 

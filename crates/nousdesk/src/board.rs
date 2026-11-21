@@ -643,6 +643,11 @@ impl Desktop {
 
     /// 五份清单一起拉，但**各自吃自己的错**：技能仓库挂了，模型照样能选。
     pub(crate) fn board_load(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/fs/dirs") {
+            self.newchat.flash = Some(reason);
+            cx.notify();
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             self.newchat.load_err = Some("还没连上引擎".into());
             cx.notify();
@@ -772,6 +777,11 @@ impl Desktop {
     ///
     /// 换机器后走这里 —— 旧路径在对面没意义，得从它的起点重新看。
     fn board_dir_start(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/fs/dirs") {
+            self.newchat.flash = Some(reason);
+            cx.notify();
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -814,6 +824,11 @@ impl Desktop {
     /// 点目录里的某一层：**只导航，不选中** —— 选不选由底下那颗「用这个目录」
     /// 决定。以前点即选，和那颗按钮说的是同一件事。
     fn board_dir_enter(&mut self, path: String, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/fs/dirs") {
+            self.newchat.flash = Some(reason);
+            cx.notify();
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
