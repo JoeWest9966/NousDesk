@@ -12,7 +12,7 @@ use crate::capabilities::Capabilities;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
-    Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
+    DefaultSet, Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, ModelRef, NewPreset, Pending, PresetFile,
     PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt,
     RenamePreset, Renamed, RenamedPreset, ReorderPreset, ReorderedPreset, Triggers,
     SessionConfig, Sessions, Skills, Submission, Unread,
@@ -133,6 +133,18 @@ impl EngineClient {
     /// 模型清单 + 盘上"那只眼"当前指着哪个（`default`）。
     pub async fn models(&self) -> Result<Models, EngineError> {
         let resp = self.http.get(self.url("v1/models")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `PUT /v1/default`：把默认模型写回引擎编目（Nous#65）。
+    /// 回包里的 `default` 是落盘真相 —— 调用方必须抄它，不抄请求值。
+    pub async fn set_default_model(&self, model: &ModelRef) -> Result<DefaultSet, EngineError> {
+        let resp = self
+            .http
+            .put(self.url("v1/default")?)
+            .json(model)
+            .send()
+            .await?;
         self.json(resp).await
     }
 
@@ -713,6 +725,7 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("GET", "v1/device"),
     ("GET", "v1/capabilities"),
     ("GET", "v1/models"),
+    ("PUT", "v1/default"),
     ("GET", "v1/skills"),
     ("GET", "v1/prompts"),
     ("GET", "v1/extensions"),

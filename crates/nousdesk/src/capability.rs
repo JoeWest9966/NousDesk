@@ -198,7 +198,8 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
         ("GET", "v1/device")
         | ("GET", "v1/models")
         | ("GET", "v1/machines")
-        | ("GET", "v1/fs/dirs") => Some(Device),
+        | ("GET", "v1/fs/dirs")
+        | ("PUT", "v1/default") => Some(Device),
         // skills / prompts / ext（7 条 × 3）
         ("GET", "v1/skills") | ("POST", "v1/skills/create") | ("PUT", "v1/skills/file")
         | ("POST", "v1/skills/{op}") | ("POST", "v1/skills/publish")
@@ -239,6 +240,30 @@ impl crate::app::Desktop {
             Some(Gate::Enabled) => None,
             Some(Gate::Disabled { code, reason }) => Some(disabled_text(code, &reason.message)),
             Some(Gate::Unknown) | None => Some(disabled_text(
+                ReasonCode::Unknown,
+                "服务端未声明这个功能",
+            )),
+        }
+    }
+
+    /// 端点级灰理由：`gate_for_path` 只认模块，端点没在 capabilities 声明时也要给
+    /// 同一条 `disabled_text` 通道的人话。UI 只消费这一句，不许自己 match gate / 编理由。
+    /// （Desk#17：`device` 模块 enabled 但老引擎没有 `PUT /v1/default`。）
+    pub(crate) fn endpoint_disabled_reason(&self, method: &'static str, path: &'static str) -> Option<String> {
+        let Some(caps) = self.caps.as_ref() else {
+            return Some(disabled_text(ReasonCode::Unknown, "服务端未声明这个功能"));
+        };
+        let gate = gate_for_path(caps, method, path);
+        if matches!(gate, Gate::Enabled) && endpoint_enabled(caps, method, path) {
+            return None;
+        }
+        match gate {
+            Gate::Disabled { code, reason } => Some(disabled_text(code, &reason.message)),
+            Gate::Enabled => Some(disabled_text(
+                ReasonCode::NotImplemented,
+                "服务端没有声明这个端点（旧版本不支持）",
+            )),
+            Gate::Unknown => Some(disabled_text(
                 ReasonCode::Unknown,
                 "服务端未声明这个功能",
             )),
@@ -315,6 +340,21 @@ pub fn is_demo_mode(caps: Option<&Capabilities>, device: Option<&Device>) -> boo
         return faux;
     }
     caps.is_some_and(|c| c.runtime.provider.kind == "faux")
+}
+
+/// 比模块门更细的一层：**模块 enabled 还不够，端点必须也在 capabilities 里声明**。
+/// 老引擎 0.1.3 的 device 模块是 enabled 的，但没有 `PUT /v1/default` —— 只看模块
+/// 会把写按钮亮起来，点下去 404（Desk#17）。
+pub fn endpoint_enabled(caps: &Capabilities, method: &str, path: &str) -> bool {
+    if !matches!(gate_for_path(caps, method, path), Gate::Enabled) {
+        return false;
+    }
+    caps.modules.iter().any(|m| {
+        m.endpoints.iter().any(|e| {
+            let mut parts = e.split_whitespace();
+            parts.next() == Some(method) && parts.next() == Some(path)
+        })
+    })
 }
 
 /// 调用前唯一守卫：查这张表 → 查 capability。
@@ -431,6 +471,52 @@ mod tests {
         }
     }
 
+    /// Desk#17：默认模型写在 device 模块（`PUT /v1/default`），
+    /// 灰态与理由必须走这条唯一通道；编目空是另一条本地理由（不是能力灰）。
+    #[test]
+    fn default_model_put_is_gated_by_device_module() {
+        let c = caps();
+        // caps() 里 device 模块没声明 → Unknown（不可用）；声明后走它自己的 reason。
+        assert_eq!(gate_for_path(&c, "PUT", "/v1/default"), Gate::Unknown);
+
+        let c2: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [{ "name": "device", "enabled": false,
+                "reason": { "code": "not_implemented", "message": "模型编目还没接" } }],
+            "runtime": { "provider": { "kind": "real" } }
+        })).unwrap();
+        assert_eq!(gate_for_path(&c2, "PUT", "/v1/default"), gate(&c2, Feature::Device));
+        let shown = match gate_for_path(&c2, "PUT", "/v1/default") {
+            Gate::Disabled { code, reason } => disabled_text(code, &reason.message),
+            other => panic!("应该灰掉：{other:?}"),
+        };
+        assert!(shown.contains("模型编目还没接"));
+    }
+
+    /// Desk#17：老引擎 0.1.3 的 device 模块是 enabled 的，却没声明 PUT /v1/default。
+    /// 只看模块会误判「能写」；必须也看 `endpoints` 里有没有这条路径。
+    #[test]
+    fn endpoint_gate_checks_module_and_endpoint_declaration() {
+        let old: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [{ "name": "device", "enabled": true,
+                "endpoints": ["GET /v1/models", "GET /v1/device"] }],
+            "runtime": { "provider": { "kind": "real" } }
+        })).unwrap();
+        assert!(!endpoint_enabled(&old, "PUT", "/v1/default"), "老引擎没声明这条写端点");
+
+        let new: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [{ "name": "device", "enabled": true,
+                "endpoints": ["GET /v1/models", "PUT /v1/default"] }],
+            "runtime": { "provider": { "kind": "real" } }
+        })).unwrap();
+        assert!(endpoint_enabled(&new, "PUT", "/v1/default"));
+    }
+
     #[test]
     fn disabled_text_keeps_message_and_adds_code_hint() {
         assert_eq!(disabled_text(ReasonCode::NotImplemented, "服务端没做"), "服务端没做（服务端未提供）");
@@ -471,7 +557,7 @@ mod tests {
     #[test]
     fn all_41_client_paths_are_mapped_to_a_feature() {
         const PATHS: &[(&str, &str)] = &[
-            ("GET", "/v1/device"), ("GET", "/v1/models"), ("GET", "/v1/skills"),
+            ("GET", "/v1/device"), ("GET", "/v1/models"), ("PUT", "/v1/default"), ("GET", "/v1/skills"),
             ("GET", "/v1/prompts"), ("GET", "/v1/extensions"), ("GET", "/v1/machines"),
             ("GET", "/v1/fs/dirs"), ("GET", "/v1/sessions"),
             ("GET", "/v1/sessions/:id/entries"), ("GET", "/v1/unread"),

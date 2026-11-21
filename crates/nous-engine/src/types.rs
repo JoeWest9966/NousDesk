@@ -751,8 +751,19 @@ impl Models {
     }
 }
 
-/// `{provider, modelId}`。建会话时**原样发回**这个对象。
+/// `PUT /v1/default` 的回包（`Nous#65`）。`default` 是**落盘真相**，
+/// 调用方拿它覆盖本地状态；`wrote` 只回答这次有没有真的写。
 #[derive(Debug, Clone, Deserialize)]
+pub struct DefaultSet {
+    pub default: ModelRef,
+    #[serde(default)]
+    pub wrote: bool,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `{provider, modelId}`。建会话时**原样发回**这个对象。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelRef {
     pub provider: String,

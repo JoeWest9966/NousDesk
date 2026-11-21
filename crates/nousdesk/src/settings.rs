@@ -11,12 +11,69 @@
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
+/// Desk#17：设置页「默认模型」这一行的**纯状态**（渲染和点击都读它）。
+/// `models` = `GET /v1/models` 的结果；`gate_reason` = capability 给的人话理由原文
+/// （来自 `Desktop::endpoint_disabled_reason` 通道，UI 不自己判 code）。
+pub(crate) struct DefaultModelRow {
+    pub enabled: bool,
+    /// 当前默认模型 key `provider/modelId`（`None` = 编目里没指）。
+    pub current: Option<String>,
+    /// 可选项，同样是 key。空 = 编目空。
+    pub items: Vec<String>,
+    /// 不可用时给人看的一句人话；可用时 `None`。
+    pub reason: Option<String>,
+}
+
+pub(crate) fn default_model_row(
+    models: Option<&nous_engine::types::Models>,
+    gate_reason: Option<String>,
+) -> DefaultModelRow {
+    if let Some(reason) = gate_reason {
+        return DefaultModelRow {
+            enabled: false,
+            current: None,
+            items: vec![],
+            reason: Some(reason),
+        };
+    }
+    let Some(models) = models else {
+        return DefaultModelRow {
+            enabled: false,
+            current: None,
+            items: vec![],
+            reason: Some("没连上引擎，读不到模型编目".into()),
+        };
+    };
+    let items: Vec<String> = models
+        .items
+        .iter()
+        .map(|m| format!("{}/{}", m.provider, m.model_id))
+        .collect();
+    if items.is_empty() {
+        return DefaultModelRow {
+            enabled: false,
+            current: None,
+            items,
+            reason: Some("引擎没有模型编目".into()),
+        };
+    }
+    DefaultModelRow {
+        enabled: true,
+        current: models.default_key(),
+        items,
+        reason: None,
+    }
+}
+
 /// 连接页那句查找顺序。Linux 只做 Linux，这里只写用户真正会遇到的路径。
 pub(crate) const CONFIG_PATH_HINT: &str =
     "查找顺序：NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → ~/.config/nousdesk/";
 
 use gpui_kit::assets::IconName;
+use gpui_kit::base::Disableable as _;
+use gpui_kit::component::button::Button;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -470,6 +527,7 @@ impl Desktop {
                 target,
                 CONFIG_PATH_HINT,
             ))
+            .child(self.default_model_row(cx))
             .children(msg)
             .child(
                 div()
@@ -492,6 +550,55 @@ impl Desktop {
                         cx.listener(|this, _: &ClickEvent, _, cx| this.connect(cx)),
                     )),
             )
+            .into_any_element()
+    }
+
+    /// 设置页「引擎」这一节里的「默认模型」行。
+    /// 有编目 → 一颗下拉按钮列 `models.items`，选中即 `PUT /v1/default`；
+    /// 编目空 / 能力灰 / 没连引擎 → 整行禁用 + 人话理由（只消费 `endpoint_disabled_reason`）。
+    fn default_model_row(&self, cx: &mut Context<Self>) -> AnyElement {
+        let gate_reason = self.endpoint_disabled_reason("PUT", "/v1/default");
+        let row = default_model_row(self.default_models.as_ref(), gate_reason);
+        let button: AnyElement = if row.enabled {
+            let weak = cx.weak_entity();
+            let items = row.items.clone();
+            Button::new("settings-default-model")
+                .small()
+                .label(row.current.clone().unwrap_or_else(|| "选择默认模型".into()))
+                .dropdown_menu_with_anchor(gpui_kit::Anchor::TopRight, move |menu, _window, _cx| {
+                    let mut menu = menu.min_w(t().d(220.));
+                    for key in &items {
+                        let key = key.clone();
+                        let weak = weak.clone();
+                        menu = menu.item(PopupMenuItem::new(key.clone()).on_click(move |_, _, cx| {
+                            let _ = weak.update(cx, |this, cx| this.set_default_model(key.clone(), cx));
+                        }));
+                    }
+                    menu
+                })
+                .into_any_element()
+        } else {
+            Button::new("settings-default-model-disabled")
+                .small()
+                .label(row.current.clone().unwrap_or_else(|| "默认模型不可用".into()))
+                .disabled(true)
+                .into_any_element()
+        };
+        let note = row.reason.unwrap_or_else(|| "改动立刻写回引擎编目，重启 Desk 仍然生效。".into());
+        div()
+            .flex()
+            .flex_col()
+            .gap(t().d(5.))
+            .w_full()
+            .min_w(t().d(0.))
+            .child(
+                div()
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(t().p.muted))
+                    .child("默认模型"),
+            )
+            .child(button)
+            .child(div().text_size(t().fs(10.5)).text_color(rgb(faint())).child(note))
             .into_any_element()
     }
 
@@ -1800,8 +1907,8 @@ fn reveal_config() {
 #[cfg(test)]
 mod tests {
     // 不 `use super::*`：gpui 重导出的宏再展开一层会撞递归上限。
-    use super::{device_facts, CONFIG_PATH_HINT, device_field_owners};
-    use nous_engine::types::Device;
+    use super::{default_model_row, device_facts, CONFIG_PATH_HINT, device_field_owners};
+    use nous_engine::types::{Device, ModelRef, Models};
 
     fn device() -> Device {
         serde_json::from_value(serde_json::json!({
@@ -1818,6 +1925,45 @@ mod tests {
             "origin": "http://127.0.0.1:4789",
         }))
         .unwrap()
+    }
+
+    /// Desk#17：默认模型行的「能不能选 + 理由」纯状态。
+    /// 编目空 = 禁用 + 人话；能力灰 = 禁用 + 引擎原文；有编目 = 可选。
+    #[test]
+    fn default_model_row_state() {
+        let models: Models = serde_json::from_value(serde_json::json!({
+            "default": {"provider":"p","modelId":"one"},
+            "items": [{"provider":"p","modelId":"one","name":"一","thinkingLevels":[]}],
+        })).unwrap();
+        let row = default_model_row(Some(&models), None);
+        assert!(row.enabled);
+        assert_eq!(row.current.as_deref(), Some("p/one"));
+        assert_eq!(row.items.len(), 1);
+        assert!(row.reason.is_none());
+
+        let empty: Models = serde_json::from_value(serde_json::json!({
+            "default": null, "items": [],
+        })).unwrap();
+        let row = default_model_row(Some(&empty), None);
+        assert!(!row.enabled);
+        assert_eq!(row.reason.as_deref(), Some("引擎没有模型编目"));
+
+        let row = default_model_row(None, None);
+        assert!(!row.enabled);
+        assert!(row.reason.as_deref().is_some_and(|r| r.contains("没连上引擎")));
+
+        let row = default_model_row(
+            Some(&models),
+            Some("默认模型还没做（#17 哨兵）".to_string()),
+        );
+        assert!(!row.enabled);
+        assert!(row.reason.as_deref().is_some_and(|r| r.contains("默认模型还没做（#17 哨兵）")));
+
+        // 负向哨兵：回包 default 抄进本地状态（调用方拿它覆盖 Models.default）。
+        let receipt_default = ModelRef {
+            provider: "p".into(), model_id: "two".into(), extra: Default::default(),
+        };
+        assert_eq!(receipt_default.key(), "p/two");
     }
 
     /// 判据 4：七个字段每一个都有主（展示 / 明确不用）。哨兵删一个字段就红。

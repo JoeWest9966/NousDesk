@@ -128,6 +128,9 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("POST", "v1/read/{id}"),
     ("GET", "v1/machines"),
     ("GET", "v1/models"),
+    // Desk#17 / Nous#65：目标引擎 integration/recovery 有这条写端点（线上 0.1.3 没有，
+    // 由 capabilities 的 endpoints 门控，UI 灰掉）。
+    ("PUT", "v1/default"),
     ("POST", "v1/sessions"),
     ("GET", "v1/sessions/{id}/entries"),
     ("POST", "v1/sessions/{id}/messages"),
