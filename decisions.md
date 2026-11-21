@@ -1281,3 +1281,13 @@ Nous `#47`（7 端点 + `capabilities`）→ Nous `#44`（会话轮次，消息�
 **选了**：skills/prompts/extensions 的 create/file/files/publish 与 triggers 的 10 条写端点一律 `等票`（`Nous#75` / `Nous#80 + Nous#73`），期间入口保持灰、理由走 `capability.rs` 的 `endpoint_disabled_reason()`（逐字取 `capabilities.reason.message`）。只有三仓 `/{op}` 旧拓扑与旧面板 REST 路径是 `删`。协议层方法全部恢复、进入白名单，不再算死调用。
 **为什么**：票面把「能力型端点一律不许删」写成硬规则；上一轮把它们标成 removed 并整块删 UI/HTTP，等于替引擎做了「永不做」的决定，还冒出 `trigger_write_unavailable` 自编理由和 `app.rs` 第二处路径→门控 match，都违反「能力判定只有一处」。
 **反悔点**：引擎真把某条能力型端点永久下掉（不是等票而是撤销），才把那一条从 `等票` 改 `删`，连 UI 和协议层方法一并删；不能以「暂时用不上」为由提前删。灰理由若服务端没给 `reason.message`（模块 enabled 但端点未声明），用 `NotImplemented` 统一文案，仍不许客户端自编。
+
+## 2026-11-21 · 空 / 在等 / 坏了 收口成一个 `states.rs`
+
+**选了**：三态（`Phase::Loading` / `Empty` / `Failed`）收进 `crates/nousdesk/src/states.rs` 一处画，页面只负责把「为什么」说对；重试按钮也只有 `states::retry_button()` 一个长相。判定顺序写死 **失败 > 在等 > 空**；「在等」在类型层就不接受动作（`Phase::takes_action()`），不是靠调用方自律。
+
+**为什么**：之前 7 处各写各的 —— `resources.rs::loading_line()` 把「在等」和「空」挤进一个函数（连失败都显示"没有数据"）、`templates.rs` 有三套、`data_console.rs` 只画红字不给重试、`triggers.rs` 和 `templates.rs` 各手写一个重试按钮、`config_panel.rs` 自己一份居中版、会话列表与聊天区根本没有空态。后果不是「不好看」：用户分不出这块是空、在等、还是坏了，而三种的出路完全不同。同一动作只留一个入口（AGENTS 硬规矩），三态提示也是动作入口。
+
+**没先出 HTML demo**：只把既有 token 摆成一种（左对齐、12.5 / 11.5、无新颜色新控件），且用户明确要求直接落地。要看外观对比可以另出 demo。
+
+**反悔点**：真机上如果「空」和「在等」还是分不清（或列表里两行灰字太吵），改 `states.rs` 的 `inline()` 一处即可，别回到各页各写；如果哪天真的需要第四种状态（例如「部分失败：三份拉了两份」），先确认它是不是把「失败」拆错了，再动枚举。
