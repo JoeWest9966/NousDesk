@@ -123,13 +123,25 @@ mod tests {
 mod write_tests {
     use crate::resource_write::*;
 
-    /// `Desk#13`：私库写操作全删（只读私库，#63）。入口不发请求，只给一行
-    /// 从 capabilities 来的理由；三个仓的闸门只有这一处。
+    /// `Desk#13` 返工：能力型端点不许删，入口按 capabilities 灰；
+    /// 判定只在 `capability.rs`，这里用同一纯函数核对三个仓的等票端点。
     #[test]
-    fn write_entries_are_closed_by_default() {
+    fn write_entries_are_wait_ticket_and_gray_until_caps_enable_them() {
+        let caps: nous_engine::Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [
+                { "name": "skills", "enabled": true, "endpoints": ["GET /v1/skills"] },
+                { "name": "prompts", "enabled": true, "endpoints": ["GET /v1/prompts"] },
+                { "name": "ext", "enabled": false,
+                  "reason": { "code": "frozen", "message": "扩展运行时已冻结" } },
+            ],
+            "runtime": { "provider": { "kind": "faux" } }
+        })).unwrap();
         for repo in ["skills", "prompts", "extensions"] {
-            assert!(!crate::resources::resource_write_enabled(repo),
-                "{repo} 的写接口已删，不该说自己能写");
+            let reason = crate::capability::endpoint_disabled_reason(&caps, "POST", &format!("/v1/{repo}/create"))
+                .unwrap_or_else(|| panic!("{repo}/create 等票期间不该可点"));
+            assert!(!reason.is_empty(), "灰理由不能是空串");
         }
     }
 

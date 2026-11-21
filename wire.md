@@ -463,9 +463,13 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 
 ## 合同外调用（客户端在用，本文件没写）
 
-**27 条**。来源是**真引擎的行为**，不是某份文档 —— 当初它们都是整包转发（`serde_json::Value`
-进、`Value` 出），所以没进「我们依赖的字段」清单。**形状以 `crates/nous-engine/src/types.rs`
-为准**（那是客户端真实期望），要改这里先改那份类型。
+**27 条 + 资源/触发器写回族**。来源是**真引擎的行为**，不是某份文档 —— 它们整包转发
+（`serde_json::Value` 进、`Value` 出），所以没进「我们依赖的字段」清单。**形状以
+`crates/nous-engine/src/types.rs` 为准**（那是客户端真实期望），要改这里先改那份类型；
+资源写的请求体在 `crates/nous-engine/src/resource.rs`（`NewSkill` / `NewPrompt` /
+`NewExtension` / `SaveFile`），触发器写在 `crates/nous-engine/src/triggers.rs`
+（`NewTrigger` / `TriggerPublish` / `TriggerMutation`）。这些端点在 `dead_paths.rs` 里
+都标 `等票`，引擎未声明前 UI 灰掉、不发请求。
 
 ### 归档（2）
 
@@ -506,6 +510,18 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 
 > 这 16 条是**同一个东西抄 16 遍**（读文件 / 校验 / 写版本 / 发布 / 列历史 / 算 diff）。
 > Rust 版不打算照抄，要收敛成一个 `documents` 模块（Nous `#48`）。
+
+### 私库写回（15；等票 Nous#75）
+
+`POST /v1/{skills,prompts,extensions}/create`、`GET .../{files,file}`、
+`PUT .../file`（body `SaveFile`，带 `base` 做并发闸）、`POST .../publish`
+（body `{message?}`），以及三仓 `/{op}` 旧拓扑化石（不可再调用）。
+UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
+
+### 触发器写回（10；等票 Nous#80 / Nous#73）
+
+`GET /v1/triggers/{files,file}`、`PUT .../file`、`POST .../create|publish|archive|restore|purge|category|categories`。
+请求/回包类型在 `triggers.rs`；`sync` 是同族的历史方法，当前 UI 不调用。
 
 ### 其余（6）
 

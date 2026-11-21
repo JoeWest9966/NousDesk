@@ -55,7 +55,8 @@ impl DeadPath {
 ///
 /// `等票` / `灰` / `删` 的交叉口径按票面：presets 等 `Desk#11`、combos 等 `#61`、
 /// archive 与 sessions/{config,archive,purge} 灰、fs/dirs 灰（Nous#68）、
-/// 私库写与 triggers 写、`旧面板 REST 路径` 全删。删掉的入口不再发请求，这里留账不谐音。
+/// 私库写等 `Nous#75`、triggers 写等 `Nous#80 / Nous#73`（期间入口灰）、
+/// 只有旧拓扑 `/{op}` 与 `旧面板 REST 路径` 是删。能力型端点一律不删。
 pub const DEAD_PATHS: &[DeadPath] = &[
     // presets 18 —— 等票 Desk#11（引擎 #60 落 12 条后改契约）
     DeadPath::wait("GET", "v1/presets/{section}", "Desk#11"),
@@ -84,44 +85,37 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     DeadPath::wait("GET", "v1/extensions", "Nous#63 / Desk#13"),
     DeadPath::wait("GET", "v1/combos", "#61 / Desk#11"),
     DeadPath::wait("POST", "v1/combos/{name}/{action}", "#61 / Desk#11"),
-    // skills/prompts/extensions 写操作 15 —— 审计按 5 个路径族计（30-34 条）：
-    // `{kind}` 展开三仓、`{op}` 展开七个动词，这里只记一族一行。
-    DeadPath::removed("POST", "v1/{kind}/create"),
-    DeadPath::removed("GET", "v1/{kind}/files"),
-    DeadPath::removed("GET", "v1/{kind}/file"),
-    DeadPath::removed("PUT", "v1/{kind}/file"),
-    DeadPath::removed("POST", "v1/{kind}/publish"),
-    DeadPath::removed("POST", "v1/{kind}/{op}"),
-    // 三仓资源写的具体模板：#13 从客户端删掉调用，能力表仍需认得以给灰入口理由。
-    DeadPath::removed("POST", "v1/skills/create"),
-    DeadPath::removed("PUT", "v1/skills/file"),
+    // skills/prompts/extensions 写操作：`create/files/file/publish` 四动词 × 三仓 = 12 条
+    // 能力型端点，等票 Nous#75、期间入口灰；`/ {op}` 三条是旧拓扑化石 → 删。
+    DeadPath::wait("POST", "v1/skills/create", "Nous#75"),
+    DeadPath::wait("PUT", "v1/skills/file", "Nous#75"),
     DeadPath::removed("POST", "v1/skills/{op}"),
-    DeadPath::removed("POST", "v1/skills/publish"),
-    DeadPath::removed("GET", "v1/skills/files"),
-    DeadPath::removed("GET", "v1/skills/file"),
-    DeadPath::removed("POST", "v1/prompts/create"),
-    DeadPath::removed("PUT", "v1/prompts/file"),
+    DeadPath::wait("POST", "v1/skills/publish", "Nous#75"),
+    DeadPath::wait("GET", "v1/skills/files", "Nous#75"),
+    DeadPath::wait("GET", "v1/skills/file", "Nous#75"),
+    DeadPath::wait("POST", "v1/prompts/create", "Nous#75"),
+    DeadPath::wait("PUT", "v1/prompts/file", "Nous#75"),
     DeadPath::removed("POST", "v1/prompts/{op}"),
-    DeadPath::removed("POST", "v1/prompts/publish"),
-    DeadPath::removed("GET", "v1/prompts/files"),
-    DeadPath::removed("GET", "v1/prompts/file"),
-    DeadPath::removed("POST", "v1/extensions/create"),
-    DeadPath::removed("PUT", "v1/extensions/file"),
+    DeadPath::wait("POST", "v1/prompts/publish", "Nous#75"),
+    DeadPath::wait("GET", "v1/prompts/files", "Nous#75"),
+    DeadPath::wait("GET", "v1/prompts/file", "Nous#75"),
+    DeadPath::wait("POST", "v1/extensions/create", "Nous#75"),
+    DeadPath::wait("PUT", "v1/extensions/file", "Nous#75"),
     DeadPath::removed("POST", "v1/extensions/{op}"),
-    DeadPath::removed("POST", "v1/extensions/publish"),
-    DeadPath::removed("GET", "v1/extensions/files"),
-    DeadPath::removed("GET", "v1/extensions/file"),
-    // triggers 10 条写端点 —— 删（保留 GET list / POST fire / GET fires）
-    DeadPath::removed("GET", "v1/triggers/files"),
-    DeadPath::removed("GET", "v1/triggers/file"),
-    DeadPath::removed("PUT", "v1/triggers/file"),
-    DeadPath::removed("POST", "v1/triggers/create"),
-    DeadPath::removed("POST", "v1/triggers/publish"),
-    DeadPath::removed("POST", "v1/triggers/archive"),
-    DeadPath::removed("POST", "v1/triggers/restore"),
-    DeadPath::removed("POST", "v1/triggers/purge"),
-    DeadPath::removed("POST", "v1/triggers/category"),
-    DeadPath::removed("POST", "v1/triggers/categories"),
+    DeadPath::wait("POST", "v1/extensions/publish", "Nous#75"),
+    DeadPath::wait("GET", "v1/extensions/files", "Nous#75"),
+    DeadPath::wait("GET", "v1/extensions/file", "Nous#75"),
+    // triggers 10 条写端点 —— 等票 Nous#80 / Nous#73（期间保持灰 + 理由）。
+    DeadPath::wait("GET", "v1/triggers/files", "Nous#80 / Nous#73"),
+    DeadPath::wait("GET", "v1/triggers/file", "Nous#80 / Nous#73"),
+    DeadPath::wait("PUT", "v1/triggers/file", "Nous#80 / Nous#73"),
+    DeadPath::wait("POST", "v1/triggers/create", "Nous#80 / Nous#73"),
+    DeadPath::wait("POST", "v1/triggers/publish", "Nous#80 / Nous#73"),
+    DeadPath::wait("POST", "v1/triggers/archive", "Nous#80 / Nous#73"),
+    DeadPath::wait("POST", "v1/triggers/restore", "Nous#80 / Nous#73"),
+    DeadPath::wait("POST", "v1/triggers/purge", "Nous#80 / Nous#73"),
+    DeadPath::wait("POST", "v1/triggers/category", "Nous#80 / Nous#73"),
+    DeadPath::wait("POST", "v1/triggers/categories", "Nous#80 / Nous#73"),
     // archive 2 —— 灰（Nous#67 落真后翻活）
     DeadPath::gray("GET", "v1/archive"),
     DeadPath::gray("POST", "v1/archive/{id}/restore"),
@@ -279,6 +273,55 @@ mod tests {
         assert!(leaked.is_empty(), "协议层出现既不在引擎路由、也不在白名单的路径：{leaked:?}");
     }
 
+    /// Desk#13 返工：能力型端点只有 `等票` 一种处置，票号必填；
+    /// 三条旧拓扑 `/{op}` 与旧面板 REST 路径才是 `删`。
+    #[test]
+    fn capability_endpoints_are_wait_ticket_never_removed() {
+        const RESOURCE_TICKET: &str = "Nous#75";
+        const TRIGGER_TICKETS: &[&str] = &["Nous#80", "Nous#73"];
+        // 票面按动词写 create/file/files/publish 四条；GET file 与 PUT file 是两条不同端点，
+        // 两类都属能力型端点，不许标 removed。
+        let resources: Vec<_> = ["skills", "prompts", "extensions"]
+            .into_iter()
+            .flat_map(|kind| {
+                [
+                    ("POST", "create"),
+                    ("GET", "files"),
+                    ("GET", "file"),
+                    ("PUT", "file"),
+                    ("POST", "publish"),
+                ]
+                .into_iter()
+                .map(move |(method, op)| (method, format!("v1/{kind}/{op}")))
+            })
+            .collect();
+        let triggers = [
+            ("GET", "v1/triggers/files"), ("GET", "v1/triggers/file"),
+            ("PUT", "v1/triggers/file"), ("POST", "v1/triggers/create"),
+            ("POST", "v1/triggers/publish"), ("POST", "v1/triggers/archive"),
+            ("POST", "v1/triggers/restore"), ("POST", "v1/triggers/purge"),
+            ("POST", "v1/triggers/category"), ("POST", "v1/triggers/categories"),
+        ];
+        for (method, path) in resources.into_iter().chain(triggers.iter().map(|(m, p)| (*m, (*p).to_string()))) {
+            let found = DEAD_PATHS.iter().find(|e| e.method == method && e.path == path);
+            assert_eq!(
+                found.map(|e| e.disposition),
+                Some(Disposition::WaitTicket),
+                "{method} {path} 是能力型端点，不许 removed"
+            );
+            let ticket = found.unwrap().ticket.unwrap_or_default();
+            if path.starts_with("v1/triggers/") {
+                assert!(TRIGGER_TICKETS.iter().all(|t| ticket.contains(t)), "{path} 缺票号：{ticket}");
+            } else {
+                assert_eq!(ticket, RESOURCE_TICKET, "{path} 票号写错");
+            }
+        }
+        let removed: Vec<_> = DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Removed).collect();
+        assert_eq!(removed.len(), 8, "删只允许 3 条旧拓扑化石 + 5 条旧面板");
+        assert_eq!(removed.iter().filter(|e| e.path.ends_with("/{op}")).count(), 3, "三仓旧拓扑化石应在删里");
+        assert!(removed.iter().all(|e| e.path.starts_with("api/") || e.path.ends_with("/{op}")), "删里混进能力型端点");
+    }
+
     /// Desk#14：夹具元数据与 routes 原样回包（不许手写）。
     #[test]
     fn routes_fixture_has_provenance() {
@@ -396,13 +439,12 @@ mod tests {
 
     #[test]
     fn catalog_covers_all_fifty_dead_path_families() {
-        assert_eq!(DEAD_PATHS.len(), 68, "审计 50 族 + 2 泛化别名 + #14 extensions + 18 条资源写具体模板（能力表派生用）");
+        assert_eq!(DEAD_PATHS.len(), 62, "原 68 条减去 6 条泛化删账");
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::WaitTicket).count(),
-            23,
-            "presets 18 + 2 条泛化别名 + combos 2 + extensions 1（#14）"
+            48,
+            "原 23 + 资源写 15 + triggers 10 = 48"
         );
-        // #14：18 条资源写具体模板进 `删`，让 capability 派生表认得它们（灰入口）。
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Gray).count(),
             6,
@@ -410,8 +452,8 @@ mod tests {
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Removed).count(),
-            39,
-            "资源写 6 泛化 + 18 具体模板 + triggers 10 + 旧面板 REST 路径 5"
+            8,
+            "旧拓扑化石 3 + 旧面板 REST 路径 5；能力型端点一律不删"
         );
     }
 }

@@ -1,7 +1,6 @@
 //! 触发器工作台（视图 1）：清单 / 详情 / 代码 / 新建向导。
 //!
-//! 数据就在同一个引擎地址（`cfg.host`）上，走 `/v1/triggers`；
-//! 不再有别的服务地址，也不从别处解析。
+//! 数据在同一个引擎地址的 `/v1/triggers`，不从别处解析第二地址。
 //! 三层是一个页面的三种深度：
 //!
 //! - 主界面：类别树 + 状态筛选 + 卡片网格
@@ -23,21 +22,14 @@ use gpui_kit::component::Icon;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use nous_engine::EngineError;
 use nous_engine::triggers::{
-    ArchivedTrigger, TriggerFileMeta, TriggerItem, TriggerList,
+    ArchivedTrigger, NewTrigger, TriggerFileMeta, TriggerItem, TriggerList,
     TriggerParam, TriggerPublish,
 };
 
 use crate::app::Desktop;
 use crate::capability::{Feature, Gate};
-
-/// `Desk#13`：触发器的 10 条写端点全删（引擎侧无票），只留
-/// `GET /v1/triggers` + `POST /{code}/fire` + `GET /{code}/fires` 三个真端点。
-/// 这个函数是那一刀的闸门账；UI 入口已经删掉，留它是单测的钉子。
-#[allow(dead_code)]
-pub(crate) fn trigger_write_enabled() -> bool {
-    false
-}
 
 const ARCHIVED: &str = "__archived__";
 const UNCATEGORIZED: &str = "∅";
@@ -72,9 +64,6 @@ impl StatusFilter {
     }
 }
 
-// `Desk#13`：写端点删掉后这些字段只剩只读展示/确认层还带着，
-// 不再被写入路径读；保留形状是为了不动版式。
-#[allow(dead_code)]
 pub(crate) struct CodeState {
     pub name: Option<String>,
     pub files: Vec<TriggerFileMeta>,
@@ -130,9 +119,6 @@ pub(crate) struct TriggerMenu {
 }
 
 /// 类别节点右键菜单（和卡片右键同一套手感）。
-// `Desk#13`：写端点删掉后这些字段只剩只读展示/确认层还带着，
-// 不再被写入路径读；保留形状是为了不动版式。
-#[allow(dead_code)]
 pub(crate) struct CatMenu {
     pub label: String,
     pub x: f32,
@@ -140,9 +126,6 @@ pub(crate) struct CatMenu {
 }
 
 /// 新建 / 改名共用一个弹层，`rename: true` 时是改名。
-// `Desk#13`：写端点删掉后这些字段只剩只读展示/确认层还带着，
-// 不再被写入路径读；保留形状是为了不动版式。
-#[allow(dead_code)]
 pub(crate) struct CatForm {
     pub rename: bool,
     pub label: String,
@@ -152,9 +135,6 @@ pub(crate) struct CatForm {
 
 /// 类别改动攒着，等一次提交（引擎只写盘，commit + push 要显式同步）。
 #[derive(Default)]
-// `Desk#13`：写端点删掉后这些字段只剩只读展示/确认层还带着，
-// 不再被写入路径读；保留形状是为了不动版式。
-#[allow(dead_code)]
 pub(crate) struct Commit {
     pub pending: usize,
     pub what: String,
@@ -194,7 +174,6 @@ pub(crate) struct State {
     pub archived_detail: Option<String>,
     /// 有没保存的改动时，用户想切过去的那个文件（等一句确认）。
     pub pending_path: Option<String>,
-    #[allow(dead_code)]
     pub commit: Commit,
     pub conflict: Option<String>,
     pub scroll: ScrollHandle,
@@ -290,6 +269,11 @@ impl State {
 // ── 数据 ───────────────────────────────────────────────────────────────────
 
 impl Desktop {
+    /// `Desk#13` 返工：等票的写端点保持灰，判定与理由只走 `capability.rs`；
+    /// 这里只负责不发请求、把服务端原文给人看。
+    fn trigger_write_gate(&self, method: &'static str, path: &str) -> Option<String> {
+        self.endpoint_disabled_reason(method, path)
+    }
     /// 启动 / 重连时按 capabilities 决定是否拉触发器清单。
     pub(crate) fn load_triggers(&mut self, cx: &mut Context<Self>) {
         let cfg = self.conn.clone();
@@ -421,9 +405,253 @@ impl Desktop {
 
     // ── 代码层 ─────────────────────────────────────────────
 
-    // ── 归档 / 同步 ────────────────────────────────────────
-    // `Desk#13`：10 条写端点已删，代码层的打开/保存/发布一并删掉；
-    // 只留清单和只读详情。
+    fn open_code(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("GET", "/v1/triggers/files") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        log::info!("触发器：打开代码层 {name}");
+        self.triggers.code.name = Some(name.to_string());
+        self.triggers.code.files.clear();
+        self.triggers.code.path = None;
+        self.triggers.code.publish = None;
+        self.triggers.code.publish_error = None;
+        self.triggers.code.notice = None;
+        self.triggers.code.base.clear();
+        self.triggers.code.preflight = false;
+        self.triggers.code.diff_open.clear();
+        self.triggers.pending_path = None;
+        self.triggers.layer = Layer::Code;
+        cx.notify();
+        let Some(client) = self.triggers.client.clone() else { return };
+        let name = name.to_string();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let n = name.clone();
+            let res = handle.spawn(async move { client.files(&n).await }).await;
+            let _ = this.update_in(cx, |this, window, cx| match res {
+                Ok(Ok(files)) => {
+                    this.triggers.code.files = files.files;
+                    let first = this.triggers.code.files.first().map(|f| f.path.clone());
+                    if let Some(path) = first {
+                        this.open_trigger_file(&name, &path, window, cx);
+                    }
+                }
+                Ok(Err(e)) => {
+                    this.triggers.code.notice = Some((format!("读文件列表失败：{e}"), true));
+                    cx.notify();
+                }
+                Err(e) => {
+                    this.triggers.code.notice = Some((format!("任务挂了：{e}"), true));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn open_trigger_file(
+        &mut self,
+        name: &str,
+        path: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(reason) = self.trigger_write_gate("GET", "/v1/triggers/file") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let Some(client) = self.triggers.client.clone() else { return };
+        // 编辑框里有没保存的东西、而且不是同一个文件 —— 切过去就没了，先问一句。
+        let unsaved = self.triggers.code.editing
+            && self.triggers.code.path.as_deref() != Some(path)
+            && self.triggers.code.text.read(cx).value() != self.triggers.code.base;
+        if unsaved {
+            self.triggers.pending_path = Some(path.to_string());
+            cx.notify();
+            return;
+        }
+        let name = name.to_string();
+        let path = path.to_string();
+        self.triggers.code.path = Some(path.clone());
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, p) = (name.clone(), path.clone());
+            let res = handle.spawn(async move { client.file(&n, &p).await }).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                match res {
+                    Ok(Ok(file)) => {
+                        this.triggers.code.text.update(cx, |state, cx| {
+                            state.set_value(&file.text, window, cx);
+                        });
+                        this.triggers.code.etag = file.etag;
+                        this.triggers.code.base = file.base.unwrap_or_default();
+                        this.triggers.code.diff_open.clear();
+                        this.triggers.code.path = Some(file.path);
+                        this.triggers.code.notice = None;
+                    }
+                    Ok(Err(e)) => {
+                        this.triggers.code.notice = Some((format!("读文件失败：{e}"), true));
+                    }
+                    Err(e) => {
+                        this.triggers.code.notice = Some((format!("任务挂了：{e}"), true));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn save_trigger_file(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("PUT", "/v1/triggers/file") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let (Some(client), Some(name), Some(path)) = (
+            self.triggers.client.clone(),
+            self.triggers.code.name.clone(),
+            self.triggers.code.path.clone(),
+        ) else {
+            return;
+        };
+        let text = self.triggers.code.text.read(cx).value().to_string();
+        let etag = self.triggers.code.etag.clone();
+        self.triggers.code.busy = true;
+        self.triggers.code.notice = None;
+        self.triggers.conflict = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, p, t) = (name.clone(), path.clone(), text.clone());
+            let res = handle
+                .spawn(async move {
+                    // 覆盖：先拿最新 etag 当 base，服务端的并发闸才会放行。
+                    let base = if force {
+                        match client.file(&n, &p).await {
+                            Ok(f) => f.etag,
+                            Err(e) => return Err(e),
+                        }
+                    } else {
+                        etag
+                    };
+                    client.save(&n, &p, &t, &base).await
+                })
+                .await;
+            let _ = this.update_in(cx, |this, _window, cx| {
+                this.triggers.code.busy = false;
+                match res {
+                    Ok(Ok(v)) => {
+                        if let Some(new_etag) = v.get("etag").and_then(|e| e.as_str()) {
+                            this.triggers.code.etag = new_etag.to_string();
+                        }
+                        this.triggers.code.notice = Some(("已保存到磁盘 · 还没提交".into(), false));
+                        this.triggers.code.editing = false;
+                        this.triggers.conflict = None;
+                    }
+                    Ok(Err(EngineError::Engine { status: 409, message })) => {
+                        this.triggers.conflict = Some(message);
+                    }
+                    Ok(Err(e)) => {
+                        this.triggers.code.notice = Some((format!("保存失败：{e}"), true));
+                    }
+                    Err(e) => {
+                        this.triggers.code.notice = Some((format!("任务挂了：{e}"), true));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn publish_trigger(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/publish") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let (Some(client), Some(name)) = (
+            self.triggers.client.clone(),
+            self.triggers
+                .code
+                .name
+                .clone()
+                .or_else(|| self.triggers.selected.clone()),
+        ) else {
+            return;
+        };
+        self.triggers.code.busy = true;
+        self.triggers.code.preflight = false;
+        self.triggers.code.publish_started = Some(std::time::Instant::now());
+        self.triggers.code.publish_elapsed = None;
+        self.triggers.code.publish = None;
+        self.triggers.code.publish_error = None;
+        self.triggers.code.notice = Some(("发布中：cargo check → build → index → commit → push".into(), false));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let n = name.clone();
+            let res = handle.spawn(async move { client.publish(&n).await }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.triggers.code.busy = false;
+                this.triggers.code.publish_elapsed = this
+                    .triggers
+                    .code
+                    .publish_started
+                    .take()
+                    .map(|s| s.elapsed().as_secs());
+                match res {
+                    Ok(Ok(out)) => {
+                        if !out.pushed && out.committed {
+                            this.triggers.code.publish_error = Some(format!(
+                                "本地已提交，但推送失败：{}（点发布再试一次）",
+                                out.push_error
+                            ));
+                        } else if !out.committed {
+                            this.triggers.code.notice = Some(("没有待提交的改动".into(), false));
+                        }
+                        this.triggers.code.notice = Some((
+                            format!(
+                                "发布完成 · {} · {}",
+                                out.head.clone().unwrap_or_default(),
+                                if out.pushed { "已推送" } else { "未推送" }
+                            ),
+                            !out.pushed,
+                        ));
+                        this.triggers.code.publish = Some(out);
+                    }
+                    Ok(Err(e)) => {
+                        this.triggers.code.publish_error = Some(format!("发布失败：{e}"));
+                    }
+                    Err(e) => {
+                        this.triggers.code.publish_error = Some(format!("任务挂了：{e}"));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        // 一秒一下，只为让「已用 37s」真的在走 —— 引擎是同步长请求，没有进度可拿。
+        cx.spawn(async move |this, cx| loop {
+            smol::Timer::after(std::time::Duration::from_secs(1)).await;
+            let alive = this
+                .update(cx, |this, cx| {
+                    if this.triggers.code.busy {
+                        cx.notify();
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false);
+            if !alive {
+                break;
+            }
+        })
+        .detach();
+        self.load_trigger_list(true, cx);
+    }
 
     // ── 归档 / 同步 ────────────────────────────────────────
 
@@ -435,8 +663,8 @@ impl Desktop {
         };
         let (x, y) = (menu.x, menu.y);
         let open = menu.name.clone();
-        let _code = menu.name.clone();
-        let _arch = menu.name.clone();
+        let code = menu.name.clone();
+        let arch = menu.name.clone();
         let copy = menu.name.clone();
         div()
             .absolute()
@@ -496,9 +724,9 @@ impl Desktop {
                             .text_color(rgb(t().p.text))
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(move |this, _, _window, cx| {
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 this.triggers.menu = None;
-                                this.trigger_write_unavailable(cx);
+                                this.open_code(&code, window, cx);
                             }))
                             .child("改代码"),
                     )
@@ -514,9 +742,9 @@ impl Desktop {
                             .text_color(rgb(t().p.danger))
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(move |this, _, _window, cx| {
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 this.triggers.menu = None;
-                                this.trigger_write_unavailable(cx);
+                                this.ask_archive(&arch, window, cx);
                             }))
                             .child("归档"),
                     )
@@ -607,10 +835,10 @@ impl Desktop {
                                     .text_color(rgb(t().p.text_2))
                                     .cursor_pointer()
                                     .hover(|h| h.bg(rgb(t().p.hover)))
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                    .on_click(cx.listener(move |this, _, window, cx| {
                                         this.triggers.conflict = None;
-                                        if let (Some(_n), Some(_p)) = (name.clone(), path.clone()) {
-                                            this.trigger_write_unavailable(cx);
+                                        if let (Some(n), Some(p)) = (name.clone(), path.clone()) {
+                                            this.open_trigger_file(&n, &p, window, cx);
                                         } else {
                                             cx.notify();
                                         }
@@ -629,24 +857,15 @@ impl Desktop {
                                     .text_size(t().fs(10.5))
                                     .text_color(rgb(t().p.on_accent))
                                     .cursor_pointer()
-                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                    .on_click(cx.listener(|this, _, window, cx| {
                                         this.triggers.conflict = None;
-                                        this.trigger_write_unavailable(cx);
+                                        this.save_trigger_file(true, window, cx);
                                     }))
                                     .child("用我的覆盖"),
                             ),
                     ),
             )
             .into_any_element()
-    }
-
-    /// `Desk#13` 后所有写入口的统一出口：不再发请求，只把 capabilities 的理由
-    /// 说给用户。写端点已删（引擎侧无票），留着这层是为了不让按钮变成「点了没反应」。
-    fn trigger_write_unavailable(&mut self, cx: &mut Context<Self>) {
-        let reason = self
-            .disabled_reason(Feature::Triggers)
-            .unwrap_or_else(|| "写操作已下线（引擎侧无票）".to_string());
-        self.notice(reason, true, cx);
     }
 
     pub(crate) fn trigger_key(
@@ -751,22 +970,767 @@ impl Desktop {
     pub(crate) fn trigger_ctrl(
         &mut self,
         key: &str,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
         match key {
             "s" if self.triggers.layer == Layer::Code && self.triggers.code.editing => {
-                self.trigger_write_unavailable(cx);
+                self.save_trigger_file(false, window, cx);
                 true
             }
             "p" if matches!(self.triggers.layer, Layer::Code | Layer::Detail) => {
-                self.trigger_write_unavailable(cx);
+                self.publish_trigger(cx);
                 true
             }
             _ => false,
         }
     }
 
+    // ── 类别树可写（右键 → 新建子类 / 改名 / 删除）──────────
+
+    /// 这个词底下挂了多少条（含子类），用来在删除确认里说影响面。
+    fn cat_impact(&self, label: &str) -> (usize, Vec<String>) {
+        let prefix = format!("{label}/");
+        let mut n = 0;
+        let mut names = vec![];
+        if let Some(d) = self.triggers.data.as_ref() {
+            for t in &d.triggers {
+                if t.category.iter().any(|c| c == label || c.starts_with(&prefix)) {
+                    n += 1;
+                    if names.len() < 4 {
+                        names.push(t.name.clone());
+                    }
+                }
+            }
+        }
+        (n, names)
+    }
+
+    fn cat_open_form(
+        &mut self,
+        rename: bool,
+        parent: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let init = if rename {
+            parent.to_string()
+        } else {
+            format!("{parent}/")
+        };
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("类别名"));
+        input.update(cx, |s, cx| s.set_value(&init, window, cx));
+        self.triggers.cat_menu = None;
+        self.triggers.cat_form = Some(CatForm {
+            rename,
+            label: parent.to_string(),
+            input,
+            err: None,
+        });
+        cx.notify();
+    }
+
+    /// 词表操作走一趟，回来就地换清单 + 类别树，不用整页重载。
+    fn cat_apply(
+        &mut self,
+        op: &'static str,
+        name: String,
+        to: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let Some(client) = self.triggers.client.clone() else {
+            return;
+        };
+        self.triggers.cat_menu = None;
+        self.triggers.cat_del = None;
+        self.triggers.cat_form = None;
+        self.triggers.commit.err = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, t) = (name.clone(), to.clone());
+            let res = handle
+                .spawn(async move { client.edit_vocab(op, &n, t.as_deref()).await })
+                .await;
+            let _ = this.update_in(cx, |this, _window, cx| {
+                match res {
+                    Ok(Ok(c)) => {
+                        if let Some(d) = this.triggers.data.as_mut() {
+                            d.triggers = c.catalog;
+                            d.categories = c.categories;
+                        }
+                        let what = match op {
+                            "rename" => format!("改名「{name}」→「{}」", to.clone().unwrap_or_default()),
+                            "remove" => format!("删除「{name}」"),
+                            _ => format!("新建「{name}」"),
+                        };
+                        this.triggers.cat = match op {
+                            "remove" => None,
+                            "rename" => to.clone(),
+                            _ => Some(name.clone()),
+                        };
+                        let c = &mut this.triggers.commit;
+                        c.pending += 1;
+                        c.what = what;
+                        c.done = false;
+                    }
+                    Ok(Err(e)) => this.triggers.commit.err = Some(e.to_string()),
+                    Err(e) => this.triggers.commit.err = Some(e.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 把攒下的类别改动提交并推送（`POST /v1/triggers/sync`）。
+    fn cat_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let Some(client) = self.triggers.client.clone() else {
+            return;
+        };
+        self.triggers.commit.busy = true;
+        self.triggers.commit.err = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let res = handle.spawn(async move { client.sync().await }).await;
+            let _ = this.update_in(cx, |this, _window, cx| {
+                let c = &mut this.triggers.commit;
+                c.busy = false;
+                match res {
+                    Ok(Ok(m)) => {
+                        if m.pushed || !m.push_error.is_empty() {
+                            if m.push_error.is_empty() {
+                                c.pending = 0;
+                                c.done = true;
+                                c.err = None;
+                            } else {
+                                c.err = Some(format!("本地已提交，推送失败：{}", m.push_error));
+                            }
+                        } else {
+                            c.pending = 0;
+                            c.done = true;
+                        }
+                    }
+                    Ok(Err(e)) => c.err = Some(e.to_string()),
+                    Err(e) => c.err = Some(e.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn cat_menu_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(menu) = self.triggers.cat_menu.as_ref() else {
+            return div().into_any_element();
+        };
+        let (x, y) = (menu.x, menu.y);
+        let label = menu.label.clone();
+        let a = label.clone();
+        let b = label.clone();
+        let c = label.clone();
+        let row = |id: &'static str, text: &str, danger: bool| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .px(t().d(10.))
+                .h(t().d(28.))
+                .rounded(t().r(5.))
+                .text_size(t().fs(11.))
+                .text_color(rgb(if danger { t().p.danger } else { t().p.text }))
+                .cursor_pointer()
+                .hover(|h| h.bg(rgb(t().p.hover)))
+                .child(text.to_string())
+        };
+        div()
+            .absolute()
+            .size_full()
+            .child(
+                div()
+                    .absolute()
+                    .size_full()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.triggers.cat_menu = None;
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(y))
+                    .w(t().d(168.))
+                    .flex()
+                    .flex_col()
+                    .p(t().d(4.))
+                    .rounded(t().r(7.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .child(row("cm-new", "新建子类…", false).on_click(
+                        cx.listener(move |this, _, window, cx| {
+                            this.cat_open_form(false, &a, window, cx);
+                        }),
+                    ))
+                    .child(row("cm-rename", "改名…", false).on_click(
+                        cx.listener(move |this, _, window, cx| {
+                            this.cat_open_form(true, &b, window, cx);
+                        }),
+                    ))
+                    .child(
+                        div()
+                            .h(t().d(1.))
+                            .mx(t().d(6.))
+                            .my(t().d(4.))
+                            .bg(rgb(t().p.line_soft)),
+                    )
+                    .child(row("cm-del", "删除类别…", true).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.triggers.cat_menu = None;
+                            this.triggers.cat_del = Some(c.clone());
+                            cx.notify();
+                        }),
+                    )),
+            )
+            .into_any_element()
+    }
+
+    pub(crate) fn cat_form_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(form) = self.triggers.cat_form.as_ref() else {
+            return div().into_any_element();
+        };
+        let rename = form.rename;
+        let label = form.label.clone();
+        let (n, names) = self.cat_impact(&label);
+        let title = if rename {
+            format!("改名「{label}」")
+        } else {
+            format!("在「{label}」下新建子类")
+        };
+        let desc = if rename {
+            format!(
+                "子类会跟着搬：{label}/… → 新名字/…；{n} 个触发器的 nous.json 会被重写{}",
+                if names.is_empty() {
+                    String::new()
+                } else {
+                    format!("（{}）", names.join("、"))
+                }
+            )
+        } else {
+            format!("会写成 {label}/新名字，词表里两级都留下；不影响已有触发器。")
+        };
+        let old = label.clone();
+        div()
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(t().p.scrim))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.triggers.cat_form = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .w(t().d(360.))
+                    .p(t().d(18.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .flex()
+                    .flex_col()
+                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                    .child(
+                        div()
+                            .text_size(t().fs(13.))
+                            .text_color(rgb(t().p.text))
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(6.))
+                            .text_size(t().fs(10.))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.muted))
+                            .child(desc),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(12.))
+                            .h(t().d(31.))
+                            .child(Input::new(&self.triggers.cat_form.as_ref().unwrap().input)),
+                    )
+                    .when_some(
+                        self.triggers.cat_form.as_ref().and_then(|f| f.err.clone()),
+                        |el, err| {
+                            el.child(
+                                div()
+                                    .mt(t().d(7.))
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(t().p.danger))
+                                    .child(err),
+                            )
+                        },
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(14.))
+                            .flex()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .child(
+                                div()
+                                    .id("cf-cancel")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.triggers.cat_form = None;
+                                        cx.notify();
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("cf-ok")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.accent))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        let Some(v) = this
+                                            .triggers
+                                            .cat_form
+                                            .as_ref()
+                                            .map(|f| f.input.read(cx).value().trim().to_string())
+                                        else {
+                                            return;
+                                        };
+                                        if v.is_empty() || v.ends_with('/') {
+                                            if let Some(f) = this.triggers.cat_form.as_mut() {
+                                                f.err = Some("类别名不能是空的".into());
+                                            }
+                                            cx.notify();
+                                            return;
+                                        }
+                                        if rename {
+                                            let op = "rename";
+                                            this.cat_apply(op, old.clone(), Some(v), window, cx);
+                                        } else {
+                                            this.cat_apply("add", v, None, window, cx);
+                                        }
+                                    }))
+                                    .child(if rename { "改名" } else { "新建" }),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    pub(crate) fn cat_del_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(label) = self.triggers.cat_del.clone() else {
+            return div().into_any_element();
+        };
+        let (n, names) = self.cat_impact(&label);
+        let kids: Vec<String> = self
+            .triggers
+            .data
+            .as_ref()
+            .map(|d| {
+                d.categories
+                    .iter()
+                    .filter(|c| c.starts_with(&format!("{label}/")))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let body = if n > 0 {
+            format!(
+                "{n} 个触发器会变成「未分类」：{}。触发器本身不会被删，只是摘掉这个标签。",
+                names.join("、")
+            )
+        } else {
+            "没有触发器挂在这个类别上，删了不影响任何东西。".to_string()
+        };
+        let del = label.clone();
+        div()
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(t().p.scrim))
+            .child(
+                div()
+                    .w(t().d(400.))
+                    .p(t().d(18.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .text_size(t().fs(13.))
+                            .text_color(rgb(t().p.text))
+                            .child(format!("删除「{label}」")),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(6.))
+                            .text_size(t().fs(10.))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.muted))
+                            .child(if kids.is_empty() {
+                                "词表里这一项会被拿掉。".to_string()
+                            } else {
+                                format!("子类 {} 一起删。", kids.join("、"))
+                            }),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(10.))
+                            .p(t().d(9.))
+                            .rounded(t().r(5.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.danger))
+                            .text_size(t().fs(10.))
+                            .line_height(t().d(15.))
+                            .text_color(rgb(t().p.danger))
+                            .child(body),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(14.))
+                            .flex()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .child(
+                                div()
+                                    .id("cd-cancel")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.triggers.cat_del = None;
+                                        cx.notify();
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("cd-ok")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(t().p.danger))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.cat_apply("remove", del.clone(), None, window, cx);
+                                    }))
+                                    .child("删除"),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 类别栏底部那条「N 处改动 · 提交并推送」。
+    fn cat_commit_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+        let c = &self.triggers.commit;
+        if c.pending == 0 && !c.done && c.err.is_none() {
+            return div().into_any_element();
+        }
+        let (line, color) = if let Some(err) = &c.err {
+            (err.clone(), t().p.danger)
+        } else if c.done {
+            ("已提交并推送".to_string(), t().p.muted)
+        } else {
+            (format!("{} 处改动 · {}", c.pending, c.what), t().p.text_2)
+        };
+        div()
+            .px(t().d(12.))
+            .pt(t().d(8.))
+            .pb(t().d(10.))
+            .border_t(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
+            .flex()
+            .flex_col()
+            .gap(t().d(7.))
+            .child(
+                div()
+                    .text_size(t().fs(10.))
+                    .line_height(t().d(14.))
+                    .text_color(rgb(color))
+                    .child(line),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(t().d(6.))
+                    .when(c.pending > 0 && !c.busy, |el| {
+                        el.child(
+                            div()
+                                .id("cs-sync")
+                                .flex_1()
+                                .h(t().d(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(t().r(5.))
+                                .bg(rgb(t().p.accent))
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.on_accent))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.cat_sync(window, cx);
+                                }))
+                                .child("提交并推送"),
+                        )
+                    })
+                    .when(c.busy, |el| {
+                        el.child(
+                            div()
+                                .flex_1()
+                                .h(t().d(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.muted))
+                                .child("提交中…"),
+                        )
+                    })
+                    .when(c.done || c.err.is_some(), |el| {
+                        el.child(
+                            div()
+                                .id("cs-hide")
+                                .flex_1()
+                                .h(t().d(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(t().r(5.))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.line))
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.text_2))
+                                .cursor_pointer()
+                                .hover(|h| h.bg(rgb(t().p.hover)))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let c = &mut this.triggers.commit;
+                                    c.done = false;
+                                    c.err = None;
+                                    c.pending = 0;
+                                    cx.notify();
+                                }))
+                                .child("知道了"),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// 彻底删除要多走一步：这是唯一一个「连备份都没了」的动作。
+    fn ask_purge(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.triggers.confirm.name = name.to_string();
+        self.triggers.confirm.open = true;
+        self.triggers.confirm.purge = true;
+        self.triggers.confirm.input.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
+    fn ask_archive(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.triggers.confirm.name = name.to_string();
+        self.triggers.confirm.open = true;
+        self.triggers.confirm.purge = false;
+        self.triggers.confirm.input.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
+    fn confirm_archive(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/archive") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let (Some(client), name) = (self.triggers.client.clone(), self.triggers.confirm.name.clone()) else {
+            return;
+        };
+        self.triggers.confirm.open = false;
+        self.triggers.busy = Some("归档".into());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let n = name.clone();
+            let res = handle.spawn(async move { client.archive(&n).await }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.triggers.busy = None;
+                match res {
+                    Ok(Ok(out)) => {
+                        let text = if out.dropped {
+                            format!("已删掉 {name}（没发布过，仓库里本来就没有）")
+                        } else if out.pushed {
+                            format!("已归档 {name} · 左栏「已归档」里可以恢复")
+                        } else {
+                            format!("已在本地归档 {name}，但推送失败：{}", out.push_error)
+                        };
+                        this.notice(text, !out.pushed && !out.dropped, cx);
+                        this.triggers.layer = Layer::Main;
+                        this.load_trigger_list(true, cx);
+                    }
+                    Ok(Err(e)) => this.notice(format!("归档失败：{e}"), true, cx),
+                    Err(e) => this.notice(format!("任务挂了：{e}"), true, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn restore_trigger(&mut self, name: &str, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/restore") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let Some(client) = self.triggers.client.clone() else { return };
+        let name = name.to_string();
+        self.triggers.busy = Some(format!("恢复 {name}"));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let n = name.clone();
+            let res = handle.spawn(async move { client.restore(&n).await }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.triggers.busy = None;
+                match res {
+                    Ok(Ok(out)) => this.notice(
+                        if out.pushed {
+                            format!("{name} 已从归档搬回来")
+                        } else {
+                            format!("已恢复 {name}，但推送失败：{}", out.push_error)
+                        },
+                        !out.pushed,
+                        cx,
+                    ),
+                    Ok(Err(e)) => this.notice(format!("恢复失败：{e}"), true, cx),
+                    Err(e) => this.notice(format!("任务挂了：{e}"), true, cx),
+                }
+                this.load_trigger_list(true, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn purge_trigger(&mut self, name: &str, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/purge") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let Some(client) = self.triggers.client.clone() else { return };
+        let name = name.to_string();
+        self.triggers.busy = Some(format!("彻底删除 {name}"));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let n = name.clone();
+            let res = handle.spawn(async move { client.purge(&n).await }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.triggers.busy = None;
+                match res {
+                    Ok(Ok(out)) => this.notice(
+                        if out.pushed {
+                            format!("{name} 已彻底删除")
+                        } else {
+                            format!("已提交删除，但推送失败：{}", out.push_error)
+                        },
+                        !out.pushed,
+                        cx,
+                    ),
+                    Ok(Err(e)) => this.notice(format!("彻底删除失败：{e}"), true, cx),
+                    Err(e) => this.notice(format!("任务挂了：{e}"), true, cx),
+                }
+                this.load_trigger_list(true, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn sync_triggers(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let Some(client) = self.triggers.client.clone() else { return };
+        self.triggers.busy = Some("同步".into());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let res = handle.spawn(async move { client.sync().await }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.triggers.busy = None;
+                match res {
+                    Ok(Ok(out)) => this.notice(
+                        if out.pushed {
+                            "词表 / 清单已提交并推送".to_string()
+                        } else {
+                            format!("已同步，但推送失败：{}", out.push_error)
+                        },
+                        !out.pushed,
+                        cx,
+                    ),
+                    Ok(Err(e)) => this.notice(format!("同步失败：{e}"), true, cx),
+                    Err(e) => this.notice(format!("任务挂了：{e}"), true, cx),
+                }
+                this.load_trigger_list(true, cx);
+            });
+        })
+        .detach();
+    }
 
     // ── 向导 ───────────────────────────────────────────────
 
@@ -833,27 +1797,114 @@ impl Desktop {
         cx.notify();
     }
 
+    fn create_trigger(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/create") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let Some(client) = self.triggers.client.clone() else { return };
+        let name = self.triggers.wizard.name.read(cx).value().trim().to_string();
+        let summary = self.triggers.wizard.summary.read(cx).value().trim().to_string();
+        let category = self
+            .triggers
+            .wizard
+            .category
+            .read(cx)
+            .value()
+            .split(['/', ',', '，'])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if name.is_empty() || summary.is_empty() {
+            self.triggers.wizard.err = Some("名字和一句话说明都不能空".into());
+            cx.notify();
+            return;
+        }
+        let params = params_json(&self.triggers.wizard.params, cx);
+        self.triggers.wizard.busy = true;
+        self.triggers.wizard.err = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            // 1. 建目录 + 骨架（未发布）
+            let create = {
+                let c = client.clone();
+                let body = NewTrigger {
+                    name: name.clone(),
+                    summary: summary.clone(),
+                    category: category.clone(),
+                };
+                handle.spawn(async move { c.create(&body).await }).await
+            };
+            let created = match create {
+                Ok(Ok(_)) => true,
+                Ok(Err(e)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.triggers.wizard.busy = false;
+                        this.triggers.wizard.err = Some(format!("建失败：{e}"));
+                        cx.notify();
+                    });
+                    false
+                }
+                Err(e) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.triggers.wizard.busy = false;
+                        this.triggers.wizard.err = Some(format!("任务挂了：{e}"));
+                        cx.notify();
+                    });
+                    false
+                }
+            };
+            if !created {
+                return;
+            }
+            // 2. 有参数就写回 nous.json（建接口只收 name/summary/category）
+            if !params.is_empty() {
+                let read = {
+                    let c = client.clone();
+                    let n = name.clone();
+                    handle
+                        .spawn(async move { c.file(&n, "nous.json").await })
+                        .await
+                };
+                #[allow(clippy::collapsible_if)]
+                if let Ok(Ok(file)) = read {
+                    if let Ok(mut spec) =
+                        serde_json::from_str::<serde_json::Value>(&file.text)
+                    {
+                        if let Some(obj) = spec.as_object_mut() {
+                            obj.insert("params".into(), serde_json::Value::Array(params));
+                        }
+                        let text = serde_json::to_string_pretty(&spec).unwrap_or_default() + "\n";
+                        let c = client.clone();
+                        let (n, base) = (name.clone(), file.etag.clone());
+                        let _ = handle
+                            .spawn(async move { c.save(&n, "nous.json", &text, &base).await })
+                            .await;
+                    }
+                }
+            }
+            let _ = this.update(cx, |this, cx| {
+                this.triggers.wizard.busy = false;
+                this.triggers.layer = Layer::Main;
+                this.notice(
+                    format!("已建 {name} · 未发布 · 去代码层点发布才会进 HEAD"),
+                    false,
+                    cx,
+                );
+                this.load_trigger_list(true, cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
 }
 
-/// 向导第 2 步的参数类型闭集（引擎认这六种）。只读展示仍要用它。
+/// 类型的闭集 —— 跟 n8qkkj 的校验逐字一致，不让人手打错。
 pub(crate) const PARAM_KINDS: [&str; 6] = ["epoch", "number", "string", "text", "boolean", "select"];
 
-#[cfg(test)]
-mod param_tests {
-    use super::PARAM_KINDS;
-
-    #[test]
-    fn trigger_write_endpoints_are_closed() {
-        assert!(!super::trigger_write_enabled(), "10 条写端点已删，不该说还能写");
-    }
-
-    #[test]
-    fn kinds_match_engine_closed_set() {
-        // 客户端这张表写错一个，建出来的触发器就被引擎 422 拒掉 —— 钉住它。
-        assert_eq!(PARAM_KINDS, ["epoch", "number", "string", "text", "boolean", "select"]);
-    }
-}
-
+/// 一条草稿 → `nous.json` 里的 params 项。空名字直接丢掉（等于没这条）。
 fn param_json(d: &ParamDraft, cx: &Context<Desktop>) -> Option<serde_json::Value> {
     let name = d.name.read(cx).value().trim().to_string();
     if name.is_empty() {
@@ -897,9 +1948,22 @@ fn param_json(d: &ParamDraft, cx: &Context<Desktop>) -> Option<serde_json::Value
     Some(obj)
 }
 
-/// 向导第 2 步的参数声明 → 引擎认的 JSON 形状（纯函数，只读预览仍用）。
-fn params_json(drafts: &[ParamDraft], cx: &Context<Desktop>) -> Vec<serde_json::Value> {
+fn params_json<'a>(
+    drafts: &'a [ParamDraft],
+    cx: &'a Context<Desktop>,
+) -> Vec<serde_json::Value> {
     drafts.iter().filter_map(|d| param_json(d, cx)).collect()
+}
+
+#[cfg(test)]
+mod param_tests {
+    use super::PARAM_KINDS;
+
+    #[test]
+    fn kinds_match_engine_closed_set() {
+        // 客户端这张表写错一个，建出来的触发器就被引擎 422 拒掉 —— 钉住它。
+        assert_eq!(PARAM_KINDS, ["epoch", "number", "string", "text", "boolean", "select"]);
+    }
 }
 
 // ── 渲染 ───────────────────────────────────────────────────────────────────
@@ -941,6 +2005,17 @@ impl Desktop {
             .bg(rgb(t().p.panel))
             .child(self.trigger_top(cx))
             .child(self.trigger_body(cx));
+        // Desk#13 返工：写端点等票期间保持可见但不可用，理由逐字来自 capabilities。
+        if let Some(reason) = self.endpoint_disabled_reason("POST", "/v1/triggers/create") {
+            root = root.child(
+                div()
+                    .px(t().d(14.))
+                    .py(t().d(4.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.text_2))
+                    .child(reason),
+            );
+        }
         if layer == Layer::Detail {
             root = root
                 .child(self.trigger_scrim(cx))
@@ -1073,7 +2148,7 @@ impl Desktop {
                     .cursor_pointer()
                     .hover(|h| h.bg(rgb(t().p.hover)))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.trigger_write_unavailable(cx);
+                        this.sync_triggers(cx);
                     }))
                     .child(
                         div()
@@ -1313,6 +2388,7 @@ impl Desktop {
                     .min_h(t().d(0.))
                     .overflow_y_scroll()
                     .children(rows)
+                    .child(self.cat_commit_bar(cx)),
             )
             .child(
                 div()
@@ -1901,7 +2977,7 @@ impl Desktop {
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.hover)))
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.trigger_write_unavailable(cx);
+                                this.restore_trigger(&restore.clone(), cx);
                             }))
                             .child(
                                 div()
@@ -1923,8 +2999,8 @@ impl Desktop {
                             .border_color(rgb(t().p.danger_soft))
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.danger_soft)))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                this.trigger_write_unavailable(cx);
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.ask_purge(&purge.clone(), window, cx);
                             }))
                             .child(
                                 div()
@@ -1982,8 +3058,8 @@ impl Desktop {
             .as_ref()
             .map(|d| d.triggers.iter().any(|t| t.name == name))
             .unwrap_or(false);
-        let _restore = name.clone();
-        let _purge = name.clone();
+        let restore = name.clone();
+        let purge = name.clone();
         let close = name.clone();
 
         div()
@@ -2165,7 +3241,7 @@ impl Desktop {
                             .when(!live, |el| {
                                 el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.triggers.archived_detail = None;
-                                    this.trigger_write_unavailable(cx);
+                                    this.restore_trigger(&restore.clone(), cx);
                                 }))
                             })
                             .child(
@@ -2188,8 +3264,8 @@ impl Desktop {
                             .border_color(rgb(t().p.danger_soft))
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.danger_soft)))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                this.trigger_write_unavailable(cx);
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.ask_purge(&purge.clone(), window, cx);
                             }))
                             .child(
                                 div()
@@ -2211,7 +3287,7 @@ impl Desktop {
             return div().into_any_element();
         };
         let current = self.triggers.code.path.clone().unwrap_or_default();
-        let _name = self.triggers.code.name.clone().unwrap_or_default();
+        let name = self.triggers.code.name.clone().unwrap_or_default();
         div()
             .absolute()
             .top(t().d(56.))
@@ -2265,9 +3341,9 @@ impl Desktop {
                                     .text_size(t().fs(10.5))
                                     .text_color(rgb(t().p.on_accent))
                                     .cursor_pointer()
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                         this.triggers.pending_path = None;
-                                        this.trigger_write_unavailable(cx);
+                                        this.save_trigger_file(false, window, cx);
                                     }))
                                     .child("先保存"),
                             )
@@ -2285,9 +3361,9 @@ impl Desktop {
                                     .text_color(rgb(t().p.danger))
                                     .cursor_pointer()
                                     .hover(|h| h.bg(rgb(t().p.danger_soft)))
-                                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                         this.triggers.pending_path = None;
-                                        this.trigger_write_unavailable(cx);
+                                        this.open_trigger_file(&name.clone(), &next.clone(), window, cx);
                                     }))
                                     .child("放弃改动"),
                             )
@@ -2333,8 +3409,8 @@ impl Desktop {
             return div().into_any_element();
         };
         let (label, bg, fg) = status_of(&item);
-        let _name = item.name.clone();
-        let _archive_name = item.name.clone();
+        let name = item.name.clone();
+        let archive_name = item.name.clone();
         let params: Vec<AnyElement> = item
             .params
             .iter()
@@ -2469,8 +3545,8 @@ impl Desktop {
                                     .border_color(rgb(t().p.line))
                                     .cursor_pointer()
                                     .hover(|h| h.bg(rgb(t().p.hover)))
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        this.trigger_write_unavailable(cx);
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.open_code(&name.clone(), window, cx);
                                     }))
                                     .child(
                                         Icon::new(IconName::Code)
@@ -2498,8 +3574,8 @@ impl Desktop {
                                     .border_color(rgb(t().p.danger_soft))
                                     .cursor_pointer()
                                     .hover(|h| h.bg(rgb(t().p.danger_soft)))
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        this.trigger_write_unavailable(cx);
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.ask_archive(&archive_name.clone(), window, cx);
                                     }))
                                     .child(
                                         Icon::new(IconName::Archive)
@@ -2778,7 +3854,7 @@ impl Desktop {
             .files
             .iter()
             .map(|f| {
-                let _path = f.path.clone();
+                let path = f.path.clone();
                 let on = code.path.as_deref() == Some(f.path.as_str());
                 let unsaved = on && editing_dirty;
                 // 右列：有增删就显示 +N −M，否则显示字节数；末尾再挂脏圆点。
@@ -2842,9 +3918,9 @@ impl Desktop {
                     .border_color(rgba(if on { t().p.accent } else { t().p.transparent }))
                     .when(on, |el| el.bg(rgb(t().p.hover)))
                     .hover(|h| h.bg(rgb(t().p.hover)))
-                    .on_click(cx.listener(move |this, _, _window, cx| {
-                        let _name = this.triggers.code.name.clone().unwrap_or_default();
-                        this.trigger_write_unavailable(cx);
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let name = this.triggers.code.name.clone().unwrap_or_default();
+                        this.open_trigger_file(&name, &path.clone(), window, cx);
                     }))
                     .child(
                         Icon::new(IconName::File)
@@ -3001,8 +4077,8 @@ impl Desktop {
                             .border_color(rgb(t().p.line))
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.trigger_write_unavailable(cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.save_trigger_file(false, window, cx);
                             }))
                             .child(
                                 Icon::new(IconName::Save)
@@ -3029,7 +4105,7 @@ impl Desktop {
                             .cursor_pointer()
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 if !this.triggers.code.busy {
-                                    this.trigger_write_unavailable(cx);
+                                    this.publish_trigger(cx);
                                 }
                             }))
                             .child(
@@ -3749,7 +4825,7 @@ impl Desktop {
                                     .bg(rgb(t().p.accent))
                                     .cursor_pointer()
                                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.trigger_write_unavailable(cx);
+                                        this.publish_trigger(cx);
                                     }))
                                     .child(
                                         Icon::new(IconName::Upload)
@@ -4132,7 +5208,7 @@ impl Desktop {
                             .rounded(t().r(6.))
                             .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
                             .cursor_pointer()
-                            .on_click(cx.listener(|this, _, _window, cx| {
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 if this.triggers.wizard.busy {
                                     return;
                                 }
@@ -4140,7 +5216,7 @@ impl Desktop {
                                 if step < 3 {
                                     this.wizard_step(step + 1, cx);
                                 } else {
-                                    this.trigger_write_unavailable(cx);
+                                    this.create_trigger(window, cx);
                                 }
                             }))
                             .child(
@@ -4606,12 +5682,12 @@ impl Desktop {
                                             == this.triggers.confirm.name
                                         {
                                             if this.triggers.confirm.purge {
-                                                let _n = this.triggers.confirm.name.clone();
+                                                let n = this.triggers.confirm.name.clone();
                                                 this.triggers.confirm.open = false;
                                                 this.triggers.archived_detail = None;
-                                                this.trigger_write_unavailable(cx);
+                                                this.purge_trigger(&n, cx);
                                             } else {
-                                                this.trigger_write_unavailable(cx);
+                                                this.confirm_archive(cx);
                                             }
                                         }
                                     }))

@@ -144,6 +144,21 @@ pub fn split_endpoint(endpoint: &str) -> Option<(&str, &str)> {
     Some((method, path))
 }
 
+/// 端点级灰理由的**唯一纯函数通道**：模块门 + endpoints 声明，
+/// 理由只取 `capabilities.reason.message` 原文（模块没给 reason 时按统一文案）。
+/// UI 只消费这一句，不许在 resources/triggers/app 里自编理由或再判一次。
+pub fn endpoint_disabled_reason(caps: &Capabilities, method: &str, path: &str) -> Option<String> {
+    match gate_for_path(caps, method, path) {
+        Gate::Enabled if endpoint_enabled(caps, method, path) => None,
+        Gate::Disabled { code, reason } => Some(disabled_text(code, &reason.message)),
+        Gate::Enabled => Some(disabled_text(
+            ReasonCode::NotImplemented,
+            "服务端没有声明这个端点（旧版本不支持）",
+        )),
+        Gate::Unknown => Some(disabled_text(ReasonCode::Unknown, "服务端未声明这个功能")),
+    }
+}
+
 /// 唯一的判定处。UI 里不许再写第二处 `if module_enabled(...)`。
 pub fn gate<'a>(caps: &'a Capabilities, feature: Feature) -> Gate<'a> {
     match caps.modules.iter().find(|m| m.name == feature.module_name()) {
@@ -286,25 +301,11 @@ impl crate::app::Desktop {
     /// 端点级灰理由：`gate_for_path` 只认模块，端点没在 capabilities 声明时也要给
     /// 同一条 `disabled_text` 通道的人话。UI 只消费这一句，不许自己 match gate / 编理由。
     /// （Desk#17：`device` 模块 enabled 但老引擎没有 `PUT /v1/default`。）
-    pub(crate) fn endpoint_disabled_reason(&self, method: &'static str, path: &'static str) -> Option<String> {
+    pub(crate) fn endpoint_disabled_reason(&self, method: &str, path: &str) -> Option<String> {
         let Some(caps) = self.caps.as_ref() else {
             return Some(disabled_text(ReasonCode::Unknown, "服务端未声明这个功能"));
         };
-        let gate = gate_for_path(caps, method, path);
-        if matches!(gate, Gate::Enabled) && endpoint_enabled(caps, method, path) {
-            return None;
-        }
-        match gate {
-            Gate::Disabled { code, reason } => Some(disabled_text(code, &reason.message)),
-            Gate::Enabled => Some(disabled_text(
-                ReasonCode::NotImplemented,
-                "服务端没有声明这个端点（旧版本不支持）",
-            )),
-            Gate::Unknown => Some(disabled_text(
-                ReasonCode::Unknown,
-                "服务端未声明这个功能",
-            )),
-        }
+        endpoint_disabled_reason(caps, method, path)
     }
 
     /// 需要凭证的入口除了灰掉，还要给一个能跳到设置的按钮。
@@ -341,21 +342,19 @@ impl crate::app::Desktop {
     }
 }
 
-/// 灰路径的理由通道：`capabilities` 里那条模块的 `reason.message` **原文**。
-/// 端点没在 any module.endpoints 里声明时，按 `Unknown` 给统一文案（不是逐条自编）。
-pub fn endpoint_reason(caps: &Capabilities, path: &str) -> Option<String> {
-    let declared = caps.modules.iter().any(|m| {
-        m.endpoints.iter().any(|e| e.split_whitespace().nth(1) == Some(path))
-    });
-    if declared {
-        return None;
+/// 灰路径的理由通道：路径归属的模块 `reason.message` **原文**，取自 capabilities。
+/// 不再在 `app.rs` 里 match path —— 路径 → Feature → gate 全在这一处。
+pub fn dead_path_disabled_reason(caps: Option<&Capabilities>, path: &str) -> Option<String> {
+    let caps = caps?;
+    // 路径可能以 POST/PUT 登记（如 restore/config），门控只看归属模块，方法无关。
+    let feature = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+        .into_iter()
+        .find_map(|m| feature_for_path(m, path))?;
+    match gate(caps, feature) {
+        Gate::Enabled => None,
+        Gate::Disabled { code, reason } => Some(disabled_text(code, &reason.message)),
+        Gate::Unknown => Some(disabled_text(ReasonCode::Unknown, "服务端未声明这个功能")),
     }
-    // 找这条路径归属的模块理由（若引擎声明了 reason，就逐字用它）。
-    caps.modules
-        .iter()
-        .find(|m| m.reason.is_some())
-        .and_then(|m| m.reason.as_ref())
-        .map(|r| disabled_text(r.code, &r.message))
 }
 
 /// 本客户端认的合同主版本。**只有这一处**：横幅上的「客户端 contract N」也从这里取，
@@ -529,6 +528,85 @@ mod tests {
             other => panic!("应该灰掉：{other:?}"),
         };
         assert!(shown.contains("模型编目还没接"));
+    }
+
+    /// Desk#13 返工：`app.rs` 的路径 → 门控 match 已收敛到 `capability.rs`；
+    /// 灰理由逐字来自 capabilities.reason.message，不许自编。
+    #[test]
+    fn dead_path_reason_is_server_message_verbatim() {
+        let c: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [
+                { "name": "archive", "enabled": false,
+                  "reason": { "code": "not_implemented", "message": "archive 模块尚未落地" } },
+                { "name": "sessions", "enabled": false,
+                  "reason": { "code": "frozen", "message": "会话写已冻结" } },
+                { "name": "device", "enabled": false,
+                  "reason": { "code": "needs_credentials", "message": "先配机器凭证" } },
+            ],
+            "runtime": { "provider": { "kind": "faux" } }
+        })).unwrap();
+        for (path, msg) in [
+            ("v1/archive", "archive 模块尚未落地"),
+            ("v1/archive/{id}/restore", "archive 模块尚未落地"),
+            ("v1/sessions/{id}/archive", "会话写已冻结"),
+            ("v1/sessions/{id}/purge", "会话写已冻结"),
+            ("v1/sessions/{id}/config", "会话写已冻结"),
+            ("v1/fs/dirs", "先配机器凭证"),
+        ] {
+            let shown = dead_path_disabled_reason(Some(&c), path)
+                .unwrap_or_else(|| panic!("{path} 没有灰理由"));
+            assert!(shown.contains(msg), "{path} 的灰理由丢了原文：{shown}");
+            assert!(!shown.contains("写操作已下线"), "自编理由混入：{shown}");
+        }
+    }
+
+    /// Desk#13 返工：能力型端点等票期间保持灰，理由必须走 capability.rs 单点通道；
+    /// 真引擎 caps 里写模块 enabled 但没声明写端点时，也必须给出统一灰理由（不自编）。
+    #[test]
+    fn waiting_capability_endpoints_get_gray_reason_from_caps_only() {
+        // 目标引擎 faux caps 的形状：skills/prompts enabled 但只声明 GET list；
+        // triggers enabled 但只声明 fire/fires；ext disabled 且给了 reason。
+        let caps: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [
+                { "name": "skills", "enabled": true, "endpoints": ["GET /v1/skills"] },
+                { "name": "prompts", "enabled": true, "endpoints": ["GET /v1/prompts"] },
+                { "name": "ext", "enabled": false,
+                  "reason": { "code": "frozen", "message": "扩展运行时已冻结" } },
+                { "name": "triggers", "enabled": true,
+                  "endpoints": ["GET /v1/triggers", "POST /v1/triggers/{code}/fire"] },
+            ],
+            "runtime": { "provider": { "kind": "faux" } }
+        })).unwrap();
+        let paths = [
+            ("POST", "/v1/skills/create"), ("PUT", "/v1/skills/file"),
+            ("GET", "/v1/skills/files"), ("GET", "/v1/skills/file"),
+            ("POST", "/v1/skills/publish"),
+            ("POST", "/v1/prompts/create"), ("PUT", "/v1/prompts/file"),
+            ("GET", "/v1/prompts/files"), ("GET", "/v1/prompts/file"),
+            ("POST", "/v1/prompts/publish"),
+            ("POST", "/v1/extensions/create"), ("PUT", "/v1/extensions/file"),
+            ("GET", "/v1/extensions/files"), ("GET", "/v1/extensions/file"),
+            ("POST", "/v1/extensions/publish"),
+            ("GET", "/v1/triggers/files"), ("GET", "/v1/triggers/file"),
+            ("PUT", "/v1/triggers/file"), ("POST", "/v1/triggers/create"),
+            ("POST", "/v1/triggers/publish"), ("POST", "/v1/triggers/archive"),
+            ("POST", "/v1/triggers/restore"), ("POST", "/v1/triggers/purge"),
+            ("POST", "/v1/triggers/category"), ("POST", "/v1/triggers/categories"),
+        ];
+        for (method, path) in paths {
+            let reason = endpoint_disabled_reason(&caps, method, path)
+                .unwrap_or_else(|| panic!("{method} {path} 等票期间没有灰理由"));
+            assert!(!reason.contains("写操作已下线"), "自编理由混进灰通道：{reason}");
+            assert!(
+                reason.contains("扩展运行时已冻结")
+                    || reason.contains("服务端没有声明这个端点"),
+                "灰理由没来自 capabilities：{reason}"
+            );
+        }
     }
 
     /// Desk#17：老引擎 0.1.3 的 device 模块是 enabled 的，却没声明 PUT /v1/default。
