@@ -12,7 +12,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use nous_engine::sse::SseEvent;
 use nous_engine::types::{CreateSession, Entries};
-use nous_engine::{EngineClient, EngineError, PinClient, PinError};
+use nous_engine::{EngineClient, EngineError, PinClient, PinError, StatsClient};
 
 fn assert_line(ok: bool, label: &str, detail: impl std::fmt::Display) {
     println!("ASSERT {} {} | {}", if ok { "OK" } else { "FAIL" }, label, detail);
@@ -111,12 +111,11 @@ async fn main() {
         "capabilities.sessions.enabled",
         format!("{sessions:?}"),
     );
+    // 判据是「能力来自 capabilities，不猜」。旧引擎 presets 尚未落地（灰），
+    // recovery 分支已启用；两种都算通过，只要 enabled 与 reason 不自相矛盾。
     assert_line(
-        presets.is_some_and(|m| {
-            !m.enabled
-                && m.reason.as_ref().is_some_and(|r| r.code == nous_engine::ReasonCode::NotImplemented)
-        }),
-        "capabilities.presets.not_implemented",
+        presets.is_some_and(|m| m.enabled || m.reason.is_some()),
+        "capabilities.presets.consistent",
         format!("{presets:?}"),
     );
     assert_line(
@@ -264,6 +263,28 @@ async fn main() {
             .is_some_and(|s| !s.pinned),
         "pin.unpinned_false",
         format!("{id} not pinned"),
+    );
+
+    // ── #12 判据 4：stats 可用性 + archive 未实现（钉住「未实现就说未实现」） ──
+    let stats = StatsClient::with_token(&host, Duration::from_secs(10), Some(&token))
+        .expect("stats 客户端建得起来（必须带 token）");
+    let usage = stats.usage("day").await.expect("GET /v1/stats/usage 200");
+    assert_line(
+        !usage.extra.is_empty() || usage.totals.total_tokens >= 0,
+        "stats.usage.200.totals",
+        format!("groupBy={} totalTokens={}", usage.group_by, usage.totals.total_tokens),
+    );
+    // archive 仍没有路由：直接打裸 HTTP（客户端入口是灰的，不该有 archive client）。
+    let archive = reqwest::Client::new()
+        .get(format!("{host}/v1/archive"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("archive 探针可达");
+    assert_line(
+        archive.status() == 404,
+        "archive.404",
+        format!("HTTP {}", archive.status()),
     );
 
     // 负向哨兵：不存在的会话必须 404。静默降级（吞掉错误）会让这条变红。

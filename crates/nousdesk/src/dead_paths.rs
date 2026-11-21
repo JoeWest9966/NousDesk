@@ -120,7 +120,7 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     DeadPath::removed("GET", "api/health"),
 ];
 
-/// 引擎 `meta::ROUTES` 在本次审计时的 35 条（用于「白名单不许留活路径」自检）。
+/// 引擎 `meta::ROUTES` 的活路由（含 #12 接入的 3 条 stats，recovery 分支 59 条路由里的相关项）。
 /// 路由模板统一写 `{id}` / `{section}` 形态，与 capabilities 的 endpoints 一致。
 pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/sessions"),
@@ -146,6 +146,10 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("POST", "v1/triggers/{code}/fire"),
     ("GET", "v1/triggers/{code}/fires"),
     ("GET", "v1/capabilities"),
+    // stats（Nous#62）：recovery 分支真有这三条，客户端可以打，不进死路径白名单。
+    ("GET", "v1/stats/usage"),
+    ("GET", "v1/stats/tasks"),
+    ("GET", "v1/stats/db"),
     ("GET", "v1/documents/{kind}"),
     ("GET", "v1/documents/{kind}/{section}/{name}"),
     ("PUT", "v1/documents/{kind}/{section}/{name}"),
@@ -225,7 +229,7 @@ mod tests {
     #[test]
     fn every_engine_call_path_is_either_live_or_whitelisted() {
         let mut leaked = Vec::new();
-        for &(method, path) in engine_call_paths() {
+        for &(method, path) in engine_call_paths().iter().chain(nous_engine::stats_paths()) {
             let normalized = crate::capability::normalize_path(path);
             if ENGINE_ROUTES.iter().any(|(m, p)| *m == method && *p == normalized) {
                 continue;

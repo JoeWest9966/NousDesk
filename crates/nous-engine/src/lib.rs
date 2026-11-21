@@ -26,6 +26,12 @@ pub mod types;
 pub use capabilities::{Capabilities, Module, Provider, Reason, ReasonCode, Runtime, Server};
 pub use client::{EngineClient, EngineError};
 pub use client::{client_paths, CLIENT_PATHS};
+pub use console::{StatsClient, STATS_PATHS};
+
+/// 协议层实际发出、且引擎 recovery 分支确实有的 stats 路径（给白名单自检拼表）。
+pub fn stats_paths() -> &'static [(&'static str, &'static str)] {
+    STATS_PATHS
+}
 
 pub use pins::{PinClient, PinError};
 pub use resource::{NewExtension, NewPrompt, NewSkill, Repo, ResourceFile, ResourceFileEntry, ResourceFiles, SaveFile};

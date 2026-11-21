@@ -24,7 +24,9 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use nous_engine::console::{
-    Conversation as Replay, Conversations, ConvRow, Cost, CostBucket, Health, Overview,
+    Conversation as Replay, Conversations, Cost, CostBucket, Health, Overview, StatsConvEntry,
+    ConvRow, StatsCostTotals, StatsCounts, StatsDb, StatsHealth, StatsOverview, StatsMaintenance,
+    StatsStatusBucket, StatsTasks, StatsUsage,
 };
 use nous_engine::types::{ArchiveGens, ArchiveItem};
 
@@ -84,20 +86,13 @@ impl Screen {
     pub fn hint(self) -> &'static str {
         match self {
             Screen::Overview => "文件 / pragmas / 表 / 索引 / integrity",
-            Screen::Convs => "一条会话一行，按 token 排",
+            Screen::Convs => "一条会话一行，按引擎给的顺序",
             Screen::Replay => "一条会话里每一轮发生了什么",
             Screen::Cost => "token 从哪来、缓存命中多少",
             Screen::Health => "卡住的任务 / 没人接的提交 / WAL",
             Screen::Archive => "撕掉的原件还回不回得来",
         }
     }
-}
-
-/// 这一屏还有没有活数据源。`Desk#13`：前五屏原打 `旧面板 REST 路径`，已删客户端；
-/// #12 把六屏改接 `/v1/stats` 之前，它们只能按 capabilities 灰掉。
-/// 归档屏仍走 `Feature::Archive` 那一条通道（灰 + 理由）。
-pub(crate) fn screen_has_live_data(screen: Screen) -> bool {
-    matches!(screen, Screen::Archive)
 }
 
 /// 拉片的三档：宽卡（03 原样）/ 胶卷格（值 + 一行）/ 只剩数值。
@@ -743,8 +738,258 @@ impl BucketAt for CostBucket {
     }
 }
 
-// ── 拉取 ─────────────────────────────────────────────────────────────
+// ── /v1 数据装配 ────────────────────────────────────────────────────
+//
+// 端点算好、Desk 只画。六个函数都是纯函数：吃 `/v1/*` 的回包，吐渲染层原有的
+// Stats* 展示形状（版式一字不动）。不在这里算成本、不算会话 token、不造「健康」。
 
+/// 解剖屏：`/v1/device` + `/v1/capabilities` + `/v1/stats/db`。
+pub(crate) fn assemble_overview(
+    device: &nous_engine::types::Device,
+    caps: &nous_engine::Capabilities,
+    db: &StatsDb,
+) -> Overview {
+    let durable_rows = &db.durable.rows;
+    let mut extra = std::collections::BTreeMap::new();
+    extra.insert("contract".into(), serde_json::json!(caps.contract));
+    extra.insert(
+        "modules".into(),
+        serde_json::json!(caps.modules.iter().map(|m| {
+            serde_json::json!({"name": m.name, "enabled": m.enabled,
+                               "reason": m.reason.as_ref().map(|r| &r.message)})
+        }).collect::<Vec<_>>()),
+    );
+    extra.insert("serverVersion".into(), serde_json::json!(caps.server.version));
+    if let Some(node) = &device.node {
+        extra.insert("node".into(), serde_json::json!(node));
+    }
+    for key in ["build", "target"] {
+        if let Some(v) = device.extra.get(key) {
+            extra.insert(key.to_string(), v.clone());
+        }
+    }
+    let bytes = db.durable.bytes;
+    StatsOverview {
+        target: nous_engine::console::StatsTarget {
+            id: device.node.clone().unwrap_or_default(),
+            path: device.data.clone().unwrap_or_default(),
+            extra: Default::default(),
+        },
+        file: nous_engine::console::StatsDbFiles {
+            db: bytes,
+            wal: 0, // /v1/stats/db 报的是两库字节，不拆 WAL；没有就不画数字。
+            shm: 0,
+            mtime: 0.,
+            wal_mtime: 0.,
+            extra: Default::default(),
+        },
+        pragmas: nous_engine::console::StatsPragmas {
+            page_count: if bytes > 0 { 1 } else { 0 },
+            freelist: 0,
+            extra: Default::default(),
+            ..Default::default()
+        },
+        bytes: nous_engine::console::StatsBytes {
+            free: 0,
+            used: bytes,
+            on_disk: bytes + db.plugins.bytes,
+            extra: Default::default(),
+        },
+        counts: StatsCounts { by_table: durable_rows.clone() },
+        tables: durable_rows
+            .iter()
+            .map(|(name, rows)| nous_engine::console::StatsTable {
+                name: name.clone(),
+                rows: *rows,
+                bytes,
+                ..Default::default()
+            })
+            .collect(),
+        integrity: nous_engine::console::StatsIntegrity {
+            checked: true,
+            ok: db.durable.quick_check == "ok" && db.plugins.quick_check == "ok",
+            messages: [&db.durable, &db.plugins]
+                .iter()
+                .filter(|r| r.quick_check != "ok")
+                .map(|r| r.quick_check.clone())
+                .collect(),
+            extra: Default::default(),
+        },
+        entries_by_kind: Vec::new(),
+        indexes: Vec::new(),
+        extra,
+    }
+}
+
+/// 会话树：`GET /v1/sessions`。条数 == `items.len()`（不自己排序、不算 token 列）。
+pub(crate) fn assemble_convs(sessions: &nous_engine::types::Sessions) -> Conversations {
+    Conversations {
+        count: sessions.items.len() as i64,
+        list: sessions
+            .items
+            .iter()
+            .map(|s| nous_engine::console::StatsConvRow {
+                id: s.id,
+                title: s.name.clone(),
+                entries: 0,
+                tokens: 0,
+                tool_calls: 0,
+                models: s.model.clone().into_iter().collect(),
+                first_at: 0,
+                last_at: s.updated_at.unwrap_or(0),
+                pinned: s.pinned,
+                archived: s.archived.is_some(),
+                read_only: s.read_only,
+                busy: s.busy.clone().unwrap_or(serde_json::Value::Null),
+                template: s.template.clone(),
+                skills: s.skills.clone(),
+                extra: Default::default(),
+            })
+            .collect(),
+        totals: Default::default(),
+        extra: Default::default(),
+    }
+}
+
+/// 回放：`GET /v1/sessions/:id/entries`。`model[0]` 里已有 usage / durationMs /
+/// timestamp / stopReason / errorMessage —— 只读不转手算。
+pub(crate) fn assemble_replay(id: i64, entries: &nous_engine::types::Entries) -> Replay {
+    let mut out: Vec<StatsConvEntry> = entries
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let model = e.extra.get("model").and_then(|v| v.as_array()).and_then(|a| a.first());
+            let usage = model.and_then(|m| m.get("usage"));
+            let num = |v: Option<&serde_json::Value>| {
+                v.and_then(|x| x.as_i64())
+                    .or_else(|| v.and_then(|x| x.as_f64()).map(|n| n as i64))
+                    .unwrap_or(0)
+            };
+            StatsConvEntry {
+                seq: i as i64 + 1,
+                kind: e.kind.clone(),
+                bytes: model
+                    .map(|m| serde_json::to_string(m).map_or(0, |s| s.len() as i64))
+                    .unwrap_or(0),
+                at: num(model.and_then(|m| m.get("timestamp"))),
+                tokens: num(usage.and_then(|u| u.get("totalTokens"))),
+                text: e.text.clone().unwrap_or_default(),
+                is_error: model
+                    .and_then(|m| m.get("stopReason"))
+                    .and_then(|v| v.as_str())
+                    == Some("error"),
+                tool: e.extra.get("tool").and_then(|v| v.as_str()).map(str::to_owned),
+                stop_reason: model
+                    .and_then(|m| m.get("stopReason"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned),
+                error_message: model
+                    .and_then(|m| m.get("errorMessage"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned),
+                extra: e.extra.clone().into_iter().collect(),
+            }
+        })
+        .collect();
+    out.reverse(); // 引擎新的在前，回放按轮次正序画。
+    Replay {
+        id,
+        entries: out,
+        tasks: Vec::new(),
+        documents: Vec::new(),
+        prompt: Default::default(),
+        extra: Default::default(),
+    }
+}
+
+/// 账单：`GET /v1/stats/usage?group_by=day|model`。totals / rows 端点算好，原样画。
+pub(crate) fn assemble_cost(usage: &StatsUsage) -> Cost {
+    let mut by_day = Vec::new();
+    let mut by_model = Vec::new();
+    let mut by_conv = Vec::new();
+    let group = usage.group_by.as_str();
+    for row in &usage.rows {
+        let label = row
+            .get("label")
+            .or_else(|| row.get("key"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let tokens = row.get("totalTokens").and_then(|v| v.as_i64()).unwrap_or(0);
+        let cost = row.get("costTotal").and_then(|v| v.as_f64()).unwrap_or(0.);
+        let calls = row.get("requests").and_then(|v| v.as_i64()).unwrap_or(0);
+        let bucket = CostBucket {
+            label,
+            tokens,
+            cost,
+            calls,
+            ..Default::default()
+        };
+        match group {
+            "model" => by_model.push(bucket),
+            "conversation" => by_conv.push(bucket),
+            _ => by_day.push(bucket),
+        }
+    }
+    let t = &usage.totals;
+    Cost {
+        totals: StatsCostTotals {
+            tokens: t.total_tokens,
+            cost: t.cost_total,
+            entries: t.requests,
+            extra: [("errors".to_string(), serde_json::json!(t.errors))]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        },
+        by_day,
+        by_model,
+        by_conv,
+        note: String::new(),
+        ..Default::default()
+    }
+}
+
+/// 维修：`GET /v1/stats/tasks` + `/v1/device`。按状态计数直接来自 `byState`，
+/// 探针是 `/v1/device` —— 不造「健康」概念，不自己判运行状况。
+pub(crate) fn assemble_health(tasks: &StatsTasks, device: &nous_engine::types::Device) -> Health {
+    let total = tasks.by_state.values().sum();
+    let statuses: Vec<StatsStatusBucket> = tasks
+        .by_state
+        .iter()
+        .map(|(status, count)| StatsStatusBucket {
+            status: status.clone(),
+            count: *count,
+            extra: Default::default(),
+        })
+        .collect();
+    StatsHealth {
+        tasks: nous_engine::console::StatsHealthTasks {
+            total,
+            by_status: statuses,
+            extra: Default::default(),
+            ..Default::default()
+        },
+        submissions: Default::default(),
+        documents: Default::default(),
+        wal_bytes: 0,
+        freelist: Default::default(),
+        maintenance: vec![StatsMaintenance {
+            label: "连接 / 版本".into(),
+            why: format!(
+                "node={} build={} target={}",
+                device.node.clone().unwrap_or_else(|| "—".into()),
+                device.extra.get("build").and_then(|v| v.as_str()).unwrap_or("—"),
+                device.extra.get("target").and_then(|v| v.as_str()).unwrap_or("—"),
+            ),
+            ..Default::default()
+        }],
+        extra: Default::default(),
+    }
+}
+
+/// 拉取 ─────────────────────────────────────────────────────────────
 impl Desktop {
     /// 拉这一页要的一切。
     ///
@@ -752,46 +997,154 @@ impl Desktop {
     /// 只显示 capabilities 给的灰理由；#12 接上 `/v1/stats` 之前不猜数据源。
     /// 归档屏保留 `/v1/archive`，入口由 `Feature::Archive` 闸门守着。
     pub(crate) fn load_console(&mut self, _force: bool, cx: &mut Context<Self>) {
-        self.archive_page_load_for_console(cx);
+        let stats_reason = self.disabled_reason(crate::capability::Feature::Stats);
+        if stats_reason.is_some() {
+            self.console.error = stats_reason.clone();
+        }
+        // 归档屏没有数据源：只给灰理由，绝不发 /v1/archive（Desk#12 判据 3）。
+        self.console.archive = None;
+        self.console.error = self
+            .disabled_reason(crate::capability::Feature::Archive)
+            .or_else(|| self.console.error.take());
+
+        let Some(engine) = self.engine.clone() else {
+            if self.console.error.is_none() {
+                self.console.error = Some("还没连上引擎 —— 去「≡ 更多」里重新连接".to_string());
+            }
+            cx.notify();
+            return;
+        };
+        let Some(handle) = crate::TOKIO.get().cloned() else {
+            cx.notify();
+            return;
+        };
+        let host = self.conn.host.clone();
+        let token = self.conn.resolve_token();
+        let device = self.device.clone();
+        let caps = self.caps.clone();
+        let sessions_enabled = self.feature_enabled(crate::capability::Feature::Sessions);
+        let stats_enabled = stats_reason.is_none();
+        let has_device = device.is_some();
+
+        // 解剖：/v1/device + /v1/capabilities + /v1/stats/db。本地已有前两份快照，
+        // stats/db 现拉。设备或能力缺失时不猜，画「还没拿到」。
+        if stats_enabled && has_device {
+            let (handle2, engine2, device2, caps2) =
+                (handle.clone(), engine.clone(), device.clone(), caps.clone());
+            let stats = Self::new_stats_client(&host, token.as_deref());
+            cx.spawn(async move |this, cx| {
+                let db = match stats {
+                    Some(c) => handle2.spawn(async move { c.db().await }).await,
+                    None => return,
+                };
+                let _ = this.update(cx, |this, _cx| match db {
+                    Ok(Ok(db)) => {
+                        if let (Some(d), Some(c)) = (device2.as_ref(), caps2.as_ref()) {
+                            this.console.overview = Some(assemble_overview(d, c, &db));
+                        }
+                    }
+                    Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                    Err(e) => this.console.error = Some(e.to_string()),
+                });
+            })
+            .detach();
+            let _ = engine2; // device/caps 已由 app 启动时拉过，不再重复打 /v1/device。
+        }
+
+        // 会话树：/v1/sessions（已有 archived/busy/...，条数就是 items.len()）。
+        if sessions_enabled {
+            let handle2 = handle.clone();
+            cx.spawn(async move |this, cx| {
+                let got = handle2.spawn(async move { engine.sessions().await }).await;
+                let _ = this.update(cx, |this, _cx| match got {
+                    Ok(Ok(s)) => this.console.convs = Some(assemble_convs(&s)),
+                    Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                    Err(e) => this.console.error = Some(e.to_string()),
+                });
+            })
+            .detach();
+        }
+
+        // 账单：/v1/stats/usage?group_by=day（端点算好 totals，Desk 只画）。
+        if stats_enabled {
+            if let Some(stats) = Self::new_stats_client(&host, token.as_deref()) {
+                let handle2 = handle.clone();
+                cx.spawn(async move |this, cx| {
+                    let got = handle2.spawn(async move { stats.usage("day").await }).await;
+                    let _ = this.update(cx, |this, _cx| match got {
+                        Ok(Ok(u)) => this.console.cost = Some(assemble_cost(&u)),
+                        Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                        Err(e) => this.console.error = Some(e.to_string()),
+                    });
+                })
+                .detach();
+            }
+            // 维修：/v1/stats/tasks + /v1/device（没有「健康」探针）。
+            if let (Some(stats), Some(device)) = (
+                Self::new_stats_client(&host, token.as_deref()),
+                device.clone(),
+            ) {
+                let handle2 = handle.clone();
+                cx.spawn(async move |this, cx| {
+                    let got = handle2.spawn(async move { stats.tasks().await }).await;
+                    let _ = this.update(cx, |this, _cx| match got {
+                        Ok(Ok(t)) => this.console.health = Some(assemble_health(&t, &device)),
+                        Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                        Err(e) => this.console.error = Some(e.to_string()),
+                    });
+                })
+                .detach();
+            }
+        }
         cx.notify();
     }
 
-    /// 归档那一份。走归档入口的同一道闸：灰掉时不发请求，理由取 `disabled_reason()`。
-    fn archive_page_load_for_console(&mut self, cx: &mut Context<Self>) {
-        if !self.feature_enabled(crate::capability::Feature::Archive) {
-            self.console.error = self.disabled_reason(crate::capability::Feature::Archive);
+    /// stats 客户端必须带 token（`坑.md` 100）：env → desktop.toml → token 文件。
+    fn new_stats_client(host: &str, token: Option<&str>) -> Option<nous_engine::StatsClient> {
+        match nous_engine::StatsClient::with_token(
+            host,
+            std::time::Duration::from_secs(10),
+            token,
+        ) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                log::warn!("stats 客户端建不起来：{e}");
+                None
+            }
+        }
+    }
+}
+
+impl Desktop {
+    /// 回放按需拉：`GET /v1/sessions/:id/entries`，轮次从 `model[0]` 取。
+    pub(crate) fn load_replay(&mut self, id: i64, cx: &mut Context<Self>) {
+        self.console.replay_id = Some(id);
+        let reason = self.disabled_reason(crate::capability::Feature::Sessions);
+        if reason.is_some() {
+            self.console.replay_error = reason;
+            cx.notify();
             return;
         }
         let Some(engine) = self.engine.clone() else {
-            self.console.error = Some("还没连上引擎 —— 去「≡ 更多」里重新连接".to_string());
+            self.console.replay_error = Some("还没连上引擎 —— 去「≡ 更多」里重新连接".to_string());
+            cx.notify();
             return;
         };
         let Some(handle) = crate::TOKIO.get().cloned() else {
             return;
         };
         cx.spawn(async move |this, cx| {
-            let got = handle.spawn(async move { engine.archive_list().await }).await;
+            let got = handle.spawn(async move { engine.entries(id).await }).await;
             let _ = this.update(cx, |this, _cx| match got {
-                Ok(Ok(v)) => {
-                    this.console.archive = Some(v);
-                    this.console.error = None;
+                Ok(Ok(e)) => {
+                    this.console.replay = Some(assemble_replay(id, &e));
+                    this.console.replay_error = None;
                 }
-                Ok(Err(e)) => this.console.error = Some(e.to_string()),
-                Err(e) => this.console.error = Some(e.to_string()),
+                Ok(Err(e)) => this.console.replay_error = Some(e.to_string()),
+                Err(e) => this.console.replay_error = Some(e.to_string()),
             });
         })
         .detach();
-    }
-}
-
-impl Desktop {
-    /// 回放屏的 `旧面板回放取数` 取数已删（`Desk#13`）。#12 接上
-    /// `GET /v1/sessions/:id/entries` 之前，屏上给一句真实理由，不发请求。
-    pub(crate) fn load_replay(&mut self, id: i64, cx: &mut Context<Self>) {
-        self.console.replay_id = Some(id);
-        self.console.replay_error = Some(self
-            .disabled_reason(crate::capability::Feature::Sessions)
-            .unwrap_or_else(|| "回放数据源已下线（Desk#12 待接 /v1）".to_string()));
         cx.notify();
     }
 }
@@ -1338,7 +1691,7 @@ impl Desktop {
                                         this.console
                                             .convs
                                             .as_ref()
-                                            .and_then(|c| c.list_by_tokens().first().map(|r| r.id))
+                                            .and_then(|c| c.list.first().map(|r| r.id))
                                     });
                                     if let Some(id) = id {
                                         this.load_replay(id, cx);
@@ -1364,14 +1717,14 @@ impl Desktop {
         let screen = self.console.screen;
         // `Desk#13`：旧面板 REST 路径 取数已删。前五屏在 #12 接上 `/v1/stats` 之前，
         // 只画一句灰理由（来自 capabilities），不再画「拿不到数据」的红字。
-        if !screen_has_live_data(screen) {
-            let reason = self
-                .disabled_reason(crate::capability::Feature::Device)
-                .unwrap_or_else(|| "服务端未提供（版本太旧？）".to_string());
-            return empty_note(
-                "这一屏的数据源还没落地",
-                &format!("{reason} · Desk#12 会把它接到 /v1"),
-            );
+        let gate_feature = match screen {
+            Screen::Archive => crate::capability::Feature::Archive,
+            _ => crate::capability::Feature::Stats,
+        };
+        if let Some(reason) = self.disabled_reason(gate_feature) {
+            // 唯一的灰理由通道：capabilities.reason.message 原文 + code 提示。
+            // 不许自写「Desk#12 待接」这类谎话，也不画 error_box 红字。
+            return empty_note("这一屏暂不可用", &reason);
         }
         let body: AnyElement = match screen {
             Screen::Overview => self.screen_overview(),
@@ -1487,7 +1840,7 @@ impl Desktop {
         };
         let picking = self.console.replay_id;
         let rows: Vec<AnyElement> = c
-            .list_by_tokens()
+            .list
             .iter()
             .map(|r| self.conv_row(r, picking == Some(r.id), cx))
             .collect();
@@ -1506,8 +1859,7 @@ impl Desktop {
                     .child(format!("{} 条会话", fmt_num(c.count)))
                     .child(format!("· {} entries", fmt_num(c.totals.entries)))
                     .child(format!("· {} tokens", fmt_num(c.totals.tokens)))
-                    .child(div().flex_1())
-                    .child("按 token 从多到少"),
+                    .child(div().flex_1()),
             )
             .child(
                 div()
@@ -1676,7 +2028,7 @@ impl Desktop {
                 .child(div().w(t().d(40.)).flex_none().text_size(t().fs(9.)).text_color(rgb(t().p.muted)).child(format!("#{}", task.id)))
                 .child(div().flex_1().text_size(t().fs(10.)).child(task.kind.clone()))
                 .child(div().text_size(t().fs(9.5)).text_color(rgb(t().p.faint)).child(task.status.clone()))
-                .child(div().w(t().d(54.)).flex_none().text_size(t().fs(9.5)).text_color(rgb(t().p.muted)).child(fmt_ms(task.ms.unwrap_or(0))))
+                .child(div().w(t().d(54.)).flex_none().text_size(t().fs(9.5)).text_color(rgb(t().p.muted)).child(fmt_ms(task.ms())))
                 .into_any_element()
         }).collect();
 
@@ -2019,125 +2371,13 @@ impl Desktop {
 // ── 屏 6：归档 ───────────────────────────────────────────────────────
 
 impl Desktop {
-    fn screen_archive(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(gens) = self.console.archive.as_ref() else {
-            return empty_note("还没拿到归档库", "这一份走的是引擎 `/v1/archive`，跟面板那四份不是一个来源。");
-        };
-
-        // 四态各几个。判据只有一份：`archive_page::item_status`。
-        let mut counts = [0usize; 4];
-        for g in &gens.gens {
-            for item in &g.items {
-                counts[status_idx(item_status(item))] += 1;
-            }
-        }
-        let labels = ["原件在", "已销毁", "已捞回", "无墓碑"];
-        let colors = [t().p.accent, t().p.danger, t().p.warn, t().p.faint];
-
-        let mut groups: Vec<AnyElement> = Vec::new();
-        for g in &gens.gens {
-            if g.items.is_empty() {
-                continue;
-            }
-            groups.push(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(t().d(8.))
-                    .pt(t().d(8.))
-                    .pb(t().d(4.))
-                    .text_size(t().fs(10.))
-                    .text_color(rgb(t().p.muted))
-                    .child(crate::archive_page::gen_group_title(&g.r#gen))
-                    .child(format!("{} 条", g.items.len()))
-                    .into_any_element(),
-            );
-            for item in &g.items {
-                let status = item_status(item);
-                let idx = status_idx(status);
-                let in_replay = self.console.replay_id == Some(item.id);
-                let id = item.id;
-                groups.push(
-                    div()
-                        .id(ElementId::Name(format!("dc-arch-{}-{id}", g.r#gen).into()))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.console.screen = Screen::Replay;
-                            this.load_replay(id, cx);
-                            cx.notify();
-                        }))
-                        .flex()
-                        .items_center()
-                        .gap(t().d(8.))
-                        .px(t().d(8.))
-                        .py(t().d(5.))
-                        .rounded(t().r(4.))
-                        .cursor_pointer()
-                        .border_b(t().d(1.))
-                        .border_color(rgb(t().p.line_soft))
-                        .when(in_replay, |el| el.bg(rgb(t().p.accent_soft)))
-                        .when(!in_replay, |el| el.hover(|el| el.bg(rgb(t().p.hover))))
-                        .child(
-                            div()
-                                .w(t().d(44.))
-                                .flex_none()
-                                .text_size(t().fs(9.))
-                                .text_color(rgb(t().p.faint))
-                                .child(format!("#{id}")),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(t().d(0.))
-                                .overflow_hidden()
-                                .text_size(t().fs(10.5))
-                                .child(if item.name.is_empty() {
-                                    "(无名)".to_string()
-                                } else {
-                                    one_line(&item.name, 90)
-                                }),
-                        )
-                        .child(
-                            div()
-                                .text_size(t().fs(9.5))
-                                .text_color(rgb(t().p.faint))
-                                .child(format!("{} entries", fmt_num(item.entries as i64))),
-                        )
-                        .child(
-                            div()
-                                .px(t().d(6.))
-                                .py(t().d(1.))
-                                .rounded(t().r(3.))
-                                .bg(rgb(colors[idx]))
-                                .text_size(t().fs(9.))
-                                .text_color(rgb(t().p.on_accent))
-                                .child(status.label()),
-                        )
-                        .into_any_element(),
-                );
-            }
-        }
-
-        div()
-            .flex()
-            .flex_col()
-            .gap(t().d(10.))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(t().d(8.))
-                    .children(labels.iter().enumerate().map(|(i, label)| {
-                        stat_cell(label, fmt_num(counts[i] as i64), "条".into())
-                    })),
-            )
-            .child(
-                div()
-                    .text_size(t().fs(9.5))
-                    .text_color(rgb(t().p.faint))
-                    .child("四态只看这一条自己：purged → 已销毁；live 且有墓碑 → 原件在；live 没墓碑 → 已捞回；其余 → 无墓碑。"),
-            )
-            .child(div().flex().flex_col().children(groups))
-            .into_any_element()
+    fn screen_archive(&self, _cx: &mut Context<Self>) -> AnyElement {
+        // `/v1/archive` 未实现（capabilities.archive=false）：屏保留，只给灰理由。
+        // 不拉、不画红字、不自己编「还没落地」—— 原文来自 disabled_reason()。
+        let reason = self
+            .disabled_reason(crate::capability::Feature::Archive)
+            .unwrap_or_else(|| "服务端未声明这个功能".to_string());
+        empty_note("归档库暂不可用", &reason)
     }
 }
 
@@ -2396,19 +2636,6 @@ impl Desktop {
 }
 
 // ── 共用小件 ─────────────────────────────────────────────────────────
-
-/// 会话清单按 token 从多到少 —— 「谁最贵」比「谁最新」更值得先看。
-pub(crate) trait ConvSort {
-    fn list_by_tokens(&self) -> Vec<&ConvRow>;
-}
-
-impl ConvSort for Conversations {
-    fn list_by_tokens(&self) -> Vec<&ConvRow> {
-        let mut rows: Vec<&ConvRow> = self.list.iter().collect();
-        rows.sort_by(|a, b| b.tokens.cmp(&a.tokens).then_with(|| a.id.cmp(&b.id)));
-        rows
-    }
-}
 
 fn badge(text: &str, bg: u32, fg: u32) -> AnyElement {
     div()

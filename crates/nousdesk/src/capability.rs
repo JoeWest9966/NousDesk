@@ -19,6 +19,7 @@ pub enum Feature {
     Prompts,
     Selection,
     Device,
+    Stats,
     Ext,
 }
 
@@ -36,6 +37,7 @@ impl Feature {
             Self::Prompts => ("GET", "v1/prompts"),
             Self::Selection => ("GET", "v1/selection"),
             Self::Device => ("GET", "v1/device"),
+            Self::Stats => ("GET", "v1/stats/usage"),
             Self::Ext => ("GET", "v1/extensions"),
         }
     }
@@ -51,6 +53,7 @@ impl Feature {
             Self::Prompts => "prompts",
             Self::Selection => "selection",
             Self::Device => "device",
+            Self::Stats => "stats",
             Self::Ext => "ext",
         }
     }
@@ -167,6 +170,9 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
         ("GET", "v1/combos") | ("POST", "v1/combos/{name}/{action}") => Some(Combos),
         // triggers（1）
         ("GET", "v1/triggers") => Some(Triggers),
+        // stats（3）—— #12 数据监控室的新数据源
+        ("GET", "v1/stats/usage") | ("GET", "v1/stats/tasks")
+        | ("GET", "v1/stats/db") => Some(Stats),
         // archive（2）
         ("GET", "v1/archive") | ("POST", "v1/archive/{id}/restore") => Some(Archive),
         _ => None,
@@ -301,6 +307,8 @@ mod tests {
     #[test]
     fn gate_is_the_single_decision_point() {
         let c = caps();
+        assert_eq!(Feature::Stats.probe_path(), ("GET", "v1/stats/usage"));
+        assert!(feature_for_path("GET", "/v1/stats/usage").is_some_and(|f| f == Feature::Stats));
         assert_eq!(gate(&c, Feature::Sessions), Gate::Enabled);
         assert!(matches!(gate(&c, Feature::Presets), Gate::Disabled { code: ReasonCode::NotImplemented, .. }));
         assert_eq!(gate(&c, Feature::Skills), Gate::Unknown, "清单没有 = 不可用");

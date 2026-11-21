@@ -78,6 +78,13 @@ for pin_assert in pin.changed pin.jumps_to_top pin.pinned_true pin.replay.versio
     || { echo "FAIL: 置顶往返少了一条断言：$pin_assert"; exit 1; }
 done
 
+# #12 判据 4：stats 200 + totals 在场；archive 404（未实现就说未实现）。
+# 哪天 archive 悄悄变 200 而 UI 还灰着，这两条会先红。
+for assert_name in stats.usage.200.totals archive.404; do
+  grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
+    || { echo "FAIL: 缺了判据 4 的断言：$assert_name"; exit 1; }
+done
+
 # 负向哨兵：错 token 必须 401，且会话 / entries 条数不变。
 # 若这里居然全绿，说明 401 闸门失效 —— 把 sentinel 反过来验一次：
 # 探针自己会把「没被挡住」报 FAIL，脚本跟着红。
