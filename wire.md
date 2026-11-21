@@ -458,7 +458,7 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 ## 旧面板取数：已删（Desk#13）
 
 数据监控室前五屏原来走旧面板的四五个只读接口，那个客户端和随附快照夹具已整文件删除。
-现在这些屏按 capabilities 灰掉并给理由；`Desk#12` 接上 `/v1/stats/*` 之前不猜数据源。
+现在这些屏按 capabilities 灰掉并给理由；`Desk#12` 已接上 `/v1/stats/*`，数据原样取、不在客户端重算。
 归档屏仍走 `GET /v1/archive`（未实现，灰 + 理由）。
 
 ## documents 一族（12 条，Desk#16 甲案）
@@ -551,6 +551,20 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 
 `GET /v1/triggers/{files,file}`、`PUT .../file`、`POST .../create|publish|archive|restore|purge|category|categories`。
 请求/回包类型在 `triggers.rs`；`sync` 是同族的历史方法，当前 UI 不调用。
+客户端另有一个 `POST /v1/triggers/sync`（`TriggerClient::sync`，`dead_paths.rs` 标灰）：
+引擎未声明前入口不发请求，灰理由走 `capability.rs` 原文。
+
+### 统计 / 默认 / 选择 / 文档（客户端在用，字段合同在正文或协议层）
+
+| 方法 | 路径 | 形状来源 |
+|---|---|---|
+| `GET` | `/v1/stats/{usage,tasks,db}` | `console.rs` 的 `Stats*`；Desk#12 已接，六屏原样画 |
+| `PUT` | `/v1/default` | `client.rs` + `settings.rs`；端点级 `capability::endpoint_enabled` 门控 |
+| `POST` | `/v1/selection` | `client.rs` + `app.rs`；远端同步不回环 |
+| `GET` / `PUT` / `POST` | `/v1/documents/{kind}[/{section}/{name}]` 及其 rename/publish/reload/validate/history/pending | `documents.rs` 的 `DocumentClient`，12 条详见上文「documents 一族」 |
+| `POST` | `/v1/triggers` 写族 | 见上一节；`sync` 也在此列 |
+
+这些端点在 `dead_paths.rs` / `ENGINE_ROUTES` 里逐个登记；`GET /v1/_routes` 的夹具是唯一外部证据。
 
 ### 其余（6）
 

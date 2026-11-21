@@ -111,13 +111,46 @@ async fn main() {
         "capabilities.sessions.enabled",
         format!("{sessions:?}"),
     );
-    // 判据是「能力来自 capabilities，不猜」。旧引擎 presets 尚未落地（灰），
-    // recovery 分支已启用；两种都算通过，只要 enabled 与 reason 不自相矛盾。
+    // 判据是「能力来自 capabilities，不猜」：presets 说 enabled，就必须真能打通
+    // `GET /v1/presets`；说没做，就必须给 reason。原来 `enabled || reason.is_some()`
+    // 让 enabled 单独也能过，哨兵把端点删掉照样绿 —— 这里改成真断言。
+    let presets_enabled = presets.is_some_and(|m| m.enabled);
+    let presets_reason = presets.and_then(|m| m.reason.as_ref());
     assert_line(
-        presets.is_some_and(|m| m.enabled || m.reason.is_some()),
+        if presets_enabled {
+            presets_reason.is_none()
+        } else {
+            presets_reason.is_some()
+        },
         "capabilities.presets.consistent",
         format!("{presets:?}"),
     );
+    if presets_enabled {
+        let presets_endpoint = reqwest::Client::new()
+            .get(format!("{host}/v1/presets"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .expect("presets 探针可达");
+        assert_line(
+            presets_endpoint.status() == 200,
+            "capabilities.presets.enabled.endpoint_200",
+            format!("HTTP {}", presets_endpoint.status()),
+        );
+    } else {
+        // 停用时客户端入口灰着，不能因为「碰巧有路由」就说它可用。
+        let presets_endpoint = reqwest::Client::new()
+            .get(format!("{host}/v1/presets"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .expect("presets 探针可达");
+        assert_line(
+            presets_endpoint.status() == 404,
+            "capabilities.presets.disabled.endpoint_404",
+            format!("HTTP {}", presets_endpoint.status()),
+        );
+    }
     assert_line(
         caps.runtime.provider.kind == "faux",
         "capabilities.provider.faux",
