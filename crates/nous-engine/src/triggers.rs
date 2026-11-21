@@ -251,6 +251,7 @@ impl TriggerClient {
         let headers = crate::auth::headers(token).map_err(|message| EngineError::Engine {
             status: 400,
             message,
+            body: None,
         })?;
         let http = reqwest::Client::builder()
             .timeout(timeout)
@@ -287,11 +288,13 @@ impl TriggerClient {
             return Err(EngineError::Engine {
                 status: status.as_u16(),
                 message,
+                body: Some(text),
             });
         }
         serde_json::from_str(&text).map_err(|e| EngineError::Engine {
             status: status.as_u16(),
             message: format!("JSON 不像话：{e}"),
+            body: Some(text),
         })
     }
 

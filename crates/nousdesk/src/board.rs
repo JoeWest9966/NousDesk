@@ -687,26 +687,32 @@ impl Desktop {
                         Err(EngineError::Engine {
                             status: 0,
                             message: "任务没跑完".into(),
+                            body: None,
                         }),
                         Err(EngineError::Engine {
                             status: 0,
                             message: "任务没跑完".into(),
+                            body: None,
                         }),
                         Err(EngineError::Engine {
                             status: 0,
                             message: "任务没跑完".into(),
+                            body: None,
                         }),
                         Err(EngineError::Engine {
                             status: 0,
                             message: "任务没跑完".into(),
+                            body: None,
                         }),
                         Err(EngineError::Engine {
                             status: 0,
                             message: "任务没跑完".into(),
+                            body: None,
                         }),
                         Err(EngineError::Engine {
                             status: 0,
                             message: "任务没跑完".into(),
+                            body: None,
                         }),
                     )
                 });

@@ -550,7 +550,7 @@ impl Desktop {
                         this.triggers.code.editing = false;
                         this.triggers.conflict = None;
                     }
-                    Ok(Err(EngineError::Engine { status: 409, message })) => {
+                    Ok(Err(EngineError::Engine { status: 409, message, .. })) => {
                         this.triggers.conflict = Some(message);
                     }
                     Ok(Err(e)) => {

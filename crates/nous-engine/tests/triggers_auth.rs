@@ -92,7 +92,7 @@ async fn unauthorized_is_an_error_not_an_empty_list() {
         .await
         .unwrap_err();
     match err {
-        nous_engine::EngineError::Engine { status, message } => {
+        nous_engine::EngineError::Engine { status, message, .. } => {
             assert_eq!(status, 401);
             assert!(message.contains("unauthorized"), "回包原文要透出来：{message}");
         }

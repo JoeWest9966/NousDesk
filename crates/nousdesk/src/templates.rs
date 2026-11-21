@@ -878,7 +878,7 @@ impl Desktop {
                     .preset_files(section_id, &from)
                     .await
                     .map_err(|e| e.to_string())?;
-                let manifest = crate::editor::pick_manifest(&files.files);
+                let manifest = crate::editor_presets::pick_manifest(&files.files);
                 let src = engine
                     .preset_file(section_id, &from, &manifest)
                     .await
@@ -1205,7 +1205,7 @@ impl Desktop {
                     .preset_files(&section, &name)
                     .await
                     .map_err(|e| e.to_string())?;
-                let manifest = crate::editor::pick_manifest(&files.files);
+                let manifest = crate::editor_presets::pick_manifest(&files.files);
                 let src = engine
                     .preset_file(&section, &name, &manifest)
                     .await

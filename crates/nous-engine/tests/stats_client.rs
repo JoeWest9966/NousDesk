@@ -92,7 +92,7 @@ async fn errors_keep_status_and_message() {
     let (base, rx) = fake_engine(409, r#"{"error":"stats not configured"}"#).await;
     let err = client(&base).db().await.unwrap_err();
     match err {
-        nous_engine::EngineError::Engine { status, message } => {
+        nous_engine::EngineError::Engine { status, message, .. } => {
             assert_eq!(status, 409);
             assert!(message.contains("stats not configured"), "原文要透出：{message}");
         }
