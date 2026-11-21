@@ -298,7 +298,7 @@ async fn main() {
         format!("{id} not pinned"),
     );
 
-    // ── #12 判据 4：stats 可用性 + archive 未实现（钉住「未实现就说未实现」） ──
+    // ── #12 判据 4：stats 可用性 + archive 契约（#67 之后：200 + gens 数组） ──
     let stats = StatsClient::with_token(&host, Duration::from_secs(10), Some(&token))
         .expect("stats 客户端建得起来（必须带 token）");
     let usage = stats.usage("day").await.expect("GET /v1/stats/usage 200");
@@ -307,18 +307,16 @@ async fn main() {
         "stats.usage.200.totals",
         format!("groupBy={} totalTokens={}", usage.group_by, usage.totals.total_tokens),
     );
-    // archive 仍没有路由：直接打裸 HTTP（客户端入口是灰的，不该有 archive client）。
-    let archive = reqwest::Client::new()
-        .get(format!("{host}/v1/archive"))
-        .bearer_auth(&token)
-        .send()
-        .await
-        .expect("archive 探针可达");
-    assert_line(
-        archive.status() == 404,
-        "archive.404",
-        format!("HTTP {}", archive.status()),
-    );
+    // archive 现在真有了（Nous#67）：走客户端而不是裸 HTTP ——
+    // 裸 HTTP 成功只说明「路由在」，客户端成功才说明「token 注入那条路没漏」。
+    match good.archive_list().await {
+        Ok(gens) => assert_line(
+            true,
+            "archive.200.gens",
+            format!("gens={} items={}", gens.gens.len(), gens.gens.iter().map(|g| g.items.len()).sum::<usize>()),
+        ),
+        Err(e) => assert_line(false, "archive.200.gens", format!("{e}")),
+    }
 
     // 负向哨兵：不存在的会话必须 404。静默降级（吞掉错误）会让这条变红。
     match pins
