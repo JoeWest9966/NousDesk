@@ -1965,7 +1965,7 @@ impl Desktop {
         let empty_note = if let Some(e) = &self.skills_error {
             Some(e.as_str())
         } else if self.skills.is_none() {
-            Some("技能清单加载中…")
+            Some("正在等引擎回技能清单")
         } else {
             None
         };
@@ -3850,7 +3850,25 @@ impl Desktop {
                             .id("session-scroll")
                             .overflow_y_scroll()
                             .track_scroll(&self.list_scroll)
-                            .children(rows),
+                            // 三种「这一列为什么是空的」分开说：一条都没有 ≠ 筛没了 ≠ 还没拉到。
+                            .children(if rows.is_empty() {
+                                let phase = if self.loading {
+                                    crate::states::Phase::loading("正在等引擎回会话清单")
+                                } else if total == 0 {
+                                    crate::states::Phase::empty(
+                                        "一条会话都还没有",
+                                        Some("点右上那颗 ＋ 建第一条"),
+                                    )
+                                } else {
+                                    crate::states::Phase::empty(
+                                        format!("「{q}」没有命中"),
+                                        Some(format!("清掉搜索词，{total} 条都在")),
+                                    )
+                                };
+                                vec![crate::states::inline(phase)]
+                            } else {
+                                rows
+                            }),
                     )
                     .child(scrollbar::overlay(
                         "session-scrollbar",
@@ -3875,14 +3893,19 @@ impl Desktop {
         let mut m = crate::board_art::M::new(window.viewport_size(), self.tab);
         m.w = (m.w - crate::nav_ui::NAV_W).max(1.);
         let Some(id) = self.selected else {
-            return div()
-                .flex()
-                .flex_1()
-                .size_full()
-                .items_center()
-                .justify_center()
-                .child("选个会话，这里开始聊")
-                .into_any_element();
+            // 空态全 app 一个画法（`states`）：一句为什么 + 下一步，不居中、不铺满。
+            return crate::states::view(
+                crate::states::Phase::empty(
+                    "还没选会话",
+                    Some(if self.sessions.is_empty() {
+                        "左栏一条都还没有 —— 点那颗 ＋ 建第一条"
+                    } else {
+                        "左栏点一条，或者按 ↑ ↓ 在列表里走"
+                    }),
+                ),
+                None,
+            )
+            .into_any_element();
         };
 
         let session = self.sessions.iter().find(|s| s.id == id);
@@ -4439,12 +4462,9 @@ impl Desktop {
     /// `suffix`）—— 两行并成一行，列表多出 20px。
     fn status_line(&self, _cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.loading {
-            return Some(
-                div()
-                    .text_size(t().fs(12.))
-                    .child("连引擎中…")
-                    .into_any_element(),
-            );
+            return Some(crate::states::inline(crate::states::Phase::loading(
+                "正在连引擎",
+            )));
         }
         let e = self.error.as_ref()?;
             // 连不上就告诉用户「改哪个文件」，别让他猜。

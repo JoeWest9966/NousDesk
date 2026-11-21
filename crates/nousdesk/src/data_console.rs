@@ -1930,9 +1930,20 @@ impl Desktop {
 // ── 屏 3：回放 ───────────────────────────────────────────────────────
 
 impl Desktop {
-    fn screen_replay(&self, _cx: &mut Context<Self>) -> AnyElement {
+    fn screen_replay(&self, cx: &mut Context<Self>) -> AnyElement {
         if let Some(e) = self.console.replay_error.as_deref() {
-            return error_box(e);
+            // 回放是按需拉的：失败必须有重试，否则只能切会话再切回来。
+            let id = self.console.replay_id.or(self.selected);
+            return crate::states::view(
+                crate::states::Phase::failed(e),
+                id.map(|id| {
+                    crate::states::retry_button(
+                        "replay-retry",
+                        "重新拉一次",
+                        cx.listener(move |this, _: &ClickEvent, _, cx| this.load_replay(id, cx)),
+                    )
+                }),
+            );
         }
         let Some(r) = self.console.replay.as_ref() else {
             return empty_note(
@@ -2891,20 +2902,9 @@ fn section(title: &str, rows: Vec<AnyElement>, head: bool) -> AnyElement {
         .into_any_element()
 }
 
+/// 「这一屏还没东西」。长相交给 [`crate::states`]：空态全 app 一种画法。
 fn empty_note(title: &str, hint: &str) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(t().d(4.))
-        .p(t().d(16.))
-        .child(div().text_size(t().fs(11.5)).child(title.to_string()))
-        .child(
-            div()
-                .text_size(t().fs(9.5))
-                .text_color(rgb(t().p.muted))
-                .child(hint.to_string()),
-        )
-        .into_any_element()
+    crate::states::view(crate::states::Phase::empty(title, Some(hint)), None)
 }
 
 fn error_box(text: &str) -> AnyElement {
