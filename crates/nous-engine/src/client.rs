@@ -11,11 +11,10 @@ use url::Url;
 use crate::capabilities::Capabilities;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
-    ArchiveGens, CategoriesResult, CategoryOp, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
-    DefaultSet, Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, ModelRef, NewPreset, Pending, PresetFile,
-    PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt,
-    RenamePreset, Renamed, RenamedPreset, ReorderPreset, ReorderedPreset, Triggers,
-    SessionConfig, Sessions, Skills, Submission, Unread,
+    ArchiveGens, CategoriesResult, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
+    DefaultSet, Dirs, Entries, Extensions, Forked, Machines, Models, ModelRef, PresetFile,
+    Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset,
+    SessionConfig, Sessions, Skills, Submission, Triggers, Unread,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -388,6 +387,8 @@ impl EngineClient {
         self.json(resp).await
     }
 
+    /// `GET /v1/presets/{section}`：roster，清单即详情。
+    /// 引擎的字段名是 `items`，类型里用 alias 收下；未知字段原样透传。
     pub async fn presets(&self, section: &str) -> Result<Presets, EngineError> {
         let resp = self
             .http
@@ -397,272 +398,258 @@ impl EngineClient {
         self.json(resp).await
     }
 
-    /// 新建一条预设。引擎会先过形状闸（终极模板再过引用闸），不过就 400 且一个字节都不写。
-    pub async fn create_preset(
-        &self,
-        section: &str,
-        body: &NewPreset,
-    ) -> Result<serde_json::Value, EngineError> {
-        let resp = self
-            .http
-            .post(self.url(&format!("v1/presets/{section}/create"))?)
-            .json(body)
-            .send()
-            .await?;
+    /// 触发器清单（终极模板的「什么时候发起」从这儿挑）。
+    pub async fn triggers(&self) -> Result<Triggers, EngineError> {
+        let resp = self.http.get(self.url("v1/triggers")?).send().await?;
         self.json(resp).await
     }
 
-    /// 生命周期：归档 / 还原 / 彻底删。
-    ///
-    /// 三个走同一个形状（`POST /<段>/<op>`，体 `{name}`），所以只开一个口子 ——
-    /// 分开三个方法会让调用点以为它们语义相同。失败时引擎会自己回滚，
-    /// 客户端拿到的就是原样的错误体（409 / 400 都在 `EngineError` 里）。
-    pub async fn preset_op(
-        &self,
-        section: &str,
-        op: PresetOp,
-        name: &str,
-    ) -> Result<serde_json::Value, EngineError> {
-        #[derive(Serialize)]
-        struct Body<'a> {
-            name: &'a str,
-        }
-        let resp = self
-            .http
-            .post(self.url(&format!("v1/presets/{section}/{}", op.path()))?)
-            .json(&Body { name })
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    /// 读一个文件的原文（带 `etag`，写回时当 `base`）。
-    /// 这条预设目录里有哪些文件（挑清单文件用 —— 段的 manifest 名不写死在客户端）。
-    pub async fn preset_files(
+    /// `GET /v1/presets/{section}/{name}`：原文 + ETag（version）。
+    /// 回包是 `{section, name, version, sha, preset}`，ETag 同时在 header 和 body 里；
+    /// 这里把它收成编辑器一直用的 `PresetFile`（`etag` = version 字符串）。
+    pub async fn preset_get(
         &self,
         section: &str,
         name: &str,
-    ) -> Result<PresetFiles, EngineError> {
-        let resp = self
-            .http
-            .get(self.url(&format!("v1/presets/{section}/files"))?)
-            .query(&[("name", name)])
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    pub async fn preset_file(
-        &self,
-        section: &str,
-        name: &str,
-        path: &str,
     ) -> Result<PresetFile, EngineError> {
         let resp = self
             .http
-            .get(self.url(&format!("v1/presets/{section}/file"))?)
-            .query(&[("name", name), ("path", path)])
+            .get(self.url(&format!("v1/presets/{section}/{name}"))?)
             .send()
             .await?;
-        self.json(resp).await
+        let etag_header = resp
+            .headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim_matches('"'))
+            .map(str::to_owned);
+        let v: serde_json::Value = self.json(resp).await?;
+        let version = v
+            .get("version")
+            .and_then(|n| n.as_u64().or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok())))
+            .map(|n| n.to_string())
+            .or(etag_header)
+            .unwrap_or_default();
+        let preset = v.get("preset").cloned().unwrap_or(serde_json::Value::Null);
+        Ok(PresetFile {
+            name: name.to_string(),
+            path: "preset.json".to_string(),
+            text: serde_json::to_string_pretty(&preset).unwrap_or_default() + "\n",
+            etag: version,
+            extra: v
+                .as_object()
+                .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default(),
+        })
     }
 
-    /// 触发器清单（终极模板的「什么时候发起」从这儿挑）。
-    pub async fn triggers(&self) -> Result<Triggers, EngineError> {
-        let resp = self
-            .http
-            .get(self.url("v1/triggers")?)
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    /// 这条预设的提交历史（新到旧，最多 `limit` 条）。
-    pub async fn preset_history(
+    /// `PUT /v1/presets/{section}/{name}`：建或覆盖。`body` 是**整份预设**（不含 requestId，
+    /// 这里统一补上），`etag` 原样塞进 `If-Match`；`dry_run=1` 只校验不落盘。
+    pub async fn preset_put(
         &self,
         section: &str,
         name: &str,
-        limit: usize,
-    ) -> Result<PresetHistory, EngineError> {
-        let resp = self
-            .http
-            .get(self.url(&format!("v1/presets/{section}/history"))?)
-            .query(&[("name", name), ("limit", &limit.to_string())])
-            .send()
-            .await?;
-        self.json(resp).await
+        body: &serde_json::Value,
+        request_id: &str,
+        etag: Option<&str>,
+        dry_run: bool,
+    ) -> Result<serde_json::Value, EngineError> {
+        let mut url = self.url(&format!("v1/presets/{section}/{name}"))?;
+        if dry_run {
+            url.query_pairs_mut().append_pair("dry_run", "1");
+        }
+        let mut body = body.clone();
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("requestId".to_string(), serde_json::json!(request_id));
+        }
+        let mut req = self.http.put(url).json(&body);
+        if let Some(etag) = etag.filter(|e| !e.is_empty()) {
+            req = req.header(reqwest::header::IF_MATCH, etag);
+        }
+        self.json(req.send().await?).await
     }
 
-    /// 某一次提交在一个文件上的改动（父提交 → 该提交）。
-    pub async fn preset_commit_diff(
+    /// `DELETE /v1/presets/{section}/{name}`：软删（archived），不抹盘上文件。
+    pub async fn preset_delete(
         &self,
         section: &str,
         name: &str,
-        hash: &str,
-        path: &str,
-    ) -> Result<FileDiff, EngineError> {
+    ) -> Result<(), EngineError> {
         let resp = self
             .http
-            .get(self.url(&format!("v1/presets/{section}/history/diff"))?)
-            .query(&[("name", name), ("hash", hash), ("path", path)])
+            .delete(self.url(&format!("v1/presets/{section}/{name}"))?)
             .send()
             .await?;
-        self.json(resp).await
+        if !resp.status().is_success() {
+            let _: serde_json::Value = self.json(resp).await?;
+        }
+        Ok(())
     }
 
-    /// 这一段仓里有什么没提交的（编辑器 diff 那一栏的目录）。
-    pub async fn pending(&self, section: &str) -> Result<Pending, EngineError> {
-        let resp = self
-            .http
-            .get(self.url(&format!("v1/presets/{section}/pending"))?)
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    /// 一个文件的 `before` / `after` 全文（`path` 相对段目录，`asd/preset.json`）。
-    pub async fn pending_diff(&self, section: &str, path: &str) -> Result<FileDiff, EngineError> {
-        let resp = self
-            .http
-            .get(self.url(&format!("v1/presets/{section}/pending/diff"))?)
-            .query(&[("path", path)])
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    /// 写回一个文件。`base` 是刚读到（或刚写回）的 `etag` —— 撞了就 409，不覆盖别人的改动。
-    pub async fn put_preset_file(
+    /// `PATCH /v1/presets/{section}/{name}`：元数据位（archived / name / category / order）。
+    /// `body` 是补丁本身，`requestId` 这里统一补。
+    pub async fn preset_patch(
         &self,
         section: &str,
         name: &str,
-        path: &str,
-        text: &str,
-        base: &str,
+        body: &serde_json::Value,
+        request_id: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        let mut body = body.clone();
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("requestId".to_string(), serde_json::json!(request_id));
+        }
+        let resp = self
+            .http
+            .patch(self.url(&format!("v1/presets/{section}/{name}"))?)
+            .json(&body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `POST /v1/presets/{section}/{name}/copy`，body `{name, requestId}`。
+    pub async fn preset_copy(
+        &self,
+        section: &str,
+        name: &str,
+        to: &str,
+        request_id: &str,
     ) -> Result<serde_json::Value, EngineError> {
         #[derive(Serialize)]
         struct Body<'a> {
             name: &'a str,
-            path: &'a str,
-            text: &'a str,
-            base: &'a str,
+            request_id: &'a str,
         }
         let resp = self
             .http
-            .put(self.url(&format!("v1/presets/{section}/file"))?)
-            .json(&Body { name, path, text, base })
+            .post(self.url(&format!("v1/presets/{section}/{name}/copy"))?)
+            .json(&Body { name: to, request_id })
             .send()
             .await?;
         self.json(resp).await
     }
 
-    /// 只读校验：形状闸 + 引用闸，回 `errors[] / warnings[] / resolved`。
-    pub async fn validate_preset(
-        &self,
-        section: &str,
-        name: &str,
-    ) -> Result<PresetValidation, EngineError> {
-        let resp = self
-            .http
-            .get(self.url(&format!("v1/presets/{section}/validate"))?)
-            .query(&[("name", name)])
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    /// 发布：形状闸 → 重扫 → commit → push。失败一个字节都不动。
-    pub async fn publish_preset(
-        &self,
-        section: &str,
-        message: &str,
-    ) -> Result<serde_json::Value, EngineError> {
-        #[derive(Serialize)]
-        struct Body<'a> {
-            message: &'a str,
-        }
-        let resp = self
-            .http
-            .post(self.url(&format!("v1/presets/{section}/publish"))?)
-            .json(&Body { message })
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    /// 重扫这一段的名册（盘上被外部改过时用）。回包结构不保证，调用方一律重拉。
-    pub async fn reload_presets(&self, section: &str) -> Result<serde_json::Value, EngineError> {
-        let resp = self
-            .http
-            .post(self.url(&format!("v1/presets/{section}/reload"))?)
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    /// 改**一条**预设挂的类别。`category` 是整份（不是增量）—— 传空数组 = 变成未分类。
-    pub async fn set_preset_category(
-        &self,
-        section: &str,
-        name: &str,
-        category: &[String],
-    ) -> Result<serde_json::Value, EngineError> {
-        #[derive(Serialize)]
-        struct Body<'a> {
-            name: &'a str,
-            category: &'a [String],
-        }
-        let resp = self
-            .http
-            .post(self.url(&format!("v1/presets/{section}/category"))?)
-            .json(&Body { name, category })
-            .send()
-            .await?;
-        self.json(resp).await
-    }
-
-    /// 手动排序：发**完整顺序**。引擎落 `order.json` 并提交，回包是盘上真正存下来的那份。
-    pub async fn reorder_presets(
+    /// `PUT /v1/presets/{section}/order`：整段顺序（一次落盘一次提交）。
+    pub async fn preset_order(
         &self,
         section: &str,
         order: Vec<String>,
+        request_id: &str,
     ) -> Result<ReorderedPreset, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            order: &'a [String],
+            request_id: &'a str,
+        }
         let resp = self
             .http
-            .post(self.url(&format!("v1/presets/{section}/order"))?)
-            .json(&ReorderPreset { order })
+            .put(self.url(&format!("v1/presets/{section}/order"))?)
+            .json(&Body { order: &order, request_id })
             .send()
             .await?;
         self.json(resp).await
     }
 
-    /// 改一条模板的名字。引擎同时动三处：目录（`git mv`）、清单里的 `name`、
-    /// 以及引用了它的终极模板的 `session` —— 回包的 `refs` 就是被连带改掉的那几条。
-    pub async fn rename_preset(
-        &self,
-        section: &str,
-        body: &RenamePreset,
-    ) -> Result<RenamedPreset, EngineError> {
+    /// `GET /v1/presets/{section}/categories`：段内类别名册（含零计数类别）。
+    pub async fn preset_categories(&self, section: &str) -> Result<CategoriesResult, EngineError> {
         let resp = self
             .http
-            .post(self.url(&format!("v1/presets/{section}/rename"))?)
-            .json(body)
+            .get(self.url(&format!("v1/presets/{section}/categories"))?)
             .send()
             .await?;
         self.json(resp).await
     }
 
-    /// 类别词表增删改名。回包里带着**重算过**的 `categories` + `presets`，
-    /// 调用方直接拿去覆盖本地，别自己改数组（改名会连带改预设上的挂载）。
-    pub async fn mutate_categories(
+    /// `GET /v1/presets/{section}/{name}/revisions`：引擎内修订清单。
+    pub async fn preset_revisions(
         &self,
         section: &str,
-        body: &CategoryOp,
-    ) -> Result<CategoriesResult, EngineError> {
+        name: &str,
+    ) -> Result<serde_json::Value, EngineError> {
         let resp = self
             .http
-            .post(self.url(&format!("v1/presets/{section}/categories"))?)
-            .json(body)
+            .get(self.url(&format!("v1/presets/{section}/{name}/revisions"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/presets/{section}/{name}/revisions/{n}`：某一版原文。
+    pub async fn preset_revision(
+        &self,
+        section: &str,
+        name: &str,
+        n: i64,
+    ) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/presets/{section}/{name}/revisions/{n}"))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `POST /v1/presets/{section}/{name}/rollback`，body `{n, requestId}`。
+    pub async fn preset_rollback(
+        &self,
+        section: &str,
+        name: &str,
+        n: i64,
+        request_id: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        #[derive(Serialize)]
+        struct Body {
+            n: i64,
+            request_id: String,
+        }
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/{name}/rollback"))?)
+            .json(&Body { n, request_id: request_id.to_owned() })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/presets/model`：能引用的模型清单。
+    pub async fn preset_models(&self) -> Result<serde_json::Value, EngineError> {
+        let resp = self.http.get(self.url("v1/presets/model")?).send().await?;
+        self.json(resp).await
+    }
+
+    // ── 发布预留（Nous#75，不是 presets 的 12 条之一）───────────────
+    //
+    // `POST /v1/presets/.../publish` 不存在。发布 = 保存后把路径交给私库 commit，
+    // 再单独读私库 git history —— 引擎内 revisions 与私库 git history 是两件事。
+
+    /// `POST /v1/repos/presets/commit`：提交已保存的路径。预留调用点。
+    pub async fn preset_repo_commit(
+        &self,
+        paths: Vec<String>,
+        message: &str,
+        request_id: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            paths: &'a [String],
+            message: &'a str,
+            request_id: &'a str,
+        }
+        let resp = self
+            .http
+            .post(self.url("v1/repos/presets/commit")?)
+            .json(&Body { paths: &paths, message, request_id })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/repos/presets/history`：私库 git 历史（与引擎内 revisions 分开显示）。
+    pub async fn preset_repo_history(&self) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .get(self.url("v1/repos/presets/history")?)
             .send()
             .await?;
         self.json(resp).await
@@ -979,11 +966,20 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/archive/:id/restore"),
     ("POST", "v1/sessions/:id/purge"),
     ("POST", "v1/sessions/:id/config"),
-    ("GET", "v1/presets/:section"),
-    ("POST", "v1/presets/:section/create"),
-    ("POST", "v1/presets/:section/{op}"),
-    ("GET", "v1/presets/:section/files"),
-    ("GET", "v1/presets/:section/file"),
+    ("GET", "v1/presets/{section}"),
+    ("GET", "v1/presets/{section}/{name}"),
+    ("PUT", "v1/presets/{section}/{name}"),
+    ("DELETE", "v1/presets/{section}/{name}"),
+    ("PATCH", "v1/presets/{section}/{name}"),
+    ("POST", "v1/presets/{section}/{name}/copy"),
+    ("PUT", "v1/presets/{section}/order"),
+    ("GET", "v1/presets/{section}/categories"),
+    ("GET", "v1/presets/{section}/{name}/revisions"),
+    ("GET", "v1/presets/{section}/{name}/revisions/{n}"),
+    ("POST", "v1/presets/{section}/{name}/rollback"),
+    ("GET", "v1/presets/model"),
+    ("POST", "v1/repos/presets/commit"),
+    ("GET", "v1/repos/presets/history"),
     ("GET", "v1/triggers"),
     ("GET", "v1/triggers/files"),
     ("GET", "v1/triggers/file"),
@@ -995,18 +991,6 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/triggers/purge"),
     ("POST", "v1/triggers/category"),
     ("POST", "v1/triggers/categories"),
-    ("GET", "v1/presets/:section/history"),
-    ("GET", "v1/presets/:section/history/diff"),
-    ("GET", "v1/presets/:section/pending"),
-    ("GET", "v1/presets/:section/pending/diff"),
-    ("PUT", "v1/presets/:section/file"),
-    ("GET", "v1/presets/:section/validate"),
-    ("POST", "v1/presets/:section/publish"),
-    ("POST", "v1/presets/:section/reload"),
-    ("POST", "v1/presets/:section/category"),
-    ("POST", "v1/presets/:section/order"),
-    ("POST", "v1/presets/:section/rename"),
-    ("POST", "v1/presets/:section/categories"),
     ("GET", "v1/combos"),
     ("POST", "v1/combos/:name/:action"),
     ("GET", "v1/selection"),

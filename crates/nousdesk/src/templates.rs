@@ -15,6 +15,25 @@
 
 // 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
+/// 写端点的幂等锚（一次用户动作一个）。
+fn new_request_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    format!("desk-{n}-{}", std::process::id())
+}
+
+/// `NewPreset` → 新契约 `PUT` 的 body（引擎按 name/summary/category 覆盖 spec 同名字段）。
+fn new_preset_body(body: &NewPreset) -> serde_json::Value {
+    let mut v = body.spec.clone().unwrap_or(serde_json::json!({}));
+    if !v.is_object() { v = serde_json::json!({}); }
+    let o = v.as_object_mut().unwrap();
+    o.insert("name".into(), serde_json::json!(body.name));
+    o.insert("summary".into(), serde_json::json!(body.summary));
+    o.insert("category".into(), serde_json::json!(body.category));
+    // `from: device` 在新契约没有等价字段：起手式交给编辑器里的模型选择，不再由端点代填。
+    v
+}
+
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
 use gpui_kit::component::input::{Input, InputState};
@@ -330,13 +349,24 @@ pub(crate) fn visible_presets<'a>(
     cat: Option<&str>,
     query: &str,
 ) -> Vec<&'a Preset> {
+    // Desk#11：`problem` 非空 = 写坏了，不出现在「选模板建会话」的列表里。
+    // 草稿降级成字段后，这里就是唯一的可见性判定（搜索 / 类别视图都过它）。
+    let usable: Vec<&Preset> = presets
+        .iter()
+        .filter(|p| {
+            !p.extra
+                .get("problem")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.is_empty())
+        })
+        .collect();
     if !query.trim().is_empty() {
-        return presets.iter().filter(|p| matches_query(p, query)).collect();
+        return usable.into_iter().filter(|p| matches_query(p, query)).collect();
     }
     match cat {
-        None => presets.iter().collect(),
-        Some(UNCATEGORIZED) => presets.iter().filter(|p| p.category.is_empty()).collect(),
-        Some(c) => presets.iter().filter(|p| in_category(p, c)).collect(),
+        None => usable,
+        Some(UNCATEGORIZED) => usable.into_iter().filter(|p| p.category.is_empty()).collect(),
+        Some(c) => usable.into_iter().filter(|p| in_category(p, c)).collect(),
     }
 }
 
@@ -752,7 +782,11 @@ impl Desktop {
             let handle = crate::TOKIO.get().cloned();
             let result: Option<Result<serde_json::Value, EngineError>> = match &handle {
                 Some(h) => h
-                    .spawn(async move { engine.create_preset(section_id, &body).await })
+                    .spawn(async move {
+                        let name = body.name.clone();
+                        let v = new_preset_body(&body);
+                        engine.preset_put(section_id, &name, &v, &new_request_id(), None, false).await
+                    })
                     .await
                     .ok(),
                 _ => None,
@@ -873,14 +907,9 @@ impl Desktop {
 
         cx.spawn(async move |this, cx| {
             let out: Result<(), String> = async {
-                // 1) 源目录里有哪些文件 → 挑清单（段的清单名不写死，见 `pick_manifest`）。
-                let files = engine
-                    .preset_files(section_id, &from)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                let manifest = crate::editor_presets::pick_manifest(&files.files);
+                // 1) 新契约只有一条原文端点（preset.json），没有第二份 files 清单。
                 let src = engine
-                    .preset_file(section_id, &from, &manifest)
+                    .preset_get(section_id, &from)
                     .await
                     .map_err(|e| e.to_string())?;
                 let mut spec: serde_json::Value =
@@ -900,16 +929,8 @@ impl Desktop {
                             .collect()
                     })
                     .unwrap_or_default();
-                // 3) 说明书（`PRESET.md`）也带过去 —— 复制完发现说明没了，等于丢一半。
-                let body = if files.files.iter().any(|f| f.path == "PRESET.md") {
-                    engine
-                        .preset_file(section_id, &from, "PRESET.md")
-                        .await
-                        .ok()
-                        .map(|f| f.text)
-                } else {
-                    None
-                };
+                // 3) 新契约的单条原文只有 preset.json，没有第二份说明书文件。
+                let body: Option<String> = None;
                 // 4) 落一份新的。`spec` 原样发，引擎覆盖 name/summary/category。
                 let body = NewPreset {
                     name: name.clone(),
@@ -919,11 +940,14 @@ impl Desktop {
                     spec: Some(spec.take()),
                     body,
                 };
-                engine
-                    .create_preset(section_id, &body)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
+                {
+                    let v = new_preset_body(&body);
+                    engine
+                        .preset_put(section_id, &name, &v, &new_request_id(), None, false)
+                        .await
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
+                }
             }
             .await;
 
@@ -975,7 +999,6 @@ impl Desktop {
             cx.notify();
             return;
         };
-        let section_id = SECTIONS[self.section].0;
         let sec_idx = self.section;
         self.new_cat.busy = true;
         self.new_cat.err = None;
@@ -987,15 +1010,11 @@ impl Desktop {
                 name: name.clone(),
                 to: None,
             };
-            let handle = crate::TOKIO.get().cloned();
-            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> =
-                match &handle {
-                    Some(h) => h
-                        .spawn(async move { engine.mutate_categories(section_id, &body).await })
-                        .await
-                        .ok(),
-                    _ => None,
-                };
+            let _ = &engine;
+            let _ = &body;
+            // 新契约只有 `GET /categories`（词表由预设的 category 字段收敛），
+            // 没有独立的类别写端点 —— 这里不再发 HTTP，直接给一句人话。
+            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> = None;
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Some(Ok(r)) => {
@@ -1128,17 +1147,12 @@ impl Desktop {
         }
         cx.notify();
 
-        let section_id = SECTIONS[self.section].0;
         let sec_idx = self.section;
         cx.spawn(async move |this, cx| {
-            let handle = crate::TOKIO.get().cloned();
-            let result = match &handle {
-                Some(h) => h
-                    .spawn(async move { engine.mutate_categories(section_id, &body).await })
-                    .await
-                    .ok(),
-                _ => None,
-            };
+            let _ = &engine;
+            let _ = &body;
+            // 同上：类别写操作在新契约里没有端点，不发 HTTP。
+            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> = None;
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Some(Ok(r)) => {
@@ -1201,26 +1215,13 @@ impl Desktop {
         self.notify("正在读那条模板…", crate::app::NoticeKind::Info, cx);
         cx.spawn(async move |this, cx| {
             let out: Result<serde_json::Value, String> = async {
-                let files = engine
-                    .preset_files(&section, &name)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                let manifest = crate::editor_presets::pick_manifest(&files.files);
                 let src = engine
-                    .preset_file(&section, &name, &manifest)
+                    .preset_get(&section, &name)
                     .await
                     .map_err(|e| e.to_string())?;
                 let spec: serde_json::Value = serde_json::from_str(&src.text)
                     .map_err(|e| format!("清单不是合法 JSON：{e}"))?;
-                let body = if files.files.iter().any(|f| f.path == "PRESET.md") {
-                    engine
-                        .preset_file(&section, &name, "PRESET.md")
-                        .await
-                        .ok()
-                        .map(|f| f.text)
-                } else {
-                    None
-                };
+                let body: Option<String> = None;
                 Ok(export_doc(&section, &name, spec, body))
             }
             .await;
@@ -1413,10 +1414,11 @@ impl Desktop {
             d.err = None;
         }
         cx.notify();
+        let name_for_req = name.clone();
 
         cx.spawn(async move |this, cx| {
             let req = NewPreset {
-                name: name.clone(),
+                name: name_for_req,
                 summary,
                 category,
                 from: None,
@@ -1426,7 +1428,11 @@ impl Desktop {
             let handle = crate::TOKIO.get().cloned();
             let result = match &handle {
                 Some(h) => h
-                    .spawn(async move { engine.create_preset(section_id, &req).await })
+                    .spawn(async move {
+                        let v = new_preset_body(&req);
+                        let n = req.name.clone();
+                        engine.preset_put(section_id, &n, &v, &new_request_id(), None, false).await
+                    })
                     .await
                     .ok(),
                 _ => None,
@@ -1567,7 +1573,9 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let result = match crate::TOKIO.get().cloned() {
                 Some(h) => h
-                    .spawn(async move { engine.reorder_presets(&section_id, order).await })
+                    .spawn(async move {
+                        engine.preset_order(&section_id, order, &new_request_id()).await
+                    })
                     .await
                     .ok(),
                 None => None,
@@ -1674,18 +1682,19 @@ impl Desktop {
         }
         cx.notify();
 
+        let to_for_req = to.clone();
         cx.spawn(async move |this, cx| {
-            let body = nous_engine::types::RenamePreset {
-                name: from.clone(),
-                to: to.clone(),
-            };
             let handle = crate::TOKIO.get().cloned();
             let result = match &handle {
                 Some(h) => {
                     let engine = engine.clone();
-                    h.spawn(async move { engine.rename_preset(section_id, &body).await })
-                        .await
-                        .ok()
+                    let rid = new_request_id();
+                    h.spawn(async move {
+                        let patch = serde_json::json!({ "name": to_for_req });
+                        engine.preset_patch(section_id, &from, &patch, &rid).await
+                    })
+                    .await
+                    .ok()
                 }
                 _ => None,
             };
@@ -1694,11 +1703,9 @@ impl Desktop {
                     Some(Ok(done)) => {
                         this.preset_rename = None;
                         // 引用了它的终极模板是引擎连带改的 —— 不说一声就是偷偷动了别人的东西。
-                        let extra = if done.refs.is_empty() {
-                            String::new()
-                        } else {
-                            format!("（顺带改了引用它的 {} 条终极模板：{}）", done.refs.len(), done.refs.join("、"))
-                        };
+                        // 新契约的 PATCH 不回 refs；引用它由引擎自己维护，这里不猜。
+                        let extra = String::new();
+                        let _ = &done;
                         this.notify(
                             format!("已改名为「{to}」{extra}"),
                             crate::app::NoticeKind::Info,
@@ -2434,29 +2441,11 @@ impl Desktop {
             self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
             return;
         };
+        let _ = &engine;
         let sec_idx = self.section;
-        let section_id = SECTIONS[sec_idx].0;
-        cx.spawn(async move |this, cx| {
-            let handle = crate::TOKIO.get().cloned();
-            let result = match &handle {
-                Some(h) => h
-                    .spawn(async move { engine.reload_presets(section_id).await })
-                    .await
-                    .ok(),
-                _ => None,
-            };
-            let _ = this.update(cx, |this, cx| {
-                match result {
-                    Some(Ok(_)) => {
-                        this.load_section(sec_idx, true, cx);
-                        this.notify("已重扫这一段", crate::app::NoticeKind::Info, cx);
-                    }
-                    Some(Err(e)) => this.notify(format!("重扫失败：{e}"), crate::app::NoticeKind::Error, cx),
-                    None => this.notify("重扫没跑完", crate::app::NoticeKind::Error, cx),
-                }
-            });
-        })
-        .detach();
+        // 新契约没有 reload 端点：roster 每次现扫盘，重拉就是重扫。
+        self.load_section(sec_idx, true, cx);
+        self.notify("已重扫这一段", crate::app::NoticeKind::Info, cx);
     }
 
     /// 第二屏那个真按钮：把 `(op, section, name)` 交给引擎，成功就重拉这一段。
@@ -2487,7 +2476,16 @@ impl Desktop {
             let handle = crate::TOKIO.get().cloned();
             let result = match &handle {
                 Some(h) => h
-                    .spawn(async move { engine.preset_op(&section_id, op, &name2).await })
+                    .spawn(async move {
+                        match op {
+                            nous_engine::types::PresetOp::Restore => {
+                                let patch = serde_json::json!({ "archived": false });
+                                engine.preset_patch(&section_id, &name2, &patch, &new_request_id()).await.map(|_| serde_json::Value::Null)
+                            }
+                            // 新契约只有软删（archived=true），Purge 与 Archive 同形。
+                            _ => engine.preset_delete(&section_id, &name2).await.map(|_| serde_json::Value::Null),
+                        }
+                    })
                     .await
                     .ok(),
                 _ => None,
@@ -2560,7 +2558,8 @@ impl Desktop {
             let result = match &handle {
                 Some(h) => h
                     .spawn(async move {
-                        engine.set_preset_category(&section_id, &name, &picked).await
+                        let patch = serde_json::json!({ "category": picked });
+                        engine.preset_patch(&section_id, &name, &patch, &new_request_id()).await
                     })
                     .await
                     .ok(),
@@ -4331,6 +4330,24 @@ mod tests {
             resolved: None,
             extra: Default::default(),
         }
+    }
+
+    /// Desk#11 判据 3：roster 上 `problem` 非空 = 不出现在「选模板建会话」的列表里。
+    /// 草稿降级成字段后，没有第二个「pending」状态位；搜索 / 类别视图同样过滤。
+    #[test]
+    fn presets_with_a_problem_are_not_visible() {
+        let mut bad = preset("bad", &[]);
+        bad.extra.insert("problem".into(), serde_json::json!("preset.json 解析失败"));
+        let mut null_problem = preset("null-problem", &[]);
+        null_problem.extra.insert("problem".into(), serde_json::Value::Null);
+        let all = vec![preset("good", &[]), bad, null_problem];
+        let names = visible_presets(&all, None, "")
+            .into_iter()
+            .map(|p| p.name.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["good", "null-problem"]);
+        assert!(visible_presets(&all, None, "bad").is_empty(), "problem 条目搜索也不出现");
+        assert!(visible_presets(&all, Some("写作"), "").iter().all(|p| p.name != "bad"));
     }
 
     fn cats(list: &[&str]) -> Vec<String> {

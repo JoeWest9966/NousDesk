@@ -125,6 +125,12 @@ async fn main() {
         "capabilities.presets.consistent",
         format!("{presets:?}"),
     );
+    // Desk#11 判据 4：新引擎必须报 presets.enabled=true（12 条端点已落地）。
+    assert_line(
+        presets_enabled,
+        "presets.enabled",
+        format!("{presets:?}"),
+    );
     if presets_enabled {
         let presets_endpoint = reqwest::Client::new()
             .get(format!("{host}/v1/presets"))
@@ -151,6 +157,27 @@ async fn main() {
             format!("HTTP {}", presets_endpoint.status()),
         );
     }
+    // Desk#11 判据 4：roster 非空（`check-desk.sh` 预置 `Session-Template/probe/preset.json`）。
+    let roster = reqwest::Client::new()
+        .get(format!("{host}/v1/presets/Session-Template"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("roster 探针可达");
+    let roster_status = roster.status();
+    let roster_json: serde_json::Value = roster.json().await.unwrap_or(serde_json::Value::Null);
+    let items = roster_json.get("items").and_then(|i| i.as_array());
+    assert_line(
+        roster_status == 200,
+        "presets.roster.200",
+        format!("HTTP {roster_status}"),
+    );
+    assert_line(
+        items.is_some_and(|i| !i.is_empty()),
+        "presets.roster.items.nonempty",
+        format!("{roster_json}"),
+    );
+
     assert_line(
         caps.runtime.provider.kind == "faux",
         "capabilities.provider.faux",

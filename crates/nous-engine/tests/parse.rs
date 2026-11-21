@@ -312,3 +312,18 @@ fn parse_presets_without_repo_or_categories() {
     assert!(p.repo.is_none());
     assert!(p.presets.is_empty());
 }
+
+#[test]
+fn parse_new_presets_roster_items() {
+    let json = r#"{
+      "section": "Session-Template",
+      "items": [{
+        "name": "probe", "sha": "abc", "version": 0,
+        "category": [], "summary": null, "description": null, "spec": {},
+        "order": 9223372036854775807, "archived": false, "problem": null
+      }]
+    }"#;
+    let p: nous_engine::types::Presets = serde_json::from_str(json).unwrap();
+    assert_eq!(p.presets.len(), 1);
+    assert_eq!(p.presets[0].name, "probe");
+}

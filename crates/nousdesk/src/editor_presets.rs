@@ -10,21 +10,6 @@
 /// 段的 `manifest` 住在仓根的 `sections.json` 里（`Session-Template` = `preset.json`，
 /// `Ultimate-Template` = `ultimate.json`），引擎不额外报这个名字 —— 所以照清单挑：
 /// 先认那两个老名字，再退到「任意一个顶层的 .json」。
-pub(crate) fn pick_manifest(files: &[nous_engine::types::PresetFileMeta]) -> String {
-    let json: Vec<&str> = files
-        .iter()
-        .map(|f| f.path.as_str())
-        .filter(|p| p.ends_with(".json") && !p.contains('/'))
-        .collect();
-    for want in ["preset.json", "ultimate.json"] {
-        if json.iter().any(|p| *p == want) {
-            return want.to_string();
-        }
-    }
-    json.first()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|| "preset.json".to_string())
-}
 
 /// UTC 秒 → 本地时间 `11-16 10:41`。引擎收的 `epoch` 参数是 UTC 秒，
 /// 让人心算是不可能的，所以填的时候就把人话摆在旁边。
@@ -134,29 +119,7 @@ pub(crate) fn conflict_text(disk_etag: Option<&str>, message: &str) -> String {
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::{conflict_text, local_time, pick_manifest, stamp, typed_json};
-
-    fn meta(path: &str) -> nous_engine::types::PresetFileMeta {
-        nous_engine::types::PresetFileMeta {
-            path: path.to_string(),
-            size: 1,
-            extra: Default::default(),
-        }
-    }
-
-    /// 清单文件名按段变（`preset.json` / `ultimate.json`），照清单挑、不写死。
-    #[test]
-    fn the_manifest_file_is_picked_from_the_listing() {
-        assert_eq!(pick_manifest(&[meta("preset.json")]), "preset.json");
-        assert_eq!(
-            pick_manifest(&[meta("ultimate.json"), meta("PROMPT.md")]),
-            "ultimate.json"
-        );
-        // 以后段里换了名字也认得。
-        assert_eq!(pick_manifest(&[meta("other.json")]), "other.json");
-        // 一个 json 都没有（目录刚建）：退回老名字，让后面那次读直接报 404。
-        assert_eq!(pick_manifest(&[]), "preset.json");
-    }
+    use super::{conflict_text, local_time, stamp, typed_json};
 
     #[test]
     fn params_are_typed_by_the_trigger_definition() {

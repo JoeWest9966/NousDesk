@@ -18,6 +18,7 @@ pub mod capabilities;
 pub mod client;
 pub mod conflict;
 pub mod console;
+pub mod diff;
 pub mod pins;
 pub mod resource;
 pub mod sse;

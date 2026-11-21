@@ -27,9 +27,14 @@ mkdir -p "$WORK/home/.config/nous"
 printf '%s\n' "$TOKEN" > "$WORK/home/.config/nous/token"
 chmod 600 "$WORK/home/.config/nous/token"
 
+# Desk#11：引擎 PresetStore 的根来自 NOUS_PRESETS。预置一条 roster 条目，
+# 让 `GET /v1/presets/Session-Template` 返回 200 且 items 非空（判据 4）。
+mkdir -p "$WORK/presets/Session-Template/probe"
+printf '%s\n' '{"name":"probe","category":[],"spec":{}}' > "$WORK/presets/Session-Template/probe/preset.json"
+
 # 端口 0 由内核选；绑定行是 stdout 唯一一行，脚本靠它拿真实地址。
 HOME="$WORK/home" NOUS_PROVIDER=faux NOUS_LISTEN=127.0.0.1:0 \
-  NOUS_DB="$WORK/nous.db" NOUS_PLUGINS_DB="$WORK/nous-plugins.db" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
+  NOUS_PRESETS="$WORK/presets" NOUS_DB="$WORK/nous.db" NOUS_PLUGINS_DB="$WORK/nous-plugins.db" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
 SERVER_PID=$!
 
 ADDR=""
@@ -81,7 +86,7 @@ done
 # #12 判据 4：stats 200 + totals 在场；archive 200 且带 gens 数组。
 # archive 原本钉的是「未实现就说未实现」（404）；Nous#67 把存档做出来之后，
 # 钉的东西反过来：**必须真能拉到** —— 哪天它悄悄回 404，这条先红。
-for assert_name in stats.usage.200.totals archive.200.gens; do
+for assert_name in stats.usage.200.totals archive.200.gens presets.enabled presets.roster.200 presets.roster.items.nonempty; do
   grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
     || { echo "FAIL: 缺了判据 4 的断言：$assert_name"; exit 1; }
 done
