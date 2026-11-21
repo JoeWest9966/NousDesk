@@ -514,30 +514,33 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 | `POST` | `/v1/sessions/:id/purge` |
 | `POST` | `/v1/sessions/:id/config` |
 
-### 预设编辑器（16，整套都在合同外）
+### 预设资源化端点（Desk#11：12 条，与 Nous#60 逐字一致）
 
-`GET /v1/presets/:section` 这一条在本文件里写过（列表），其余 16 条没有：
+旧 18 条（files / file / validate / history / pending / publish / reload / category / rename /
+categories / `{op}`）已随 Desk#11 从客户端全部删除。现在是 12 条资源化端点：
 
-| 方法 | 路径 |
-|---|---|
-| `GET` | `/v1/presets/:section/files` |
-| `GET` / `PUT` | `/v1/presets/:section/file` |
-| `GET` | `/v1/presets/:section/validate` |
-| `GET` | `/v1/presets/:section/history` |
-| `GET` | `/v1/presets/:section/history/diff` |
-| `GET` | `/v1/presets/:section/pending` |
-| `GET` | `/v1/presets/:section/pending/diff` |
-| `POST` | `/v1/presets/:section/create` |
-| `POST` | `/v1/presets/:section/rename` |
-| `POST` | `/v1/presets/:section/order` |
-| `POST` | `/v1/presets/:section/category` |
-| `POST` | `/v1/presets/:section/categories` |
-| `POST` | `/v1/presets/:section/publish` |
-| `POST` | `/v1/presets/:section/reload` |
-| `POST` | `/v1/presets/:section/{op}` |
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/v1/presets/:section` | roster（清单即详情，字段名 `items`） |
+| `GET` | `/v1/presets/:section/:name` | 单条原文 + ETag |
+| `PUT` | `/v1/presets/:section/:name` | 建或覆盖（`If-Match`；`?dry_run=1` 校验不落盘） |
+| `DELETE` | `/v1/presets/:section/:name` | 软删（archived） |
+| `PATCH` | `/v1/presets/:section/:name` | `{archived}` / `{name}` / `{category}` / `{order}` |
+| `POST` | `/v1/presets/:section/:name/copy` | `{name, requestId}` |
+| `PUT` | `/v1/presets/:section/order` | 整段顺序 |
+| `GET` | `/v1/presets/:section/categories` | 类别名册（只读，由预设的 `category` 收敛） |
+| `GET` | `/v1/presets/:section/:name/revisions` | 引擎内修订清单 |
+| `GET` | `/v1/presets/:section/:name/revisions/:n` | 某一版原文 |
+| `POST` | `/v1/presets/:section/:name/rollback` | `{n, requestId}` |
+| `GET` | `/v1/presets/model` | 能引用的模型清单 |
 
-> 这 16 条是**同一个东西抄 16 遍**（读文件 / 校验 / 写版本 / 发布 / 列历史 / 算 diff）。
-> Rust 版不打算照抄，要收敛成一个 `documents` 模块（Nous `#48`）。
+写端点统一带 `requestId`，并发用 `If-Match`（ETag = version）。**发布不是 presets 端点**：
+保存后走 Nous#75 的 `POST /v1/repos/presets/commit`，私库 git 历史走
+`GET /v1/repos/presets/history` —— 与引擎内 revisions 是两件事。
+diff 由 Desk 对「当前原文 vs 第 n 版原文」做文本计算（`crates/nous-engine/src/diff.rs`）。
+`roster` 的 `problem` 非空 = 不出现在选模板列表；草稿不再有独立状态位。
+
+> 形状以 `Nous` 侧 `/v1/openapi.json` 为准（Nous#60 判据 9 保证两边集合相等）。
 
 ### 私库写回（15；等票 Nous#75）
 
