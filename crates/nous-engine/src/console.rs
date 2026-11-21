@@ -126,6 +126,7 @@ impl StatsClient {
         let headers: HeaderMap = crate::auth::headers(token).map_err(|message| EngineError::Engine {
             status: 400,
             message,
+            body: None,
         })?;
         let http = reqwest::Client::builder()
             .timeout(timeout)
@@ -153,11 +154,13 @@ impl StatsClient {
             return Err(EngineError::Engine {
                 status: status.as_u16(),
                 message,
+                body: Some(text),
             });
         }
         serde_json::from_str(&text).map_err(|e| EngineError::Engine {
             status: status.as_u16(),
             message: format!("JSON 不像话：{e}"),
+            body: Some(text),
         })
     }
 
@@ -167,6 +170,7 @@ impl StatsClient {
             return Err(EngineError::Engine {
                 status: 400,
                 message: format!("group_by 只能是 day|model|conversation，收到 {group_by:?}"),
+                body: None,
             });
         }
         self.get_json(&format!("v1/stats/usage?group_by={group_by}"))

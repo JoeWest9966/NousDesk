@@ -26,6 +26,7 @@ mod dead_paths;
 #[cfg(test)]
 mod data_console_tests;
 mod editor;
+mod editor_presets;
 mod fonts;
 mod live;
 mod md;

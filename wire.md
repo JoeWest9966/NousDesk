@@ -33,7 +33,7 @@ Nous 已重写成 Rust（一个进程 `nous-app`，块/`resolve` 会消失）。
 | 会话面（`sessions` / `entries` / `events` / `messages` / `abort` / `fork` / `models` / `machines`） | 8 条路径 | ✅ **已实现** |
 | 能连上还缺的 | 7 条 | 🚧 Nous `#47`（`device` / `unread` / `read` / `rename` / `selection` / `skills` / `prompts` + `/v1/capabilities`） |
 | `presets/*` 那 16 条 | 16 | ⏸ **先不做**：`/v1/capabilities` 会声明 `presets: false`，客户端把入口灰掉；将来由 `documents` 模块统一（Nous `#48`） |
-| `documents` 模块（Nous `#48`，12 端点） | 12 | ⏸ **Desk 不用**：乙案 —— 桌面端不接编辑器，`capability.rs` 不登记这个 Feature / probe_path / 映射，入口不出现、也不发这 12 条调用（引擎仍可自己声明 `documents: true`） |
+| `documents` 模块（Nous `#48`，12 端点） | 12 | ✅ **Desk#16 甲案已接**：`nous-engine/src/documents.rs` 是哑 client（必带 token），编辑器的 history / history/diff / pending 已经改从这族端点取数；新增「文档」入口/列表页仍等 demo 拍板 |
 | `archive` / `combos` / `triggers` / `extensions` / `fs` | 10 | ⏸ 同上，能力表关掉 |
 | 发消息**有回复** | — | 🚧 Nous `#44`（`nous-sessions` 最小轮次）：没有它，连上去也只能看历史 |
 
@@ -460,6 +460,35 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 数据监控室前五屏原来走旧面板的四五个只读接口，那个客户端和随附快照夹具已整文件删除。
 现在这些屏按 capabilities 灰掉并给理由；`Desk#12` 接上 `/v1/stats/*` 之前不猜数据源。
 归档屏仍走 `GET /v1/archive`（未实现，灰 + 理由）。
+
+## documents 一族（12 条，Desk#16 甲案）
+
+`GET /v1/documents/{kind}` 列出该 kind 的文档（引擎按 kind 定 section）；
+其余端点以 `{kind}/{section}/{name}` 为路径段，**客户端不解释 kind 的业务含义**。
+全部经 `crates/nous-engine/src/documents.rs` 的 `DocumentClient` 转发，
+自建 client 一律 `with_token`（走 `crate::auth`），未知字段原样收在 `Value` 里透传。
+
+| 方法 | 路径 | 我们依赖的字段 / 用法 |
+|---|---|---|
+| `GET` | `/v1/documents/{kind}` | `{kind, section, items[], resolved}`；列表条数 > 0 即判据 2 |
+| `GET` | `/v1/documents/{kind}/{section}/{name}` | `{kind, section, name, fields, etag}`；`etag` 是写回的乐观锁 |
+| `PUT` | `/v1/documents/{kind}/{section}/{name}` | body = `{fields, …}`；`If-Match` **走 header**。409 = 别人先改了，回包 `etag` 是磁盘版本；客户端把 409 + 磁盘版本原样交 UI 显示 |
+| `POST` | `/v1/documents/{kind}/{section}` | body 同 PUT；`201` + `{kind, section, name, etag}` |
+| `POST` | `…/{name}/rename` | `{to}` → `{ok, refs, …}` |
+| `POST` | `…/{name}/publish` | 通用 action，引擎只在字段上记 `action` |
+| `POST` | `…/{name}/reload` | 同上 |
+| `GET` | `…/{name}/validate` | `{ok, errors[], warnings[], resolved}` |
+| `GET` | `…/{name}/history` | `{kind, section, name, commits[]}`；`commits[].hash` = `r{seq}`，`at/author` 可为 `null`（不是 git sha）。喂进现有提交历史面板 |
+| `GET` | `…/{name}/history/diff?hash=&path=` | `{kind, section, name, path, before, after}`；两份**全文 JSON**（不是 git patch，不是文本）。`before=null` = 那边没有这个文件。喂进现有行级 diff 面板 |
+| `GET` | `…/{name}/pending` | `{kind, section, name, head, dirty, units[], aheadCommits[]}`；喂进现有待提交面板 |
+| `GET` | `…/{name}/pending/diff` | 同 history/diff 的形状，比的是最新 base 之后叠的 delta |
+
+**形状适配**：引擎回的 `before/after` 是 JSON 对象；`documents_file_diff()` 用
+`serde_json::to_string_pretty` 把它变成文本再画（行级 diff 面板只认文本）。
+`history` 的 `commits[]` / `pending` 整包直接 `from_value` 进现有 `Commit` / `Pending`，
+未知字段仍由它们各自的 `extra` 收着。
+
+> 这 12 条**不在**「合同外调用」名单里：本节就是它们的字段合同。
 
 ## 合同外调用（客户端在用，本文件没写）
 

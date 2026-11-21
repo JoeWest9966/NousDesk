@@ -122,7 +122,7 @@ async fn set_default_model_keeps_engine_error_verbatim() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&err, nous_engine::EngineError::Engine { status: 400, message } if message == "模型不在编目里"),
+        matches!(&err, nous_engine::EngineError::Engine { status: 400, message, .. } if message == "模型不在编目里"),
         "引擎原文要透出来：{err:?}"
     );
     let _ = rx.await.unwrap();

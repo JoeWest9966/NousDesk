@@ -313,6 +313,7 @@ mod tests {
             .iter()
             .chain(nous_engine::stats_paths())
             .chain(nous_engine::pin_paths())
+            .chain(nous_engine::document_paths())
         {
             let key = format!("{} {}", method, crate::capability::normalize_path(path));
             let is_dead = DEAD_PATHS.iter().any(|e| {
@@ -343,6 +344,7 @@ mod tests {
             .iter()
             .chain(nous_engine::stats_paths())
             .chain(nous_engine::pin_paths())
+            .chain(nous_engine::document_paths())
         {
             let key = format!("{} {}", method, crate::capability::normalize_path(path));
             if engine.contains(&key) {
@@ -368,6 +370,7 @@ mod tests {
             .iter()
             .chain(nous_engine::stats_paths())
             .chain(nous_engine::pin_paths())
+            .chain(nous_engine::document_paths())
         {
             known.insert(format!(
                 "{} {}",

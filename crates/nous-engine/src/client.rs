@@ -25,7 +25,13 @@ pub enum EngineError {
     #[error("URL 拼不起来：{0}")]
     Url(#[from] url::ParseError),
     #[error("引擎 {status}：{message}")]
-    Engine { status: u16, message: String },
+    Engine {
+        status: u16,
+        message: String,
+        /// 非 2xx 的**原始回包**。`message` 只留 `{error}` 供现有 UI 逐字显示，
+        /// 但 409 的磁盘版本等未知字段在这里原样保留（documents 的乐观锁要用）。
+        body: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +70,7 @@ impl EngineClient {
         let headers = crate::auth::headers(token).map_err(|message| EngineError::Engine {
             status: 400,
             message,
+            body: None,
         })?;
         let http = reqwest::Client::builder()
             .timeout(timeout)
@@ -108,11 +115,13 @@ impl EngineClient {
             return Err(EngineError::Engine {
                 status: status.as_u16(),
                 message,
+                body: Some(text),
             });
         }
         serde_json::from_str(&text).map_err(|e| EngineError::Engine {
             status: status.as_u16(),
             message: format!("JSON 不像话：{e}"),
+            body: Some(text),
         })
     }
 
@@ -715,6 +724,7 @@ impl EngineClient {
             return Err(EngineError::Engine {
                 status,
                 message: text.chars().take(200).collect(),
+                body: Some(text),
             });
         }
         Ok(crate::sse::parse(resp.bytes_stream()))
