@@ -286,9 +286,9 @@ fn hint_layer(shown: bool, hovered: bool, can_send: bool) -> AnyElement {
         .into_any_element()
 }
 
-/// 工具行的图标登记表（只在测试里用，钉住判据 1）。
-/// 最左边那颗「对话设置」是调用方递进来的真按钮，不在这里。
-/// 引擎还没有这些功能：一律 `enabled=false` —— 灰、不挂 `on_click`、不画可点光标。
+/// 工具行的图标登记表。最左边那颗「对话设置」是调用方递进来的真按钮，不在这里。
+/// 引擎还没有这些功能：五颗图标（六项，含右侧声纹）一律灰、不挂 `on_click`、
+/// 不画可点光标；「永远不可用 + 理由」由 `icon_disabled_reason()` 一处表达。
 /// 有 handler 的入口只有发送 / 停止 / 设置，分别是 `action_button` / 调用方。
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,15 +300,6 @@ pub(crate) enum ToolIcon {
     Voice,
     /// 右侧声纹。跟上面几颗同属禁用态，尺寸是 28×26（demo 里不是蓝圆）。
     Mic,
-}
-
-#[cfg(test)]
-impl ToolIcon {
-    /// 当前全是禁用态；哪天真接了功能，改成 `true` 时还得在渲染函数上挂 `on_click`，
-    /// 单测只认这两种形态，不会让「看着能点、点了没反应」的假按钮再混进来。
-    pub(crate) fn enabled(self) -> bool {
-        false
-    }
 }
 
 #[cfg(test)]
@@ -409,20 +400,21 @@ mod tests {
     // 不 `use super::*`：gpui 的重导出宏在测试 mod 里再展开一层会撞递归上限。
     use super::{ToolIcon, icon_disabled_reason};
 
-    /// 判据 1：工具行每颗图标都必须「有 handler」或「明确禁用」。
-    /// 禁用的那几颗不挂 `on_click`、也不是 `cursor_pointer` 的假可点形态 ——
-    /// 这里钉的是 `ToolIcon::enabled()` 这个事实，哨兵把任一图标改回假可点就当场红。
+    /// 判据 1：这五颗图标（六项，含右侧声纹）**永远不可用**，每一颗都必须
+    /// 由 `icon_disabled_reason()` 给出明确理由。删掉 `enabled()` 后这里直接
+    /// 钉住「禁用 + 理由」两件事，行为不变、也不留只为测试存在的假开关。
     #[test]
-    fn every_tool_icon_is_either_actionable_or_explicitly_disabled() {
+    fn every_tool_icon_is_explicitly_disabled_with_a_reason() {
         const ICONS: &[ToolIcon] = &[
             ToolIcon::Emoji, ToolIcon::More, ToolIcon::File,
             ToolIcon::Screenshot, ToolIcon::Voice, ToolIcon::Mic,
         ];
         assert_eq!(ICONS.len(), 6);
         for icon in ICONS {
+            let reason = icon_disabled_reason(*icon);
             assert!(
-                !icon.enabled(),
-                "{icon:?} 看起来能点却没有 handler，也没有 disabled 形态"
+                reason.contains("引擎没有这个功能"),
+                "{icon:?} 没有明确的禁用理由：{reason}"
             );
         }
         assert_eq!(

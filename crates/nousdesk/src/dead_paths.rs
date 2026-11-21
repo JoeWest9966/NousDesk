@@ -116,6 +116,7 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     DeadPath::wait("POST", "v1/triggers/purge", "Nous#80 / Nous#73"),
     DeadPath::wait("POST", "v1/triggers/category", "Nous#80 / Nous#73"),
     DeadPath::wait("POST", "v1/triggers/categories", "Nous#80 / Nous#73"),
+    DeadPath::gray("POST", "v1/triggers/sync"),
     // archive 2 —— 灰（Nous#67 落真后翻活）
     DeadPath::gray("GET", "v1/archive"),
     DeadPath::gray("POST", "v1/archive/{id}/restore"),
@@ -216,13 +217,13 @@ mod tests {
             .filter(|e| e.disposition == Disposition::Gray)
             .map(|e| e.path)
             .collect();
-        assert_eq!(gray.len(), 6);
-        // 映射表覆盖全部 6 条（fs/dirs 走 device，其余 archive / sessions）。
+        assert_eq!(gray.len(), 7);
+        // 映射表覆盖全部 7 条（fs/dirs 走 device，其余 archive / sessions / triggers）。
         for path in gray {
             assert!(
                 matches!(path, "v1/archive" | "v1/archive/{id}/restore"
                     | "v1/sessions/{id}/archive" | "v1/sessions/{id}/purge"
-                    | "v1/sessions/{id}/config" | "v1/fs/dirs"),
+                    | "v1/sessions/{id}/config" | "v1/fs/dirs" | "v1/triggers/sync"),
                 "{path} 没有灰理由通道"
             );
         }
@@ -442,7 +443,7 @@ mod tests {
 
     #[test]
     fn catalog_covers_all_fifty_dead_path_families() {
-        assert_eq!(DEAD_PATHS.len(), 62, "原 68 条减去 6 条泛化删账");
+        assert_eq!(DEAD_PATHS.len(), 63, "原 68 条减去 6 条泛化删账 + triggers/sync 灰");
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::WaitTicket).count(),
             48,
@@ -450,13 +451,230 @@ mod tests {
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Gray).count(),
-            6,
-            "archive 2 + sessions 3 + fs/dirs 1"
+            7,
+            "archive 2 + sessions 3 + fs/dirs 1 + triggers/sync 1"
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Removed).count(),
             8,
             "旧拓扑化石 3 + 旧面板 REST 路径 5；能力型端点一律不删"
         );
+    }
+}
+
+
+/// Desk#14 判据 A：扫源码字面量，逐条进账（夹具 / DEAD_PATHS / 客户端清单）。
+/// 新增一条 `v1/...` 活路径却没进账，这里 FAIL 并打印 文件:行。
+#[cfg(test)]
+mod source_literal_audit {
+    use std::path::{Path, PathBuf};
+
+    /// 从字面量里取出路径部分。只认 `v1/` 开头（允许前导 `/`），丢掉 query；
+    /// `:id` 归一成 `{id}`，`format!` 的匿名占位 `{}` 归一成 `{op}`。
+    fn path_from_literal(literal: &str) -> Option<String> {
+        let trimmed = literal.trim();
+        let has_placeholder = trimmed.starts_with("v1/{") || trimmed.starts_with("/v1/{");
+        if !trimmed.starts_with("v1/") && !trimmed.starts_with("/v1/") { return None; }
+        let path = trimmed.split(['?', '#', ' ', '，', '。']).next().unwrap_or(trimmed);
+        // `v1/archive/` 这类前缀判断常量不是一条路径。
+        if path.ends_with('/') && !has_placeholder { return None; }
+        // format! 的 `{{op}}` 经过 normalize 会变成 `{{op}}` 这种双花括号，
+        // 只认归一后保留单花括号的模板；双花括号由源码原文分支展开。
+        if path.contains("{{") && !has_placeholder { return None; }
+        let normalized = crate::capability::normalize_path(path)
+            .split('/')
+            .map(|seg| if seg == "{}" { "{op}".to_string() } else { seg.to_string() })
+            .collect::<Vec<_>>()
+            .join("/");
+        Some(normalized)
+    }
+
+    /// 极小 Rust 词法器：只负责把注释和字符串分开。字符串里的 `\"` / `\\`
+    /// 正确跳过，原始字符串 `r#"..."#` 也认，char 字面量里的引号不误判。
+    fn literals(line: &str) -> Vec<(usize, String)> {
+        let b = line.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < b.len() {
+            match b[i] {
+                b'/' if i + 1 < b.len() && b[i + 1] == b'/' => break,
+                b'r' if i + 1 < b.len() && (b[i + 1] == b'"' || b[i + 1] == b'#') => {
+                    let mut j = i + 1;
+                    let mut hashes = 0;
+                    while j < b.len() && b[j] == b'#' { hashes += 1; j += 1; }
+                    if j >= b.len() || b[j] != b'"' { i += 1; continue; }
+                    let start = j + 1;
+                    let mut k = start;
+                    while k < b.len() {
+                        if b[k] == b'"' {
+                            let mut n = 0;
+                            while n < hashes && k + 1 + n < b.len() && b[k + 1 + n] == b'#' { n += 1; }
+                            if n == hashes {
+                                out.push((start, line[start..k].to_string()));
+                                k += 1 + hashes;
+                                break;
+                            }
+                        }
+                        k += 1;
+                    }
+                    i = k.max(i + 1);
+                }
+                b'"' => {
+                    let start = i + 1;
+                    let mut k = start;
+                    while k < b.len() {
+                        if b[k] == b'\\' { k += 2; continue; }
+                        if b[k] == b'"' { break; }
+                        k += 1;
+                    }
+                    out.push((start, line[start..k.min(b.len())].to_string()));
+                    i = (k + 1).min(b.len());
+                }
+                b'\'' => {
+                    let mut k = i + 1;
+                    while k < b.len() {
+                        if b[k] == b'\\' { k += 2; continue; }
+                        if b[k] == b'\'' { k += 1; break; }
+                        k += 1;
+                    }
+                    i = k;
+                }
+                _ => i += 1,
+            }
+        }
+        out
+    }
+
+    fn source_files(root: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(root).expect("源码目录可读") {
+            let entry = entry.expect("目录项可读");
+            let path = entry.path();
+            if path.is_dir() { source_files(&path, out); }
+            else if path.extension().and_then(|e| e.to_str()) == Some("rs") { out.push(path); }
+        }
+    }
+
+    #[test]
+    fn every_v1_literal_in_source_is_accounted_for() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        source_files(&manifest.join("../nous-engine/src"), &mut files);
+        for entry in std::fs::read_dir(manifest.join("src")).expect("源码目录可读") {
+            let entry = entry.expect("目录项可读");
+            let path = entry.path();
+            if path.is_dir() { continue; } // 测试模块与账本自身不算调用点
+            if path.extension().and_then(|e| e.to_str()) == Some("rs") { files.push(path); }
+        }
+
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../nous-engine/tests/fixtures/routes.json"
+        )).unwrap();
+        let fixture_paths: Vec<String> = fixture["routes"].as_array().unwrap().iter()
+            .map(|r| crate::capability::normalize_path(r["path"].as_str().unwrap()))
+            .collect();
+        let client_paths: Vec<String> = nous_engine::client_paths().iter()
+            .chain(nous_engine::stats_paths().iter())
+            .chain(nous_engine::pin_paths().iter())
+            .chain(nous_engine::document_paths().iter())
+            .map(|(_, p)| crate::capability::normalize_path(p))
+            .collect();
+        let dead_paths: Vec<String> = super::DEAD_PATHS.iter()
+            .map(|e| crate::capability::normalize_path(e.path))
+            .collect();
+
+        let mut scanned = 0usize;
+        let mut leaked = Vec::new();
+        let self_file = std::fs::canonicalize(manifest.join("src/dead_paths.rs")).unwrap();
+        for file in &files {
+            // 账本自身躺在 src/ 下，但它是断言用的生成模板，不是调用点。
+            if std::fs::canonicalize(file).unwrap() == self_file { continue; }
+            let text = std::fs::read_to_string(file).expect("源码可读");
+            // `#[cfg(test)] mod tests` 里的断言字符串不是调用点，不进账。
+            let mut in_test_mod = false;
+            let mut brace_depth = 0usize;
+            for (line_no, line) in text.lines().enumerate() {
+                if in_test_mod {
+                    brace_depth += line.matches('{').count();
+                    brace_depth = brace_depth.saturating_sub(line.matches('}').count());
+                    if brace_depth == 0 { in_test_mod = false; }
+                    continue;
+                }
+                if line.contains("#[cfg(test)]") {
+                    in_test_mod = true;
+                    brace_depth = 0;
+                    continue;
+                }
+                for (col, literal) in literals(line) {
+                    let Some(path) = path_from_literal(&literal) else { continue };
+                    let raw = literal.trim();
+                    // format! 的 `{}` 归一后成了 `{op}`，但源码里本来不是路径段；
+                    // 展开逻辑按 `literal` 原文判断，不让归一结果污染后续匹配。
+                    let anonymous = raw.contains("v1/{}/") || raw.contains("/v1/{}/");
+                    scanned += 1;
+                    // 生成模板（`{repo}` / `{}`）按已知取值展开：资源仓三种 ×
+                    // presets 生命周期动词；任一实际展开没进账就算漏账。
+                    let expansions: Vec<String> = if path.contains("{repo}") {
+                        // UI 的 `/v1/{repo}/...`：{repo} 取三种资源仓。
+                        let template = path.clone();
+                        ["skills", "prompts", "extensions"].into_iter()
+                            .map(move |kind| template.replace("{repo}", kind))
+                            .collect()
+                    } else if path.contains("{}") && !path.starts_with("v1/documents/")
+                        && !path.starts_with("v1/presets/") {
+                        // `format!("/v1/{}/publish", kind.repo().key())`：{} 是资源仓。
+                        let template = path.clone();
+                        ["skills", "prompts", "extensions"].into_iter()
+                            .map(move |kind| template.replace("{}", kind))
+                            .collect()
+                    } else if path.contains("{op}") && anonymous {
+                        // `format!("/v1/{}/publish", kind.repo().key())` 已被归一成 `{op}`。
+                        let template = path.clone();
+                        ["skills", "prompts", "extensions"].into_iter()
+                            .map(move |kind| template.replace("{op}", kind))
+                            .collect()
+                    } else if path.contains("{}") && path.starts_with("v1/documents/") {
+                        vec![path.replace("{}", "{name}")]
+                    } else if path.contains("{}") && path.starts_with("v1/presets/") {
+                        ["archive", "restore", "purge"].into_iter()
+                            .map(|op| path.replace("{}", op)).collect()
+                    } else {
+                        vec![path.clone()]
+                    };
+                    for expanded in expansions {
+                        // `{tail}` 是路径末段的泛化：只有账本里存在**同一个泛化模板**
+                        // 才算进过账（不能拿无关路径的前缀兜底，否则哨兵混得过去）。
+                        let family = if expanded.ends_with("/{tail}") {
+                            Some(expanded.clone())
+                        } else {
+                            None
+                        };
+                        let known = fixture_paths.contains(&expanded)
+                            || dead_paths.contains(&expanded)
+                            || client_paths.iter().any(|p| {
+                                p == &expanded || p.strip_prefix(&expanded).is_some_and(|t| t.starts_with('/'))
+                            })
+                            || family.as_ref().is_some_and(|template| {
+                                // `{tail}` 是任意尾段：client 清单里的 documents 12 条
+                                // 都属这一族；账本里其它泛化模板按字面精确匹配。
+                                if template == "v1/documents/{kind}/{tail}" {
+                                    client_paths.iter().chain(fixture_paths.iter())
+                                        .any(|p| p.starts_with("v1/documents/{kind}/{section}"))
+                                } else {
+                                    fixture_paths.iter().chain(dead_paths.iter()).chain(client_paths.iter())
+                                        .any(|p| p == template)
+                                }
+                            })
+                            // `{{op}}` 在 format! 里是字面 `{op}` 模板（资源仓三族）。
+                            || expanded.contains("{{op}}") && ["skills", "prompts", "extensions"].iter()
+                                .any(|kind| dead_paths.iter().any(|p| p == &format!("v1/{kind}/{{op}}")));
+                        if !known {
+                            leaked.push(format!("{}:{}:{} {expanded}", file.display(), line_no + 1, col));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(scanned > 70, "扫描器失灵：只找到 {scanned} 条 v1 字面量");
+        assert!(leaked.is_empty(), "源码里的 v1 路径没进夹具 / DEAD_PATHS / 客户端清单：\n{}", leaked.join("\n"));
     }
 }
