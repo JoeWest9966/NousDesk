@@ -80,6 +80,8 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     DeadPath::wait("POST", "v1/presets/{section}/{op}", "Desk#11"),
     DeadPath::wait("POST", "v1/presets/{section}/categories", "Desk#11"),
     // combos 2 —— 等票 #61 + Desk#11
+    // recovery 快照只有 skills/prompts 两条只读；extensions 的 GET 没有路由。
+    DeadPath::wait("GET", "v1/extensions", "Nous#63 / Desk#13"),
     DeadPath::wait("GET", "v1/combos", "#61 / Desk#11"),
     DeadPath::wait("POST", "v1/combos/{name}/{action}", "#61 / Desk#11"),
     // skills/prompts/extensions 写操作 15 —— 审计按 5 个路径族计（30-34 条）：
@@ -90,6 +92,25 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     DeadPath::removed("PUT", "v1/{kind}/file"),
     DeadPath::removed("POST", "v1/{kind}/publish"),
     DeadPath::removed("POST", "v1/{kind}/{op}"),
+    // 三仓资源写的具体模板：#13 从客户端删掉调用，能力表仍需认得以给灰入口理由。
+    DeadPath::removed("POST", "v1/skills/create"),
+    DeadPath::removed("PUT", "v1/skills/file"),
+    DeadPath::removed("POST", "v1/skills/{op}"),
+    DeadPath::removed("POST", "v1/skills/publish"),
+    DeadPath::removed("GET", "v1/skills/files"),
+    DeadPath::removed("GET", "v1/skills/file"),
+    DeadPath::removed("POST", "v1/prompts/create"),
+    DeadPath::removed("PUT", "v1/prompts/file"),
+    DeadPath::removed("POST", "v1/prompts/{op}"),
+    DeadPath::removed("POST", "v1/prompts/publish"),
+    DeadPath::removed("GET", "v1/prompts/files"),
+    DeadPath::removed("GET", "v1/prompts/file"),
+    DeadPath::removed("POST", "v1/extensions/create"),
+    DeadPath::removed("PUT", "v1/extensions/file"),
+    DeadPath::removed("POST", "v1/extensions/{op}"),
+    DeadPath::removed("POST", "v1/extensions/publish"),
+    DeadPath::removed("GET", "v1/extensions/files"),
+    DeadPath::removed("GET", "v1/extensions/file"),
     // triggers 10 条写端点 —— 删（保留 GET list / POST fire / GET fires）
     DeadPath::removed("GET", "v1/triggers/files"),
     DeadPath::removed("GET", "v1/triggers/file"),
@@ -120,7 +141,9 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     DeadPath::removed("GET", "api/health"),
 ];
 
-/// 引擎 `meta::ROUTES` 的活路由（含 #12 接入的 3 条 stats，recovery 分支 59 条路由里的相关项）。
+/// 引擎 `meta::ROUTES` 里已被客户端认识的路由（含 #12 的 3 条 stats、
+/// `presets` 新契约模板）。Desk#14 后这张表与 `DEAD_PATHS` 一起是
+/// `capability.rs` 的唯一路径来源；与夹具逐条核对。
 /// 路由模板统一写 `{id}` / `{section}` 形态，与 capabilities 的 endpoints 一致。
 pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/sessions"),
@@ -144,7 +167,7 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("POST", "v1/selection"),
     ("GET", "v1/skills"),
     ("GET", "v1/prompts"),
-    ("GET", "v1/extensions"),
+    // Desk#14：recovery 夹具里没有 GET /v1/extensions，已从活路由移入死路径账本。
     ("GET", "v1/triggers"),
     ("POST", "v1/triggers/{code}/fire"),
     ("GET", "v1/triggers/{code}/fires"),
@@ -165,6 +188,17 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/documents/{kind}/{section}/{name}/history/diff"),
     ("GET", "v1/documents/{kind}/{section}/{name}/pending"),
     ("GET", "v1/documents/{kind}/{section}/{name}/pending/diff"),
+    // 服务端 presets 新契约路由（#60），Desk 暂用旧模板；这些是能力表已知路径。
+    ("GET", "v1/presets"),
+    ("GET", "v1/presets/model"),
+    ("GET", "v1/presets/{section}/{name}"),
+    ("PUT", "v1/presets/{section}/{name}"),
+    ("PATCH", "v1/presets/{section}/{name}"),
+    ("DELETE", "v1/presets/{section}/{name}"),
+    ("POST", "v1/presets/{section}/{name}/copy"),
+    ("GET", "v1/presets/{section}/{name}/revisions"),
+    ("GET", "v1/presets/{section}/{name}/revisions/{n}"),
+    ("POST", "v1/presets/{section}/{name}/rollback"),
     ("GET", "v1/_routes"),
 ];
 
@@ -245,14 +279,130 @@ mod tests {
         assert!(leaked.is_empty(), "协议层出现既不在引擎路由、也不在白名单的路径：{leaked:?}");
     }
 
+    /// Desk#14：夹具元数据与 routes 原样回包（不许手写）。
+    #[test]
+    fn routes_fixture_has_provenance() {
+        let raw = include_str!("../../nous-engine/tests/fixtures/routes.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let captured = fixture["_captured_at"].as_str().unwrap_or_default();
+        let version = fixture["_engine_version"].as_str().unwrap_or_default();
+        println!("routes 夹具 _captured_at={captured}");
+        println!("routes 夹具 _engine_version={version}");
+        println!("routes 夹具 provenance={}", fixture["_provenance"]);
+        assert!(!captured.is_empty(), "夹具缺 _captured_at");
+        assert!(!version.is_empty(), "夹具缺 _engine_version");
+        assert_eq!(fixture["routes"].as_array().unwrap().len(), 59);
+        assert!(fixture["_provenance"].get("commit").is_some());
+    }
+
+    /// Desk#14 判据：每条客户端活路径（method + path）必须在夹具里。
+    #[test]
+    fn live_client_paths_are_in_routes_fixture() {
+        let raw = include_str!("../../nous-engine/tests/fixtures/routes.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let mut engine = std::collections::BTreeSet::new();
+        for route in fixture["routes"].as_array().unwrap() {
+            engine.insert(format!(
+                "{} {}",
+                route["method"].as_str().unwrap(),
+                crate::capability::normalize_path(route["path"].as_str().unwrap())
+            ));
+        }
+        let mut leaked = Vec::new();
+        for &(method, path) in engine_call_paths()
+            .iter()
+            .chain(nous_engine::stats_paths())
+            .chain(nous_engine::pin_paths())
+        {
+            let key = format!("{} {}", method, crate::capability::normalize_path(path));
+            let is_dead = DEAD_PATHS.iter().any(|e| {
+                e.method == method && e.path == crate::capability::normalize_path(path)
+            });
+            if !is_dead && !engine.contains(&key) {
+                leaked.push(key);
+            }
+        }
+        assert!(leaked.is_empty(), "客户端活路径不在真引擎夹具里：{leaked:?}");
+    }
+
+    /// Desk#14 判据：客户端路径表里不在夹具的，必须在死路径账本且处置 != 活。
+    #[test]
+    fn paths_absent_from_fixture_are_in_dead_paths() {
+        let raw = include_str!("../../nous-engine/tests/fixtures/routes.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let mut engine = std::collections::BTreeSet::new();
+        for route in fixture["routes"].as_array().unwrap() {
+            engine.insert(format!(
+                "{} {}",
+                route["method"].as_str().unwrap(),
+                crate::capability::normalize_path(route["path"].as_str().unwrap())
+            ));
+        }
+        let mut unaccounted = Vec::new();
+        for &(method, path) in engine_call_paths()
+            .iter()
+            .chain(nous_engine::stats_paths())
+            .chain(nous_engine::pin_paths())
+        {
+            let key = format!("{} {}", method, crate::capability::normalize_path(path));
+            if engine.contains(&key) {
+                continue;
+            }
+            // 进账即「处置 != 活」：等票 / 灰 / 删三种都不是「路径在夹具里」。
+            if !DEAD_PATHS.iter().any(|e| {
+                e.method == method && e.path == crate::capability::normalize_path(path)
+            }) {
+                unaccounted.push(key);
+            }
+        }
+        assert!(unaccounted.is_empty(), "夹具里没有、又没进死路径账本的路径：{unaccounted:?}");
+    }
+
+    /// Desk#14 判据：夹具多出的路径只打警告清单，不失败。
+    #[test]
+    fn fixture_only_routes_are_reported_as_warnings() {
+        let raw = include_str!("../../nous-engine/tests/fixtures/routes.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let mut known = std::collections::BTreeSet::new();
+        for &(method, path) in engine_call_paths()
+            .iter()
+            .chain(nous_engine::stats_paths())
+            .chain(nous_engine::pin_paths())
+        {
+            known.insert(format!(
+                "{} {}",
+                method,
+                crate::capability::normalize_path(path)
+            ));
+        }
+        let mut warnings = Vec::new();
+        for route in fixture["routes"].as_array().unwrap() {
+            let key = format!(
+                "{} {}",
+                route["method"].as_str().unwrap(),
+                crate::capability::normalize_path(route["path"].as_str().unwrap())
+            );
+            if !known.contains(&key) {
+                warnings.push(key);
+            }
+        }
+        println!("夹具多出、客户端未用的 {} 条（只警告）：", warnings.len());
+        for w in &warnings {
+            println!("  WARN 引擎有、客户端没用：{w}");
+        }
+        // 警告清单本身不失败；这里只确认夹具非空。
+        assert!(!fixture["routes"].as_array().unwrap().is_empty());
+    }
+
     #[test]
     fn catalog_covers_all_fifty_dead_path_families() {
-        assert_eq!(DEAD_PATHS.len(), 49, "审计 50 族按模板归类后的行数（含 2 条泛化别名）");
+        assert_eq!(DEAD_PATHS.len(), 68, "审计 50 族 + 2 泛化别名 + #14 extensions + 18 条资源写具体模板（能力表派生用）");
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::WaitTicket).count(),
-            22,
-            "presets 18 + 2 条泛化别名 + combos 2"
+            23,
+            "presets 18 + 2 条泛化别名 + combos 2 + extensions 1（#14）"
         );
+        // #14：18 条资源写具体模板进 `删`，让 capability 派生表认得它们（灰入口）。
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Gray).count(),
             6,
@@ -260,8 +410,8 @@ mod tests {
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Removed).count(),
-            21,
-            "资源写 6 行（覆盖审计 8 族）+ triggers 10 + 旧面板 REST 路径 5"
+            39,
+            "资源写 6 泛化 + 18 具体模板 + triggers 10 + 旧面板 REST 路径 5"
         );
     }
 }

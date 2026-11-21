@@ -24,6 +24,26 @@ pub mod triggers;
 pub mod types;
 
 pub use capabilities::{Capabilities, Module, Provider, Reason, ReasonCode, Runtime, Server};
+
+/// `GET /v1/_routes` 的回包。未知字段原样收在 `extra`；死路径不靠它做功能判定。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RouteSnapshot {
+    pub routes: Vec<RouteEntry>,
+    #[serde(default)]
+    pub modules: Vec<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RouteEntry {
+    #[serde(default)]
+    pub module: String,
+    pub method: String,
+    pub path: String,
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
+}
 pub use client::{EngineClient, EngineError};
 pub use client::{client_paths, CLIENT_PATHS};
 pub use console::{StatsClient, STATS_PATHS};
@@ -33,7 +53,7 @@ pub fn stats_paths() -> &'static [(&'static str, &'static str)] {
     STATS_PATHS
 }
 
-pub use pins::{PinClient, PinError};
+pub use pins::{PinClient, PinError, pin_paths};
 pub use resource::{NewExtension, NewPrompt, NewSkill, Repo, ResourceFile, ResourceFileEntry, ResourceFiles, SaveFile};
 pub use sse::{Change, SseError, SseEvent};
 pub use triggers::TriggerClient;

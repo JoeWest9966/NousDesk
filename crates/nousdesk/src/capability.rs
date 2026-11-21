@@ -167,64 +167,101 @@ pub fn gate<'a>(caps: &'a Capabilities, feature: Feature) -> Gate<'a> {
 
 /// 把客户端发出的每条 `/v1/*` 路径映射到用户功能面。
 ///
-/// **唯一一张表**：`nous-engine` 里 41 条调用路径逐条落在这里。映射不到的路径
-/// = `None` → `Gate::Unknown` = 不可用（不许「先发了看 404」）。
-/// 路径用路由模板形态（`:id` / `{kind}` 按 client.rs 实际写法），与服务端
-/// capabilities 的 `endpoints` 共用同一套模板标识符。
+/// Desk#14：路径**不再手写第二份**。`dead_paths.rs` 的 `ENGINE_ROUTES` +
+/// `DEAD_PATHS` 是唯一的路径真相；这里只按前缀把每条路径归到一个 Feature。
+/// 映射不到的路径 = `None` → `Gate::Unknown` = 不可用（不许「先发了看 404」）。
+/// 两套模板写法都认：client.rs 用 `:id`，服务端 capabilities 用 `{id}`。
+/// #17 的端点级灰理由与 #18 的 `Feature::label` 仍走原来的能力通道。
 pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
-    use Feature::*;
-    // 两套模板写法都认：client.rs 用 `:id`，服务端 capabilities 用 `{id}`。
     let path = normalize_path(path);
     let path = path.as_str();
-    match (method, path) {
-        // sessions（10）
-        ("GET", "v1/sessions")
-        | ("POST", "v1/sessions")
-        | ("GET", "v1/unread")
-        | ("GET", "v1/sessions/{id}/entries")
-        | ("POST", "v1/sessions/{id}/messages")
-        | ("GET", "v1/sessions/{id}/events")
-        | ("POST", "v1/sessions/{id}/abort")
-        | ("POST", "v1/sessions/{id}/fork")
-        | ("POST", "v1/sessions/{id}/rename")
-        | ("POST", "v1/read/{id}")
-        // #49 把置顶写穿并从会话模块声明；归档 / 撕原件 / 配置仍走会话页，
-        // 服务端虽未声明（灰入口不调用），映射表也要认得它们。
-        | ("POST", "v1/sessions/{id}/pin")
-        | ("POST", "v1/sessions/{id}/archive")
-        | ("POST", "v1/sessions/{id}/purge")
-        | ("POST", "v1/sessions/{id}/config") => Some(Sessions),
-        // device（4）
-        ("GET", "v1/device")
-        | ("GET", "v1/models")
-        | ("GET", "v1/machines")
-        | ("GET", "v1/fs/dirs")
-        | ("PUT", "v1/default") => Some(Device),
-        // skills / prompts / ext（7 条 × 3）
-        ("GET", "v1/skills") | ("POST", "v1/skills/create") | ("PUT", "v1/skills/file")
-        | ("POST", "v1/skills/{op}") | ("POST", "v1/skills/publish")
-        | ("GET", "v1/skills/files") | ("GET", "v1/skills/file") => Some(Skills),
-        ("GET", "v1/prompts") | ("POST", "v1/prompts/create") | ("PUT", "v1/prompts/file")
-        | ("POST", "v1/prompts/{op}") | ("POST", "v1/prompts/publish")
-        | ("GET", "v1/prompts/files") | ("GET", "v1/prompts/file") => Some(Prompts),
-        ("GET", "v1/extensions") | ("POST", "v1/extensions/create") | ("PUT", "v1/extensions/file")
-        | ("POST", "v1/extensions/{op}") | ("POST", "v1/extensions/publish")
-        | ("GET", "v1/extensions/files") | ("GET", "v1/extensions/file") => Some(Ext),
-        // selection（2）
-        ("GET", "v1/selection") | ("POST", "v1/selection") => Some(Selection),
-        // presets（16）
-        (_, p) if p.starts_with("v1/presets/") => Some(Presets),
-        // combos（2）
-        ("GET", "v1/combos") | ("POST", "v1/combos/{name}/{action}") => Some(Combos),
-        // triggers（1）
-        ("GET", "v1/triggers") => Some(Triggers),
-        // stats（3）—— #12 数据监控室的新数据源
-        ("GET", "v1/stats/usage") | ("GET", "v1/stats/tasks")
-        | ("GET", "v1/stats/db") => Some(Stats),
-        // archive（2）
-        ("GET", "v1/archive") | ("POST", "v1/archive/{id}/restore") => Some(Archive),
-        _ => None,
+    // 先查唯一真相表：活路由与死路径账本都在其中登记过。
+    let known = crate::dead_paths::ENGINE_ROUTES
+        .iter()
+        .any(|(m, p)| *m == method && normalize_path(p) == path)
+        || crate::dead_paths::DEAD_PATHS
+            .iter()
+            .any(|e| e.method == method && normalize_path(e.path) == path);
+    if !known {
+        return None;
     }
+    // 功能归属：前缀判定。顺序从特殊到一般，archive 不落进 sessions。
+    if path == "v1/archive" || path.starts_with("v1/archive/") {
+        return Some(Feature::Archive);
+    }
+    if path.starts_with("v1/presets/") || path == "v1/combos" || path.starts_with("v1/combos/") {
+        return Some(if path.starts_with("v1/combos") { Feature::Combos } else { Feature::Presets });
+    }
+    if path.starts_with("v1/stats/") {
+        return Some(Feature::Stats);
+    }
+    if path.starts_with("v1/documents") {
+        return Some(Feature::Documents);
+    }
+    if path == "v1/skills" || path.starts_with("v1/skills/") {
+        return Some(Feature::Skills);
+    }
+    if path == "v1/prompts" || path.starts_with("v1/prompts/") {
+        return Some(Feature::Prompts);
+    }
+    if path == "v1/extensions" || path.starts_with("v1/extensions/") {
+        return Some(Feature::Ext);
+    }
+    if path.starts_with("v1/triggers") {
+        return Some(Feature::Triggers);
+    }
+    if path == "v1/selection" {
+        return Some(Feature::Selection);
+    }
+    if path == "v1/device"
+        || path == "v1/models"
+        || path == "v1/machines"
+        || path == "v1/default"
+        || path == "v1/fs/dirs"
+        || path == "v1/capabilities"
+        || path == "v1/_routes"
+    {
+        return Some(Feature::Device);
+    }
+    // 其余（sessions / unread / read / origins / search / sessions/*）归会话面。
+    Some(Feature::Sessions)
+}
+
+/// Desk#14：把运行时 `GET /v1/_routes` 的回包与客户端活路径表比一比。
+/// 返回 `(引擎条数, 漂移说明)`；回包为空 = 探针没抓到，不算「引擎零路由」，
+/// 不阻塞 UI。死路径账本里的路径不要求引擎一定有（它们本来就是灰/等票）。
+pub fn route_drift(
+    client_paths: &[&str],
+    engine_routes: &[(&str, &str)],
+) -> (usize, Vec<String>) {
+    if engine_routes.is_empty() {
+        return (0, Vec::new());
+    }
+    let engine: std::collections::BTreeSet<String> = engine_routes
+        .iter()
+        .map(|(m, p)| format!("{} {}", m, normalize_path(p)))
+        .collect();
+    let known_dead: std::collections::BTreeSet<String> = crate::dead_paths::DEAD_PATHS
+        .iter()
+        .map(|e| format!("{} {}", e.method, normalize_path(e.path)))
+        .collect();
+    let missing: Vec<String> = client_paths
+        .iter()
+        .map(|p| p.to_string())
+        .filter(|p| {
+            let mut parts = p.splitn(2, ' ');
+            let method = parts.next().unwrap_or_default();
+            let path = parts.next().unwrap_or_default();
+            let key = format!("{} {}", method, normalize_path(path));
+            !engine.contains(&key) && !known_dead.contains(&key)
+        })
+        .collect();
+    let drift = if missing.is_empty() {
+        Vec::new()
+    } else {
+        vec![format!("客户端认得但引擎没有：{}", missing.join(", "))]
+    };
+    (engine.len(), drift)
 }
 
 impl crate::app::Desktop {
@@ -554,6 +591,45 @@ mod tests {
     }
 
     /// 判据 5：41 条调用路径一条都不许漏。这里列的是 client.rs 实际打出的路径模板。
+    /// Desk#14：运行时 `_routes` 对齐是纯集合比较；探针失败（空回包）不算漂移。
+    #[test]
+    fn route_drift_reports_missing_and_extra() {
+        let client = ["GET /v1/sessions", "POST /v1/sessions/:id/pin"];
+        let engine = [("GET", "/v1/sessions"), ("GET", "/v1/origins")];
+        let (count, drift) = route_drift(&client, &engine);
+        assert_eq!(count, 2);
+        assert_eq!(drift.len(), 1, "客户端两条，引擎缺一条：{drift:?}");
+        assert!(drift[0].contains("/v1/sessions/:id/pin"));
+
+        let (count, drift) = route_drift(&["GET /v1/sessions"], &[]);
+        assert_eq!(count, 0);
+        assert!(drift.is_empty(), "探针失败 = 没抓到，不当成「引擎零路由」");
+    }
+
+    /// Desk#14：`feature_for_path` 的路径表必须从 `dead_paths.rs` 的活路由 +
+    /// 死路径账本派生，不再维护第二份真相。
+    #[test]
+    fn path_table_is_derived_from_dead_paths_catalog() {
+        for &(method, path) in crate::dead_paths::ENGINE_ROUTES {
+            assert!(
+                feature_for_path(method, path).is_some(),
+                "活路由 {method} {path} 没进 capability 派生表"
+            );
+        }
+        for entry in crate::dead_paths::DEAD_PATHS {
+            assert!(
+                feature_for_path(entry.method, entry.path).is_some(),
+                "死路径账本里的 {method} {path} 没进 capability 派生表",
+                method = entry.method,
+                path = entry.path
+            );
+        }
+        assert!(
+            feature_for_path("GET", "/v1/extensions").is_some(),
+            "extensions 虽不在夹具，仍要在能力表里灰掉，不能 Unknown"
+        );
+    }
+
     #[test]
     fn all_41_client_paths_are_mapped_to_a_feature() {
         const PATHS: &[(&str, &str)] = &[

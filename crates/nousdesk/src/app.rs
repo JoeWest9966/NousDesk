@@ -410,6 +410,10 @@ pub struct Desktop {
     pub(crate) device: Option<nous_engine::types::Device>,
     /// 能力表：功能面的唯一真相。连接时拉一次，失败为 `None`（全部 Unknown）。
     pub(crate) caps: Option<nous_engine::Capabilities>,
+    /// Desk#14：运行时 `GET /v1/_routes` 的条数与漂移提示。
+    /// 探针失败 = `None` + 空清单：fail-open，不阻塞连接。
+    pub(crate) route_count: Option<usize>,
+    pub(crate) route_drift: Vec<String>,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
     focused: bool,
     /// 输入框这一帧有没有键盘焦点。render 每帧刷新一次快照，
@@ -1045,6 +1049,8 @@ impl Desktop {
             host_input,
             engine_url: None,
             caps: None,
+            route_count: None,
+            route_drift: Vec::new(),
             engine_node: None,
             device: None,
             live: None,
@@ -1171,6 +1177,8 @@ impl Desktop {
         self.engine_url = None;
         self.device = None;
         self.caps = None;
+        self.route_count = None;
+        self.route_drift.clear();
         cx.notify();
 
         let cfg = self.conn.clone();
@@ -1189,13 +1197,18 @@ impl Desktop {
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 match outcome {
-                    Ok((engine, sessions, device, url, caps)) => {
+                    Ok((engine, sessions, device, url, caps, route_count, route_drift)) => {
                         this.engine = Some(engine);
                         this.sessions = sessions;
                         this.engine_node = device.as_ref().and_then(|d| d.node.clone());
                         this.device = device;
                         this.engine_url = Some(url.clone());
                         this.caps = caps;
+                        this.route_count = route_count;
+                        this.route_drift = route_drift.clone();
+                        for line in &route_drift {
+                            log::warn!("路由漂移：{line}");
+                        }
                         // 换了盘之后，原来选中的那条可能不在新引擎上 —— 别留个空壳。
                         if this
                             .selected
@@ -5195,6 +5208,8 @@ async fn load_engine(
         Option<nous_engine::types::Device>,
         String,
         Option<nous_engine::Capabilities>,
+        Option<usize>,
+        Vec<String>,
     ),
     String,
 > {
@@ -5208,12 +5223,35 @@ async fn load_engine(
     let device = engine.device().await.ok();
     // 能力表拿不到就当没有：所有功能面按 Unknown 灰掉，不猜。
     let caps = engine.capabilities().await.ok();
+    // Desk#14：运行时路由对齐只是提示，拿不到 / 解析失败都不拦连接。
+    let (route_count, route_drift) = match engine.routes().await {
+        Ok(snapshot) => {
+            let mut client = nous_engine::client_paths()
+                .iter()
+                .chain(nous_engine::stats_paths())
+                .chain(nous_engine::pin_paths())
+                .map(|(m, p)| format!("{m} {p}"))
+                .collect::<Vec<_>>();
+            client.push("GET v1/_routes".to_string());
+            let routes: Vec<_> = snapshot
+                .routes
+                .iter()
+                .map(|r| (r.method.as_str(), r.path.as_str()))
+                .collect();
+            let client: Vec<_> = client.iter().map(String::as_str).collect();
+            crate::capability::route_drift(&client, &routes)
+        }
+        Err(_) => (0, Vec::new()),
+    };
+    let route_count = if route_count == 0 { None } else { Some(route_count) };
     Ok((
         Arc::new(engine),
         sessions,
         device,
         cfg.host.clone(),
         caps,
+        route_count,
+        route_drift,
     ))
 }
 
