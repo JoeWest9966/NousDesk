@@ -121,6 +121,13 @@ impl EngineClient {
         self.json(resp).await
     }
 
+    /// `GET /v1/_routes`：引擎自报的路由清单。Desk#14 用它做运行时漂移提示，
+    /// 拿不到就 `Err`（调用方 fail-open，不阻塞 UI）。
+    pub async fn routes(&self) -> Result<crate::RouteSnapshot, EngineError> {
+        let resp = self.http.get(self.url("v1/_routes")?).send().await?;
+        self.json(resp).await
+    }
+
     /// `GET /v1/capabilities`：功能面的唯一真相。未知字段原样留在类型里。
     pub async fn capabilities(&self) -> Result<Capabilities, EngineError> {
         let resp = self.http.get(self.url("v1/capabilities")?).send().await?;

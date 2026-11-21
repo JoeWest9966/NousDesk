@@ -153,6 +153,17 @@ impl PinClient {
     }
 }
 
+/// `PinClient` 会发出的路径模板。置顶写端点独立于 `EngineClient`，
+/// Desk#14 的路由自检必须把它也算进客户端路径表。
+pub const PIN_PATHS: &[(&str, &str)] = &[
+    ("GET", "v1/sessions"),
+    ("POST", "v1/sessions/:id/pin"),
+];
+
+pub fn pin_paths() -> &'static [(&'static str, &'static str)] {
+    PIN_PATHS
+}
+
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {

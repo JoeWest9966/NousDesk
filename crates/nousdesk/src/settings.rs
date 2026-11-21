@@ -970,6 +970,17 @@ impl Desktop {
             .child(kv("引擎（node）", facts.node.clone().unwrap_or_else(unknown)))
             .child(kv("引擎版本", service))
             .child(kv("合同", format!("v{}", crate::capability::CLIENT_CONTRACT)))
+            .child(kv(
+                "路由",
+                match self.route_count {
+                    Some(n) => format!(
+                        "引擎 {n} 条 / 客户端认识 {} 条{}",
+                        crate::dead_paths::ENGINE_ROUTES.len(),
+                        if self.route_drift.is_empty() { String::new() } else { format!(" · 漂移 {} 条", self.route_drift.len()) }
+                    ),
+                    None => "未抓到 /v1/_routes（不影响使用）".into(),
+                },
+            ))
             .child(kv("provider", provider))
             .child(kv("构建（build）", facts.build.clone().unwrap_or_else(unknown)))
             .child(kv("目标（target）", facts.target.clone().unwrap_or_else(unknown)))
