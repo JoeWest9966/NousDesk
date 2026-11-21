@@ -242,6 +242,10 @@ pub struct ConsoleState {
     pub cost: Option<Cost>,
     pub health: Option<Health>,
     pub archive: Option<ArchiveGens>,
+    /// 归档库正在拉（这一屏单独算：它挂了不该把别的屏也标成「在等」）。
+    pub archive_loading: bool,
+    /// 归档库失败的原话。原样显示，不翻译不加前缀。
+    pub archive_error: Option<String>,
 
     /// 四份面板数据正在拉（回放单独算）。
     pub loading: bool,
@@ -1001,8 +1005,15 @@ impl Desktop {
         if stats_reason.is_some() {
             self.console.error = stats_reason.clone();
         }
-        // 归档屏没有数据源：只给灰理由，绝不发 /v1/archive（Desk#12 判据 3）。
-        self.console.archive = None;
+        // 归档屏：capabilities 说没有就只给灰理由，一个请求都不发；
+        // 说有的时候必须真拉 —— 引擎 `GET /v1/archive` 已经落地（Nous#67），
+        // 再挂一句「暂不可用」就是客户端在撒谎。
+        let archive_enabled = self.disabled_reason(crate::capability::Feature::Archive).is_none();
+        if !archive_enabled {
+            self.console.archive = None;
+            self.console.archive_error = None;
+            self.console.archive_loading = false;
+        }
         self.console.error = self
             .disabled_reason(crate::capability::Feature::Archive)
             .or_else(|| self.console.error.take());
@@ -1025,6 +1036,28 @@ impl Desktop {
         let sessions_enabled = self.feature_enabled(crate::capability::Feature::Sessions);
         let stats_enabled = stats_reason.is_none();
         let has_device = device.is_some();
+
+        // 归档库：`GET /v1/archive`（Nous#67 落地）。有数据就留着 —— 刷新时把整屏清空
+        // 看着像「东西没了」，所以只在没有旧数据时才标「在等」。
+        if archive_enabled {
+            let handle2 = handle.clone();
+            let engine2 = engine.clone();
+            self.console.archive_loading = self.console.archive.is_none();
+            self.console.archive_error = None;
+            cx.spawn(async move |this, cx| {
+                let got = handle2.spawn(async move { engine2.archive_list().await }).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.console.archive_loading = false;
+                    match got {
+                        Ok(Ok(gens)) => this.console.archive = Some(gens),
+                        Ok(Err(e)) => this.console.archive_error = Some(e.to_string()),
+                        Err(e) => this.console.archive_error = Some(format!("任务挂了：{e}")),
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
 
         // 解剖：/v1/device + /v1/capabilities + /v1/stats/db。本地已有前两份快照，
         // stats/db 现拉。设备或能力缺失时不猜，画「还没拿到」。
@@ -2382,13 +2415,115 @@ impl Desktop {
 // ── 屏 6：归档 ───────────────────────────────────────────────────────
 
 impl Desktop {
-    fn screen_archive(&self, _cx: &mut Context<Self>) -> AnyElement {
-        // `/v1/archive` 未实现（capabilities.archive=false）：屏保留，只给灰理由。
-        // 不拉、不画红字、不自己编「还没落地」—— 原文来自 disabled_reason()。
-        let reason = self
-            .disabled_reason(crate::capability::Feature::Archive)
-            .unwrap_or_else(|| "服务端未声明这个功能".to_string());
-        empty_note("归档库暂不可用", &reason)
+    fn screen_archive(&self, cx: &mut Context<Self>) -> AnyElement {
+        // ① capabilities 说没有：屏保留，只给灰理由（原文来自 disabled_reason，不自己编）。
+        if let Some(reason) = self.disabled_reason(crate::capability::Feature::Archive) {
+            return empty_note("这一屏暂不可用", &reason);
+        }
+        // ② 坏了：原文 + 重试（没有重试的失败只能靠切屏再切回来）。
+        if let Some(e) = self.console.archive_error.as_deref() {
+            return crate::states::view(
+                crate::states::Phase::failed(e),
+                Some(crate::states::retry_button(
+                    "console-archive-retry",
+                    "重新拉一次",
+                    cx.listener(|this, _: &ClickEvent, _, cx| this.load_console(true, cx)),
+                )),
+            );
+        }
+        // ③ 在等：还没拿到第一批。
+        let Some(gens) = self.console.archive.as_ref() else {
+            return crate::states::view(
+                crate::states::Phase::loading("正在等引擎回归档库"),
+                None,
+            );
+        };
+        let count: usize = gens.gens.iter().map(|g| g.items.len()).sum();
+        if count == 0 {
+            return crate::states::view(
+                crate::states::Phase::empty(
+                    "归档库是空的",
+                    Some("去会话列表把一条对话归档，复印件就会落在这儿"),
+                ),
+                None,
+            );
+        }
+        // ④ 有东西：按 gen 分组。这一屏是只读观测，动作用整页的归档库（同一个动作只留一个入口）。
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for group in gens.gens.iter().filter(|g| !g.items.is_empty()) {
+            rows.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t().d(8.))
+                    .px(t().d(10.))
+                    .py(t().d(5.))
+                    .bg(rgb(t().p.hover))
+                    .text_size(t().fs(9.5))
+                    .text_color(rgb(t().p.faint))
+                    .child(format!("gen {}", group.r#gen))
+                    .child(format!("· {} 条", group.items.len()))
+                    .into_any_element(),
+            );
+            for item in &group.items {
+                rows.push(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t().d(10.))
+                        .px(t().d(10.))
+                        .py(t().d(5.))
+                        .border_b(t().d(1.))
+                        .border_color(rgb(t().p.line_soft))
+                        .child(
+                            div()
+                                .w(t().d(52.))
+                                .flex_none()
+                                .text_size(t().fs(9.5))
+                                .text_color(rgb(t().p.muted))
+                                .child(format!("#{}", item.id)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(t().d(0.))
+                                .overflow_hidden()
+                                .text_size(t().fs(11.))
+                                .child(if item.name.is_empty() {
+                                    "(空会话)".to_string()
+                                } else {
+                                    one_line(&item.name, 80)
+                                }),
+                        )
+                        .child(num_cell(fmt_num(item.entries as i64), "entries"))
+                        .into_any_element(),
+                );
+            }
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap(t().d(6.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t().d(10.))
+                    .text_size(t().fs(9.5))
+                    .text_color(rgb(t().p.faint))
+                    .child(format!("{} 批", gens.gens.len()))
+                    .child(format!("· {} 条复印件", fmt_num(count as i64))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .rounded(t().r(5.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line_soft))
+                    .children(rows),
+            )
+            .into_any_element()
     }
 }
 

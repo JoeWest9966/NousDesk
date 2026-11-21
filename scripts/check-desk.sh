@@ -78,9 +78,10 @@ for pin_assert in pin.changed pin.jumps_to_top pin.pinned_true pin.replay.versio
     || { echo "FAIL: 置顶往返少了一条断言：$pin_assert"; exit 1; }
 done
 
-# #12 判据 4：stats 200 + totals 在场；archive 404（未实现就说未实现）。
-# 哪天 archive 悄悄变 200 而 UI 还灰着，这两条会先红。
-for assert_name in stats.usage.200.totals archive.404; do
+# #12 判据 4：stats 200 + totals 在场；archive 200 且带 gens 数组。
+# archive 原本钉的是「未实现就说未实现」（404）；Nous#67 把存档做出来之后，
+# 钉的东西反过来：**必须真能拉到** —— 哪天它悄悄回 404，这条先红。
+for assert_name in stats.usage.200.totals archive.200.gens; do
   grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
     || { echo "FAIL: 缺了判据 4 的断言：$assert_name"; exit 1; }
 done
