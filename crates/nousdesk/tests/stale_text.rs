@@ -29,7 +29,8 @@ fn source_files() -> Vec<std::path::PathBuf> {
 
 #[test]
 fn no_stale_paths_in_source() {
-    const BANNED: &[&str] = &["%APPDATA%", "__nous/resolve", "d6s4v1", "/api/"];
+    // 字面量拆开写：判据 2 要求旧面板 REST 路径字面量零命中，哨兵自己不能犯规。
+    const BANNED: &[&str] = &["%APPDATA%", "__nous/resolve", "d6s4v1", concat!("/", "api/")];
     let mut hits = Vec::new();
     for path in source_files() {
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
