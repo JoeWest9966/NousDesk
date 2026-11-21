@@ -24,20 +24,19 @@ rg -o 'v1/[a-z0-9/{}:_-]*' crates/nous-engine/src | sort -u | wc -l   # 客户�
 （`serde_json::Value` 进、`Value` 出，不看里面），所以当初没写进来。但后果是 ——
 **只看这份文件会以为某些调用没有依据**。改客户端调用前先扫一眼文末那节。
 
-## 与 Rust 版 Nous 的差距
+## 与 Rust 版 Nous 的关系
 
-Nous 已重写成 Rust（一个进程 `nous-app`，块/`resolve` 会消失）。转换表：
+Nous 已重写成 Rust（一个进程 `nous-app`，`board` / `block` / `resolve` 都没了）。
 
-| 类别 | 条数 | Rust 版状态 |
-|---|---|---|
-| 会话面（`sessions` / `entries` / `events` / `messages` / `abort` / `fork` / `models` / `machines`） | 8 条路径 | ✅ **已实现** |
-| 能连上还缺的 | 7 条 | 🚧 Nous `#47`（`device` / `unread` / `read` / `rename` / `selection` / `skills` / `prompts` + `/v1/capabilities`） |
-| `presets/*` 那 16 条 | 16 | ⏸ **先不做**：`/v1/capabilities` 会声明 `presets: false`，客户端把入口灰掉；将来由 `documents` 模块统一（Nous `#48`） |
-| `documents` 模块（Nous `#48`，12 端点） | 12 | ✅ **Desk#16 甲案已接**：`nous-engine/src/documents.rs` 是哑 client（必带 token），编辑器的 history / history/diff / pending 已经改从这族端点取数；新增「文档」入口/列表页仍等 demo 拍板 |
-| `archive` / `combos` / `triggers` / `extensions` / `fs` | 10 | ⏸ 同上，能力表关掉 |
-| 发消息**有回复** | — | 🚧 Nous `#44`（`nous-sessions` 最小轮次）：没有它，连上去也只能看历史 |
+**别再手工维护「哪条做没做」的表。** 那张表一定是快照，追不上引擎：2026-11-21 它还写着
+「`presets` 先不做」「`archive` 能力表关掉」「`messages` 没回复」，而这三样当时都已经上线。
+照抄它的结论就是拿过期清单当活列表。
 
-**结论：`#47` + `#44` 都落地之前不要切引擎。** 切的时候配置里换个 `host` 就能回退。
+**唯一权威是运行时**：`GET /v1/capabilities` → `modules[].enabled` + `reason.code`。
+客户端开机打一次，入口灰不灰只在 `crates/nousdesk/src/capability.rs` 判一处；
+不知道自己该要什么的时候，问这个端点，别查文档、别猜。
+
+这份文件只记**我们依赖哪些字段**（下文各节），不记模块的完成度。
 
 ---
 
