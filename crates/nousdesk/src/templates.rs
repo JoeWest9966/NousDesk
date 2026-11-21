@@ -3438,30 +3438,34 @@ impl Desktop {
                     .iter()
                     .map(|a| self.preset_archived_row(a, cx))
                     .collect(),
-                Some(_) => vec![note("归档区是空的 —— 归档过的预设会落在这儿，能还原或彻底删。")],
-                None => vec![note("还没数据")],
+                Some(_) => vec![crate::states::inline(crate::states::Phase::empty(
+                    "归档区是空的",
+                    Some("归档过的预设会落在这儿，能还原也能彻底删"),
+                ))],
+                None => vec![crate::states::inline(crate::states::Phase::loading(
+                    "正在等引擎回归档区",
+                ))],
             }
         } else if sec.loading && sec.data.is_none() {
-            vec![note("拉模板中…")]
+            vec![crate::states::inline(crate::states::Phase::loading(
+                "正在等引擎回模板清单",
+            ))]
         } else if let Some(e) = &sec.error {
-            vec![
-                note(&format!("拉模板失败：{e}")),
-                // 失败给个重试入口。
-                div()
-                    .id(ElementId::Name("presets-retry".into()))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.load_presets(true, cx);
-                    }))
-                    .px(t().d(12.))
-                    .py(t().d(4.))
-                    .text_size(t().fs(12.))
-                    .text_color(rgb(t().p.link))
-                    .child("重试")
-                    .into_any_element(),
-            ]
+            // 失败一定能重拉：没有重试的失败只能靠切走再切回。
+            vec![crate::states::view(
+                crate::states::Phase::failed(e),
+                Some(crate::states::retry_button(
+                    "presets-retry",
+                    "重新拉一次",
+                    cx.listener(|this, _: &ClickEvent, _, cx| this.load_presets(true, cx)),
+                )),
+            )]
         } else {
             match &sec.data {
-                None => vec![note("还没数据")],
+                None => vec![crate::states::inline(crate::states::Phase::empty(
+                    "这一段还没拉到",
+                    Some("切到别的段再切回来会重拉"),
+                ))],
                 Some(d) => {
                     let rows = visible_presets(&d.presets, self.preset_cat.as_deref(), &query);
                     if rows.is_empty() {
@@ -4161,7 +4165,9 @@ fn note(text: &str) -> AnyElement {
         .into_any_element()
 }
 
-/// 这一类/这一段里一条都没有时的出路。分三种归因，别都写成「没有数据」。
+/// 这一类/这一段里一条都没有时的出路。分三种归因，别都写成空话。
+///
+/// 长相交给 [`crate::states`]：空态在全 app 只有一种画法，这里只负责把「为什么」说对。
 fn empty_hint(title: &str, section_title: &str, category_count: usize) -> AnyElement {
     let (head, sub) = if title == "全部" {
         (
@@ -4179,25 +4185,7 @@ fn empty_hint(title: &str, section_title: &str, category_count: usize) -> AnyEle
             "词表里先建的类别，还没挂东西".to_string(),
         )
     };
-    div()
-        .p(t().d(20.))
-        .flex()
-        .flex_col()
-        .gap(t().d(6.))
-        .items_center()
-        .child(
-            div()
-                .text_size(t().fs(12.5))
-                .text_color(rgb(t().p.muted))
-                .child(head),
-        )
-        .child(
-            div()
-                .text_size(t().fs(11.))
-                .text_color(rgb(t().p.muted))
-                .child(sub),
-        )
-        .into_any_element()
+    crate::states::view(crate::states::Phase::empty(head, Some(sub)), None)
 }
 
 #[cfg(test)]

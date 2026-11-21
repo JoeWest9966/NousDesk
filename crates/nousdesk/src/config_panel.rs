@@ -378,15 +378,9 @@ fn group_head(text: String, count: usize, sub: bool) -> AnyElement {
         .into_any_element()
 }
 
-fn empty_note(text: &str) -> AnyElement {
-    div()
-        .py(t().d(26.))
-        .w_full()
-        .text_center()
-        .text_size(t().fs(12.))
-        .text_color(rgb(faint()))
-        .child(text.to_string())
-        .into_any_element()
+/// 「这一栏还没东西」。长相交给 [`crate::states`]，这里只递一句话。
+fn empty_phase(phase: crate::states::Phase) -> AnyElement {
+    crate::states::view(phase, None)
 }
 
 // ── 各页 ─────────────────────────────────────────────────────────────
@@ -577,7 +571,7 @@ fn level_note(lv: &str) -> &'static str {
 /// 技能：多选，按类别分组（顶层 + `└ 子类`）。
 fn page_skills(s: &Session, skills: Option<&Skills>, hooks: &Hooks, busy: bool) -> AnyElement {
     let Some(list) = skills else {
-        return empty_note("技能清单加载中…");
+        return empty_phase(crate::states::Phase::loading("正在等引擎回技能清单"));
     };
     // 跟新对话盘面同一条规矩：隐藏的、没加载成功的都不列出来 ——
     // 选了也不生效，列出来只会让人白点一次。
@@ -587,7 +581,10 @@ fn page_skills(s: &Session, skills: Option<&Skills>, hooks: &Hooks, busy: bool) 
         .filter(|x| !x.hidden && x.loadable())
         .collect();
     if visible.is_empty() {
-        return empty_note("这个盘上还没装技能");
+        return empty_phase(crate::states::Phase::empty(
+            "这个盘上还没装技能",
+            Some("把技能放进私库，重新拉一次就在这里"),
+        ));
     }
 
     let mut out = div().flex().flex_col().w_full();
@@ -681,10 +678,13 @@ fn skill_row(sk: &&Skill, id: String, s: &Session, hooks: &Hooks, busy: bool) ->
 /// 模板：单选，圆框。再点一次取消 —— 「明确不要模板」也是一个有效选择。
 fn page_template(s: &Session, prompts: Option<&Prompts>, hooks: &Hooks, busy: bool) -> AnyElement {
     let Some(list) = prompts else {
-        return empty_note("模板清单加载中…");
+        return empty_phase(crate::states::Phase::loading("正在等引擎回模板清单"));
     };
     if list.prompts.is_empty() {
-        return empty_note("这个盘上还没有提示词模板");
+        return empty_phase(crate::states::Phase::empty(
+            "这个盘上还没有提示词模板",
+            Some("把 .md 放进私库，重新拉一次就在这里"),
+        ));
     }
 
     let cur = s.template.clone().unwrap_or_default();
@@ -818,7 +818,10 @@ fn page_dir(s: &Session, dirs: Option<&Dirs>, hooks: &Hooks) -> AnyElement {
 
     let entries = dirs.map(|d| d.dirs.clone()).unwrap_or_default();
     if entries.is_empty() {
-        out = out.child(empty_note("这层没有子目录"));
+        out = out.child(empty_phase(crate::states::Phase::empty(
+            "这层没有子目录",
+            Some("往上翻一层，或者换个盘"),
+        )));
     }
     for (i, d) in entries.into_iter().enumerate() {
         let path = d.path.clone();
@@ -939,12 +942,11 @@ pub(crate) fn render(
     let body: AnyElement = match tab {
         Tab::Model => match p.models.as_ref() {
             Some(m) => page_model(m, s, hooks, busy, g.main_w()),
-            None => empty_note(
-                p.error
-                    .as_deref()
-                    .filter(|e| e.contains("模型"))
-                    .unwrap_or("模型清单加载中…"),
-            ),
+            None => empty_phase(match p.error.as_deref().filter(|e| e.contains("模型")) {
+                // 有错误原文就照抄（失败不是空），没有就是在等。
+                Some(e) => crate::states::Phase::failed(e),
+                None => crate::states::Phase::loading("正在等引擎回模型清单"),
+            }),
         },
         Tab::Level => page_level(s, hooks, busy),
         Tab::Skills => page_skills(s, skills, hooks, busy),

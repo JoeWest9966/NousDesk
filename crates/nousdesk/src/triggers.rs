@@ -2633,46 +2633,31 @@ impl Desktop {
     }
 
     fn trigger_grid(&self, rows: Vec<TriggerItem>, cx: &mut Context<Self>) -> AnyElement {
+        // 三态：坏了 / 在等 / 这一档空。长相由 `states` 统一，这里只说为什么。
         if let Some(e) = &self.triggers.error {
-            return div()
-                .flex()
-                .flex_col()
-                .gap(t().d(6.))
-                .p(t().d(20.))
-                .child(
-                    div()
-                        .text_size(t().fs(12.))
-                        .text_color(rgb(t().p.danger))
-                        .child(format!("拉触发器失败：{e}")),
-                )
-                .child(
-                    div()
-                        .id("trigger-retry")
-                        .text_size(t().fs(12.))
-                        .text_color(rgb(t().p.link))
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.load_trigger_list(true, cx);
-                        }))
-                        .child("重试"),
-                )
-                .into_any_element();
+            return crate::states::view(
+                crate::states::Phase::failed(e),
+                Some(crate::states::retry_button(
+                    "trigger-retry",
+                    "重新拉一次",
+                    cx.listener(|this, _: &ClickEvent, _, cx| this.load_trigger_list(true, cx)),
+                )),
+            );
         }
         if self.triggers.loading && self.triggers.data.is_none() {
-            return div()
-                .p(t().d(20.))
-                .text_size(t().fs(12.))
-                .text_color(rgb(t().p.muted))
-                .child("拉触发器…")
-                .into_any_element();
+            return crate::states::view(
+                crate::states::Phase::loading("正在等引擎回触发器清单"),
+                None,
+            );
         }
         if rows.is_empty() {
-            return div()
-                .p(t().d(20.))
-                .text_size(t().fs(12.))
-                .text_color(rgb(t().p.muted))
-                .child("这一档没有触发器。换个筛选，或者点「新建触发器」。")
-                .into_any_element();
+            return crate::states::view(
+                crate::states::Phase::empty(
+                    "这一档没有触发器",
+                    Some("换个筛选，或者点「新建触发器」"),
+                ),
+                None,
+            );
         }
         let cards: Vec<AnyElement> = rows
             .iter()

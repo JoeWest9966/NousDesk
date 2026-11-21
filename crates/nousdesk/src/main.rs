@@ -47,6 +47,7 @@ mod session_nav;
 mod settings;
 mod sound;
 mod slash;
+mod states;
 mod sync_state;
 mod templates;
 mod templates_graph;

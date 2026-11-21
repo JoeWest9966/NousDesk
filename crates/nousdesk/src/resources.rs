@@ -819,7 +819,7 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                         }
                     }
                 } else {
-                    body = body.child(loading_line(r.loading));
+                    body = body.child(placeholder(r, RowKind::Prompts, &q, cat, cx));
                 }
             }
             Content::Prompts => {
@@ -839,7 +839,7 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                         ));
                     }
                 } else {
-                    body = body.child(loading_line(r.loading));
+                    body = body.child(placeholder(r, RowKind::Skills, &q, cat, cx));
                 }
             }
         },
@@ -858,21 +858,72 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     ));
                 }
             } else {
-                body = body.child(loading_line(r.loading));
+                body = body.child(placeholder(r, RowKind::Exts, &q, cat, cx));
             }
         }
     }
     list.child(body).into_any_element()
 }
 
-fn loading_line(loading: bool) -> AnyElement {
-    div()
-        .px(t().d(12.))
-        .py(t().d(10.))
-        .text_size(t().fs(11.))
-        .text_color(rgb(muted()))
-        .child(if loading { "拉清单…" } else { "没有数据" })
-        .into_any_element()
+/// 哪一段在画占位（决定「在等什么」那句话）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowKind {
+    Skills,
+    Prompts,
+    Exts,
+}
+
+impl RowKind {
+    fn waiting(self) -> &'static str {
+        match self {
+            Self::Skills => "正在等引擎回技能清单",
+            Self::Prompts => "正在等引擎回提示词清单",
+            Self::Exts => "正在等引擎回扩展清单",
+        }
+    }
+}
+
+/// 这一段没有行可画时的三态。**空 / 在等 / 坏了** 由 [`crate::states`] 统一画，
+/// 这里只负责把「为什么」说对：没拉到 ≠ 拉到了但是空的 ≠ 被筛掉。
+fn placeholder(
+    r: &ResourceState,
+    kind: RowKind,
+    q: &str,
+    cat: Option<&str>,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
+    // 顺序有讲究：先判失败，再判在等，最后才是空 —— 反了会把「坏了」画成「在等」。
+    if let Some(e) = r.error.as_deref() {
+        // 失败一定能重拉：没有重试的失败只能靠切走再切回，那是把 bug 当操作习惯。
+        return crate::states::view(
+            crate::states::Phase::failed(e),
+            Some(crate::states::retry_button(
+                "resources-retry",
+                "重新拉一次",
+                cx.listener(|this, _: &ClickEvent, _, cx| this.load_resources(true, cx)),
+            )),
+        );
+    }
+    if r.loading {
+        return crate::states::inline(crate::states::Phase::loading(kind.waiting()));
+    }
+    let filtered = !q.is_empty() || cat.is_some();
+    if filtered {
+        // 有数据但被筛掉了 —— 文案跟「真的一条都没有」必须不一样，否则用户会以为库空了。
+        return crate::states::inline(crate::states::Phase::empty(
+            "这一筛没有命中",
+            Some("把关键字清掉，或者回到「全部」类别"),
+        ));
+    }
+    let (head, why) = match kind {
+        RowKind::Skills => (
+            "引擎里还没有技能",
+            "私库里放一个带 SKILL.md 的目录，重新拉一次就在这里",
+        ),
+        RowKind::Prompts => ("引擎里还没有提示词", "私库里放一个 .md，重新拉一次就在这里"),
+        RowKind::Exts => ("这个引擎没有扩展", "发行版没装 ext 模块时这里一直是空的"),
+    };
+    crate::states::inline(crate::states::Phase::empty(head, Some(why)))
 }
 
 fn row_btn(
