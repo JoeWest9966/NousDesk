@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>#15 禁用态图标 + 声音占位（禁改版）</title>
+<style>
+:root{--panel:#fff;--well:#f2f2f2;--text:#4d5156;--faint:#b8bdc4;--disabled:#b2b2b2;--line:#ececec}
+body{margin:0;background:#f7f7f7;font:13.5px/1.6 Inter,"Noto Sans SC",system-ui,sans-serif;color:var(--text);padding:24px}
+h1{font-size:15px;font-weight:600;margin:0 0 6px}
+p.note{font-size:12px;color:#888;margin:0 0 18px}
+.row{display:flex;gap:24px;flex-wrap:wrap}
+.card{background:var(--panel);border:1px solid rgba(0,0,0,.05);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);width:420px;padding:10px 12px 4px}
+.label{font-size:11.5px;color:#888;margin-bottom:8px}
+.toolbar{display:flex;align-items:center;gap:2px;padding:2px 8px 8px;border-top:1px solid var(--line)}
+.icon{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;color:var(--disabled);font-size:18px;cursor:not-allowed;user-select:none}
+.icon.arrow{width:34px;font-size:14px}
+.icon.live{color:var(--text);cursor:pointer}
+.icon.hover{background:#f4f4f4}
+.spacer{flex:1}
+.send{background:#e9e9e9;color:#b2b2b2;border-radius:4px;height:26px;display:flex;align-items:center;justify-content:center;padding:0 14px;font-size:12.5px}
+.reason{font-size:11px;color:#999;margin:6px 0 10px}
+.sound{background:var(--panel);border:1px solid var(--line);border-radius:9px;width:420px;padding:12px 14px}
+.srow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.sname{font-size:13px;color:var(--text)}
+.sdesc{font-size:11.5px;color:#999;padding-right:8px}
+.pill{border:1px solid var(--line);border-radius:3px;padding:1px 5px;font-size:10px;color:var(--faint)}
+</style></head><body>
+<h1>#15 方案 A：禁用态 + 理由（唯一方案，版式不变）</h1>
+<p class="note">文件：本文件 · 双击即开 · 无端口。真字号 13.5px、真栏宽 28/34px、28px 图标、8/10 内边距。</p>
+<div class="row">
+<div><div class="label">① composer：五颗假按钮压灰，尺寸/间距原样</div>
+<div class="card">
+<div style="height:70px;padding:10px 12px 4px;color:var(--faint)">（写字区原样）</div>
+<div class="toolbar">
+<span class="icon live hover">⚙</span><span class="icon live">⬡</span><span class="icon live">📁</span><span class="icon live arrow">✂⌄</span><span class="icon live">🎤</span>
+<span class="spacer" style="font-size:10px;color:#b8bdc4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">工具暂不支持 · 引擎没有这个功能</span><span class="icon" title="语音输入：引擎没有这个功能">🎤</span><span class="send">发送</span>
+</div></div>
+<p class="reason">表情 / 更多 / 文件 / 截图 / 语音：灰、不变色、不挂点击；理由只填在工具行<b>原有留白</b>里（淡灰小字），不改高度 / 栏宽 / 图标位置。真做了功能再亮起来。</p>
+</div>
+<div><div class="label">② 声音：占位行只改文案，结构不动</div>
+<div class="sound">
+<div class="srow"><span class="sname">一轮生成完成</span><span class="pill">开</span></div>
+<div class="srow"><span class="sname">生成出错</span><span class="pill">开</span></div>
+<div class="srow"><div><div class="sname">轮到你拍板 <span class="pill">无此信号</span></div><div class="sdesc">工具等你批准、问题等你回答。引擎目前没有这个信号，所以没有开关。</div></div></div>
+</div><p class="reason">「待接入 / 轮到你拍板 · 引擎现在没有这个信号」→ 客观文案「无此信号」。</p>
+</div>
+</div>
+</body></html>

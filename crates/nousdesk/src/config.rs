@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-/// 用户配置 / 日志的目录名（`%APPDATA%\nousdesk\`、`%LOCALAPPDATA%\nousdesk\`）。
+/// 用户配置 / 日志的目录名（Linux 是 `~/.config/nousdesk/`）。
 pub const APP_DIR: &str = "nousdesk";
 
 /// 改名前的目录名（`nous`）。**只读不写**：老用户的 `desktop.toml` 还得能读到。
@@ -46,8 +46,8 @@ impl Config {
     /// 查找顺序（先到先得）：
     /// 1. `NOUS_DESKTOP_CONFIG` —— 调试用
     /// 2. **exe 旁边**的 `desktop.toml` —— 便携式。发布包里就带一份，解压即用
-    /// 3. `%APPDATA%\nousdesk\desktop.toml`（Linux 是 `~/.config`）—— 装机后的个人配置
-    ///    4. `%APPDATA%\nous\desktop.toml` —— 改名前的旧目录，只用来接住老用户
+    /// 3. 用户配置目录（Linux 是 `~/.config/nousdesk/`）—— 装机后的个人配置
+    ///    4. 改名前的旧目录 `nous` —— 只读，只用来接住老用户
     pub fn load() -> Result<Self, String> {
         let Some(path) = Self::path() else {
             return Ok(Self::default());
@@ -95,14 +95,14 @@ impl Config {
     /// 保存会写到哪个文件：**当前生效的那份**；一份都没有就新建用户配置那一级。
     ///
     /// 写「生效的那份」而不是永远写用户配置：便携包的 `desktop.toml` 排在用户配置之前，
-    /// 写死 `%APPDATA%` 的话用户改完保存会发现毫无变化。
+    /// 写死某个平台的用户目录的话用户改完保存会发现毫无变化。
     pub fn save_target() -> Result<PathBuf, String> {
         if let Some(path) = Self::path() {
             return Ok(path);
         }
         dirs::config_dir()
             .map(|dir| dir.join(APP_DIR).join("desktop.toml"))
-            .ok_or_else(|| "找不到配置目录（%APPDATA%）".to_string())
+            .ok_or_else(|| "找不到用户配置目录".to_string())
     }
 
     /// 把这两个键写回去。**不会**顺手拉别的键进来 —— 这个文件就只有这两行。
@@ -292,9 +292,9 @@ mod tests {
         assert_eq!(cfg.host, "http://old.test:1");
     }
 
-    /// 改名迁移：旧的 `%APPDATA%\nous\desktop.toml` 还得读得到，新的那份一出现就盖过它。
+    /// 改名迁移：旧目录 `nous/desktop.toml` 还得读得到，新目录那份一出现就盖过它。
     ///
-    /// 这条钉的是改名时最容易伤的路径 —— `%APPDATA%\nous` → `%APPDATA%\nousdesk`，
+    /// 这条钉的是改名时最容易伤的路径 —— `nous` → `nousdesk`，
     /// 老用户不该因为换了个名字就被打回默认值（打进内网 IP 才怪）。
     #[test]
     fn legacy_config_dir_is_still_read_and_new_one_wins() {

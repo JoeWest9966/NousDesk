@@ -31,6 +31,9 @@ pub struct Server {
 pub struct Module {
     pub name: String,
     pub enabled: bool,
+    /// 引擎声明的端点清单。**这里只解析与透传，不拿它做客户端路由自检** ——
+    /// 那份比对（拿 `/v1/_routes` 的真快照当夹具）由 Desk #14 接手；
+    /// 在此之前别在这里半途加一个「声明了但没有调用」的草率判定。
     #[serde(default)]
     pub endpoints: Vec<String>,
     #[serde(default)]

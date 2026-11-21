@@ -4,13 +4,13 @@
 //! 入口就灰掉。这里不碰 HTTP、不碰 GPUI —— 纯函数 + 一张路径映射表。
 
 use nous_engine::Capabilities;
+use nous_engine::types::Device;
 use nous_engine::{Module, Reason, ReasonCode};
 
 /// 用户能看见的功能面。名字按 Nous #47 的清单名（注意是 `Ext`，不是 `Extensions`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Feature {
     Sessions,
-    Documents,
     Presets,
     Archive,
     Combos,
@@ -28,7 +28,6 @@ impl Feature {
     fn probe_path(self) -> (&'static str, &'static str) {
         match self {
             Self::Sessions => ("GET", "v1/sessions"),
-            Self::Documents => ("GET", "v1/documents/{kind}"),
             Self::Presets => ("GET", "v1/presets/{section}"),
             Self::Archive => ("GET", "v1/archive"),
             Self::Combos => ("GET", "v1/combos"),
@@ -44,7 +43,6 @@ impl Feature {
     pub fn module_name(self) -> &'static str {
         match self {
             Self::Sessions => "sessions",
-            Self::Documents => "documents",
             Self::Presets => "presets",
             Self::Archive => "archive",
             Self::Combos => "combos",
@@ -161,19 +159,6 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
         ("GET", "v1/extensions") | ("POST", "v1/extensions/create") | ("PUT", "v1/extensions/file")
         | ("POST", "v1/extensions/{op}") | ("POST", "v1/extensions/publish")
         | ("GET", "v1/extensions/files") | ("GET", "v1/extensions/file") => Some(Ext),
-        // documents（12，#48 已实现；客户端暂未调用，先让映射表认得它）
-        ("GET", "v1/documents/{kind}")
-        | ("GET", "v1/documents/{kind}/{section}/{name}")
-        | ("PUT", "v1/documents/{kind}/{section}/{name}")
-        | ("POST", "v1/documents/{kind}/{section}")
-        | ("POST", "v1/documents/{kind}/{section}/{name}/rename")
-        | ("POST", "v1/documents/{kind}/{section}/{name}/publish")
-        | ("POST", "v1/documents/{kind}/{section}/{name}/reload")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/validate")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/history")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/history/diff")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/pending")
-        | ("GET", "v1/documents/{kind}/{section}/{name}/pending/diff") => Some(Documents),
         // selection（2）
         ("GET", "v1/selection") | ("POST", "v1/selection") => Some(Selection),
         // presets（16）
@@ -223,9 +208,9 @@ impl crate::app::Desktop {
         matches!(gate_for_path(caps, method, path), Gate::Enabled)
     }
 
-    /// `faux` 才挂演示角标；`real` / 缺字段 / 没有能力表都不挂。
+    /// 演示角标只认一个判定（[`is_demo_mode`]），device 在场时以它为准。
     pub(crate) fn demo_mode(&self) -> bool {
-        self.caps.as_ref().is_some_and(is_demo_mode)
+        is_demo_mode(self.caps.as_ref(), self.device.as_ref())
     }
 
     /// 合同主版本不匹配时出横幅，不猜。
@@ -267,9 +252,16 @@ pub fn contract_mismatch(caps: &Capabilities, client_major: u32) -> bool {
     caps.contract != client_major
 }
 
-/// 纯函数版角标判定：`faux` 才挂，`real` / 缺省都不挂。
-pub fn is_demo_mode(caps: &Capabilities) -> bool {
-    caps.runtime.provider.kind == "faux"
+/// 纯函数版角标判定：**一处真相，两种来源**。
+///
+/// `device.faux` 是引擎直报的「这一份数据是不是假的」（#15 判据 3）：在场时压过
+/// `caps.runtime.provider.kind` —— 后者说的是「provider 用没用假实现」，两者冲突时
+/// 界面上的 DEMO 角标该跟着数据走。device 拿不到（旧引擎 / 连接失败）才用 caps 兜底。
+pub fn is_demo_mode(caps: Option<&Capabilities>, device: Option<&Device>) -> bool {
+    if let Some(faux) = device.and_then(|d| d.faux) {
+        return faux;
+    }
+    caps.is_some_and(|c| c.runtime.provider.kind == "faux")
 }
 
 /// 调用前唯一守卫：查这张表 → 查 capability。
@@ -344,9 +336,22 @@ mod tests {
     #[test]
     fn demo_badge_only_for_faux() {
         let mut c = caps();
-        assert!(!is_demo_mode(&c), "real / 缺省不挂角标");
+        let real = nous_engine::types::Device {
+            self_: None, origin: None, node: None, started_at: None, model: None,
+            faux: None, data: None, catalog: None, available: vec![],
+            extra: Default::default(),
+        };
+        assert!(!is_demo_mode(Some(&c), None), "real / 缺省不挂角标");
+        assert!(!is_demo_mode(Some(&c), Some(&real)), "device 没说 faux 就不挂");
+
         c.runtime.provider.kind = "faux".into();
-        assert!(is_demo_mode(&c));
+        assert!(is_demo_mode(Some(&c), None), "caps 说 faux，没有 device 时兜底");
+
+        // 两个真相源冲突：device 优先（#15 判据 3）。
+        let real_device = nous_engine::types::Device { faux: Some(false), ..real.clone() };
+        assert!(!is_demo_mode(Some(&c), Some(&real_device)), "device.faux=false 压过 caps");
+        let demo_device = nous_engine::types::Device { faux: Some(true), ..real };
+        assert!(is_demo_mode(Some(&caps()), Some(&demo_device)), "device.faux=true 压过 caps real");
     }
 
     #[test]
@@ -382,7 +387,6 @@ mod tests {
             ("POST", "/v1/combos/:name/:action"), ("GET", "/v1/triggers"),
             ("GET", "/v1/selection"), ("POST", "/v1/selection"),
             ("GET", "/v1/sessions/:id/events"),
-            ("GET", "/v1/documents/{kind}"),
             // 资源仓：resource_root 只给 skills / prompts / extensions 三种字面量。
             ("POST", "/v1/skills/create"), ("PUT", "/v1/skills/file"),
             ("POST", "/v1/skills/{op}"), ("POST", "/v1/skills/publish"),

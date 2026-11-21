@@ -231,14 +231,24 @@ pub struct Forked {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Device {
+    /// 不用：实例名只做服务端寻址，界面已有引擎地址。
     pub self_: Option<String>,
+    /// 不用：请求源地址不面向用户。
     pub origin: Option<String>,
+    /// 渲染点：设置页 / 关于「引擎（node）」。
     pub node: Option<String>,
+    /// 渲染点：设置页 / 关于「已运行 X」（epoch 毫秒，客户端只做一次减法）。
     pub started_at: Option<serde_json::Value>,
+    /// 渲染点：设置页 / 关于「默认模型」。
     pub model: Option<serde_json::Value>,
+    /// 渲染点：设置页 / 关于「数据来源」+ 标题栏 DEMO 角标（见 `capability::is_demo_mode`）。
     pub faux: Option<bool>,
+    /// 不用：引擎侧数据目录，桌面端不碰。
     pub data: Option<String>,
+    /// 不用：模型目录内容由 /v1/models 提供。
     pub catalog: Option<serde_json::Value>,
+    /// 渲染点：设置页 / 关于「可用模型」。
+    /// `build` / `target` 没有专列，原样留在 `extra`，由 `settings::device_facts` 读取渲染。
     pub available: Vec<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
