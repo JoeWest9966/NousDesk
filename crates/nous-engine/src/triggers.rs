@@ -1,7 +1,7 @@
-//! n8qkkj（触发器管理块）的哑客户端。
+//! 触发器管理面的哑客户端（同一个引擎地址上的 `/v1/triggers`）。
 //!
-//! **为什么是另一个 client**：触发器的清单 / 文件 / 发布 / 归档都住在 n8qkkj，
-//! 同一个引擎地址 + `/v1/triggers`，不从别处解析第二地址。
+//! **为什么是另一个 client**：触发器的清单 / 文件 / 发布 / 归档形状跟会话面不同，
+//! 但地址只有一个（`cfg.host`），不从别处解析第二地址。
 //!
 //! 这一层不加业务字段、不算状态：清单里 `tracked / dirty / error` 都是 n8qkkj 算好的，
 //! 客户端只画；发布是**一个同步长请求**（cargo check → build → index → commit → push），
@@ -198,7 +198,18 @@ pub struct TriggerPublish {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct SaveBody<'a> {
+    name: &'a str,
+    path: &'a str,
+    text: &'a str,
+    base: &'a str,
+}
 
+#[derive(Debug, Clone, Serialize)]
+struct NameBody<'a> {
+    name: &'a str,
+}
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -289,13 +300,167 @@ impl TriggerClient {
         self.json(resp).await
     }
 
-    // `Desk#13`：10 条写端点（files/file/save/create/publish/archive/restore/
-    // purge/category/categories/sync）全删。引擎只有 GET list / POST fire / GET fires。
+    pub async fn files(&self, name: &str) -> Result<TriggerFiles, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!(
+                "v1/triggers/files?name={}",
+                urlencoding(name)
+            ))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    pub async fn file(&self, name: &str, path: &str) -> Result<TriggerFile, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!(
+                "v1/triggers/file?name={}&path={}",
+                urlencoding(name),
+                urlencoding(path)
+            ))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    pub async fn save(
+        &self,
+        name: &str,
+        path: &str,
+        text: &str,
+        base: &str,
+    ) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .put(self.url("v1/triggers/file")?)
+            .json(&SaveBody { name, path, text, base })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    pub async fn create(&self, body: &NewTrigger) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/create")?)
+            .json(body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    pub async fn publish(&self, name: &str) -> Result<TriggerPublish, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/publish")?)
+            .json(&NameBody { name })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    pub async fn archive(&self, name: &str) -> Result<TriggerMutation, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/archive")?)
+            .json(&NameBody { name })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    pub async fn restore(&self, name: &str) -> Result<TriggerMutation, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/restore")?)
+            .json(&NameBody { name })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    pub async fn purge(&self, name: &str) -> Result<TriggerMutation, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/purge")?)
+            .json(&NameBody { name })
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 把某个触发器挂到这几类下面（顺手把新类别写进词表）。
+    pub async fn set_category(
+        &self,
+        name: &str,
+        category: &[String],
+    ) -> Result<TriggerCatalog, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/category")?)
+            .json(&serde_json::json!({ "name": name, "category": category }))
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 词表增改删：`op` = `add` / `rename` / `remove`。
+    ///
+    /// `rename` / `remove` 会重写每个触发器 `nous.json` 的 `category`（子类一起搬 / 一起摘），
+    /// 但**不提交 git** —— 提交要显式调 [`sync`](Self::sync)。
+    pub async fn edit_vocab(
+        &self,
+        op: &str,
+        name: &str,
+        to: Option<&str>,
+    ) -> Result<TriggerCatalog, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/categories")?)
+            .json(&serde_json::json!({ "op": op, "name": name, "to": to }))
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 只提交词表 / 清单（不碰 `.rs`）。类别改完由页面调它。
+    pub async fn sync(&self) -> Result<TriggerMutation, EngineError> {
+        let resp = self
+            .http
+            .post(self.url("v1/triggers/sync")?)
+            .json(&serde_json::json!({}))
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+}
+
+/// n8qkkj 的 query 参数只收名字 / 路径，自己转一下够用（不引 url 的 form 编码）。
+fn urlencoding(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 参数名字转义() {
+        assert_eq!(urlencoding("src/main.rs"), "src%2Fmain.rs");
+        assert_eq!(urlencoding("nous.json"), "nous.json");
+        assert_eq!(urlencoding("a b"), "a%20b");
+    }
 
     #[test]
     fn 清单字段能落下() {

@@ -2745,26 +2745,10 @@ impl Desktop {
         }
     }
 
-    /// `Desk#13`：四条灰路径共用一个判定入口（归档 2 + 会话 archive/config/purge 3，
-    /// 其中 archive 与归档库同一件事）。UI 只问这里，理由走 `disabled_reason()`。
+    /// 灰路径理由的唯一 UI 入口：路径 → `Feature` → `capabilities.reason.message`
+    /// 全在 `capability.rs` 一处；这里不再 match path，也不自编理由。
     pub(crate) fn dead_path_disabled_reason(&self, path: &str) -> Option<String> {
-        use crate::capability::Feature;
-        // capabilities.reason.message 是唯一真相；端点没声明走统一 Unknown 文案。
-        if let Some(caps) = self.caps.as_ref() {
-            if let Some(reason) = crate::capability::endpoint_reason(caps, path) {
-                return Some(reason);
-            }
-        }
-        match path {
-            "v1/archive" | "v1/archive/{id}/restore" | "v1/sessions/{id}/archive" => {
-                self.disabled_reason(Feature::Archive)
-            }
-            "v1/sessions/{id}/purge" | "v1/sessions/{id}/config" => {
-                self.disabled_reason(Feature::Sessions)
-            }
-            "v1/fs/dirs" => self.disabled_reason(Feature::Device),
-            _ => None,
-        }
+        crate::capability::dead_path_disabled_reason(self.caps.as_ref(), path)
     }
 
     /// 打开归档库（右栏整页）。入口在「≡ 更多」菜单里。
@@ -5709,6 +5693,19 @@ impl Render for Desktop {
             .children(
                 (self.tab == Tab::Triggers && self.triggers.conflict.is_some())
                     .then(|| self.trigger_conflict_overlay(cx)),
+            )
+            // 类别树：右键菜单 / 新建·改名表单 / 删除确认（#13 返工恢复）
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.cat_menu.is_some())
+                    .then(|| self.cat_menu_overlay(cx)),
+            )
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.cat_form.is_some())
+                    .then(|| self.cat_form_overlay(cx)),
+            )
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.cat_del.is_some())
+                    .then(|| self.cat_del_overlay(cx)),
             )
             // 「重命名会话」（居中对话框）：压在菜单之上、撕原件之下
             .children(self.rename_overlay(window, cx))

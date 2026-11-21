@@ -22,7 +22,6 @@
 //! - 不混会话里的「这次带哪些技能」：那是 `POST /v1/sessions` 的字段，已经做完（盘面）。
 //! - 第一刀不写盘、不发写请求，一个字节都不写引擎。
 
-
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{Icon, Sizable as _};
@@ -36,15 +35,6 @@ use crate::category::{CatNode, build_tree, is_under};
 
 fn t() -> crate::theme::Skin {
     crate::theme::cur()
-}
-
-/// 私库（技能 / 提示词 / 扩展）写操作能不能用。
-/// `Desk#13` 判据：写接口已删（只读私库，#63），入口统一灰掉，理由走
-/// `disabled_reason()`；#63 落真写端点后再翻这里，不在这里猜。
-#[allow(dead_code)] // 闸门单测钉住：三仓写操作全关，#63 落真后改这里
-pub(crate) fn resource_write_enabled(repo: &str) -> bool {
-    // 引擎 caps 里这三仓只有 GET；写端点从未登记（#63 只读私库）。
-    !matches!(repo, "skills" | "prompts" | "extensions")
 }
 
 /// 大段：内容 / 扩展。
@@ -153,6 +143,17 @@ pub(crate) struct ResourceState {
     loading: bool,
     error: Option<String>,
 
+    // ── 写操作（第二刀）─────────────────────────────────────────────
+    /// 当前是浏览 / 新建 / 编辑 / 发布。四个视图**互斥**，都占满列表 + 详情那一块，
+    /// 不叠在列表上面 —— 「编辑是整页工作台，不是右栏抽屉」。
+    pub(crate) view: crate::resource_write::View,
+    pub(crate) form: Option<crate::resource_write::NewForm>,
+    pub(crate) edit: Option<crate::resource_write::EditSession>,
+    pub(crate) publish: crate::resource_write::PublishState,
+    /// 归档 / 真删 / 丢掉改动 的确认层。不可逆的动作必须先过这一步。
+    pub(crate) confirm: Option<crate::resource_write::Confirm>,
+    /// 表单 / 编辑 / 发布这三个视图自己的输入订阅，跟着资源页一起活。
+    pub(crate) write_subs: Vec<Subscription>,
 }
 
 impl ResourceState {
@@ -181,6 +182,12 @@ impl ResourceState {
             selected: None,
             loading: false,
             error: None,
+            view: crate::resource_write::View::Browse,
+            form: None,
+            edit: None,
+            publish: Default::default(),
+            confirm: None,
+            write_subs: Vec::new(),
         }
     }
 
@@ -454,15 +461,41 @@ fn text_color() -> u32 { t().p.text }
 
 /// 资源页整页：树 + 列表 + 详情三栏。
 pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyElement {
-    // `Desk#13`：私库写操作全删，四个互斥视图收成一个只读三栏。
-    // 版式不走样 —— 浏览那一栏原样保留，只是不再叠写表单 / 确认层。
-    let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
-    if !narrow {
-        root = root.child(render_tree(&desk.resources, cx));
+    use crate::resource_write::View;
+
+    // 新建 / 编辑 / 发布都是**整页**：占满列表 + 详情那一块，不叠在列表上面。
+    // 浏览才是三栏。四个视图互斥，同一时刻只有一个在画。
+    let body = match desk.resources.view {
+        View::New => crate::resource_write::render_new(desk, cx),
+        View::Edit => crate::resource_write::render_edit(desk, cx),
+        View::Publish => crate::resource_write::render_publish(desk, cx),
+        View::Browse => {
+            let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
+            if !narrow {
+                root = root.child(render_tree(&desk.resources, cx));
+            }
+            root.child(render_list(desk, cx))
+                .child(render_detail(desk, cx))
+                .into_any_element()
+        }
+    };
+
+    // 确认层压在整页上面（归档 / 恢复 / 真删 / 丢掉改动）。
+    // 它要盖住整块内容，所以只在有确认时套一层壳 —— 平时不多一层 flex，少一个
+    // 「空的 flex_1 抢宽度」的机会（坑.md 64/94）。
+    if desk.resources.confirm.is_some() {
+        return div()
+            .relative()
+            .flex()
+            .flex_row()
+            .flex_1()
+            .h_full()
+            .min_w(t().d(0.))
+            .child(body)
+            .child(crate::resource_write::render_confirm(desk, cx))
+            .into_any_element();
     }
-    root.child(render_list(desk, cx))
-        .child(render_detail(desk, cx))
-        .into_any_element()
+    body
 }
 
 fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
@@ -665,6 +698,12 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         .border_color(rgb(line_color()))
         .bg(rgb(t().p.panel));
 
+    // 「+ 新建」跟着当前段走：在技能段建技能、在扩展段建扩展。
+    let new_kind = match (r.section, r.content) {
+        (Section::Extensions, _) => crate::resource_write::Kind::Ext,
+        (Section::Content, Content::Skills) => crate::resource_write::Kind::Skill,
+        (Section::Content, Content::Prompts) => crate::resource_write::Kind::Prompt,
+    };
     list = list.child(
         div()
             .flex()
@@ -681,6 +720,23 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                         Section::Extensions => "扩展",
                     }),
             )
+            .child(
+                div()
+                    .id("res-new")
+                    .flex()
+                    .items_center()
+                    .h(t().d(24.))
+                    .px(t().d(9.))
+                    .rounded(t().r(6.))
+                    .bg(rgb(t().p.accent))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.on_accent))
+                    .hover(|el| el.bg(rgb(t().p.accent_hover)))
+                    .child("+ 新建")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.resource_new(new_kind, window, cx);
+                    })),
+            ),
     );
 
     // 搜索框：三段各一份，切段时词还在。suffix 写命中数（空词写总数），
@@ -871,7 +927,8 @@ fn row_btn(
         .into_any_element()
 }
 
-fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
+fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+    use crate::resource_write::{ConfirmAct, Kind};
 
     let r = &desk.resources;
     let mut body = div()
@@ -891,16 +948,20 @@ fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
             div()
                 .text_size(t().fs(12.))
                 .text_color(rgb(muted()))
-                .child("选一行看详情。这里只读 —— 私库写操作已下线。"),
+                .child("选一行看详情。新建 / 编辑 / 发布都在这一页，不用切到别的窗口。"),
         );
         return body.into_any_element();
     };
 
     let kind = sel.kind_of();
     let name = sel.name_of().to_string();
+    // Desk#13 返工：等票期间写端点灰着，理由逐字取自 capabilities（capability.rs 单点）。
+    if let Some(reason) = desk.endpoint_disabled_reason("POST", &format!("/v1/{}/publish", kind.repo().key())) {
+        body = body.child(note_line(&reason));
+    }
 
     // ── 头部：名字 + 状态 + 动作。动作按条目种类分，不是一套按钮硬套。 ──
-    let head = div()
+    let mut head = div()
         .flex()
         .items_start()
         .gap(t().d(12.))
@@ -941,8 +1002,138 @@ fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
                 ),
         );
 
+    let mut acts = div().flex().items_center().gap(t().d(6.));
+    acts = acts.child(
+        div()
+            .id("res-act-edit")
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(t().d(28.))
+            .px(t().d(12.))
+            .rounded(t().r(7.))
+            .bg(rgb(t().p.accent))
+            .text_size(t().fs(11.5))
+            .text_color(rgb(t().p.on_accent))
+            .hover(|el| el.bg(rgb(t().p.accent_hover)))
+            .child("编辑")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.resource_open_edit(window, cx);
+            })),
+    );
+    // 扩展的五类各有各的动作：已归档给「恢复 / 真删」，在册的给「卸载 / 安装」+「归档」。
+    let ext_kind = if kind == Kind::Ext {
+        r.exts
+            .as_ref()
+            .and_then(|e| ext_rows(e, None, "").into_iter().find(|x| x.name == name))
+            .map(|x| x.kind)
+    } else {
+        None
+    };
+    if ext_kind == Some(ExtKind::Archived) {
+        acts = acts.child(
+            div()
+                .id("res-act-restore")
+                .flex()
+                .items_center()
+                .justify_center()
+                .h(t().d(28.))
+                .px(t().d(10.))
+                .rounded(t().r(7.))
+                .border(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.text_2))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child("恢复")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.resource_ask_confirm(ConfirmAct::Restore, cx);
+                })),
+        );
+        acts = acts.child(
+            div()
+                .id("res-act-purge")
+                .flex()
+                .items_center()
+                .justify_center()
+                .h(t().d(28.))
+                .px(t().d(10.))
+                .rounded(t().r(7.))
+                .bg(rgb(t().p.danger_soft))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.danger))
+                .hover(|el| el.bg(rgb(t().p.danger_soft)).opacity(0.85))
+                .child("真删")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.resource_ask_confirm(ConfirmAct::Purge, cx);
+                })),
+        );
+    } else {
+        if let Some(k) = ext_kind
+            && k != ExtKind::Builtin
+        {
+            let installed = k != ExtKind::Off;
+            acts = acts.child(
+                div()
+                    .id("res-act-toggle")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(t().d(28.))
+                    .px(t().d(10.))
+                    .rounded(t().r(7.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(t().p.text_2))
+                    .hover(|el| el.bg(rgb(t().p.hover)))
+                    .child(if installed { "卸载" } else { "安装" })
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.resource_ext_toggle(!installed, window, cx);
+                    })),
+            );
+        }
+        acts = acts.child(
+            div()
+                .id("res-act-archive")
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(t().d(28.))
+            .px(t().d(10.))
+            .rounded(t().r(7.))
+            .border(t().d(1.))
+            .border_color(rgb(t().p.line))
+            .text_size(t().fs(11.5))
+            .text_color(rgb(t().p.text_2))
+            .hover(|el| el.bg(rgb(t().p.hover)))
+            .child("归档")
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.resource_ask_confirm(ConfirmAct::Archive, cx);
+            })),
+        );
+    }
+    acts = acts.child(
+        div()
+            .id("res-act-publish")
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(t().d(28.))
+            .px(t().d(10.))
+            .rounded(t().r(7.))
+            .border(t().d(1.))
+            .border_color(rgb(t().p.line))
+            .text_size(t().fs(11.5))
+            .text_color(rgb(t().p.text_2))
+            .hover(|el| el.bg(rgb(t().p.hover)))
+            .child("发布")
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.resource_open_publish(cx);
+            })),
+    );
+    head = head.child(acts);
     body = body.child(head);
-
 
     match sel {
         Selected::Skill(name) => {
@@ -959,7 +1150,7 @@ fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
                     body = body.child(note_line("隐藏：模型看不见它，勾上也不进提示词。"));
                 }
                 if !skill.tracked {
-                    body = body.child(note_line("还没提交 —— 只在这台机器上看得见。写操作已下线。"));
+                    body = body.child(note_line("还没提交 —— 只在这台机器上看得见。点「发布」才会进别人的视野。"));
                 }
             }
         }
@@ -977,7 +1168,7 @@ fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
                     body = body.child(note_line("这是仓库默认值（`settings.json` 的 `default`）—— 只用来预勾，不是「用户选的那条」。"));
                 }
                 if untracked {
-                    body = body.child(note_line("还没提交 —— 只在这台机器上看得见。写操作已下线。"));
+                    body = body.child(note_line("还没提交 —— 只在这台机器上看得见。点「发布」才会进别人的视野。"));
                 }
             }
         }
@@ -992,11 +1183,11 @@ fn render_detail(desk: &Desktop, _cx: &mut Context<Desktop>) -> AnyElement {
                     .child(detail_kv("摘要", e.summary.as_deref().unwrap_or("—")));
                 // 装 / 卸 / 归档是三件不同的事，按钮分开摆；核心三条卸载会被引擎 403 挡回来。
                 if e.kind == ExtKind::Archived {
-                    body = body.child(note_line("在 .archive/ 里 —— 别人也看不见。写操作已下线。"));
+                    body = body.child(note_line("在 .archive/ 里 —— 别人也看不见。「恢复」把它搬回仓库并提交，「真删」会一起提交删掉。"));
                 } else if e.kind == ExtKind::Builtin {
-                    body = body.child(note_line("内置扩展是引擎硬编码 import 的 —— 不在仓库里，发不出去。"));
+                    body = body.child(note_line("内置扩展是引擎硬编码 import 的 —— 卸载会 403，也不在仓库里，发不出去。"));
                 } else {
-                    body = body.child(note_line("这一页只读；装 / 卸 / 归档的写接口已下线。"));
+                    body = body.child(note_line("装 / 卸 / 归档是三件不同的事；核心三条（nous / skills / prompts）卸载会被引擎 403 挡回来。"));
                 }
             }
         }
