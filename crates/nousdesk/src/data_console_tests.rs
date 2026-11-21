@@ -8,13 +8,13 @@ use nous_engine::console::{Conversations, Cost, Health, Overview};
 use nous_engine::types::ArchiveGens;
 
 
-    /// `Desk#13`：删掉 `旧面板取数路径` 取数后，那五屏只能按 capabilities 灰掉，
+    /// `Desk#13`：删掉 `旧面板 REST 路径` 取数后，那五屏只能按 capabilities 灰掉，
     /// 不许再画一行「等面板给数据」的红字。`Stats` 是 #12 的活路，本票不接。
     #[test]
     fn removed_data_screens_are_gated() {
         for screen in [Screen::Overview, Screen::Convs, Screen::Replay, Screen::Cost, Screen::Health] {
             assert!(!crate::data_console::screen_has_live_data(screen),
-                "{screen:?} 的旧 旧面板取数路径 取数已删，不该报有数据");
+                "{screen:?} 的旧 旧面板 REST 路径 取数已删，不该报有数据");
         }
         // 归档屏走 /v1/archive，仍是灰入口但数据通道没删。
         assert!(crate::data_console::screen_has_live_data(Screen::Archive));

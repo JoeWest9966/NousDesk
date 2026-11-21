@@ -55,7 +55,7 @@ impl DeadPath {
 ///
 /// `等票` / `灰` / `删` 的交叉口径按票面：presets 等 `Desk#11`、combos 等 `#61`、
 /// archive 与 sessions/{config,archive,purge} 灰、fs/dirs 灰（Nous#68）、
-/// 私库写与 triggers 写、`旧面板取数路径` 全删。删掉的入口不再发请求，这里留账不谐音。
+/// 私库写与 triggers 写、`旧面板 REST 路径` 全删。删掉的入口不再发请求，这里留账不谐音。
 pub const DEAD_PATHS: &[DeadPath] = &[
     // presets 18 —— 等票 Desk#11（引擎 #60 落 12 条后改契约）
     DeadPath::wait("GET", "v1/presets/{section}", "Desk#11"),
@@ -112,7 +112,7 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     DeadPath::gray("GET", "v1/fs/dirs"),
     // presets 的 `{op}`（archive/restore/purge）与 `categories` 同属上面 18 条
     // 等票族；这里按模板去重，不重复计数。
-    // 旧面板 旧面板取数路径 5 —— 删（旧面板客户端（已删） 整文件删）
+    // 旧面板 REST 路径 5 —— 删（旧面板客户端整文件删）
     DeadPath::removed("GET", "api/overview"),
     DeadPath::removed("GET", "api/conversations"),
     DeadPath::removed("GET", "api/conversation"),
@@ -254,7 +254,7 @@ mod tests {
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Removed).count(),
             21,
-            "资源写 6 行（覆盖审计 8 族）+ triggers 10 + 旧面板取数路径 5"
+            "资源写 6 行（覆盖审计 8 族）+ triggers 10 + 旧面板 REST 路径 5"
         );
     }
 }

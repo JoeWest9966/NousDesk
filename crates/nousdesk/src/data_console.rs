@@ -93,7 +93,7 @@ impl Screen {
     }
 }
 
-/// 这一屏还有没有活数据源。`Desk#13`：前五屏原打 `旧面板取数路径`，已删客户端；
+/// 这一屏还有没有活数据源。`Desk#13`：前五屏原打 `旧面板 REST 路径`，已删客户端；
 /// #12 把六屏改接 `/v1/stats` 之前，它们只能按 capabilities 灰掉。
 /// 归档屏仍走 `Feature::Archive` 那一条通道（灰 + 理由）。
 pub(crate) fn screen_has_live_data(screen: Screen) -> bool {
@@ -748,7 +748,7 @@ impl BucketAt for CostBucket {
 impl Desktop {
     /// 拉这一页要的一切。
     ///
-    /// `Desk#13`：前五屏的 `旧面板取数路径` 取数已删（旧客户端整文件删除），它们现在
+    /// `Desk#13`：前五屏的 `旧面板 REST 路径` 取数已删（旧客户端整文件删除），它们现在
     /// 只显示 capabilities 给的灰理由；#12 接上 `/v1/stats` 之前不猜数据源。
     /// 归档屏保留 `/v1/archive`，入口由 `Feature::Archive` 闸门守着。
     pub(crate) fn load_console(&mut self, _force: bool, cx: &mut Context<Self>) {
@@ -1362,7 +1362,7 @@ impl Desktop {
 
     fn screen_body(&self, cx: &mut Context<Self>) -> AnyElement {
         let screen = self.console.screen;
-        // `Desk#13`：旧 `旧面板取数路径` 取数已删。前五屏在 #12 接上 `/v1/stats` 之前，
+        // `Desk#13`：旧面板 REST 路径 取数已删。前五屏在 #12 接上 `/v1/stats` 之前，
         // 只画一句灰理由（来自 capabilities），不再画「拿不到数据」的红字。
         if !screen_has_live_data(screen) {
             let reason = self
