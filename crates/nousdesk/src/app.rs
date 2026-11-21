@@ -344,6 +344,12 @@ pub struct Desktop {
     pub(crate) settings_open: bool,
     /// 设置页左边选的那一项。
     pub(crate) settings_tab: crate::settings::SettingsTab,
+    /// 关于页的二级 tab（概览 / 插件）。
+    pub(crate) about_tab: crate::settings::AboutTab,
+    /// 插件页当前选中的模块名（引擎模块名，不是显示名）。
+    pub(crate) about_selected: Option<String>,
+    /// 窄窗时插件列表 → 详情的输入状态：详情开着时不画列表。
+    pub(crate) about_detail_open: bool,
     /// 当前主题。启动时从 `theme.toml` 读进 `theme::ActiveSkin` 这个 Global；
     /// 这里留一份只是给设置页判断「哪张卡片在选中态」用。
     /// **渲染层不读这个字段**，一律 `crate::theme::cur()` 取帧内快照。
@@ -1009,6 +1015,9 @@ impl Desktop {
             // `NOUS_DESKTOP_OPEN=editor`：列表一拉回来就打开第一条的编辑器（验编辑器用）。
             auto_editor: open_at_start == "editor",
             settings_tab: crate::settings::SettingsTab::Connection,
+            about_tab: crate::settings::AboutTab::Overview,
+            about_selected: None,
+            about_detail_open: false,
             theme_name: crate::theme::ThemeName::load(),
             sound: crate::sound::Prefs::load(),
             settings_msg: None,

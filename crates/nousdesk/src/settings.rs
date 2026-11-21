@@ -24,6 +24,13 @@ use gpui_kit::*;
 use crate::app::Desktop;
 use crate::config::Config;
 
+/// 关于页的二级菜单。默认「概览」，插件页独立成页（demo 01）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AboutTab {
+    Overview,
+    Plugins,
+}
+
 /// 原 `MUTED = 0x999999`；由 muted 这个语义槽接管。
 fn muted() -> u32 { t().p.muted }
 /// 原 `FAINT = 0xaaaaaa`；由 faint 这个语义槽接管。
@@ -394,7 +401,7 @@ impl Desktop {
             SettingsTab::Connection => self.connection_pane(cx),
             SettingsTab::Theme => self.theme_pane(cx),
             SettingsTab::Sound => self.sound_pane(cx),
-            SettingsTab::About => self.about_pane(),
+            SettingsTab::About => self.about_pane(narrow, cx),
         };
 
         div()
@@ -735,7 +742,76 @@ impl Desktop {
         cx.notify();
     }
 
-    fn about_pane(&self) -> AnyElement {
+    /// 关于页：顶部二级 segmented + 概览 / 插件两页（demo 01）。
+    fn about_pane(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+        let t = t();
+        let module_count = self.caps.as_ref().map(|c| c.modules.len()).unwrap_or(0);
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(t.d(12.))
+            .pb(t.d(2.))
+            .child(div().text_size(t.fs(15.)).child("关于"))
+            .child({
+                let tabs = [
+                    (AboutTab::Overview, "概览".to_string()),
+                    (AboutTab::Plugins, format!("插件 {module_count}")),
+                ];
+                let mut row = div()
+                    .flex()
+                    .items_center()
+                    .p(t.d(2.))
+                    .gap(t.d(2.))
+                    .rounded(t.r(6.))
+                    .bg(rgb(t.p.surface))
+                    .border(t.d(1.))
+                    .border_color(rgb(t.p.line_soft));
+                for (tab, label) in tabs {
+                    let on = self.about_tab == tab;
+                    row = row.child(
+                        div()
+                            .id(ElementId::Name(format!("about-tab-{tab:?}").into()))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.about_tab = tab;
+                                cx.notify();
+                            }))
+                            .px(t.d(10.))
+                            .py(t.d(4.))
+                            .rounded(t.r(5.))
+                            .text_size(t.fs(11.5))
+                            .when(on, |el| {
+                                el.bg(rgb(t.p.accent_soft))
+                                    .text_color(rgb(t.p.accent_fg))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                            })
+                            .when(!on, |el| {
+                                el.text_color(rgb(t.p.text_2))
+                                    .hover(|h| h.bg(rgb(t.p.line_soft)))
+                            })
+                            .child(label),
+                    );
+                }
+                row
+            });
+
+        let body = match self.about_tab {
+            AboutTab::Overview => self.about_overview(),
+            AboutTab::Plugins => self.about_plugins(narrow, cx),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(t.d(14.))
+            .min_w(t.d(0.))
+            .child(head)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// 概览页：概览保留现有键值，外加 provider（caps.runtime.provider）。
+    /// `services` 只在 extra 里，按票面不做、不在 UI 猜。
+    fn about_overview(&self) -> AnyElement {
+        let t = t();
         let log_path = dirs::data_local_dir()
             .map(|d| {
                 d.join(crate::config::APP_DIR)
@@ -758,24 +834,36 @@ impl Desktop {
             .as_ref()
             .map(|c| c.server.version.clone())
             .unwrap_or_else(unknown);
+        let provider = self
+            .caps
+            .as_ref()
+            .map(|c| {
+                let p = &c.runtime.provider;
+                if p.message.is_empty() {
+                    p.kind.clone()
+                } else {
+                    format!("{} · {}", p.kind, p.message)
+                }
+            })
+            .unwrap_or_else(|| "未知".into());
 
-        // 七个字段各有渲染点，详见 `device_field_owners()`；
-        // 没连上 / 老引擎缺字段一律「未知」，不编造。
         div()
             .flex()
             .flex_col()
-            .gap(t().d(14.))
-            .max_w(t().d(520.))
-            .child(div().text_size(t().fs(15.)).child("关于"))
+            .gap(t.d(14.))
+            .min_w(t.d(0.))
+            .max_w(t.d(520.))
             .child(
                 div()
-                    .text_size(t().fs(11.5))
+                    .text_size(t.fs(11.5))
                     .text_color(rgb(muted()))
                     .child("引擎信息来自 GET /v1/device —— 出问题先对版本和构建号。"),
             )
             .child(kv("客户端", format!("v{}", env!("CARGO_PKG_VERSION"))))
             .child(kv("引擎（node）", facts.node.clone().unwrap_or_else(unknown)))
             .child(kv("引擎版本", service))
+            .child(kv("合同", format!("v{}", crate::capability::CLIENT_CONTRACT)))
+            .child(kv("provider", provider))
             .child(kv("构建（build）", facts.build.clone().unwrap_or_else(unknown)))
             .child(kv("目标（target）", facts.target.clone().unwrap_or_else(unknown)))
             .child(kv("已运行", facts.started_at.clone().unwrap_or_else(unknown)))
@@ -796,6 +884,237 @@ impl Desktop {
             .child(kv("配置文件", cfg_path))
             .child(kv("日志", log_path))
             .into_any_element()
+    }
+
+    /// 插件页：左列表 + 右详情；窄窗退化成互斥的两屏（详情顶部「← 插件」）。
+    fn about_plugins(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+        let t = t();
+        let Some(caps) = self.caps.as_ref() else {
+            return div()
+                .text_size(t.fs(11.5))
+                .text_color(rgb(muted()))
+                .child("没有 capabilities —— 先到「连接」页连上引擎。")
+                .into_any_element();
+        };
+
+        // 选中项：未连上 / 模块被删掉时回落到第一条。
+        let selected = self
+            .about_selected
+            .as_deref()
+            .and_then(|name| caps.modules.iter().position(|m| m.name == name))
+            .unwrap_or(0);
+        let show_detail = !narrow || self.about_detail_open;
+
+        let mut list = div().flex().flex_col().gap(t.d(2.));
+        if narrow && show_detail {
+            // 窄窗详情自己带「← 插件」，列表收起。
+        } else {
+            for (i, module) in caps.modules.iter().enumerate() {
+                list = list.child(plugin_row(module, &caps.server.version, i == selected, cx));
+            }
+        }
+        let list = div()
+            .flex()
+            .flex_col()
+            .gap(t.d(10.))
+            .min_w(t.d(0.))
+            .when(!narrow, |el| el.w(t.d(268.)))
+            .child(div().text_size(t.fs(11.5)).text_color(rgb(muted())).child(format!(
+                "{} 个模块 · {} 启用 · {} 未启用 · {} 端点",
+                caps.modules.len(),
+                caps.modules.iter().filter(|m| m.enabled).count(),
+                caps.modules.iter().filter(|m| !m.enabled).count(),
+                caps.modules.iter().map(|m| m.endpoints.len()).sum::<usize>(),
+            )))
+            .child(list);
+
+        if !show_detail {
+            return list.into_any_element();
+        }
+        let module = &caps.modules[selected];
+        let detail = self.about_plugin_detail(module, caps, narrow, cx);
+        if narrow {
+            detail
+        } else {
+            div()
+                .flex()
+                .gap(t.d(18.))
+                .min_w(t.d(0.))
+                .child(list)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(t.d(0.))
+                        .border_l(t.d(1.))
+                        .border_color(rgb(t.p.line_soft))
+                        .pl(t.d(18.))
+                        .child(detail),
+                )
+                .into_any_element()
+        }
+    }
+
+    /// 单个模块详情（demo 01 右栏）。缺省字段按票面降级：
+    /// 版本 = caps.server.version，类型 / 层 = —，crate / 说明 = —。
+    fn about_plugin_detail(
+        &self,
+        module: &nous_engine::Module,
+        caps: &nous_engine::Capabilities,
+        narrow: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let t = t();
+        let unknown = "—";
+        let version = module.version.as_deref().unwrap_or(&caps.server.version);
+        let kind = module.kind.as_deref().unwrap_or(unknown);
+        let layer = module.layer.as_deref().unwrap_or(unknown);
+        let required = match module.required {
+            Some(true) => "是",
+            Some(false) => "否",
+            None => unknown,
+        };
+        let crate_name = module.crate_name.as_deref().unwrap_or(unknown);
+        let description = module.description.as_deref().unwrap_or(unknown);
+        let registered = crate::capability::module_feature(module.name.as_str());
+        let label = registered
+            .map(|f| f.label().to_string())
+            .unwrap_or_else(|| module.name.clone());
+
+        // 状态文案只走 disabled_text()：不在这里写第二套 if enabled。
+        let reason = registered
+            .and_then(|f| self.feature_gate(f))
+            .map(|g| match g {
+                crate::capability::Gate::Enabled => None,
+                crate::capability::Gate::Disabled { code, reason } => {
+                    Some(crate::capability::disabled_text(code, &reason.message))
+                }
+                crate::capability::Gate::Unknown => Some(crate::capability::disabled_text(
+                    nous_engine::ReasonCode::Unknown,
+                    "服务端未声明这个功能",
+                )),
+            })
+            .unwrap_or_else(|| {
+                if module.enabled {
+                    None
+                } else {
+                    module.reason.as_ref().map(|r| {
+                        crate::capability::disabled_text(r.code, &r.message)
+                    })
+                }
+            });
+        let state = if module.enabled { "启用" } else { "未启用" };
+
+        let mut detail = div()
+            .flex()
+            .flex_col()
+            .gap(t.d(10.))
+            .min_w(t.d(0.))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(t.d(4.))
+                    .child(div().text_size(t.fs(15.)).child(label))
+                    .child(
+                        div()
+                            .text_size(t.fs(10.5))
+                            .text_color(rgb(muted()))
+                            .child(module.name.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(t.d(8.))
+                    .child(div().text_size(t.fs(11.5)).text_color(rgb(muted())).child(state))
+                    .child(
+                        div()
+                            .text_size(t.fs(11.5))
+                            .text_color(rgb(muted()))
+                            .child(format!("v{version} · 合同 v{}", caps.contract)),
+                    ),
+            );
+        if let Some(reason) = reason {
+            detail = detail.child(
+                div()
+                    .p(t.d(8.))
+                    .rounded(t.r(5.))
+                    .bg(rgb(t.p.warn_soft))
+                    .text_size(t.fs(11.))
+                    .text_color(rgb(t.p.text_2))
+                    .child(reason),
+            );
+        }
+        detail = detail
+            .child(plugin_meta("类型", kind.to_string()))
+            .child(plugin_meta("层", layer.to_string()))
+            .child(plugin_meta("必需", required.to_string()))
+            .child(plugin_meta("来源 crate", crate_name.to_string()))
+            .child(plugin_meta(
+                "客户端登记",
+                match registered {
+                    Some(_) => "已登记 · capability.rs".to_string(),
+                    None => "未登记".to_string(),
+                },
+            ))
+            .child(
+                div()
+                    .text_size(t.fs(10.5))
+                    .text_color(rgb(faint()))
+                    .child(description.to_string()),
+            );
+
+        let mut eps = div().flex().flex_col().gap(t.d(1.));
+        eps = eps.child(
+            div()
+                .text_size(t.fs(10.))
+                .text_color(rgb(faint()))
+                .child(format!("端点 · {}", module.endpoints.len())),
+        );
+        for endpoint in &module.endpoints {
+            let (method, path) = crate::capability::split_endpoint(endpoint)
+                .unwrap_or((endpoint.as_str(), ""));
+            eps = eps.child(
+                div()
+                    .flex()
+                    .gap(t.d(8.))
+                    .text_size(t.fs(10.5))
+                    .child(
+                        div()
+                            .w(t.d(38.))
+                            .flex_none()
+                            .text_color(rgb(if method == "POST" { t.p.accent_fg } else { muted() }))
+                            .child(method.to_string()),
+                    )
+                    .child(div().text_color(rgb(t.p.text_2)).child(path.to_string())),
+            );
+        }
+        detail = detail.child(eps);
+
+        if narrow {
+            div()
+                .flex()
+                .flex_col()
+                .gap(t.d(10.))
+                .child(
+                    div()
+                        .id(ElementId::Name("about-plugin-back".into()))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.about_detail_open = false;
+                            cx.notify();
+                        }))
+                        .px(t.d(6.))
+                        .py(t.d(4.))
+                        .text_size(t.fs(12.))
+                        .text_color(rgb(t.p.text_2))
+                        .hover(|h| h.bg(rgb(t.p.line_soft)))
+                        .child("← 插件"),
+                )
+                .child(detail)
+                .into_any_element()
+        } else {
+            detail.into_any_element()
+        }
     }
 
     // ── 保存 ────────────────────────────────────────────────
@@ -1235,6 +1554,107 @@ fn field(label: &'static str, input: impl IntoElement) -> AnyElement {
                 .child(label),
         )
         .child(div().w_full().min_w(t().d(0.)).child(input))
+        .into_any_element()
+}
+
+/// 插件页的一行。点击选中并进入详情（窄窗由 `about_detail_open` 控制）。
+fn plugin_row(
+    module: &nous_engine::Module,
+    fallback_version: &str,
+    selected: bool,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
+    let t = t();
+    let name = module.name.clone();
+    let label = crate::capability::module_feature(&name)
+        .map(|f| f.label().to_string())
+        .unwrap_or_else(|| name.clone());
+    let version = module.version.as_deref().unwrap_or(fallback_version);
+    let state = if module.enabled { "启用" } else { "未启用" };
+    let color = if module.enabled { t.p.ok } else { t.p.muted };
+    div()
+        .id(ElementId::Name(format!("about-plugin-{name}").into()))
+        .on_click(cx.listener({
+            let name = name.clone();
+            move |this, _: &ClickEvent, _, cx| {
+                this.about_selected = Some(name.clone());
+                this.about_detail_open = true;
+                cx.notify();
+            }
+        }))
+        .flex()
+        .items_center()
+        .gap(t.d(8.))
+        .px(t.d(8.))
+        .py(t.d(7.))
+        .rounded(t.r(5.))
+        .when(selected, |el| el.bg(rgb(t.p.accent_soft)))
+        .when(!selected, |el| el.hover(|h| h.bg(rgb(t.p.row_hover))))
+        .child(
+            div()
+                .w(t.d(6.))
+                .h(t.d(6.))
+                .flex_none()
+                .rounded_full()
+                .bg(rgb(color)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(t.d(2.))
+                .min_w(t.d(0.))
+                .flex_1()
+                .child(
+                    div()
+                        .text_size(t.fs(12.))
+                        .text_color(rgb(if selected { t.p.accent_fg } else { t.p.text }))
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .text_size(t.fs(10.))
+                        .text_color(rgb(muted()))
+                        .child(name),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_end()
+                .gap(t.d(2.))
+                .flex_none()
+                .child(
+                    div()
+                        .text_size(t.fs(10.5))
+                        .text_color(rgb(muted()))
+                        .child(format!("v{version} · {}", state)),
+                )
+                .child(
+                    div()
+                        .text_size(t.fs(10.))
+                        .text_color(rgb(faint()))
+                        .child(format!("{} 端点", module.endpoints.len())),
+                ),
+        )
+        .into_any_element()
+}
+
+fn plugin_meta(label: &'static str, value: String) -> AnyElement {
+    let t = t();
+    div()
+        .flex()
+        .gap(t.d(10.))
+        .text_size(t.fs(11.5))
+        .child(
+            div()
+                .w(t.d(72.))
+                .flex_none()
+                .text_color(rgb(muted()))
+                .child(label),
+        )
+        .child(div().min_w(t.d(0.)).text_color(rgb(t.p.text_2)).child(value))
         .into_any_element()
 }
 

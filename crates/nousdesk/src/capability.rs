@@ -11,6 +11,7 @@ use nous_engine::{Module, Reason, ReasonCode};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Feature {
     Sessions,
+    Documents,
     Presets,
     Archive,
     Combos,
@@ -29,6 +30,8 @@ impl Feature {
     fn probe_path(self) -> (&'static str, &'static str) {
         match self {
             Self::Sessions => ("GET", "v1/sessions"),
+            // #16：Desk 不接文档编辑器，这里只供「插件页展示」用，永不作为入口守卫。
+            Self::Documents => ("GET", "v1/documents"),
             Self::Presets => ("GET", "v1/presets/{section}"),
             Self::Archive => ("GET", "v1/archive"),
             Self::Combos => ("GET", "v1/combos"),
@@ -42,9 +45,28 @@ impl Feature {
         }
     }
 
+    /// 插件页左栏的中文名。#18 + #12 合并后共 12 个 Feature 逐个钉字，新增变体必须同时补这里。
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Sessions => "会话",
+            Self::Documents => "文档",
+            Self::Presets => "预设",
+            Self::Archive => "归档",
+            Self::Combos => "组合",
+            Self::Triggers => "触发器",
+            Self::Skills => "技能",
+            Self::Prompts => "提示词",
+            Self::Selection => "选择",
+            Self::Device => "设备",
+            Self::Stats => "数据监控",
+            Self::Ext => "扩展",
+        }
+    }
+
     pub fn module_name(self) -> &'static str {
         match self {
             Self::Sessions => "sessions",
+            Self::Documents => "documents",
             Self::Presets => "presets",
             Self::Archive => "archive",
             Self::Combos => "combos",
@@ -95,6 +117,31 @@ pub fn normalize_path(path: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("/")
+}
+
+/// 从引擎模块名找客户端登记的 `Feature`。`env` 这类引擎侧模块
+/// 没有 Desk 入口 → `None`，插件页照实列出并标「未登记」。
+pub fn module_feature(name: &str) -> Option<Feature> {
+    [
+        Feature::Sessions, Feature::Documents, Feature::Presets, Feature::Archive,
+        Feature::Combos, Feature::Triggers, Feature::Skills, Feature::Prompts,
+        Feature::Selection, Feature::Device, Feature::Stats, Feature::Ext,
+    ]
+    .into_iter()
+    .find(|f| f.module_name() == name)
+}
+
+/// `Module::endpoints` 里一条形如 `"GET /v1/sessions"` 的字符串拆成 (method, path)。
+/// 只做纯字符串切分：多空格归一，缺 method / 缺 path / 粘连都按「拆不出」返回 `None`
+/// （界面原样显示这条端点，不猜）。
+pub fn split_endpoint(endpoint: &str) -> Option<(&str, &str)> {
+    let mut parts = endpoint.split_whitespace();
+    let method = parts.next()?;
+    let path = parts.next()?;
+    if parts.next().is_some() || !path.starts_with('/') {
+        return None;
+    }
+    Some((method, path))
 }
 
 /// 唯一的判定处。UI 里不许再写第二处 `if module_enabled(...)`。
@@ -302,6 +349,57 @@ mod tests {
             "runtime": { "provider": { "configured": false, "kind": "real", "message": "没凭证" } }
         }))
         .unwrap()
+    }
+
+    /// #18 + #12：插件页左栏显示中文名。合并后 12 个 Feature 一个都不许漏，
+    /// 新增变体时这里会先红（match 全覆盖 + 单测逐条钉字）。
+    #[test]
+    fn every_feature_has_a_chinese_label() {
+        let all = [
+            (Feature::Sessions, "会话"),
+            (Feature::Presets, "预设"),
+            (Feature::Archive, "归档"),
+            (Feature::Combos, "组合"),
+            (Feature::Triggers, "触发器"),
+            (Feature::Skills, "技能"),
+            (Feature::Prompts, "提示词"),
+            (Feature::Selection, "选择"),
+            (Feature::Device, "设备"),
+            (Feature::Ext, "扩展"),
+            (Feature::Documents, "文档"),
+            (Feature::Stats, "数据监控"),
+        ];
+        assert_eq!(all.len(), 12, "#18 的 11 个 Feature + #12 的 Stats");
+        // engine 恢复分支多出的 `env` 没有 Desk 入口，不在 Feature 里；
+        // 插件页照实列出所有模块，未登记的显式标注。
+        for (feature, label) in all {
+            assert_eq!(feature.label(), label, "{feature:?} 的中文标签不对");
+        }
+    }
+
+    /// #18 + #12 插件页：每个登记模块都能从 Feature 找到；恢复分支多出的 `env`
+    /// 是「未登记」的真实样本，UI 必须照实列出而不是过滤掉。
+    #[test]
+    fn registered_feature_names_cover_all_desktop_modules() {
+        let all = [
+            Feature::Sessions, Feature::Documents, Feature::Presets, Feature::Archive,
+            Feature::Combos, Feature::Triggers, Feature::Skills, Feature::Prompts,
+            Feature::Selection, Feature::Device, Feature::Stats, Feature::Ext,
+        ];
+        let names: Vec<_> = all.iter().map(|f| f.module_name()).collect();
+        assert_eq!(names.len(), 12);
+        assert_eq!(names.iter().filter(|n| **n == "env").count(), 0, "env 没有 Desk 入口");
+    }
+
+    /// #18：端点清单只做字符串拆分，不猜语义。多空格 / 路径带空格都归一。
+    #[test]
+    fn split_endpoint_separates_method_and_path() {
+        assert_eq!(split_endpoint("GET /v1/sessions"), Some(("GET", "/v1/sessions")));
+        assert_eq!(split_endpoint("POST   /v1/sessions"), Some(("POST", "/v1/sessions")));
+        assert_eq!(split_endpoint("PUT /v1/presets/model/file"), Some(("PUT", "/v1/presets/model/file")));
+        assert_eq!(split_endpoint("GET/v1/sessions"), None);
+        assert_eq!(split_endpoint("/v1/sessions"), None);
+        assert_eq!(split_endpoint(""), None);
     }
 
     #[test]
