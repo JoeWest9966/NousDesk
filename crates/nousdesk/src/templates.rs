@@ -4117,15 +4117,6 @@ fn next_combo_enabled(current: Option<bool>) -> Option<bool> {
     current.map(|v| !v)
 }
 
-fn pick_note(text: String, color: u32) -> AnyElement {
-    div()
-        .px(t().d(10.))
-        .py(t().d(14.))
-        .text_size(t().fs(11.5))
-        .text_color(rgb(color))
-        .child(text)
-        .into_any_element()
-}
 
 /// 能开 = spec 没坏 && 没有失效引用。tracked 只影响显示，不影响可开。
 fn launchable(p: &Preset) -> bool {
@@ -4453,12 +4444,17 @@ pub(crate) fn preset_pick_overlay(&self, cx: &mut Context<Self>) -> Option<AnyEl
     let mut rows: Vec<AnyElement> = Vec::new();
 
     if let Some(err) = &sec.error {
-        rows.push(pick_note(format!("清单拉不到：{err}"), bad()));
+        rows.push(crate::states::inline(crate::states::Phase::failed(err)));
     } else if sec.data.is_none() {
-        rows.push(pick_note("拉模板清单…".into(), muted()));
+        rows.push(crate::states::inline(crate::states::Phase::loading(
+            "正在等引擎回模板清单",
+        )));
     } else if let Some(d) = &sec.data {
         if d.presets.is_empty() {
-            rows.push(pick_note("这一段还没有模板".into(), muted()));
+            rows.push(crate::states::inline(crate::states::Phase::empty(
+                "这一段还没有模板",
+                Some("换一段看看，或者在私库里放一条"),
+            )));
         } else {
             for p in &d.presets {
                 rows.push(self.preset_pick_row(p, cx));

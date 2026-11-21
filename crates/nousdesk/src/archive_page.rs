@@ -425,11 +425,17 @@ fn body(
     }
 
     if state.is_empty() {
+        // 三态统一画法（`crate::states`）：在等说清在等什么，空说清为什么空。
         if state.loading {
-            rows.push(note(NOTE_LOADING));
+            rows.push(crate::states::view(
+                crate::states::Phase::loading(NOTE_LOADING),
+                None,
+            ));
         } else if state.error.is_none() {
-            rows.push(note(NOTE_EMPTY));
-            rows.push(note(NOTE_EMPTY_HINT));
+            rows.push(crate::states::view(
+                crate::states::Phase::empty(NOTE_EMPTY, Some(NOTE_EMPTY_HINT)),
+                None,
+            ));
         }
     } else {
         for group in &state.data.gens {
@@ -656,16 +662,6 @@ fn act(action: ArchiveAction, on: &OnAction) -> OnClick {
         cx.stop_propagation();
         on(&action, window, cx);
     })
-}
-
-fn note(text: &'static str) -> AnyElement {
-    div()
-        .px(t().d(14.))
-        .pt(t().d(14.))
-        .text_size(t().fs(12.))
-        .text_color(rgb(t().p.muted))
-        .child(text)
-        .into_any_element()
 }
 
 /// 失败横幅：引擎原文 + 一句客户端自己的提示（不改写原文）。

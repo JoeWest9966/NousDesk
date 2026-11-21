@@ -1688,11 +1688,21 @@ impl crate::app::Desktop {
             .overflow_y_scroll();
 
         if e.loading {
-            col = col.child(note("读 preset.json 中…"));
+            col = col.child(crate::states::view(
+                crate::states::Phase::loading("正在读这一份 preset.json"),
+                None,
+            ));
             return col.into_any_element();
         }
         if e.draft.is_null() {
-            col = col.child(note("这份 preset.json 读不了，去 JSON 那一栏看看原文。"));
+            // 读到了、但不是 JSON —— 这不是「空」，是坏了，红字 + 指路。
+            col = col.child(crate::states::view(
+                crate::states::Phase::empty(
+                    "这份 preset.json 读不了",
+                    Some("去「JSON」那一栏看原文，多半是文件本身坏了"),
+                ),
+                None,
+            ));
             return col.into_any_element();
         }
 
