@@ -4,7 +4,7 @@
 //!
 //! - `Session-Template`：一条 = 一组「开一条会话时用什么」（**能开**）
 //! - `Ultimate-Template`：一条 = 触发器 + 参数 + 引用的会话模板（**这一段只读**，
-//!   启用触发器的动作用哪个端点还没定，别在客户端发明一个）
+//!   引擎没有「启用触发器」端点，别在客户端发明一个）
 //!
 //! 每段各有自己的类别词表（`categories.json` 住在段目录里），所以换段 = 换词表 + 换条目 +
 //! 换仓状态。**零计数的类别必须画出来**（建了看不见比灰着更糟）。
@@ -878,7 +878,7 @@ impl Desktop {
                     .preset_files(section_id, &from)
                     .await
                     .map_err(|e| e.to_string())?;
-                let manifest = crate::editor::pick_manifest(&files.files);
+                let manifest = crate::editor_presets::pick_manifest(&files.files);
                 let src = engine
                     .preset_file(section_id, &from, &manifest)
                     .await
@@ -1205,7 +1205,7 @@ impl Desktop {
                     .preset_files(&section, &name)
                     .await
                     .map_err(|e| e.to_string())?;
-                let manifest = crate::editor::pick_manifest(&files.files);
+                let manifest = crate::editor_presets::pick_manifest(&files.files);
                 let src = engine
                     .preset_file(&section, &name, &manifest)
                     .await
@@ -3758,7 +3758,7 @@ impl Desktop {
     }
 
     fn preset_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
-        // `Ultimate-Template` 这一段只读：启用触发器的动作还没定，点它什么也不该发生。
+        // `Ultimate-Template` 这一段只读：没有「启用触发器」的端点，不画可点的开会话入口。
         let can_open = self.sections[self.section].id == SECTIONS[0].0;
         let ok = can_open && launchable(p);
         let name = p.name.clone();

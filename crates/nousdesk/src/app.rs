@@ -156,7 +156,7 @@ pub(crate) enum Tab {
     Chats,
     Templates,
     Triggers,
-    /// 数据监控室：面板 `d6s4v1` + 归档库搬进桌面端（`data_console.rs`）。
+    /// 数据监控室：六个数据屏 + 归档库搬进桌面端（`data_console.rs`）。
     Data,
     /// 资源：技能 / 提示词 / 扩展（方案 03：内容 / 扩展两段）。
     Resources,
@@ -328,6 +328,9 @@ pub struct Desktop {
     skills_loading: bool,
     /// 清单拉失败的一句话。有它就不重试（否则「失败 → notify → 再拉」是个死循环）。
     skills_error: Option<String>,
+    /// 设置页「默认模型」的数据源（`GET /v1/models`），连接时拉一次，
+    /// 写成功用 `PUT /v1/default` 的回包覆盖 `default`（票 #17 判据 1）。
+    pub(crate) default_models: Option<nous_engine::types::Models>,
     /// 输入区左下角那颗 DNA 图标点开的「这条对话的设置」。
     /// 这里只放界面状态（看哪页 / 清单 / 在途）；配置值本身在 `sessions` 里，那才是真相。
     cfg: crate::config_panel::Panel,
@@ -344,6 +347,12 @@ pub struct Desktop {
     pub(crate) settings_open: bool,
     /// 设置页左边选的那一项。
     pub(crate) settings_tab: crate::settings::SettingsTab,
+    /// 关于页的二级 tab（概览 / 插件）。
+    pub(crate) about_tab: crate::settings::AboutTab,
+    /// 插件页当前选中的模块名（引擎模块名，不是显示名）。
+    pub(crate) about_selected: Option<String>,
+    /// 窄窗时插件列表 → 详情的输入状态：详情开着时不画列表。
+    pub(crate) about_detail_open: bool,
     /// 当前主题。启动时从 `theme.toml` 读进 `theme::ActiveSkin` 这个 Global；
     /// 这里留一份只是给设置页判断「哪张卡片在选中态」用。
     /// **渲染层不读这个字段**，一律 `crate::theme::cur()` 取帧内快照。
@@ -392,14 +401,24 @@ pub struct Desktop {
     /// 不叫 `cfg` —— 那个名字已经被 `config_panel` 的界面状态占了。
     pub(crate) conn: Config,
     pub(crate) host_input: Entity<InputState>,
-    /// resolve 拿到的引擎地址 —— 只用来显示，不存盘。
+    /// 配置里那一个引擎地址 —— 只用来显示，不存盘。
     pub(crate) engine_url: Option<String>,
     /// 引擎版本（`GET /v1/device` 的 `node`）。
     pub(crate) engine_node: Option<String>,
+    /// 一次连接拿到的完整设备信息。About 面板的七个字段 + DEMO 角标都读它，
+    /// 不再从别处拼第二份。
+    pub(crate) device: Option<nous_engine::types::Device>,
     /// 能力表：功能面的唯一真相。连接时拉一次，失败为 `None`（全部 Unknown）。
     pub(crate) caps: Option<nous_engine::Capabilities>,
+    /// Desk#14：运行时 `GET /v1/_routes` 的条数与漂移提示。
+    /// 探针失败 = `None` + 空清单：fail-open，不阻塞连接。
+    pub(crate) route_count: Option<usize>,
+    pub(crate) route_drift: Vec<String>,
     /// 窗口在不在前台。轮询只在聚焦时跑，后台一律不动。
     focused: bool,
+    /// 输入框这一帧有没有键盘焦点。render 每帧刷新一次快照，
+    /// 轮询（无 `&Window`）靠它决定「别在编辑时抢焦点」。
+    input_focused: bool,
     /// 当前常连着 SSE 的会话。`None` = 没连。切会话就换一个，不叠加。
     stream_for: Option<i64>,
     /// 展开了的工具卡片，按 entry id 记。**纯内存**：它不是事实，是「我眼下想看哪块」。
@@ -1006,6 +1025,9 @@ impl Desktop {
             // `NOUS_DESKTOP_OPEN=editor`：列表一拉回来就打开第一条的编辑器（验编辑器用）。
             auto_editor: open_at_start == "editor",
             settings_tab: crate::settings::SettingsTab::Connection,
+            about_tab: crate::settings::AboutTab::Overview,
+            about_selected: None,
+            about_detail_open: false,
             theme_name: crate::theme::ThemeName::load(),
             sound: crate::sound::Prefs::load(),
             settings_msg: None,
@@ -1027,7 +1049,10 @@ impl Desktop {
             host_input,
             engine_url: None,
             caps: None,
+            route_count: None,
+            route_drift: Vec::new(),
             engine_node: None,
+            device: None,
             live: None,
             live_state: Live::new(),
             streaming: false,
@@ -1054,6 +1079,7 @@ impl Desktop {
             slash_items: vec![],
             skills_loading: false,
             skills_error: None,
+            default_models: None,
             cfg: crate::config_panel::Panel::default(),
             // `=templates` 直接落在 Template 页：验右键菜单 / 生命周期时省一次点击。
             tab: if open_at_start == "templates" {
@@ -1068,6 +1094,7 @@ impl Desktop {
                 Tab::Chats
             },
             focused: true,
+            input_focused: false,
             stream_for: None,
             open_tools: std::collections::HashSet::new(),
             live_tools: vec![],
@@ -1148,7 +1175,10 @@ impl Desktop {
         self.loading = true;
         self.error = None;
         self.engine_url = None;
+        self.device = None;
         self.caps = None;
+        self.route_count = None;
+        self.route_drift.clear();
         cx.notify();
 
         let cfg = self.conn.clone();
@@ -1167,12 +1197,18 @@ impl Desktop {
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 match outcome {
-                    Ok((engine, sessions, node, url, caps)) => {
+                    Ok((engine, sessions, device, url, caps, route_count, route_drift)) => {
                         this.engine = Some(engine);
                         this.sessions = sessions;
-                        this.engine_node = node;
+                        this.engine_node = device.as_ref().and_then(|d| d.node.clone());
+                        this.device = device;
                         this.engine_url = Some(url.clone());
                         this.caps = caps;
+                        this.route_count = route_count;
+                        this.route_drift = route_drift.clone();
+                        for line in &route_drift {
+                            log::warn!("路由漂移：{line}");
+                        }
                         // 换了盘之后，原来选中的那条可能不在新引擎上 —— 别留个空壳。
                         if this
                             .selected
@@ -1184,7 +1220,7 @@ impl Desktop {
                         }
                         // 引擎连上之前如果点过 Template 页，「还没连上引擎」那句得自己消掉。
                         this.load_all_sections(false, cx);
-                        // 触发器入口由 capability 守卫；Rust 版这一族还没实现。
+                        // 触发器入口由 capability 守卫；client 已落地，能力表说可用才拉。
                         this.load_triggers(cx);
                         // 直接开在数据监控室（`NOUS_DESKTOP_OPEN=data`）时，五份数据也得
                         // 自己拉一遍 —— `switch_tab` 只在「切过去」那一刻触发。
@@ -1197,6 +1233,8 @@ impl Desktop {
                         // 置顶来自内核，地址就是这一个引擎地址 ——
                         // 手机端停不停都跟置顶无关。
                         this.load_pins(cx, url.clone());
+                        // 设置页「默认模型」那一行的数据源；能力门在 load 里判定。
+                        this.load_default_models(cx);
                         // `/` 面板的技能清单：失败就认了（面板给提示）。
                         this.load_skills(cx);
                         // 调试用：`NOUS_OPEN_BOARD=1` 一启动就开在 New Manual 盘面上，
@@ -1264,6 +1302,71 @@ impl Desktop {
                 }
                 Ok(Err(e)) => log::info!("置顶读不到，功能关掉：{e}"),
                 Err(e) => log::info!("置顶任务挂了，功能关掉：{e}"),
+            });
+        })
+        .detach();
+    }
+
+    /// 设置页「默认模型」那一行的数据源。**只信引擎**：能力门说 Device 不可用就不拉
+    /// （老引擎没有 `PUT /v1/default`，不能猜）；拿失败就留 `None`，UI 给一句人话。
+    fn load_default_models(&mut self, cx: &mut Context<Self>) {
+        if !self.feature_enabled(crate::capability::Feature::Device) {
+            return;
+        }
+        let Some(engine) = self.engine.clone() else { return };
+        let Some(h) = crate::TOKIO.get().cloned() else { return };
+        cx.spawn(async move |this, cx| {
+            let got = h.spawn(async move { engine.models().await }).await;
+            let _ = this.update(cx, |this, cx| match got {
+                Ok(Ok(models)) => {
+                    this.default_models = Some(models);
+                    cx.notify();
+                }
+                Ok(Err(e)) => log::info!("默认模型编目拉不到：{e}"),
+                Err(e) => log::warn!("默认模型任务挂了：{e}"),
+            });
+        })
+        .detach();
+    }
+
+    /// 设置页选中一个默认模型：`PUT /v1/default`，**回包里的 default 才是落盘真相**，
+    /// 抄回本地状态（负向哨兵：删掉那一行，重启后这行显示旧值）。
+    /// 引擎拒绝（400 / 401）就把原文写进设置页反馈，不假装成功。
+    pub(crate) fn set_default_model(&mut self, key: String, cx: &mut Context<Self>) {
+        if !self.caps.as_ref().is_some_and(|caps| {
+            crate::capability::endpoint_enabled(caps, "PUT", "/v1/default")
+        }) {
+            return;
+        }
+        let Some((provider, model_id)) = key.split_once('/') else { return };
+        let model = nous_engine::types::ModelRef {
+            provider: provider.to_string(),
+            model_id: model_id.to_string(),
+            extra: Default::default(),
+        };
+        let Some(engine) = self.engine.clone() else { return };
+        let Some(h) = crate::TOKIO.get().cloned() else { return };
+        cx.spawn(async move |this, cx| {
+            let got = h
+                .spawn(async move { engine.set_default_model(&model).await })
+                .await;
+            let _ = this.update(cx, |this, cx| match got {
+                Ok(Ok(receipt)) => {
+                    if let Some(models) = this.default_models.as_mut() {
+                        // 抄回包，不抄请求值：服务端可能把别名、大小写规范化。
+                        apply_default_receipt(models, receipt.default);
+                    }
+                    this.settings_msg = Some(("默认模型已保存".into(), false));
+                    cx.notify();
+                }
+                Ok(Err(e)) => {
+                    this.settings_msg = Some((crate::app::error_notice(&e), true));
+                    cx.notify();
+                }
+                Err(e) => {
+                    this.settings_msg = Some((format!("任务挂了：{e}"), true));
+                    cx.notify();
+                }
             });
         })
         .detach();
@@ -1415,7 +1518,12 @@ impl Desktop {
                 Timer::after(Duration::from_secs(3)).await;
                 let go = this
                     .update(cx, |this, _| {
-                        this.focused && !this.streaming && this.engine.is_some()
+                        selection_poll_allowed(
+                            this.focused,
+                            this.streaming,
+                            this.input_focused,
+                            this.engine.is_some() && this.feature_enabled(crate::capability::Feature::Selection),
+                        )
                     })
                     .unwrap_or(false);
                 if !go {
@@ -1437,10 +1545,11 @@ impl Desktop {
                     .spawn(async move {
                         let sessions = engine.sessions().await;
                         let unread = engine.unread().await;
-                        (sessions, unread)
+                        let selection = engine.selection().await;
+                        (sessions, unread, selection)
                     })
                     .await;
-                let Ok((sessions, unread)) = got else {
+                let Ok((sessions, unread, selection)) = got else {
                     continue;
                 };
                 let Ok(list) = sessions else {
@@ -1482,6 +1591,20 @@ impl Desktop {
                                 .unwrap_or(None),
                         );
                         cx.notify();
+                    }
+                    // 另一个窗口切了会话 → 这边跟着换（3 秒一轮）。
+                    // 远端 id 从 `{"id":...}` 里读；故障/空值不当「清空本地」。
+                    let remote_id = selection
+                        .ok()
+                        .and_then(|v| v.get("id").and_then(|id| id.as_i64()));
+                    if should_adopt_remote_selection(
+                        this.selected,
+                        remote_id,
+                        this.streaming,
+                        this.input_focused,
+                    ) && let Some(id) = remote_id {
+                        log::info!("selection 同步：{:?} → {id}", this.selected);
+                        this.select_session_inner(id, false, cx, false);
                     }
                     if stale_entries && let Some(id) = selected {
                         this.select_session(id, true, cx);
@@ -1600,10 +1723,39 @@ impl Desktop {
     }
 
     pub(crate) fn select_session(&mut self, id: i64, force: bool, cx: &mut Context<Self>) {
+        self.select_session_inner(id, force, cx, true);
+    }
+
+    /// `publish` = 要不要把这次切换写回 `POST /v1/selection`。
+    /// 本地操作（人点、键盘、创建会话）写；远端同步过来那一次不写，省一次回环。
+    fn select_session_inner(
+        &mut self,
+        id: i64,
+        force: bool,
+        cx: &mut Context<Self>,
+        publish: bool,
+    ) {
         if self.selected == Some(id) && !force {
             return;
         }
         self.selected = Some(id);
+        if publish
+            && self.caps.as_ref().is_some_and(|caps| {
+                crate::capability::endpoint_enabled(caps, "POST", "/v1/selection")
+            })
+        {
+            let engine = self.engine.clone();
+            if let (Some(engine), Some(h)) = (engine, crate::TOKIO.get().cloned()) {
+                cx.spawn(async move |_, _| {
+                    match h.spawn(async move { engine.set_selection(Some(id)).await }).await {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => log::warn!("selection 没写进去（不影响本地）：{e}"),
+                        Err(e) => log::warn!("selection 任务挂了（不影响本地）：{e}"),
+                    }
+                })
+                .detach();
+            }
+        }
         // 记一笔「本机什么时候打开过它」。只喂排序（`sort_sessions`），不写引擎。
         self.touch_recent(id);
         self.nav.reset();
@@ -1930,6 +2082,11 @@ impl Desktop {
 
     /// 进某个目录。`None` = 从这条会话的 cwd 起。
     fn cfg_enter_dir(&mut self, path: Option<String>, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/fs/dirs") {
+            self.cfg.error = Some(reason);
+            cx.notify();
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -1958,6 +2115,11 @@ impl Desktop {
     /// 不能自己把改的值写上去：换模型时服务端会把档位按新模型重夹一次，
     /// 那个结果只有回包里有。
     fn cfg_apply(&mut self, patch: ConfigPatch, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/sessions/{id}/config") {
+            self.cfg.error = Some(reason);
+            cx.notify();
+            return;
+        }
         let Some(id) = self.selected else {
             return;
         };
@@ -2583,6 +2745,12 @@ impl Desktop {
         }
     }
 
+    /// 灰路径理由的唯一 UI 入口：路径 → `Feature` → `capabilities.reason.message`
+    /// 全在 `capability.rs` 一处；这里不再 match path，也不自编理由。
+    pub(crate) fn dead_path_disabled_reason(&self, path: &str) -> Option<String> {
+        crate::capability::dead_path_disabled_reason(self.caps.as_ref(), path)
+    }
+
     /// 打开归档库（右栏整页）。入口在「≡ 更多」菜单里。
     pub(crate) fn open_archive(&mut self, cx: &mut Context<Self>) {
         if !self.feature_enabled(crate::capability::Feature::Archive) {
@@ -2662,8 +2830,9 @@ impl Desktop {
     /// [`next_selection_after_archive`] 退到最近一条；退无可退回空态（真停 SSE），
     /// 绝不留一个「选着一条已经不存在的会话」的空壳。
     ///
-    /// **故意不走 [`Self::run_engine`]**：拉列表失败是常态（轮询会再拉一次），
-    /// 这里一个字都不该弹给用户，和那四处的「失败必须可见」是两种要求。
+    /// **故意不走 [`Self::run_engine`]**：这次静默失败只是让界面留着上一份列表，
+    /// 下一轮轮询会再拉 —— 它不是「常态」，也不代表失败可以藏着：
+    /// 真正需要用户知道的失败（建会话 / 发送 / 归档）走 [`Self::run_engine`] 弹提示。
     fn reload_sessions(&mut self, archived: Option<i64>, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
@@ -2713,6 +2882,10 @@ impl Desktop {
     /// 成功后重拉主列表（那一行自己消失）、刷新开着的归档库、弹一条绿提示。
     /// 失败弹引擎 `{error}` 原文（409 会列出活分支，那些字不动）。
     fn archive_session(&mut self, id: i64, name: &str, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/sessions/{id}/archive") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -2735,6 +2908,10 @@ impl Desktop {
 
     /// 确认之后真撕。**不可撤销**，所以只能从 [`PurgeConfirm::on_confirm`] 走到这里。
     fn purge_session(&mut self, id: i64, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/sessions/{id}/purge") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -2815,6 +2992,10 @@ impl Desktop {
     /// 打捞：`POST /v1/archive/:id/restore`。成功后归档库 + 主列表都刷新 ——
     /// 只刷一边会让人以为没生效（徽标还是「已销毁」，或者列表里没回来）。
     fn restore_session(&mut self, id: i64, r#gen: String, cx: &mut Context<Self>) {
+        if let Some(reason) = self.dead_path_disabled_reason("v1/archive/{id}/restore") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -5008,9 +5189,11 @@ async fn load_engine(
     (
         Arc<EngineClient>,
         Vec<Session>,
-        Option<String>,
+        Option<nous_engine::types::Device>,
         String,
         Option<nous_engine::Capabilities>,
+        Option<usize>,
+        Vec<String>,
     ),
     String,
 > {
@@ -5020,17 +5203,75 @@ async fn load_engine(
     let sessions = engine.sessions().await.map_err(|e| e.to_string())?.items;
     let mut sessions = sessions;
     sort_sessions(&mut sessions, &recent);
-    // 版本只是「关于」里的展示项，拿不到不妨碍连接。
-    let node = engine.device().await.ok().and_then(|d| d.node);
+    // 设备信息只用于「关于」展示 + DEMO 角标，拿不到不妨碍连接。
+    let device = engine.device().await.ok();
     // 能力表拿不到就当没有：所有功能面按 Unknown 灰掉，不猜。
     let caps = engine.capabilities().await.ok();
+    // Desk#14：运行时路由对齐只是提示，拿不到 / 解析失败都不拦连接。
+    let (route_count, route_drift) = match engine.routes().await {
+        Ok(snapshot) => {
+            let mut client = nous_engine::client_paths()
+                .iter()
+                .chain(nous_engine::stats_paths())
+                .chain(nous_engine::pin_paths())
+                .map(|(m, p)| format!("{m} {p}"))
+                .collect::<Vec<_>>();
+            client.push("GET v1/_routes".to_string());
+            let routes: Vec<_> = snapshot
+                .routes
+                .iter()
+                .map(|r| (r.method.as_str(), r.path.as_str()))
+                .collect();
+            let client: Vec<_> = client.iter().map(String::as_str).collect();
+            crate::capability::route_drift(&client, &routes)
+        }
+        Err(_) => (0, Vec::new()),
+    };
+    let route_count = if route_count == 0 { None } else { Some(route_count) };
     Ok((
         Arc::new(engine),
         sessions,
-        node,
+        device,
         cfg.host.clone(),
         caps,
+        route_count,
+        route_drift,
     ))
+}
+
+/// Desk#17：multi-window `selection` 决策的**唯一两处判断**（其余都是 I/O）。
+///
+/// 聚焦才轮询（失焦停，别拿电池换同步）；正在编辑 / 发送时不抢焦点；
+/// 远端 id 变了才切本地会话。这里只做布尔决策，GPUI 定时器和 HTTP 在调用方。
+pub(crate) fn selection_poll_allowed(
+    focused: bool,
+    streaming: bool,
+    editing: bool,
+    has_engine: bool,
+) -> bool {
+    focused && !streaming && !editing && has_engine
+}
+
+pub(crate) fn should_adopt_remote_selection(
+    local: Option<i64>,
+    remote: Option<i64>,
+    streaming: bool,
+    editing: bool,
+) -> bool {
+    // 远端清空（None）不算「切到别的会话」：那边关窗/退出了，不该把这边拖进空态。
+    match remote {
+        Some(id) => Some(id) != local && !streaming && !editing,
+        None => false,
+    }
+}
+
+/// Desk#17 负向哨兵的可测缝：`PUT /v1/default` 成功后，把**回包**的 default
+/// 抄进本地模型编目快照。删掉这次复制，设置页那行就会显示旧值（票面判据 1）。
+pub(crate) fn apply_default_receipt(
+    models: &mut nous_engine::types::Models,
+    receipt: nous_engine::types::ModelRef,
+) {
+    models.default = Some(receipt);
 }
 
 /// 归档掉 `gone` 之后，右栏该退到哪一条。
@@ -5222,6 +5463,8 @@ impl Render for Desktop {
         // theme_thumb…）拿不到 cx，统一 `crate::theme::cur()` 取。
         // GPUI 的 text_style_stack 也是这个套路；快照不是第二个真相，每帧重取。
         crate::theme::begin_frame(cx);
+        // selection 轮询要知道「人是不是正在打字」；render 是唯一每帧都有 `&Window` 的地方。
+        self.input_focused = self.input.read(cx).focus_handle(cx).is_focused(window);
         // 窗口几何（大小 / 位置 / 最大化）变了就记一笔，见 `window_state.rs`。
         // 放 render 开头是因为这是唯一每帧都能拿到 `&Window` 的地方。
         save_window_geometry(self, window);
@@ -5451,7 +5694,7 @@ impl Render for Desktop {
                 (self.tab == Tab::Triggers && self.triggers.conflict.is_some())
                     .then(|| self.trigger_conflict_overlay(cx)),
             )
-            // 类别树：右键菜单 / 新建·改名表单 / 删除确认
+            // 类别树：右键菜单 / 新建·改名表单 / 删除确认（#13 返工恢复）
             .children(
                 (self.tab == Tab::Triggers && self.triggers.cat_menu.is_some())
                     .then(|| self.cat_menu_overlay(cx)),
@@ -5551,7 +5794,7 @@ fn nav_child_index(
 #[allow(non_snake_case)]
 mod tests {
     use super::{
-        Bar, ListIndex, NoticeKind, NoticeState, Recent, brief_of, bumped_sessions, error_notice,
+        Bar, ListIndex, NoticeKind, NoticeState, Recent, apply_default_receipt, brief_of, bumped_sessions, error_notice,
         nav_child_index, next_selection_after_archive, order_ids, short_cwd, short_model,
         sort_sessions, when_text,
     };
@@ -5559,6 +5802,43 @@ mod tests {
     use nous_engine::types::{Entry, Session, Unread, UnreadState};
     use serde_json::json;
     use std::collections::HashMap;
+
+    /// 负向哨兵：删掉 apply_default_receipt 里的赋值就红。
+    #[test]
+    fn default_receipt_is_copied_into_local_models() {
+        use nous_engine::types::ModelRef;
+        let mut models: nous_engine::types::Models = serde_json::from_value(serde_json::json!({
+            "default": {"provider":"p","modelId":"one"},
+            "items": [{"provider":"p","modelId":"one","name":"一","thinkingLevels":[]},
+                      {"provider":"p","modelId":"two","name":"二","thinkingLevels":[]}],
+        })).unwrap();
+        assert_eq!(models.default_key().as_deref(), Some("p/one"));
+        apply_default_receipt(&mut models, ModelRef {
+            provider: "p".into(), model_id: "two".into(), extra: Default::default(),
+        });
+        assert_eq!(models.default_key().as_deref(), Some("p/two"));
+    }
+
+    /// Desk#17：selection 轮询/同步的**语义**（不是计时器实现）。
+    /// - 聚焦且没在编辑/发送才轮询；失焦停；
+    /// - 远端值与本地不同、且本地没在编辑/发送时才抢焦点；
+    /// - 本地切会话才 POST（标志位由调用方给）。
+    #[test]
+    fn selection_sync_decisions() {
+        use super::{selection_poll_allowed, should_adopt_remote_selection};
+        assert!(selection_poll_allowed(true, false, false, true));
+        assert!(!selection_poll_allowed(false, false, false, true), "失焦停轮询");
+        assert!(!selection_poll_allowed(true, true, false, true), "发送中不轮询");
+        assert!(!selection_poll_allowed(true, false, true, true), "编辑中不轮询");
+        assert!(!selection_poll_allowed(true, false, false, false), "没连引擎不轮询");
+
+        // 远端换成别的会话：空闲时跟随；编辑/发送时不抢；同值不动作。
+        assert!(should_adopt_remote_selection(Some(1), Some(2), false, false));
+        assert!(!should_adopt_remote_selection(Some(1), Some(2), false, true));
+        assert!(!should_adopt_remote_selection(Some(1), Some(2), true, false));
+        assert!(!should_adopt_remote_selection(Some(1), Some(1), false, false));
+        assert!(!should_adopt_remote_selection(Some(1), None, false, false), "远端清空不抢焦点");
+    }
 
     /// 造一张未读表：`&[(会话 id, 未读数)]`。
     fn unread(pairs: &[(i64, u64)]) -> Unread {
@@ -6044,6 +6324,7 @@ x
         let err = EngineError::Engine {
             status: 409,
             message: message.to_string(),
+            body: None,
         };
 
         assert_eq!(error_notice(&err), message);

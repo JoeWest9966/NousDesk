@@ -31,10 +31,27 @@ pub struct Server {
 pub struct Module {
     pub name: String,
     pub enabled: bool,
+    /// 引擎声明的端点清单。**这里只解析与透传，不拿它做客户端路由自检** ——
+    /// 那份比对（拿 `/v1/_routes` 的真快照当夹具）由 Desk #14 接手；
+    /// 在此之前别在这里半途加一个「声明了但没有调用」的草率判定。
     #[serde(default)]
     pub endpoints: Vec<String>,
     #[serde(default)]
     pub reason: Option<Reason>,
+    /// Nous#88 的可选展示字段。老引擎没有 → `None`，UI 降级到 server.version /「—」，
+    /// 不阻塞协议层解析，也不把这些字段当功能判定。
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub layer: Option<String>,
+    #[serde(default)]
+    pub required: Option<bool>,
+    #[serde(rename = "crate", default)]
+    pub crate_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -120,6 +137,34 @@ mod tests {
         assert_eq!(caps.runtime.provider.extra["newKey"], true);
         assert_eq!(caps.runtime.extra["future"], 1);
         assert_eq!(caps.extra["services"][0]["name"], "engine");
+    }
+
+    /// #18 / Nous#88：`modules[]` 的六个展示字段是可选的。
+    /// 老引擎没有这些字段时不许反序列化失败，要能一路走到 UI 的降级显示。
+    #[test]
+    fn module_optional_display_fields_default_when_absent() {
+        let caps: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [
+                { "name": "old", "enabled": true, "endpoints": [] },
+                { "name": "new", "enabled": true, "endpoints": [],
+                  "version": "0.2.0", "kind": "编译期", "layer": "app",
+                  "required": true, "crate": "nous-new", "description": "新模块" }
+            ],
+            "runtime": { "provider": { "configured": false } }
+        }))
+        .unwrap();
+        let old = &caps.modules[0];
+        assert!(old.version.is_none() && old.kind.is_none() && old.layer.is_none());
+        assert!(old.required.is_none() && old.crate_name.is_none() && old.description.is_none());
+        let new = &caps.modules[1];
+        assert_eq!(new.version.as_deref(), Some("0.2.0"));
+        assert_eq!(new.kind.as_deref(), Some("编译期"));
+        assert_eq!(new.layer.as_deref(), Some("app"));
+        assert_eq!(new.required, Some(true));
+        assert_eq!(new.crate_name.as_deref(), Some("nous-new"));
+        assert_eq!(new.description.as_deref(), Some("新模块"));
     }
 
     #[test]

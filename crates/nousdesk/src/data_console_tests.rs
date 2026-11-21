@@ -8,6 +8,17 @@ use nous_engine::console::{Conversations, Cost, Health, Overview};
 use nous_engine::types::ArchiveGens;
 
 
+    /// `Desk#13`：删掉 `旧面板 REST 路径` 取数后，那五屏只能按 capabilities 灰掉，
+    /// 不许再画一行「等面板给数据」的红字。`Stats` 是 #12 的活路，本票不接。
+    #[test]
+    fn removed_data_screens_are_gated() {
+        // Desk#12：六屏统一从 /v1 取数；归档没有数据通道，只按 capabilities 灰掉。
+        // 源码里不再有 screen_has_live_data 这类「旧通道还有没有」的判定。
+        let src = include_str!("data_console.rs");
+        assert!(!src.contains("screen_has_live_data"));
+        assert!(Screen::ALL.contains(&Screen::Archive));
+    }
+
     fn overview() -> Overview {
         serde_json::from_value(serde_json::json!({
             "target": {"id": "qrd3wh", "own": false, "path": "/x/agent.sqlite"},
@@ -249,9 +260,97 @@ use nous_engine::types::ArchiveGens;
     }
 
     #[test]
-    fn 会话按_token_从多到少() {
-        let c = convs();
-        let rows = c.list_by_tokens();
-        assert_eq!(rows[0].id, 2);
-        assert_eq!(rows[1].id, 14);
+    fn 按token排这一列彻底消失() {
+        // Desk#12 记账：/v1/sessions 没有会话级 token，列删掉。静态哨兵防复活。
+        let src = include_str!("data_console.rs");
+        assert!(!src.contains("list_by_tokens"), "按 token 排的入口还在");
+        assert!(!src.contains("按 token"), "按 token 排的文案还在");
+        assert!(!Screen::Convs.hint().contains("token"));
+    }
+
+    // ── #12：六屏的 /v1 装配（端点算好，Desk 只画） ────────────────────
+
+    #[test]
+    fn stats_装配不解构账本_totals_原样画() {
+        let usage: nous_engine::console::StatsUsage = serde_json::from_value(serde_json::json!({
+            "groupBy": "day",
+            "totals": {"totalTokens": 1234, "costTotal": 0.25, "requests": 7, "errors": 1},
+            "rows": [{"key": "2026-11-21", "label": "2026-11-21", "totalTokens": 1234,
+                      "costTotal": 0.25, "requests": 7, "errors": 1}]
+        })).unwrap();
+        let cost = assemble_cost(&usage);
+        assert_eq!(cost.totals.tokens, 1234, "totals 逐字来自端点，不在客户端求和");
+        assert!((cost.totals.cost - 0.25).abs() < 1e-9);
+        assert_eq!(cost.by_day.len(), 1);
+        assert_eq!(cost.by_day[0].label, "2026-11-21");
+        assert_eq!(cost.by_day[0].tokens, 1234);
+    }
+
+    #[test]
+    fn stats_装配维修屏用_by_state_不造健康概念() {
+        let tasks: nous_engine::console::StatsTasks = serde_json::from_value(serde_json::json!({
+            "byState": {"pending": 3, "running": 2, "terminal": 11}, "active": 5
+        })).unwrap();
+        let device: nous_engine::types::Device = serde_json::from_value(serde_json::json!({
+            "node": "qrd3wh", "build": "abc", "target": "x86_64-unknown-linux-gnu",
+            "available": []
+        })).unwrap();
+        let health = assemble_health(&tasks, &device);
+        assert_eq!(health.tasks.by_status.iter().find(|b| b.status == "running").unwrap().count, 2);
+        assert_eq!(health.tasks.by_status.iter().find(|b| b.status == "pending").unwrap().count, 3);
+        assert_eq!(health.tasks.total, 16, "总数就是 byState 各状态之和");
+    }
+
+    #[test]
+    fn stats_装配解剖屏显示_device_与_stats_db() {
+        let device: nous_engine::types::Device = serde_json::from_value(serde_json::json!({
+            "node": "qrd3wh", "build": "abc123", "target": "x86_64-unknown-linux-gnu",
+            "available": []
+        })).unwrap();
+        let caps: nous_engine::Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1, "server": {"name": "nous", "version": "0.1.3"},
+            "modules": [
+                {"name": "sessions", "enabled": true, "endpoints": []},
+                {"name": "stats", "enabled": true, "endpoints": []}
+            ],
+            "runtime": {"provider": {"kind": "faux"}}
+        })).unwrap();
+        let db: nous_engine::console::StatsDb = serde_json::from_value(serde_json::json!({
+            "durable": {"bytes": 1142784, "rows": {"entries": 216}, "quickCheck": "ok", "schema": 2},
+            "plugins": {"bytes": 288432, "rows": {}, "quickCheck": "ok", "schema": 1}
+        })).unwrap();
+        let ov = assemble_overview(&device, &caps, &db);
+        assert_eq!(ov.file.db, 1142784);
+        assert_eq!(ov.counts.get("entries"), 216);
+        assert_eq!(ov.pragmas.page_count, 1, "bytes 换成展示用的页数：至少有 1 页");
+        assert!(ov.extra.contains_key("contract"));
+        assert!(ov.extra.contains_key("modules"));
+    }
+
+    #[test]
+    fn 会话树_按token排_这一列已删() {
+        // 不是排序测试：这条记账明确「按 token 排」列不再存在（只按引擎给的顺序画）。
+        assert!(!Screen::Convs.hint().contains("token"));
+        assert!(!std::any::type_name::<Conversations>().is_empty());
+        // 屏幕不再提供按 token 排的入口：以 hint 为人话锚点，防止有人把那句加回来。
+    }
+
+    #[test]
+    fn 回放_从_entries_装配轮次() {
+        let entries: nous_engine::types::Entries = serde_json::from_value(serde_json::json!({
+            "items": [
+                {"id": 1, "kind": "pi.user", "text": "hi", "parent": null},
+                {"id": 2, "kind": "pi.assistant", "text": "ho", "parent": null,
+                 "model": [{"provider": "faux", "modelId": "echo", "usage": {"totalTokens": 5},
+                            "timestamp": 1794222429551i64, "stopReason": "stop"}]}
+            ], "next": null
+        })).unwrap();
+        let r = assemble_replay(42, &entries);
+        assert_eq!(r.id, 42);
+        assert_eq!(r.entries.len(), 2);
+        // 引擎新的在前；回放按轮次正序画，所以 assistant 是 index 1。
+        let assistant = r.entries.iter().find(|e| e.kind == "pi.assistant").unwrap();
+        assert_eq!(assistant.tokens, 5, "usage 从 model[0] 取，不另算");
+        assert_eq!(assistant.stop_reason.as_deref(), Some("stop"));
+        assert_eq!(assistant.at, 1794222429551);
     }

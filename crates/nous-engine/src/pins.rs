@@ -62,7 +62,7 @@ pub struct PinReceipt {
 #[derive(Debug, Clone)]
 pub struct PinClient {
     http: reqwest::Client,
-    /// qrd3wh 的地址，保证以 `/` 结尾。来源只能是 `__nous/resolve`。
+    /// 引擎地址，保证以 `/` 结尾。来源只有一个：配置里的 `cfg.host`。
     base: Url,
 }
 
@@ -151,6 +151,17 @@ impl PinClient {
             .await?;
         self.json(resp).await
     }
+}
+
+/// `PinClient` 会发出的路径模板。置顶写端点独立于 `EngineClient`，
+/// Desk#14 的路由自检必须把它也算进客户端路径表。
+pub const PIN_PATHS: &[(&str, &str)] = &[
+    ("GET", "v1/sessions"),
+    ("POST", "v1/sessions/:id/pin"),
+];
+
+pub fn pin_paths() -> &'static [(&'static str, &'static str)] {
+    PIN_PATHS
 }
 
 #[cfg(test)]

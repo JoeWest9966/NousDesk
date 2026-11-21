@@ -12,7 +12,7 @@ use crate::capabilities::Capabilities;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, CategoryOp, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
-    Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, NewPreset, Pending, PresetFile,
+    DefaultSet, Dirs, Entries, Extensions, FileDiff, Forked, Machines, Models, ModelRef, NewPreset, Pending, PresetFile,
     PresetFiles, PresetHistory, PresetOp, PresetValidation, Presets, Prompts, ReadReceipt,
     RenamePreset, Renamed, RenamedPreset, ReorderPreset, ReorderedPreset, Triggers,
     SessionConfig, Sessions, Skills, Submission, Unread,
@@ -25,7 +25,13 @@ pub enum EngineError {
     #[error("URL 拼不起来：{0}")]
     Url(#[from] url::ParseError),
     #[error("引擎 {status}：{message}")]
-    Engine { status: u16, message: String },
+    Engine {
+        status: u16,
+        message: String,
+        /// 非 2xx 的**原始回包**。`message` 只留 `{error}` 供现有 UI 逐字显示，
+        /// 但 409 的磁盘版本等未知字段在这里原样保留（documents 的乐观锁要用）。
+        body: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +70,7 @@ impl EngineClient {
         let headers = crate::auth::headers(token).map_err(|message| EngineError::Engine {
             status: 400,
             message,
+            body: None,
         })?;
         let http = reqwest::Client::builder()
             .timeout(timeout)
@@ -86,6 +93,13 @@ impl EngineClient {
         Ok(self.base.join(path.trim_start_matches('/'))?)
     }
 
+    /// 协议层实际会拼出的路径模板（`METHOD`, `v1/...`），白名单自检用。
+    /// 这里是唯一维护点：删掉一个客户端方法，对应行从清单里消失。
+    /// 模板写 `:id` / `{kind}` 原样，调用方归一化后再比。
+    pub fn client_paths_manifest() -> &'static [(&'static str, &'static str)] {
+        CLIENT_PATHS
+    }
+
     /// 引擎那句 `{error}` 原样带出来，不包、不美化。
     async fn json<T: serde::de::DeserializeOwned>(
         &self,
@@ -101,16 +115,25 @@ impl EngineClient {
             return Err(EngineError::Engine {
                 status: status.as_u16(),
                 message,
+                body: Some(text),
             });
         }
         serde_json::from_str(&text).map_err(|e| EngineError::Engine {
             status: status.as_u16(),
             message: format!("JSON 不像话：{e}"),
+            body: Some(text),
         })
     }
 
     pub async fn device(&self) -> Result<Device, EngineError> {
         let resp = self.http.get(self.url("v1/device")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/_routes`：引擎自报的路由清单。Desk#14 用它做运行时漂移提示，
+    /// 拿不到就 `Err`（调用方 fail-open，不阻塞 UI）。
+    pub async fn routes(&self) -> Result<crate::RouteSnapshot, EngineError> {
+        let resp = self.http.get(self.url("v1/_routes")?).send().await?;
         self.json(resp).await
     }
 
@@ -126,6 +149,18 @@ impl EngineClient {
     /// 模型清单 + 盘上"那只眼"当前指着哪个（`default`）。
     pub async fn models(&self) -> Result<Models, EngineError> {
         let resp = self.http.get(self.url("v1/models")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `PUT /v1/default`：把默认模型写回引擎编目（Nous#65）。
+    /// 回包里的 `default` 是落盘真相 —— 调用方必须抄它，不抄请求值。
+    pub async fn set_default_model(&self, model: &ModelRef) -> Result<DefaultSet, EngineError> {
+        let resp = self
+            .http
+            .put(self.url("v1/default")?)
+            .json(model)
+            .send()
+            .await?;
         self.json(resp).await
     }
 
@@ -159,7 +194,7 @@ impl EngineClient {
     /// 这一页列的就是那台机器的目录。
     /// 列目录。`path` 空 = 起点（引擎的 START_DIRS）；`machine` 空 = 引擎那台机器本身。
     ///
-    /// `?machine=` 是远端机器的目录 —— 不给它就是 qrd3wh 那台。
+    /// `?machine=` 是远端机器的目录 —— 不给它就是引擎自己那台。
     pub async fn dirs(
         &self,
         path: Option<&str>,
@@ -689,6 +724,7 @@ impl EngineClient {
             return Err(EngineError::Engine {
                 status,
                 message: text.chars().take(200).collect(),
+                body: Some(text),
             });
         }
         Ok(crate::sse::parse(resp.bytes_stream()))
@@ -710,6 +746,7 @@ impl EngineClient {
             other => Err(EngineError::Engine {
                 status: 400,
                 message: format!("未知资源仓：{other}"),
+                body: None,
             }),
         }
     }
@@ -757,6 +794,7 @@ impl EngineClient {
         serde_json::to_value(body).map_err(|e| EngineError::Engine {
             status: 400,
             message: format!("请求体序列化不了：{e}"),
+            body: None,
         })
     }
 
@@ -897,4 +935,86 @@ impl EngineClient {
         )
         .await
     }
+}
+
+/// 引擎客户端会发的所有路径模板。只列路径字面量，不带 query / body。
+/// `Desk#13` 判据 1 的真相源：这里出现、却不在引擎路由也不在白名单的，
+/// 就是一条偷偷复活、必打 404 的死调用。
+pub const CLIENT_PATHS: &[(&str, &str)] = &[
+    ("GET", "v1/device"),
+    ("GET", "v1/capabilities"),
+    ("GET", "v1/models"),
+    ("PUT", "v1/default"),
+    ("GET", "v1/skills"),
+    ("GET", "v1/prompts"),
+    ("POST", "v1/skills/create"),
+    ("GET", "v1/skills/files"),
+    ("GET", "v1/skills/file"),
+    ("PUT", "v1/skills/file"),
+    ("POST", "v1/skills/publish"),
+    ("POST", "v1/prompts/create"),
+    ("GET", "v1/prompts/files"),
+    ("GET", "v1/prompts/file"),
+    ("PUT", "v1/prompts/file"),
+    ("POST", "v1/prompts/publish"),
+    ("POST", "v1/extensions/create"),
+    ("GET", "v1/extensions/files"),
+    ("GET", "v1/extensions/file"),
+    ("PUT", "v1/extensions/file"),
+    ("POST", "v1/extensions/publish"),
+    ("GET", "v1/extensions"),
+    ("GET", "v1/machines"),
+    ("GET", "v1/fs/dirs"),
+    ("GET", "v1/sessions"),
+    ("POST", "v1/sessions"),
+    ("GET", "v1/sessions/:id/entries"),
+    ("GET", "v1/unread"),
+    ("POST", "v1/read/:id"),
+    ("POST", "v1/sessions/:id/fork"),
+    ("POST", "v1/sessions/:id/messages"),
+    ("POST", "v1/sessions/:id/abort"),
+    ("POST", "v1/sessions/:id/rename"),
+    ("POST", "v1/sessions/:id/archive"),
+    ("GET", "v1/archive"),
+    ("POST", "v1/archive/:id/restore"),
+    ("POST", "v1/sessions/:id/purge"),
+    ("POST", "v1/sessions/:id/config"),
+    ("GET", "v1/presets/:section"),
+    ("POST", "v1/presets/:section/create"),
+    ("POST", "v1/presets/:section/{op}"),
+    ("GET", "v1/presets/:section/files"),
+    ("GET", "v1/presets/:section/file"),
+    ("GET", "v1/triggers"),
+    ("GET", "v1/triggers/files"),
+    ("GET", "v1/triggers/file"),
+    ("PUT", "v1/triggers/file"),
+    ("POST", "v1/triggers/create"),
+    ("POST", "v1/triggers/publish"),
+    ("POST", "v1/triggers/archive"),
+    ("POST", "v1/triggers/restore"),
+    ("POST", "v1/triggers/purge"),
+    ("POST", "v1/triggers/category"),
+    ("POST", "v1/triggers/categories"),
+    ("GET", "v1/presets/:section/history"),
+    ("GET", "v1/presets/:section/history/diff"),
+    ("GET", "v1/presets/:section/pending"),
+    ("GET", "v1/presets/:section/pending/diff"),
+    ("PUT", "v1/presets/:section/file"),
+    ("GET", "v1/presets/:section/validate"),
+    ("POST", "v1/presets/:section/publish"),
+    ("POST", "v1/presets/:section/reload"),
+    ("POST", "v1/presets/:section/category"),
+    ("POST", "v1/presets/:section/order"),
+    ("POST", "v1/presets/:section/rename"),
+    ("POST", "v1/presets/:section/categories"),
+    ("GET", "v1/combos"),
+    ("POST", "v1/combos/:name/:action"),
+    ("GET", "v1/selection"),
+    ("POST", "v1/selection"),
+    ("GET", "v1/sessions/:id/events"),
+];
+
+/// `EngineClient::client_paths_manifest` 的自由函数别名（静态清单用）。
+pub fn client_paths() -> &'static [(&'static str, &'static str)] {
+    CLIENT_PATHS
 }

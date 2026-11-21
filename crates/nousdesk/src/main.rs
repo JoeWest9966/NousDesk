@@ -13,18 +13,20 @@ mod board;
 mod board_art;
 mod capability;
 mod branches;
+mod category;
 // Linux 自绘标题栏（GNOME 不给 server-side decorations）。其它平台不挂这个文件。
 #[cfg(target_os = "linux")]
-mod category;
 mod chrome;
 mod composer;
 mod diff;
 mod config;
 mod config_panel;
 mod data_console;
+mod dead_paths;
 #[cfg(test)]
 mod data_console_tests;
 mod editor;
+mod editor_presets;
 mod fonts;
 mod live;
 mod md;

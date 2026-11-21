@@ -1,6 +1,6 @@
 //! 触发器工作台（视图 1）：清单 / 详情 / 代码 / 新建向导。
 //!
-//! 数据住在 **n8qkkj**（另一个块，自己的 `/v1/triggers`），不是 qrd3wh。
+//! 数据在同一个引擎地址的 `/v1/triggers`，不从别处解析第二地址。
 //! 三层是一个页面的三种深度：
 //!
 //! - 主界面：类别树 + 状态筛选 + 卡片网格
@@ -269,6 +269,11 @@ impl State {
 // ── 数据 ───────────────────────────────────────────────────────────────────
 
 impl Desktop {
+    /// `Desk#13` 返工：等票的写端点保持灰，判定与理由只走 `capability.rs`；
+    /// 这里只负责不发请求、把服务端原文给人看。
+    fn trigger_write_gate(&self, method: &'static str, path: &str) -> Option<String> {
+        self.endpoint_disabled_reason(method, path)
+    }
     /// 启动 / 重连时按 capabilities 决定是否拉触发器清单。
     pub(crate) fn load_triggers(&mut self, cx: &mut Context<Self>) {
         let cfg = self.conn.clone();
@@ -401,6 +406,10 @@ impl Desktop {
     // ── 代码层 ─────────────────────────────────────────────
 
     fn open_code(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("GET", "/v1/triggers/files") {
+            self.notice(reason, true, cx);
+            return;
+        }
         log::info!("触发器：打开代码层 {name}");
         self.triggers.code.name = Some(name.to_string());
         self.triggers.code.files.clear();
@@ -448,6 +457,10 @@ impl Desktop {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(reason) = self.trigger_write_gate("GET", "/v1/triggers/file") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let Some(client) = self.triggers.client.clone() else { return };
         // 编辑框里有没保存的东西、而且不是同一个文件 —— 切过去就没了，先问一句。
         let unsaved = self.triggers.code.editing
@@ -492,6 +505,10 @@ impl Desktop {
     }
 
     fn save_trigger_file(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("PUT", "/v1/triggers/file") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let (Some(client), Some(name), Some(path)) = (
             self.triggers.client.clone(),
             self.triggers.code.name.clone(),
@@ -533,7 +550,7 @@ impl Desktop {
                         this.triggers.code.editing = false;
                         this.triggers.conflict = None;
                     }
-                    Ok(Err(EngineError::Engine { status: 409, message })) => {
+                    Ok(Err(EngineError::Engine { status: 409, message, .. })) => {
                         this.triggers.conflict = Some(message);
                     }
                     Ok(Err(e)) => {
@@ -550,6 +567,10 @@ impl Desktop {
     }
 
     fn publish_trigger(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/publish") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let (Some(client), Some(name)) = (
             self.triggers.client.clone(),
             self.triggers
@@ -1018,6 +1039,10 @@ impl Desktop {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let Some(client) = self.triggers.client.clone() else {
             return;
         };
@@ -1065,6 +1090,10 @@ impl Desktop {
 
     /// 把攒下的类别改动提交并推送（`POST /v1/triggers/sync`）。
     fn cat_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let Some(client) = self.triggers.client.clone() else {
             return;
         };
@@ -1565,6 +1594,10 @@ impl Desktop {
     }
 
     fn confirm_archive(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/archive") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let (Some(client), name) = (self.triggers.client.clone(), self.triggers.confirm.name.clone()) else {
             return;
         };
@@ -1600,6 +1633,10 @@ impl Desktop {
     }
 
     fn restore_trigger(&mut self, name: &str, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/restore") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let Some(client) = self.triggers.client.clone() else { return };
         let name = name.to_string();
         self.triggers.busy = Some(format!("恢复 {name}"));
@@ -1630,6 +1667,10 @@ impl Desktop {
     }
 
     fn purge_trigger(&mut self, name: &str, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/purge") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let Some(client) = self.triggers.client.clone() else { return };
         let name = name.to_string();
         self.triggers.busy = Some(format!("彻底删除 {name}"));
@@ -1660,6 +1701,10 @@ impl Desktop {
     }
 
     fn sync_triggers(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let Some(client) = self.triggers.client.clone() else { return };
         self.triggers.busy = Some("同步".into());
         cx.notify();
@@ -1753,6 +1798,10 @@ impl Desktop {
     }
 
     fn create_trigger(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/create") {
+            self.notice(reason, true, cx);
+            return;
+        }
         let Some(client) = self.triggers.client.clone() else { return };
         let name = self.triggers.wizard.name.read(cx).value().trim().to_string();
         let summary = self.triggers.wizard.summary.read(cx).value().trim().to_string();
@@ -1956,6 +2005,17 @@ impl Desktop {
             .bg(rgb(t().p.panel))
             .child(self.trigger_top(cx))
             .child(self.trigger_body(cx));
+        // Desk#13 返工：写端点等票期间保持可见但不可用，理由逐字来自 capabilities。
+        if let Some(reason) = self.endpoint_disabled_reason("POST", "/v1/triggers/create") {
+            root = root.child(
+                div()
+                    .px(t().d(14.))
+                    .py(t().d(4.))
+                    .text_size(t().fs(11.))
+                    .text_color(rgb(t().p.text_2))
+                    .child(reason),
+            );
+        }
         if layer == Layer::Detail {
             root = root
                 .child(self.trigger_scrim(cx))
@@ -4316,7 +4376,7 @@ impl Desktop {
     }
 
     /// 「发布」按下去之前那一屏：这次会提交什么、仓库什么状态、大概要等多久。
-    fn trigger_preflight_block(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn trigger_preflight_block(&self, _cx: &mut Context<Self>) -> AnyElement {
         let code = &self.triggers.code;
         let item = self
             .triggers

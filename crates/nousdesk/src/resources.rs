@@ -22,15 +22,13 @@
 //! - 不混会话里的「这次带哪些技能」：那是 `POST /v1/sessions` 的字段，已经做完（盘面）。
 //! - 第一刀不写盘、不发写请求，一个字节都不写引擎。
 
-use std::rc::Rc;
-
 use gpui_kit::assets::IconName;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{Icon, Sizable as _, Size};
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
-use nous_engine::types::{Extension, Extensions, Prompt, Prompts, Skill, Skills};
+use nous_engine::types::{Extensions, Prompt, Prompts, Skill, Skills};
 
 use crate::app::Desktop;
 use crate::category::{CatNode, build_tree, is_under};
@@ -881,7 +879,7 @@ fn row_btn(
     name: &str,
     summary: &str,
     chip: &str,
-    hot: bool,
+    _hot: bool,
     chip_color: u32,
     sel: Selected,
     current: &Option<Selected>,
@@ -957,6 +955,10 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
 
     let kind = sel.kind_of();
     let name = sel.name_of().to_string();
+    // Desk#13 返工：等票期间写端点灰着，理由逐字取自 capabilities（capability.rs 单点）。
+    if let Some(reason) = desk.endpoint_disabled_reason("POST", &format!("/v1/{}/publish", kind.repo().key())) {
+        body = body.child(note_line(&reason));
+    }
 
     // ── 头部：名字 + 状态 + 动作。动作按条目种类分，不是一套按钮硬套。 ──
     let mut head = div()

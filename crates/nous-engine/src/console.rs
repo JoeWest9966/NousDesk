@@ -1,67 +1,24 @@
-//! d6s4v1（`agent.sqlite` 的 X 光机）的哑客户端。
+//! 数据监控室的**展示类型**与 `StatsClient`（`/v1/stats/*` 哑客户端）。
 //!
-//! 它**不是引擎**：Rust 版 `/v1/*` 由 `EngineClient` 负责，这个面板走宿主自己的 `/api/*`。
-//! 地址同样只有一个来源 —— 配置里那一个 host，别在调用点拼路径。
+//! 六屏的数据只从 `/v1/*` 来：device / capabilities / sessions / entries 由
+//! `EngineClient` 转发，三条 stats 由 [`StatsClient`] 转发。这里不造业务概念
+//! （没有「健康」探针、不在客户端算成本），也不重新排版：屏幕仍消费原有形状。
 //!
-//! ```text
-//! GET api/overview                → 文件 / pragmas / 表 / 索引 / integrity
-//! GET api/conversations           → 全部会话一行一条
-//! GET api/conversation?id=N       → 一条会话的 entries / tasks / documents / prompt
-//! GET api/cost                    → 账本：总量 + byDay / byHour / byModel / byConv
-//! GET api/health                  → 维修：卡住的任务 / 没人接的提交 / WAL / 维护建议
-//! ```
-//!
-//! 规矩和 [`crate::client`] 一样：**只转发**，不聚合、不算派生状态；未知字段用
-//! `Value` / `flatten` 收着透传 —— 面板每加一个读数，这边不该编译不过。
-//!
-//! 每份响应里还带一段 `diagrams`（mermaid 源码），桌面端不渲 mermaid，
-//! 但照样收着：哪天要做「导出这张图」就不用改协议层。
+//! 未知字段一律 `Value` / `BTreeMap` 收着透传；不在这里判能力（那在 capability.rs）。
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use serde_json::Value;
 use url::Url;
 
-
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConsoleError {
-    #[error("网络：{0}")]
-    Http(#[from] reqwest::Error),
-    #[error("URL 拼不起来：{0}")]
-    Url(#[from] url::ParseError),
-    #[error("面板回 {status}：{message}")]
-    Panel { status: u16, message: String },
-}
-
-/// 面板崩的时候回的是整页 HTML（502 网关那种）。原样塞进界面会把红框撑爆，
-/// 所以压平空白、去掉标签，只留一句能读的。
-fn flatten(text: &str) -> String {
-    let mut out = String::with_capacity(text.len().min(240));
-    let mut in_tag = false;
-    for ch in text.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            c if !in_tag && !c.is_control() => out.push(c),
-            _ => {}
-        }
-    }
-    let flat = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flat.chars().count() > 160 {
-        let mut s: String = flat.chars().take(159).collect();
-        s.push('…');
-        s
-    } else {
-        flat
-    }
-}
+use crate::EngineError;
 
 // ── 通用小件 ─────────────────────────────────────────────────────────
 
-/// 一堆「label → 数字」的桶（byDay / byHour / byModel / byConv 共用）。
+/// 一堆「label → 数字」的桶（byDay / byModel / byConv 共用）。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CostBucket {
     pub label: String,
@@ -81,617 +38,112 @@ pub struct CostBucket {
     pub extra: BTreeMap<String, Value>,
 }
 
-// ── overview ─────────────────────────────────────────────────────────
+// ── stats 端点回包（原样收着，Desk 只画） ─────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct Overview {
-    pub target: Target,
-    pub file: DbFiles,
-    pub pragmas: Pragmas,
+/// `GET /v1/stats/usage?group_by=day|model` 的回包。端点算好 totals/rows，Desk 不重算。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsUsage {
+    #[serde(default, rename = "groupBy")]
+    pub group_by: String,
     #[serde(default)]
-    pub bytes: BytesBreakdown,
-    pub counts: Counts,
+    pub totals: StatsUsageTotals,
     #[serde(default)]
-    pub tables: Vec<TableStat>,
-    #[serde(default)]
-    pub indexes: Vec<IndexStat>,
-    #[serde(default, rename = "entriesByKind")]
-    pub entries_by_kind: Vec<KindStat>,
-    #[serde(default)]
-    pub integrity: Integrity,
-    /// 面板给的「值得看一眼」的条目，形状还没定死 —— 原样收着。
-    #[serde(default)]
-    pub attention: Vec<Value>,
-    #[serde(default)]
-    pub diagrams: BTreeMap<String, String>,
+    pub rows: Vec<Value>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Target {
-    pub id: String,
-    #[serde(default)]
-    pub own: bool,
-    pub path: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-/// `db` / `wal` / `shm` 三个文件的大小与时间戳。`mtime` 是带小数的 epoch 秒。
-#[derive(Debug, Clone, Deserialize)]
-pub struct DbFiles {
-    #[serde(default)]
-    pub db: i64,
-    #[serde(default)]
-    pub wal: i64,
-    #[serde(default)]
-    pub shm: i64,
-    #[serde(default)]
-    pub mtime: f64,
-    #[serde(default, rename = "walMtime")]
-    pub wal_mtime: f64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Pragmas {
-    #[serde(default, rename = "pageSize")]
-    pub page_size: i64,
-    #[serde(default, rename = "pageCount")]
-    pub page_count: i64,
-    #[serde(default)]
-    pub freelist: i64,
-    #[serde(default, rename = "journalMode")]
-    pub journal_mode: String,
-    #[serde(default, rename = "autoVacuum")]
-    pub auto_vacuum: i64,
-    #[serde(default, rename = "userVersion")]
-    pub user_version: i64,
-    #[serde(default, rename = "schemaVersion")]
-    pub schema_version: i64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-impl Pragmas {
-    /// 页数 × 页大小。`page_count` 缺了就当 0（面板偶尔只给 bytes）。
-    pub fn db_bytes(&self) -> i64 {
-        self.page_size.saturating_mul(self.page_count)
-    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct BytesBreakdown {
+pub struct StatsUsageTotals {
+    #[serde(default, rename = "totalTokens")]
+    pub total_tokens: i64,
+    #[serde(default, rename = "costTotal")]
+    pub cost_total: f64,
     #[serde(default)]
-    pub db: i64,
+    pub requests: i64,
     #[serde(default)]
-    pub wal: i64,
-    #[serde(default)]
-    pub shm: i64,
-    #[serde(default)]
-    pub free: i64,
-    #[serde(default)]
-    pub used: i64,
-    #[serde(default, rename = "onDisk")]
-    pub on_disk: i64,
+    pub errors: i64,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
 
-/// 每张表的行数。字段名是**表名**，所以只能用 map 收 —— 写死就漏了新表。
+/// `GET /v1/stats/tasks`：`byState` 是状态 → 条数，不是客户端算出来的「健康度」。
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct Counts {
+pub struct StatsTasks {
+    #[serde(default, rename = "byState")]
+    pub by_state: BTreeMap<String, i64>,
+    #[serde(default)]
+    pub active: i64,
     #[serde(flatten)]
-    pub by_table: BTreeMap<String, i64>,
+    pub extra: BTreeMap<String, Value>,
 }
 
-impl Counts {
-    pub fn get(&self, table: &str) -> i64 {
-        self.by_table.get(table).copied().unwrap_or(0)
-    }
+/// `GET /v1/stats/db`：两个库的字节与 quickCheck。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsDb {
+    #[serde(default)]
+    pub durable: DbReport,
+    #[serde(default)]
+    pub plugins: DbReport,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct TableStat {
-    pub name: String,
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct DbReport {
     #[serde(default)]
     pub bytes: i64,
     #[serde(default)]
-    pub pages: i64,
+    pub rows: BTreeMap<String, i64>,
+    #[serde(default, rename = "quickCheck")]
+    pub quick_check: String,
     #[serde(default)]
-    pub rows: i64,
+    pub schema: i64,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct IndexStat {
-    pub name: String,
-    #[serde(default)]
-    pub bytes: i64,
-    #[serde(default)]
-    pub pages: i64,
-    #[serde(default)]
-    pub table: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
+// ── StatsClient ───────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct KindStat {
-    pub kind: String,
-    #[serde(default)]
-    pub count: i64,
-    #[serde(default)]
-    pub bytes: i64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct Integrity {
-    #[serde(default)]
-    pub checked: bool,
-    #[serde(default)]
-    pub ok: bool,
-    #[serde(default)]
-    pub messages: Vec<String>,
-}
-
-// ── conversations ────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Conversations {
-    #[serde(default)]
-    pub count: i64,
-    #[serde(default)]
-    pub list: Vec<ConvRow>,
-    #[serde(default)]
-    pub totals: ConvTotals,
-    #[serde(default)]
-    pub diagrams: BTreeMap<String, String>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ConvRow {
-    pub id: i64,
-    #[serde(default, rename = "ownerConv")]
-    pub owner_conv: Option<i64>,
-    #[serde(default, rename = "ownerTask")]
-    pub owner_task: Option<i64>,
-    #[serde(default)]
-    pub entries: i64,
-    #[serde(default)]
-    pub tokens: i64,
-    #[serde(default)]
-    pub cost: f64,
-    #[serde(default, rename = "toolCalls")]
-    pub tool_calls: i64,
-    #[serde(default)]
-    pub models: Vec<String>,
-    /// epoch 毫秒。缺了当 0（时间线画不出来那条，但整份清单不该解析失败）。
-    #[serde(default, rename = "firstAt")]
-    pub first_at: i64,
-    #[serde(default, rename = "lastAt")]
-    pub last_at: i64,
-    #[serde(default)]
-    pub title: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct ConvTotals {
-    #[serde(default)]
-    pub entries: i64,
-    #[serde(default)]
-    pub tokens: i64,
-    #[serde(default)]
-    pub cost: f64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-// ── conversation?id=N ────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Conversation {
-    pub id: i64,
-    #[serde(default, rename = "ownerConv")]
-    pub owner_conv: Option<i64>,
-    #[serde(default, rename = "ownerTask")]
-    pub owner_task: Option<i64>,
-    #[serde(default)]
-    pub entries: Vec<ConvEntry>,
-    #[serde(default)]
-    pub tasks: Vec<TaskRow>,
-    #[serde(default)]
-    pub documents: Vec<DocRow>,
-    #[serde(default)]
-    pub submissions: Vec<SubmissionRow>,
-    #[serde(default)]
-    pub prompt: Prompt,
-    #[serde(default)]
-    pub diagrams: BTreeMap<String, String>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ConvEntry {
-    pub id: i64,
-    #[serde(default)]
-    pub conv: i64,
-    #[serde(default)]
-    pub seq: i64,
-    #[serde(default)]
-    pub head: Option<i64>,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub bytes: i64,
-    #[serde(default)]
-    pub at: i64,
-    #[serde(default)]
-    pub role: String,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub provider: Option<String>,
-    #[serde(default)]
-    pub tokens: i64,
-    #[serde(default)]
-    pub cost: f64,
-    /// usage 的结构随 provider 变 —— 只用它的数字就别在这儿写死字段。
-    #[serde(default)]
-    pub usage: Value,
-    #[serde(default)]
-    pub tool: Option<String>,
-    #[serde(default, rename = "toolCalls")]
-    pub tool_calls: Value,
-    #[serde(default, rename = "isError")]
-    pub is_error: bool,
-    #[serde(default)]
-    pub ms: Option<i64>,
-    #[serde(default, rename = "stopReason")]
-    pub stop_reason: Option<String>,
-    #[serde(default, rename = "toolsAdded")]
-    pub tools_added: Value,
-    #[serde(default)]
-    pub chars: i64,
-    #[serde(default)]
-    pub text: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TaskRow {
-    pub id: i64,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default, rename = "startedAt")]
-    pub started_at: Option<i64>,
-    #[serde(default, rename = "endedAt")]
-    pub ended_at: Option<i64>,
-    #[serde(default)]
-    pub ms: Option<i64>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DocRow {
-    pub id: i64,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub key: String,
-    #[serde(default)]
-    pub revisions: i64,
-    #[serde(default)]
-    pub bytes: i64,
-    #[serde(default, rename = "createdAt")]
-    pub created_at: i64,
-    #[serde(default)]
-    pub retired: bool,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SubmissionRow {
-    pub id: i64,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default, rename = "requestId")]
-    pub request_id: Option<String>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct Prompt {
-    #[serde(default, rename = "upTo")]
-    pub up_to: Option<i64>,
-    #[serde(default)]
-    pub messages: Vec<PromptMessage>,
-    #[serde(default)]
-    pub totals: BTreeMap<String, Value>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct PromptMessage {
-    pub id: i64,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub bytes: i64,
-    #[serde(default)]
-    pub chars: i64,
-    #[serde(default)]
-    pub tokens: i64,
-    #[serde(default)]
-    pub cost: f64,
-    #[serde(default)]
-    pub head: bool,
-    #[serde(default)]
-    pub text: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-// ── cost ─────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Cost {
-    #[serde(default)]
-    pub totals: CostTotals,
-    #[serde(default, rename = "byDay")]
-    pub by_day: Vec<CostBucket>,
-    #[serde(default, rename = "byHour")]
-    pub by_hour: Vec<CostBucket>,
-    #[serde(default, rename = "byModel")]
-    pub by_model: Vec<CostBucket>,
-    #[serde(default, rename = "byConv")]
-    pub by_conv: Vec<CostBucket>,
-    /// 「cost 为 0 不等于免费」那句原文 —— 显示时别自己编。
-    #[serde(default)]
-    pub note: String,
-    #[serde(default)]
-    pub diagrams: BTreeMap<String, String>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct CostTotals {
-    #[serde(default)]
-    pub entries: i64,
-    #[serde(default)]
-    pub tokens: i64,
-    #[serde(default)]
-    pub input: i64,
-    #[serde(default)]
-    pub output: i64,
-    #[serde(default, rename = "cacheRead")]
-    pub cache_read: i64,
-    #[serde(default, rename = "cacheWrite")]
-    pub cache_write: i64,
-    #[serde(default)]
-    pub reasoning: i64,
-    #[serde(default)]
-    pub cost: f64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-impl CostTotals {
-    /// 输入里有多大比例是命中缓存的。总量为 0 时返回 0，别算出 NaN。
-    pub fn cache_hit(&self) -> f32 {
-        let billed = self.input + self.cache_read;
-        if billed <= 0 {
-            return 0.;
-        }
-        self.cache_read as f32 / billed as f32
-    }
-}
-
-// ── health ───────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Health {
-    #[serde(default)]
-    pub tasks: HealthTasks,
-    #[serde(default)]
-    pub submissions: HealthSubs,
-    #[serde(default)]
-    pub documents: HealthDocs,
-    #[serde(default, rename = "walBytes")]
-    pub wal_bytes: i64,
-    #[serde(default)]
-    pub freelist: FreeList,
-    #[serde(default)]
-    pub maintenance: Vec<Maintenance>,
-    #[serde(default)]
-    pub diagrams: BTreeMap<String, String>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct HealthTasks {
-    #[serde(default)]
-    pub total: i64,
-    #[serde(default, rename = "byStatus")]
-    pub by_status: Vec<TaskStatusBucket>,
-    #[serde(default)]
-    pub stuck: Vec<Value>,
-    #[serde(default)]
-    pub sleeping: Vec<Value>,
-    #[serde(default, rename = "avgMs")]
-    pub avg_ms: i64,
-    #[serde(default)]
-    pub p95: i64,
-    #[serde(default)]
-    pub slowest: Vec<SlowTask>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TaskStatusBucket {
-    pub status: String,
-    #[serde(default)]
-    pub count: i64,
-    #[serde(default)]
-    pub sample: Value,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SlowTask {
-    pub id: i64,
-    #[serde(default)]
-    pub conv: i64,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub background: bool,
-    #[serde(default, rename = "startedAt")]
-    pub started_at: i64,
-    #[serde(default, rename = "endedAt")]
-    pub ended_at: Option<i64>,
-    #[serde(default)]
-    pub outcome: Option<String>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct HealthSubs {
-    #[serde(default)]
-    pub total: i64,
-    #[serde(default, rename = "byStatus")]
-    pub by_status: Vec<SubStatusBucket>,
-    #[serde(default)]
-    pub unanswered: Vec<Unanswered>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SubStatusBucket {
-    pub status: String,
-    #[serde(default)]
-    pub n: i64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Unanswered {
-    pub id: i64,
-    #[serde(default)]
-    pub conv: i64,
-    #[serde(default)]
-    pub status: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct HealthDocs {
-    #[serde(default)]
-    pub documents: i64,
-    #[serde(default, rename = "byKind")]
-    pub by_kind: Vec<KindCount>,
-    #[serde(default)]
-    pub revisions: i64,
-    #[serde(default)]
-    pub base: i64,
-    #[serde(default)]
-    pub delta: i64,
-    /// delta 占 revisions 的比例（0..1）。面板算好了，别在这边除。
-    #[serde(default, rename = "deltaRatio")]
-    pub delta_ratio: f64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct KindCount {
-    pub kind: String,
-    #[serde(default)]
-    pub n: i64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct FreeList {
-    #[serde(default)]
-    pub free: i64,
-    #[serde(default)]
-    pub bytes: i64,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Maintenance {
-    pub label: String,
-    #[serde(default)]
-    pub why: String,
-    #[serde(default)]
-    pub cmd: String,
-    /// 危险动作用红字画，别让「VACUUM」看起来跟「看日志」一样轻。
-    #[serde(default)]
-    pub danger: bool,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
-}
-
-// ── 客户端 ───────────────────────────────────────────────────────────
-
+/// `/v1/stats/*` 的哑客户端。**必须 `with_token`**：自建 client 一律走 `crate::auth`
+/// 注入 Bearer（`坑.md` 100），否则 stats 屏全 401。
 #[derive(Debug, Clone)]
-pub struct ConsoleClient {
+pub struct StatsClient {
     http: reqwest::Client,
-    /// 已经带到 `<host>/api/` 的基地址。
     base: Url,
 }
 
-impl ConsoleClient {
-    /// `host` 是配置里那一个地址（`http://127.0.0.1:4790`）。
-    pub fn new(host: &str, timeout: Duration) -> Result<Self, ConsoleError> {
-        let mut url = Url::parse(host)?;
-        let prefix = url.path().trim_end_matches('/').to_string();
-        url.set_path(&format!("{prefix}/api/"));
-        let http = reqwest::Client::builder().timeout(timeout).build()?;
+impl StatsClient {
+    pub fn with_token(
+        base: &str,
+        timeout: Duration,
+        token: Option<&str>,
+    ) -> Result<Self, EngineError> {
+        let mut url = Url::parse(base)?;
+        if !url.path().ends_with('/') {
+            url.set_path(&format!("{}/", url.path()));
+        }
+        let headers: HeaderMap = crate::auth::headers(token).map_err(|message| EngineError::Engine {
+            status: 400,
+            message,
+            body: None,
+        })?;
+        let http = reqwest::Client::builder()
+            .timeout(timeout)
+            .default_headers(headers)
+            .build()?;
         Ok(Self { http, base: url })
     }
 
-    fn url(&self, path: &str) -> Result<Url, ConsoleError> {
+    fn url(&self, path: &str) -> Result<Url, EngineError> {
         Ok(self.base.join(path.trim_start_matches('/'))?)
     }
 
-    async fn json<T: serde::de::DeserializeOwned>(
+    async fn get_json<T: serde::de::DeserializeOwned>(
         &self,
-        resp: reqwest::Response,
-    ) -> Result<T, ConsoleError> {
+        path: &str,
+    ) -> Result<T, EngineError> {
+        let resp = self.http.get(self.url(path)?).send().await?;
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
@@ -699,142 +151,398 @@ impl ConsoleClient {
                 .ok()
                 .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_owned))
                 .unwrap_or_else(|| text.chars().take(200).collect());
-            return Err(ConsoleError::Panel {
+            return Err(EngineError::Engine {
                 status: status.as_u16(),
-                message: flatten(&message),
+                message,
+                body: Some(text),
             });
         }
-        serde_json::from_str(&text).map_err(|e| ConsoleError::Panel {
+        serde_json::from_str(&text).map_err(|e| EngineError::Engine {
             status: status.as_u16(),
             message: format!("JSON 不像话：{e}"),
+            body: Some(text),
         })
     }
 
-    async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ConsoleError> {
-        let resp = self.http.get(self.url(path)?).send().await?;
-        self.json(resp).await
+    /// `GET /v1/stats/usage?group_by=…`。`group_by` 是闭集合，别把用户输入直接拼进去。
+    pub async fn usage(&self, group_by: &str) -> Result<StatsUsage, EngineError> {
+        if !matches!(group_by, "day" | "model" | "conversation") {
+            return Err(EngineError::Engine {
+                status: 400,
+                message: format!("group_by 只能是 day|model|conversation，收到 {group_by:?}"),
+                body: None,
+            });
+        }
+        self.get_json(&format!("v1/stats/usage?group_by={group_by}"))
+            .await
     }
 
-    pub async fn overview(&self) -> Result<Overview, ConsoleError> {
-        self.get("overview").await
+    /// `GET /v1/stats/tasks`。
+    pub async fn tasks(&self) -> Result<StatsTasks, EngineError> {
+        self.get_json("v1/stats/tasks").await
     }
 
-    pub async fn conversations(&self) -> Result<Conversations, ConsoleError> {
-        self.get("conversations").await
-    }
-
-    pub async fn conversation(&self, id: i64) -> Result<Conversation, ConsoleError> {
-        self.get(&format!("conversation?id={id}")).await
-    }
-
-    pub async fn cost(&self) -> Result<Cost, ConsoleError> {
-        self.get("cost").await
-    }
-
-    pub async fn health(&self) -> Result<Health, ConsoleError> {
-        self.get("health").await
+    /// `GET /v1/stats/db`。
+    pub async fn db(&self) -> Result<StatsDb, EngineError> {
+        self.get_json("v1/stats/db").await
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// 三条 stats 路径的模板（给能力表/白名单自检用；只维护这一处）。
+pub const STATS_PATHS: &[(&str, &str)] = &[
+    ("GET", "v1/stats/usage"),
+    ("GET", "v1/stats/tasks"),
+    ("GET", "v1/stats/db"),
+];
 
-    #[test]
-    fn 地址按_host_拼成面板_api() {
-        let c = ConsoleClient::new("http://192.168.1.7:4790", Duration::from_secs(1))
-            .expect("拼得起来");
-        assert_eq!(
-            c.url("overview").unwrap().as_str(),
-            "http://192.168.1.7:4790/api/overview"
-        );
-    }
+// ── 六屏展示形状（/v1 数据装配后的只读画材） ───────────────────────────
+//
+// 名字带 `Stats` 前缀：这些不再是旧面板 REST 的形状，而是从 `/v1/*` 装配出来的。
+// 字段保住是为了六屏版式一字不动（Desk#12 非目标）。
 
-    #[test]
-    fn 宿主带尾巴斜杠和路径也不双斜杠() {
-        let c = ConsoleClient::new("http://h:1/nous/", Duration::from_secs(1)).unwrap();
-        assert_eq!(
-            c.url("cost").unwrap().as_str(),
-            "http://h:1/nous/api/cost"
-        );
-    }
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsOverview {
+    pub target: StatsTarget,
+    pub file: StatsDbFiles,
+    pub pragmas: StatsPragmas,
+    #[serde(default)]
+    pub bytes: StatsBytes,
+    pub counts: StatsCounts,
+    #[serde(default)]
+    pub tables: Vec<StatsTable>,
+    #[serde(default)]
+    pub indexes: Vec<StatsIndex>,
+    #[serde(default, rename = "entriesByKind")]
+    pub entries_by_kind: Vec<StatsKind>,
+    #[serde(default)]
+    pub integrity: StatsIntegrity,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
 
-    #[test]
-    fn 未知字段收着不炸() {
-        let json = r#"{
-            "target": {"id": "qrd3wh", "own": false, "path": "/x/agent.sqlite", "新字段": 1},
-            "file": {"db": 10, "wal": 2, "shm": 1, "mtime": 1.5, "walMtime": 2.5},
-            "pragmas": {"pageSize": 4096, "pageCount": 2, "freelist": 0,
-                        "journalMode": "wal", "autoVacuum": 0,
-                        "userVersion": 0, "schemaVersion": 2},
-            "counts": {"entries": 216, "将来加的表": 3},
-            "tables": [], "indexes": [], "entriesByKind": [],
-            "integrity": {"checked": true, "ok": true, "messages": []},
-            "attention": [{"随便": "什么"}],
-            "以后才有的顶层字段": [1, 2]
-        }"#;
-        let o: Overview = serde_json::from_str(json).expect("多字段不该解析失败");
-        assert_eq!(o.counts.get("entries"), 216);
-        assert_eq!(o.counts.get("将来加的表"), 3);
-        assert_eq!(o.counts.get("没这张表"), 0);
-        assert!(o.extra.contains_key("以后才有的顶层字段"));
-        assert_eq!(o.pragmas.db_bytes(), 8192);
-    }
+/// 表名 → 行数。写死字段会漏新表，所以用 map + `get` 保住渲染层的调用形状。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsCounts {
+    #[serde(flatten)]
+    pub by_table: BTreeMap<String, i64>,
+}
 
-    #[test]
-    fn 账本命中率按输入_加_缓存读算() {
-        let t = CostTotals {
-            input: 118_500,
-            cache_read: 448_855,
-            ..Default::default()
-        };
-        let hit = t.cache_hit();
-        assert!((hit - 0.7909).abs() < 0.001, "算出来是 {hit}");
-    }
-
-    #[test]
-    fn 输入为零时命中率是零不是_nan() {
-        assert_eq!(CostTotals::default().cache_hit(), 0.);
-    }
-
-    #[test]
-    fn 会话缺_models_和_title_也能解析() {
-        let json = r#"{"count":1,"list":[{"id":7,"entries":3,"tokens":0,"cost":0,
-                        "toolCalls":0,"firstAt":1,"lastAt":2}],
-                        "totals":{"entries":3,"tokens":0,"cost":0}}"#;
-        let c: Conversations = serde_json::from_str(json).unwrap();
-        assert_eq!(c.list[0].id, 7);
-        assert!(c.list[0].title.is_empty());
-        assert!(c.list[0].models.is_empty());
-    }
-
-    #[test]
-    fn 回放里_usage_形状随便给都不炸() {
-        let json = r#"{"id":2,"entries":[
-            {"id":9,"conv":2,"seq":3,"kind":"pi.user","role":"user","bytes":118,
-             "at":1,"tokens":0,"cost":0,"usage":null,"text":"hi"},
-            {"id":10,"conv":2,"seq":4,"kind":"pi.assistant","role":"assistant","bytes":9,
-             "at":2,"tokens":5,"cost":0,"usage":{"input":3,"cacheRead":2,"怪字段":true},
-             "toolCalls":[{"name":"bash"}],"text":"ho"}]}"#;
-        let c: Conversation = serde_json::from_str(json).unwrap();
-        assert_eq!(c.entries.len(), 2);
-        assert_eq!(c.entries[1].usage["cacheRead"], 2);
-        assert_eq!(c.entries[1].tool_calls[0]["name"], "bash");
-        assert!(c.prompt.messages.is_empty());
-    }
-
-    #[test]
-    fn 维修页缺字段也只是零而不是整页失败() {
-        let json = r#"{"tasks":{"total":136,"byStatus":[],"stuck":[],"sleeping":[],
-                        "avgMs":6838,"p95":18254,"slowest":[]},
-                        "submissions":{"total":62,"byStatus":[],"unanswered":[]},
-                        "documents":{"documents":931,"byKind":[],"revisions":1624,
-                        "base":943,"delta":681,"deltaRatio":0.4193},
-                        "walBytes":486192,"freelist":{"free":1,"bytes":4096},
-                        "maintenance":[]}"#;
-        let h: Health = serde_json::from_str(json).unwrap();
-        assert_eq!(h.tasks.total, 136);
-        assert_eq!(h.documents.delta, 681);
-        assert_eq!(h.maintenance.len(), 0);
+impl StatsCounts {
+    pub fn get(&self, table: &str) -> i64 {
+        self.by_table.get(table).copied().unwrap_or(0)
     }
 }
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsTarget {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsDbFiles {
+    #[serde(default)] pub db: i64,
+    #[serde(default)] pub wal: i64,
+    #[serde(default)] pub shm: i64,
+    #[serde(default)] pub mtime: f64,
+    #[serde(default, rename = "walMtime")] pub wal_mtime: f64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsPragmas {
+    #[serde(default, rename = "pageSize")] pub page_size: i64,
+    #[serde(default, rename = "pageCount")] pub page_count: i64,
+    #[serde(default)] pub freelist: i64,
+    #[serde(default, rename = "journalMode")] pub journal_mode: String,
+    #[serde(default, rename = "schemaVersion")] pub schema_version: i64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsBytes {
+    #[serde(default)] pub free: i64,
+    #[serde(default)] pub used: i64,
+    #[serde(default, rename = "onDisk")] pub on_disk: i64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsTable {
+    pub name: String,
+    #[serde(default)] pub bytes: i64,
+    #[serde(default)] pub pages: i64,
+    #[serde(default)] pub rows: i64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsIndex {
+    pub name: String,
+    #[serde(default)] pub bytes: i64,
+    #[serde(default)] pub pages: i64,
+    #[serde(default)] pub table: String,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsKind {
+    pub kind: String,
+    #[serde(default)] pub count: i64,
+    #[serde(default)] pub bytes: i64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsIntegrity {
+    #[serde(default)] pub checked: bool,
+    #[serde(default)] pub ok: bool,
+    #[serde(default)] pub messages: Vec<String>,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsConvs {
+    #[serde(default)] pub count: i64,
+    #[serde(default)] pub list: Vec<StatsConvRow>,
+    #[serde(default)] pub totals: StatsConvTotals,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsConvRow {
+    pub id: i64,
+    #[serde(default)] pub title: String,
+    #[serde(default)] pub entries: i64,
+    #[serde(default)] pub tokens: i64,
+    #[serde(default, rename = "toolCalls")] pub tool_calls: i64,
+    #[serde(default)] pub models: Vec<String>,
+    #[serde(default, rename = "firstAt")] pub first_at: i64,
+    #[serde(default, rename = "lastAt")] pub last_at: i64,
+    #[serde(default)] pub pinned: bool,
+    #[serde(default)] pub archived: bool,
+    #[serde(default)] pub read_only: bool,
+    #[serde(default)] pub busy: Value,
+    #[serde(default)] pub template: Option<String>,
+    #[serde(default)] pub skills: Vec<String>,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsConvTotals {
+    #[serde(default)] pub entries: i64,
+    #[serde(default)] pub tokens: i64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsReplay {
+    pub id: i64,
+    #[serde(default)] pub entries: Vec<StatsConvEntry>,
+    #[serde(default)] pub tasks: Vec<StatsTask>,
+    #[serde(default)] pub documents: Vec<Value>,
+    #[serde(default)] pub prompt: StatsPrompt,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsConvEntry {
+    pub seq: i64,
+    #[serde(default)] pub kind: String,
+    #[serde(default)] pub bytes: i64,
+    #[serde(default)] pub at: i64,
+    #[serde(default)] pub tokens: i64,
+    #[serde(default)] pub text: String,
+    #[serde(default)] pub is_error: bool,
+    #[serde(default)] pub tool: Option<String>,
+    #[serde(default, rename = "stopReason")] pub stop_reason: Option<String>,
+    #[serde(default, rename = "errorMessage")] pub error_message: Option<String>,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsTask {
+    pub id: i64,
+    #[serde(default)] pub kind: String,
+    #[serde(default)] pub status: String,
+    #[serde(default, rename = "startedAt")] pub started_at: i64,
+    #[serde(default, rename = "endedAt")] pub ended_at: Option<i64>,
+    #[serde(default)] pub conv: i64,
+    #[serde(default)] pub outcome: Option<String>,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsPromptMessage {
+    #[serde(default)] pub id: i64,
+    #[serde(default)] pub label: String,
+    #[serde(default)] pub kind: String,
+    #[serde(default)] pub bytes: i64,
+    #[serde(default)] pub chars: i64,
+    #[serde(default)] pub tokens: i64,
+    #[serde(default)] pub cost: f64,
+    #[serde(default)] pub head: bool,
+    #[serde(default)] pub text: String,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsPrompt {
+    #[serde(default)] pub messages: Vec<StatsPromptMessage>,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsCost {
+    #[serde(default)] pub totals: StatsCostTotals,
+    #[serde(default, rename = "byDay")] pub by_day: Vec<CostBucket>,
+    #[serde(default, rename = "byHour")] pub by_hour: Vec<CostBucket>,
+    #[serde(default, rename = "byModel")] pub by_model: Vec<CostBucket>,
+    #[serde(default, rename = "byConv")] pub by_conv: Vec<CostBucket>,
+    #[serde(default)] pub note: String,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsCostTotals {
+    #[serde(default)] pub tokens: i64,
+    #[serde(default)] pub cost: f64,
+    #[serde(default)] pub input: i64,
+    #[serde(default)] pub output: i64,
+    #[serde(default, rename = "cacheRead")] pub cache_read: i64,
+    #[serde(default, rename = "cacheWrite")] pub cache_write: i64,
+    #[serde(default)] pub reasoning: i64,
+    #[serde(default)] pub entries: i64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+impl StatsTask {
+    pub fn ms(&self) -> i64 {
+        self.extra
+            .get("durationMs")
+            .and_then(|v| v.as_i64())
+            .or_else(|| {
+                self.ended_at
+                    .map(|e| e.saturating_sub(self.started_at))
+            })
+            .unwrap_or(0)
+    }
+}
+
+impl StatsCostTotals {
+    /// 输入 + 缓存读为分母，零时返回零（不是 NaN）。
+    pub fn cache_hit(&self) -> f32 {
+        let billed = self.input + self.cache_read;
+        if billed <= 0 { 0. } else { self.cache_read as f32 / billed as f32 }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsHealth {
+    #[serde(default)] pub tasks: StatsHealthTasks,
+    #[serde(default)] pub submissions: StatsHealthSubs,
+    #[serde(default)] pub documents: StatsHealthDocs,
+    #[serde(default, rename = "walBytes")] pub wal_bytes: i64,
+    #[serde(default)] pub freelist: StatsFreeList,
+    #[serde(default)] pub maintenance: Vec<StatsMaintenance>,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsHealthTasks {
+    #[serde(default)] pub total: i64,
+    #[serde(default, rename = "byStatus")] pub by_status: Vec<StatsStatusBucket>,
+    #[serde(default)] pub stuck: Vec<Value>,
+    #[serde(default, rename = "avgMs")] pub avg_ms: i64,
+    #[serde(default)] pub p95: i64,
+    #[serde(default)] pub slowest: Vec<StatsTask>,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsStatusBucket {
+    pub status: String,
+    #[serde(default)] pub count: i64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsHealthSubs {
+    #[serde(default)] pub total: i64,
+    #[serde(default)] pub by_status: Vec<StatsStatusBucket>,
+    #[serde(default)] pub unanswered: Vec<StatsUnanswered>,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsUnanswered {
+    #[serde(default)] pub id: i64,
+    #[serde(default)] pub conv: i64,
+    #[serde(default)] pub status: String,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsHealthDocs {
+    #[serde(default)] pub documents: i64,
+    #[serde(default)] pub revisions: i64,
+    #[serde(default)] pub base: i64,
+    #[serde(default)] pub delta: i64,
+    #[serde(default, rename = "deltaRatio")] pub delta_ratio: f64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsFreeList {
+    #[serde(default)] pub free: i64,
+    #[serde(default)] pub bytes: i64,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StatsMaintenance {
+    pub label: String,
+    #[serde(default)] pub why: String,
+    #[serde(default)] pub cmd: String,
+    #[serde(default)] pub danger: bool,
+    #[serde(flatten)] pub extra: BTreeMap<String, Value>,
+}
+
+/// 老名字是 `Stats*` 的兼容别名：六屏渲染代码不动，但名字里不再藏旧面板语义。
+pub type Overview = StatsOverview;
+pub type Target = StatsTarget;
+pub type DbFiles = StatsDbFiles;
+pub type Pragmas = StatsPragmas;
+pub type BytesBreakdown = StatsBytes;
+pub type TableStat = StatsTable;
+pub type IndexStat = StatsIndex;
+pub type KindStat = StatsKind;
+pub type Integrity = StatsIntegrity;
+pub type Counts = StatsCounts;
+pub type Conversations = StatsConvs;
+pub type ConvRow = StatsConvRow;
+pub type ConvTotals = StatsConvTotals;
+pub type Conversation = StatsReplay;
+pub type ConvEntry = StatsConvEntry;
+pub type TaskRow = StatsTask;
+pub type DocRow = Value;
+pub type SubmissionRow = Value;
+pub type Prompt = StatsPrompt;
+pub type PromptMessage = StatsPromptMessage;
+pub type Cost = StatsCost;
+pub type CostTotals = StatsCostTotals;
+pub type Health = StatsHealth;
+pub type HealthTasks = StatsHealthTasks;
+pub type TaskStatusBucket = StatsStatusBucket;
+pub type SlowTask = StatsTask;
+pub type HealthSubs = StatsHealthSubs;
+pub type SubStatusBucket = StatsStatusBucket;
+pub type Unanswered = StatsUnanswered;
+pub type HealthDocs = StatsHealthDocs;
+pub type KindCount = StatsKind;
+pub type FreeList = StatsFreeList;
+pub type Maintenance = StatsMaintenance;

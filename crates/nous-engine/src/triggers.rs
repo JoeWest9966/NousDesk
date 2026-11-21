@@ -1,7 +1,7 @@
-//! n8qkkj（触发器管理块）的哑客户端。
+//! 触发器管理面的哑客户端（同一个引擎地址上的 `/v1/triggers`）。
 //!
-//! **为什么是另一个 client**：触发器的清单 / 文件 / 发布 / 归档都住在 n8qkkj，
-//! 不在 qrd3wh 的 `/v1/*` 里。地址同样只能从宿主的 `__nous/resolve/n8qkkj` 拿。
+//! **为什么是另一个 client**：触发器的清单 / 文件 / 发布 / 归档形状跟会话面不同，
+//! 但地址只有一个（`cfg.host`），不从别处解析第二地址。
 //!
 //! 这一层不加业务字段、不算状态：清单里 `tracked / dirty / error` 都是 n8qkkj 算好的，
 //! 客户端只画；发布是**一个同步长请求**（cargo check → build → index → commit → push），
@@ -251,6 +251,7 @@ impl TriggerClient {
         let headers = crate::auth::headers(token).map_err(|message| EngineError::Engine {
             status: 400,
             message,
+            body: None,
         })?;
         let http = reqwest::Client::builder()
             .timeout(timeout)
@@ -287,11 +288,13 @@ impl TriggerClient {
             return Err(EngineError::Engine {
                 status: status.as_u16(),
                 message,
+                body: Some(text),
             });
         }
         serde_json::from_str(&text).map_err(|e| EngineError::Engine {
             status: status.as_u16(),
             message: format!("JSON 不像话：{e}"),
+            body: Some(text),
         })
     }
 

@@ -33,6 +33,7 @@ Nous 已重写成 Rust（一个进程 `nous-app`，块/`resolve` 会消失）。
 | 会话面（`sessions` / `entries` / `events` / `messages` / `abort` / `fork` / `models` / `machines`） | 8 条路径 | ✅ **已实现** |
 | 能连上还缺的 | 7 条 | 🚧 Nous `#47`（`device` / `unread` / `read` / `rename` / `selection` / `skills` / `prompts` + `/v1/capabilities`） |
 | `presets/*` 那 16 条 | 16 | ⏸ **先不做**：`/v1/capabilities` 会声明 `presets: false`，客户端把入口灰掉；将来由 `documents` 模块统一（Nous `#48`） |
+| `documents` 模块（Nous `#48`，12 端点） | 12 | ✅ **Desk#16 甲案已接**：`nous-engine/src/documents.rs` 是哑 client（必带 token），编辑器的 history / history/diff / pending 已经改从这族端点取数；新增「文档」入口/列表页仍等 demo 拍板 |
 | `archive` / `combos` / `triggers` / `extensions` / `fs` | 10 | ⏸ 同上，能力表关掉 |
 | 发消息**有回复** | — | 🚧 Nous `#44`（`nous-sessions` 最小轮次）：没有它，连上去也只能看历史 |
 
@@ -454,39 +455,50 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 
 ---
 
-## 另一个来源：`d6s4v1`（`agent.sqlite` 的 X 光机）
+## 旧面板取数：已删（Desk#13）
 
-数据监控室（`crates/nousdesk/src/data_console.rs`）有一半数据**不走引擎**，走的是面板
-`d6s4v1`：`/p/<board>/d6s4v1/api/*`。地址同样是「宿主 + board」，别在调用点拼。
+数据监控室前五屏原来走旧面板的四五个只读接口，那个客户端和随附快照夹具已整文件删除。
+现在这些屏按 capabilities 灰掉并给理由；`Desk#12` 已接上 `/v1/stats/*`，数据原样取、不在客户端重算。
+归档屏仍走 `GET /v1/archive`（未实现，灰 + 理由）。
 
-客户端在 `crates/nous-engine/src/console.rs`，五个端点：
+## documents 一族（12 条，Desk#16 甲案）
 
-| 端点 | 我们依赖什么 |
-|---|---|
-| `GET api/overview` | `file{db,wal,shm,mtime,walMtime}`、`pragmas{pageSize,pageCount,freelist,journalMode,schemaVersion}`、`bytes{free,used}`、`counts{<表名>: 行数}`、`tables[{name,rows,bytes,pages}]`、`indexes[]`、`entriesByKind[{kind,count,bytes}]`、`integrity{checked,ok,messages}`、`target{id,path}` |
-| `GET api/conversations` | `count`、`list[{id,entries,tokens,cost,toolCalls,models,firstAt,lastAt,title}]`、`totals{entries,tokens}` |
-| `GET api/conversation?id=N` | `id`、`entries[{seq,kind,role,tokens,bytes,at,text,isError,tool,usage}]`、`tasks[{id,kind,status,startedAt,endedAt,ms}]`、`documents[]`、`submissions[]`、`prompt{messages[{id,label,text,chars,tokens}],totals}` |
-| `GET api/cost` | `totals{entries,tokens,input,output,cacheRead,cacheWrite,reasoning,cost}`、`byDay/byHour/byModel/byConv[{label,tokens,cost,calls,input,output,cacheRead}]`、`note` |
-| `GET api/health` | `tasks{total,byStatus,stuck,sleeping,avgMs,p95,slowest[{id,conv,kind,status,startedAt,endedAt}]}`、`submissions{total,byStatus,unanswered[{id,conv,status}]}`、`documents{documents,byKind,revisions,base,delta,deltaRatio}`、`walBytes`、`freelist{free,bytes}`、`maintenance[{label,why,cmd,danger}]` |
+`GET /v1/documents/{kind}` 列出该 kind 的文档（引擎按 kind 定 section）；
+其余端点以 `{kind}/{section}/{name}` 为路径段，**客户端不解释 kind 的业务含义**。
+全部经 `crates/nous-engine/src/documents.rs` 的 `DocumentClient` 转发，
+自建 client 一律 `with_token`（走 `crate::auth`），未知字段原样收在 `Value` 里透传。
 
-几条别忘：
+| 方法 | 路径 | 我们依赖的字段 / 用法 |
+|---|---|---|
+| `GET` | `/v1/documents/{kind}` | `{kind, section, items[], resolved}`；列表条数 > 0 即判据 2 |
+| `GET` | `/v1/documents/{kind}/{section}/{name}` | `{kind, section, name, fields, etag}`；`etag` 是写回的乐观锁 |
+| `PUT` | `/v1/documents/{kind}/{section}/{name}` | body = `{fields, …}`；`If-Match` **走 header**。409 = 别人先改了，回包 `etag` 是磁盘版本；客户端把 409 + 磁盘版本原样交 UI 显示 |
+| `POST` | `/v1/documents/{kind}/{section}` | body 同 PUT；`201` + `{kind, section, name, etag}` |
+| `POST` | `…/{name}/rename` | `{to}` → `{ok, refs, …}` |
+| `POST` | `…/{name}/publish` | 通用 action，引擎只在字段上记 `action` |
+| `POST` | `…/{name}/reload` | 同上 |
+| `GET` | `…/{name}/validate` | `{ok, errors[], warnings[], resolved}` |
+| `GET` | `…/{name}/history` | `{kind, section, name, commits[]}`；`commits[].hash` = `r{seq}`，`at/author` 可为 `null`（不是 git sha）。喂进现有提交历史面板 |
+| `GET` | `…/{name}/history/diff?hash=&path=` | `{kind, section, name, path, before, after}`；两份**全文 JSON**（不是 git patch，不是文本）。`before=null` = 那边没有这个文件。喂进现有行级 diff 面板 |
+| `GET` | `…/{name}/pending` | `{kind, section, name, head, dirty, units[], aheadCommits[]}`；喂进现有待提交面板 |
+| `GET` | `…/{name}/pending/diff` | 同 history/diff 的形状，比的是最新 base 之后叠的 delta |
 
-- **`mtime` / `walMtime` 是 epoch 毫秒**（不是秒）。乘 1000 会得到 5 万年后的时间。
-- **`file.db`（文件字节）和 `pageSize × pageCount` 不总相等**：WAL 模式下 db 文件长度会落后几页。
-  真库上差 2 页，别断言相等。
-- 每份响应都带一段 `diagrams`（mermaid 源码）。桌面端不渲 mermaid，用 `Value` / `BTreeMap`
-  收着透传，别删字段。
-- 面板崩的时候回的是**整页 HTML**（502 网关那种）。错误文案必须先压平去标签再上屏，
-  否则一个红框能把整页顶下去（`console::flatten`）。
-- 这些端点是**只读**的：没有 POST。归档 / 打捞 / 撕原件仍然走引擎 `/v1/*`。
+**形状适配**：引擎回的 `before/after` 是 JSON 对象；`documents_file_diff()` 用
+`serde_json::to_string_pretty` 把它变成文本再画（行级 diff 面板只认文本）。
+`history` 的 `commits[]` / `pending` 整包直接 `from_value` 进现有 `Commit` / `Pending`，
+未知字段仍由它们各自的 `extra` 收着。
 
----
+> 这 12 条**不在**「合同外调用」名单里：本节就是它们的字段合同。
 
 ## 合同外调用（客户端在用，本文件没写）
 
-**27 条**。来源是**真引擎的行为**，不是某份文档 —— 当初它们都是整包转发（`serde_json::Value`
-进、`Value` 出），所以没进「我们依赖的字段」清单。**形状以 `crates/nous-engine/src/types.rs`
-为准**（那是客户端真实期望），要改这里先改那份类型。
+**27 条 + 资源/触发器写回族**。来源是**真引擎的行为**，不是某份文档 —— 它们整包转发
+（`serde_json::Value` 进、`Value` 出），所以没进「我们依赖的字段」清单。**形状以
+`crates/nous-engine/src/types.rs` 为准**（那是客户端真实期望），要改这里先改那份类型；
+资源写的请求体在 `crates/nous-engine/src/resource.rs`（`NewSkill` / `NewPrompt` /
+`NewExtension` / `SaveFile`），触发器写在 `crates/nous-engine/src/triggers.rs`
+（`NewTrigger` / `TriggerPublish` / `TriggerMutation`）。这些端点在 `dead_paths.rs` 里
+都标 `等票`，引擎未声明前 UI 灰掉、不发请求。
 
 ### 归档（2）
 
@@ -527,6 +539,32 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 
 > 这 16 条是**同一个东西抄 16 遍**（读文件 / 校验 / 写版本 / 发布 / 列历史 / 算 diff）。
 > Rust 版不打算照抄，要收敛成一个 `documents` 模块（Nous `#48`）。
+
+### 私库写回（15；等票 Nous#75）
+
+`POST /v1/{skills,prompts,extensions}/create`、`GET .../{files,file}`、
+`PUT .../file`（body `SaveFile`，带 `base` 做并发闸）、`POST .../publish`
+（body `{message?}`），以及三仓 `/{op}` 旧拓扑化石（不可再调用）。
+UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
+
+### 触发器写回（10；等票 Nous#80 / Nous#73）
+
+`GET /v1/triggers/{files,file}`、`PUT .../file`、`POST .../create|publish|archive|restore|purge|category|categories`。
+请求/回包类型在 `triggers.rs`；`sync` 是同族的历史方法，当前 UI 不调用。
+客户端另有一个 `POST /v1/triggers/sync`（`TriggerClient::sync`，`dead_paths.rs` 标灰）：
+引擎未声明前入口不发请求，灰理由走 `capability.rs` 原文。
+
+### 统计 / 默认 / 选择 / 文档（客户端在用，字段合同在正文或协议层）
+
+| 方法 | 路径 | 形状来源 |
+|---|---|---|
+| `GET` | `/v1/stats/{usage,tasks,db}` | `console.rs` 的 `Stats*`；Desk#12 已接，六屏原样画 |
+| `PUT` | `/v1/default` | `client.rs` + `settings.rs`；端点级 `capability::endpoint_enabled` 门控 |
+| `POST` | `/v1/selection` | `client.rs` + `app.rs`；远端同步不回环 |
+| `GET` / `PUT` / `POST` | `/v1/documents/{kind}[/{section}/{name}]` 及其 rename/publish/reload/validate/history/pending | `documents.rs` 的 `DocumentClient`，12 条详见上文「documents 一族」 |
+| `POST` | `/v1/triggers` 写族 | 见上一节；`sync` 也在此列 |
+
+这些端点在 `dead_paths.rs` / `ENGINE_ROUTES` 里逐个登记；`GET /v1/_routes` 的夹具是唯一外部证据。
 
 ### 其余（6）
 

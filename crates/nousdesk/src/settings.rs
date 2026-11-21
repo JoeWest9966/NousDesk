@@ -11,14 +11,82 @@
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
+/// Desk#17：设置页「默认模型」这一行的**纯状态**（渲染和点击都读它）。
+/// `models` = `GET /v1/models` 的结果；`gate_reason` = capability 给的人话理由原文
+/// （来自 `Desktop::endpoint_disabled_reason` 通道，UI 不自己判 code）。
+pub(crate) struct DefaultModelRow {
+    pub enabled: bool,
+    /// 当前默认模型 key `provider/modelId`（`None` = 编目里没指）。
+    pub current: Option<String>,
+    /// 可选项，同样是 key。空 = 编目空。
+    pub items: Vec<String>,
+    /// 不可用时给人看的一句人话；可用时 `None`。
+    pub reason: Option<String>,
+}
+
+pub(crate) fn default_model_row(
+    models: Option<&nous_engine::types::Models>,
+    gate_reason: Option<String>,
+) -> DefaultModelRow {
+    if let Some(reason) = gate_reason {
+        return DefaultModelRow {
+            enabled: false,
+            current: None,
+            items: vec![],
+            reason: Some(reason),
+        };
+    }
+    let Some(models) = models else {
+        return DefaultModelRow {
+            enabled: false,
+            current: None,
+            items: vec![],
+            reason: Some("没连上引擎，读不到模型编目".into()),
+        };
+    };
+    let items: Vec<String> = models
+        .items
+        .iter()
+        .map(|m| format!("{}/{}", m.provider, m.model_id))
+        .collect();
+    if items.is_empty() {
+        return DefaultModelRow {
+            enabled: false,
+            current: None,
+            items,
+            reason: Some("引擎没有模型编目".into()),
+        };
+    }
+    DefaultModelRow {
+        enabled: true,
+        current: models.default_key(),
+        items,
+        reason: None,
+    }
+}
+
+/// 连接页那句查找顺序。Linux 只做 Linux，这里只写用户真正会遇到的路径。
+pub(crate) const CONFIG_PATH_HINT: &str =
+    "查找顺序：NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → ~/.config/nousdesk/";
+
 use gpui_kit::assets::IconName;
+use gpui_kit::base::Disableable as _;
+use gpui_kit::component::button::Button;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::app::Desktop;
 use crate::config::Config;
+
+/// 关于页的二级菜单。默认「概览」，插件页独立成页（demo 01）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AboutTab {
+    Overview,
+    Plugins,
+}
 
 /// 原 `MUTED = 0x999999`；由 muted 这个语义槽接管。
 fn muted() -> u32 { t().p.muted }
@@ -390,7 +458,7 @@ impl Desktop {
             SettingsTab::Connection => self.connection_pane(cx),
             SettingsTab::Theme => self.theme_pane(cx),
             SettingsTab::Sound => self.sound_pane(cx),
-            SettingsTab::About => self.about_pane(),
+            SettingsTab::About => self.about_pane(narrow, cx),
         };
 
         div()
@@ -457,8 +525,9 @@ impl Desktop {
             .child(readonly(
                 "配置文件（保存写这里）",
                 target,
-                "查找顺序：NOUS_DESKTOP_CONFIG → exe 旁 desktop.toml → %APPDATA%\\nousdesk\\",
+                CONFIG_PATH_HINT,
             ))
+            .child(self.default_model_row(cx))
             .children(msg)
             .child(
                 div()
@@ -481,6 +550,55 @@ impl Desktop {
                         cx.listener(|this, _: &ClickEvent, _, cx| this.connect(cx)),
                     )),
             )
+            .into_any_element()
+    }
+
+    /// 设置页「引擎」这一节里的「默认模型」行。
+    /// 有编目 → 一颗下拉按钮列 `models.items`，选中即 `PUT /v1/default`；
+    /// 编目空 / 能力灰 / 没连引擎 → 整行禁用 + 人话理由（只消费 `endpoint_disabled_reason`）。
+    fn default_model_row(&self, cx: &mut Context<Self>) -> AnyElement {
+        let gate_reason = self.endpoint_disabled_reason("PUT", "/v1/default");
+        let row = default_model_row(self.default_models.as_ref(), gate_reason);
+        let button: AnyElement = if row.enabled {
+            let weak = cx.weak_entity();
+            let items = row.items.clone();
+            Button::new("settings-default-model")
+                .small()
+                .label(row.current.clone().unwrap_or_else(|| "选择默认模型".into()))
+                .dropdown_menu_with_anchor(gpui_kit::Anchor::TopRight, move |menu, _window, _cx| {
+                    let mut menu = menu.min_w(t().d(220.));
+                    for key in &items {
+                        let key = key.clone();
+                        let weak = weak.clone();
+                        menu = menu.item(PopupMenuItem::new(key.clone()).on_click(move |_, _, cx| {
+                            let _ = weak.update(cx, |this, cx| this.set_default_model(key.clone(), cx));
+                        }));
+                    }
+                    menu
+                })
+                .into_any_element()
+        } else {
+            Button::new("settings-default-model-disabled")
+                .small()
+                .label(row.current.clone().unwrap_or_else(|| "默认模型不可用".into()))
+                .disabled(true)
+                .into_any_element()
+        };
+        let note = row.reason.unwrap_or_else(|| "改动立刻写回引擎编目，重启 Desk 仍然生效。".into());
+        div()
+            .flex()
+            .flex_col()
+            .gap(t().d(5.))
+            .w_full()
+            .min_w(t().d(0.))
+            .child(
+                div()
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(t().p.muted))
+                    .child("默认模型"),
+            )
+            .child(button)
+            .child(div().text_size(t().fs(10.5)).text_color(rgb(faint())).child(note))
             .into_any_element()
     }
 
@@ -673,7 +791,7 @@ impl Desktop {
                 sound_row_pending(
                     t,
                     "轮到你拍板",
-                    "工具等你批准、问题等你回答。引擎现在没有这个信号 —— 不是没做，是没数据。",
+                    "工具等你批准、问题等你回答。引擎目前没有这个信号，所以没有开关。",
                 ),
             ]))
             .child(sound_section_label(t, "手感 · 你在操作的时候"))
@@ -731,7 +849,76 @@ impl Desktop {
         cx.notify();
     }
 
-    fn about_pane(&self) -> AnyElement {
+    /// 关于页：顶部二级 segmented + 概览 / 插件两页（demo 01）。
+    fn about_pane(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+        let t = t();
+        let module_count = self.caps.as_ref().map(|c| c.modules.len()).unwrap_or(0);
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(t.d(12.))
+            .pb(t.d(2.))
+            .child(div().text_size(t.fs(15.)).child("关于"))
+            .child({
+                let tabs = [
+                    (AboutTab::Overview, "概览".to_string()),
+                    (AboutTab::Plugins, format!("插件 {module_count}")),
+                ];
+                let mut row = div()
+                    .flex()
+                    .items_center()
+                    .p(t.d(2.))
+                    .gap(t.d(2.))
+                    .rounded(t.r(6.))
+                    .bg(rgb(t.p.surface))
+                    .border(t.d(1.))
+                    .border_color(rgb(t.p.line_soft));
+                for (tab, label) in tabs {
+                    let on = self.about_tab == tab;
+                    row = row.child(
+                        div()
+                            .id(ElementId::Name(format!("about-tab-{tab:?}").into()))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.about_tab = tab;
+                                cx.notify();
+                            }))
+                            .px(t.d(10.))
+                            .py(t.d(4.))
+                            .rounded(t.r(5.))
+                            .text_size(t.fs(11.5))
+                            .when(on, |el| {
+                                el.bg(rgb(t.p.accent_soft))
+                                    .text_color(rgb(t.p.accent_fg))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                            })
+                            .when(!on, |el| {
+                                el.text_color(rgb(t.p.text_2))
+                                    .hover(|h| h.bg(rgb(t.p.line_soft)))
+                            })
+                            .child(label),
+                    );
+                }
+                row
+            });
+
+        let body = match self.about_tab {
+            AboutTab::Overview => self.about_overview(),
+            AboutTab::Plugins => self.about_plugins(narrow, cx),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(t.d(14.))
+            .min_w(t.d(0.))
+            .child(head)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// 概览页：概览保留现有键值，外加 provider（caps.runtime.provider）。
+    /// `services` 只在 extra 里，按票面不做、不在 UI 猜。
+    fn about_overview(&self) -> AnyElement {
+        let t = t();
         let log_path = dirs::data_local_dir()
             .map(|d| {
                 d.join(crate::config::APP_DIR)
@@ -743,23 +930,70 @@ impl Desktop {
         let cfg_path = Config::path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "（没有配置文件，用的是默认值）".to_string());
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let facts = device_facts(self.device.as_ref(), now_ms as i128);
+        let unknown = || "未知".to_string();
+        let service = self
+            .caps
+            .as_ref()
+            .map(|c| c.server.version.clone())
+            .unwrap_or_else(unknown);
+        let provider = self
+            .caps
+            .as_ref()
+            .map(|c| {
+                let p = &c.runtime.provider;
+                if p.message.is_empty() {
+                    p.kind.clone()
+                } else {
+                    format!("{} · {}", p.kind, p.message)
+                }
+            })
+            .unwrap_or_else(|| "未知".into());
 
         div()
             .flex()
             .flex_col()
-            .gap(t().d(14.))
-            .max_w(t().d(520.))
-            .child(div().text_size(t().fs(15.)).child("关于"))
+            .gap(t.d(14.))
+            .min_w(t.d(0.))
+            .max_w(t.d(520.))
             .child(
                 div()
-                    .text_size(t().fs(11.5))
+                    .text_size(t.fs(11.5))
                     .text_color(rgb(muted()))
-                    .child("引擎版本来自 GET /v1/device 的 node —— 出问题先对版本。"),
+                    .child("引擎信息来自 GET /v1/device —— 出问题先对版本和构建号。"),
             )
             .child(kv("客户端", format!("v{}", env!("CARGO_PKG_VERSION"))))
+            .child(kv("引擎（node）", facts.node.clone().unwrap_or_else(unknown)))
+            .child(kv("引擎版本", service))
+            .child(kv("合同", format!("v{}", crate::capability::CLIENT_CONTRACT)))
             .child(kv(
-                "引擎",
-                self.engine_node.clone().unwrap_or_else(|| "未知".into()),
+                "路由",
+                match self.route_count {
+                    Some(n) => format!(
+                        "引擎 {n} 条 / 客户端认识 {} 条{}",
+                        crate::dead_paths::ENGINE_ROUTES.len(),
+                        if self.route_drift.is_empty() { String::new() } else { format!(" · 漂移 {} 条", self.route_drift.len()) }
+                    ),
+                    None => "未抓到 /v1/_routes（不影响使用）".into(),
+                },
+            ))
+            .child(kv("provider", provider))
+            .child(kv("构建（build）", facts.build.clone().unwrap_or_else(unknown)))
+            .child(kv("目标（target）", facts.target.clone().unwrap_or_else(unknown)))
+            .child(kv("已运行", facts.started_at.clone().unwrap_or_else(unknown)))
+            .child(kv("默认模型", facts.model.clone().unwrap_or_else(unknown)))
+            .child(kv("可用模型", format!("{} 个", facts.available)))
+            .child(kv(
+                "数据来源",
+                match facts.faux {
+                    Some(true) => "演示数据（faux）".into(),
+                    Some(false) => "真实引擎".into(),
+                    None => unknown(),
+                },
             ))
             .child(kv(
                 "引擎地址",
@@ -768,6 +1002,237 @@ impl Desktop {
             .child(kv("配置文件", cfg_path))
             .child(kv("日志", log_path))
             .into_any_element()
+    }
+
+    /// 插件页：左列表 + 右详情；窄窗退化成互斥的两屏（详情顶部「← 插件」）。
+    fn about_plugins(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+        let t = t();
+        let Some(caps) = self.caps.as_ref() else {
+            return div()
+                .text_size(t.fs(11.5))
+                .text_color(rgb(muted()))
+                .child("没有 capabilities —— 先到「连接」页连上引擎。")
+                .into_any_element();
+        };
+
+        // 选中项：未连上 / 模块被删掉时回落到第一条。
+        let selected = self
+            .about_selected
+            .as_deref()
+            .and_then(|name| caps.modules.iter().position(|m| m.name == name))
+            .unwrap_or(0);
+        let show_detail = !narrow || self.about_detail_open;
+
+        let mut list = div().flex().flex_col().gap(t.d(2.));
+        if narrow && show_detail {
+            // 窄窗详情自己带「← 插件」，列表收起。
+        } else {
+            for (i, module) in caps.modules.iter().enumerate() {
+                list = list.child(plugin_row(module, &caps.server.version, i == selected, cx));
+            }
+        }
+        let list = div()
+            .flex()
+            .flex_col()
+            .gap(t.d(10.))
+            .min_w(t.d(0.))
+            .when(!narrow, |el| el.w(t.d(268.)))
+            .child(div().text_size(t.fs(11.5)).text_color(rgb(muted())).child(format!(
+                "{} 个模块 · {} 启用 · {} 未启用 · {} 端点",
+                caps.modules.len(),
+                caps.modules.iter().filter(|m| m.enabled).count(),
+                caps.modules.iter().filter(|m| !m.enabled).count(),
+                caps.modules.iter().map(|m| m.endpoints.len()).sum::<usize>(),
+            )))
+            .child(list);
+
+        if !show_detail {
+            return list.into_any_element();
+        }
+        let module = &caps.modules[selected];
+        let detail = self.about_plugin_detail(module, caps, narrow, cx);
+        if narrow {
+            detail
+        } else {
+            div()
+                .flex()
+                .gap(t.d(18.))
+                .min_w(t.d(0.))
+                .child(list)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(t.d(0.))
+                        .border_l(t.d(1.))
+                        .border_color(rgb(t.p.line_soft))
+                        .pl(t.d(18.))
+                        .child(detail),
+                )
+                .into_any_element()
+        }
+    }
+
+    /// 单个模块详情（demo 01 右栏）。缺省字段按票面降级：
+    /// 版本 = caps.server.version，类型 / 层 = —，crate / 说明 = —。
+    fn about_plugin_detail(
+        &self,
+        module: &nous_engine::Module,
+        caps: &nous_engine::Capabilities,
+        narrow: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let t = t();
+        let unknown = "—";
+        let version = module.version.as_deref().unwrap_or(&caps.server.version);
+        let kind = module.kind.as_deref().unwrap_or(unknown);
+        let layer = module.layer.as_deref().unwrap_or(unknown);
+        let required = match module.required {
+            Some(true) => "是",
+            Some(false) => "否",
+            None => unknown,
+        };
+        let crate_name = module.crate_name.as_deref().unwrap_or(unknown);
+        let description = module.description.as_deref().unwrap_or(unknown);
+        let registered = crate::capability::module_feature(module.name.as_str());
+        let label = registered
+            .map(|f| f.label().to_string())
+            .unwrap_or_else(|| module.name.clone());
+
+        // 状态文案只走 disabled_text()：不在这里写第二套 if enabled。
+        let reason = registered
+            .and_then(|f| self.feature_gate(f))
+            .map(|g| match g {
+                crate::capability::Gate::Enabled => None,
+                crate::capability::Gate::Disabled { code, reason } => {
+                    Some(crate::capability::disabled_text(code, &reason.message))
+                }
+                crate::capability::Gate::Unknown => Some(crate::capability::disabled_text(
+                    nous_engine::ReasonCode::Unknown,
+                    "服务端未声明这个功能",
+                )),
+            })
+            .unwrap_or_else(|| {
+                if module.enabled {
+                    None
+                } else {
+                    module.reason.as_ref().map(|r| {
+                        crate::capability::disabled_text(r.code, &r.message)
+                    })
+                }
+            });
+        let state = if module.enabled { "启用" } else { "未启用" };
+
+        let mut detail = div()
+            .flex()
+            .flex_col()
+            .gap(t.d(10.))
+            .min_w(t.d(0.))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(t.d(4.))
+                    .child(div().text_size(t.fs(15.)).child(label))
+                    .child(
+                        div()
+                            .text_size(t.fs(10.5))
+                            .text_color(rgb(muted()))
+                            .child(module.name.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(t.d(8.))
+                    .child(div().text_size(t.fs(11.5)).text_color(rgb(muted())).child(state))
+                    .child(
+                        div()
+                            .text_size(t.fs(11.5))
+                            .text_color(rgb(muted()))
+                            .child(format!("v{version} · 合同 v{}", caps.contract)),
+                    ),
+            );
+        if let Some(reason) = reason {
+            detail = detail.child(
+                div()
+                    .p(t.d(8.))
+                    .rounded(t.r(5.))
+                    .bg(rgb(t.p.warn_soft))
+                    .text_size(t.fs(11.))
+                    .text_color(rgb(t.p.text_2))
+                    .child(reason),
+            );
+        }
+        detail = detail
+            .child(plugin_meta("类型", kind.to_string()))
+            .child(plugin_meta("层", layer.to_string()))
+            .child(plugin_meta("必需", required.to_string()))
+            .child(plugin_meta("来源 crate", crate_name.to_string()))
+            .child(plugin_meta(
+                "客户端登记",
+                match registered {
+                    Some(_) => "已登记 · capability.rs".to_string(),
+                    None => "未登记".to_string(),
+                },
+            ))
+            .child(
+                div()
+                    .text_size(t.fs(10.5))
+                    .text_color(rgb(faint()))
+                    .child(description.to_string()),
+            );
+
+        let mut eps = div().flex().flex_col().gap(t.d(1.));
+        eps = eps.child(
+            div()
+                .text_size(t.fs(10.))
+                .text_color(rgb(faint()))
+                .child(format!("端点 · {}", module.endpoints.len())),
+        );
+        for endpoint in &module.endpoints {
+            let (method, path) = crate::capability::split_endpoint(endpoint)
+                .unwrap_or((endpoint.as_str(), ""));
+            eps = eps.child(
+                div()
+                    .flex()
+                    .gap(t.d(8.))
+                    .text_size(t.fs(10.5))
+                    .child(
+                        div()
+                            .w(t.d(38.))
+                            .flex_none()
+                            .text_color(rgb(if method == "POST" { t.p.accent_fg } else { muted() }))
+                            .child(method.to_string()),
+                    )
+                    .child(div().text_color(rgb(t.p.text_2)).child(path.to_string())),
+            );
+        }
+        detail = detail.child(eps);
+
+        if narrow {
+            div()
+                .flex()
+                .flex_col()
+                .gap(t.d(10.))
+                .child(
+                    div()
+                        .id(ElementId::Name("about-plugin-back".into()))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.about_detail_open = false;
+                            cx.notify();
+                        }))
+                        .px(t.d(6.))
+                        .py(t.d(4.))
+                        .text_size(t.fs(12.))
+                        .text_color(rgb(t.p.text_2))
+                        .hover(|h| h.bg(rgb(t.p.line_soft)))
+                        .child("← 插件"),
+                )
+                .child(detail)
+                .into_any_element()
+        } else {
+            detail.into_any_element()
+        }
     }
 
     // ── 保存 ────────────────────────────────────────────────
@@ -982,7 +1447,7 @@ fn sound_row_pending(t: crate::theme::Skin, name: &'static str, desc: &'static s
                                 .border_color(rgb(t.p.line))
                                 .text_size(t.fs(10.))
                                 .text_color(rgb(t.p.faint))
-                                .child("待接入"),
+                                .child("无此信号"),
                         ),
                 )
                 .child(
@@ -1210,6 +1675,107 @@ fn field(label: &'static str, input: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
+/// 插件页的一行。点击选中并进入详情（窄窗由 `about_detail_open` 控制）。
+fn plugin_row(
+    module: &nous_engine::Module,
+    fallback_version: &str,
+    selected: bool,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
+    let t = t();
+    let name = module.name.clone();
+    let label = crate::capability::module_feature(&name)
+        .map(|f| f.label().to_string())
+        .unwrap_or_else(|| name.clone());
+    let version = module.version.as_deref().unwrap_or(fallback_version);
+    let state = if module.enabled { "启用" } else { "未启用" };
+    let color = if module.enabled { t.p.ok } else { t.p.muted };
+    div()
+        .id(ElementId::Name(format!("about-plugin-{name}").into()))
+        .on_click(cx.listener({
+            let name = name.clone();
+            move |this, _: &ClickEvent, _, cx| {
+                this.about_selected = Some(name.clone());
+                this.about_detail_open = true;
+                cx.notify();
+            }
+        }))
+        .flex()
+        .items_center()
+        .gap(t.d(8.))
+        .px(t.d(8.))
+        .py(t.d(7.))
+        .rounded(t.r(5.))
+        .when(selected, |el| el.bg(rgb(t.p.accent_soft)))
+        .when(!selected, |el| el.hover(|h| h.bg(rgb(t.p.row_hover))))
+        .child(
+            div()
+                .w(t.d(6.))
+                .h(t.d(6.))
+                .flex_none()
+                .rounded_full()
+                .bg(rgb(color)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(t.d(2.))
+                .min_w(t.d(0.))
+                .flex_1()
+                .child(
+                    div()
+                        .text_size(t.fs(12.))
+                        .text_color(rgb(if selected { t.p.accent_fg } else { t.p.text }))
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .text_size(t.fs(10.))
+                        .text_color(rgb(muted()))
+                        .child(name),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_end()
+                .gap(t.d(2.))
+                .flex_none()
+                .child(
+                    div()
+                        .text_size(t.fs(10.5))
+                        .text_color(rgb(muted()))
+                        .child(format!("v{version} · {}", state)),
+                )
+                .child(
+                    div()
+                        .text_size(t.fs(10.))
+                        .text_color(rgb(faint()))
+                        .child(format!("{} 端点", module.endpoints.len())),
+                ),
+        )
+        .into_any_element()
+}
+
+fn plugin_meta(label: &'static str, value: String) -> AnyElement {
+    let t = t();
+    div()
+        .flex()
+        .gap(t.d(10.))
+        .text_size(t.fs(11.5))
+        .child(
+            div()
+                .w(t.d(72.))
+                .flex_none()
+                .text_color(rgb(muted()))
+                .child(label),
+        )
+        .child(div().min_w(t.d(0.)).text_color(rgb(t.p.text_2)).child(value))
+        .into_any_element()
+}
+
 fn readonly(label: &'static str, value: String, note: &'static str) -> AnyElement {
     div()
         .flex()
@@ -1240,6 +1806,77 @@ fn readonly(label: &'static str, value: String, note: &'static str) -> AnyElemen
         )
         .child(div().text_size(t().fs(10.5)).text_color(rgb(faint())).child(note))
         .into_any_element()
+}
+
+/// `GET /v1/device` 的字段明细，About 面板直接画这些行。
+/// 缺字段就不编造 —— 一律 `None`，界面显示「未知」。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DeviceFacts {
+    pub node: Option<String>,
+    pub build: Option<String>,
+    pub target: Option<String>,
+    pub started_at: Option<String>,
+    pub model: Option<String>,
+    pub faux: Option<bool>,
+    pub available: usize,
+}
+
+/// 七个字段的归属表：判据 4 要「每个字段有主」，这里写死谁在哪一屏呈现。
+/// `extra` 里那几个字段不进界面，也得写明「不用」的原因。
+#[cfg(test)]
+pub(crate) fn device_field_owners() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("node", "设置页 / 关于：引擎版本"),
+        ("build", "设置页 / 关于：构建号"),
+        ("target", "设置页 / 关于：编译目标"),
+        ("startedAt", "设置页 / 关于：引擎已运行 X"),
+        ("model", "设置页 / 关于：默认模型"),
+        ("available", "设置页 / 关于：可用模型数"),
+        ("faux", "设置页 / 关于：演示数据 + 标题栏 DEMO 角标"),
+        ("self", "不用：实例名只做服务端寻址，界面已有引擎地址"),
+        ("origin", "不用：请求源地址不面向用户"),
+        ("data", "不用：引擎侧数据目录，桌面端不碰"),
+        ("catalog", "不用：模型目录内容由 /v1/models 提供"),
+    ]
+}
+
+/// `startedAt` 是 epoch 毫秒，不是时长。客户端只做一次减法显示「引擎已运行 X」，
+/// 不缓存、不当真相源；拿不到 / 不是数字就返回 `None`（About 显示「未知」）。
+fn started_text(v: Option<&serde_json::Value>, now_ms: i128) -> Option<String> {
+    let started = v?.as_i64()? as i128;
+    let secs = (now_ms - started).max(0) / 1000;
+    if secs < 60 {
+        Some(format!("已运行 {secs} 秒"))
+    } else if secs < 3600 {
+        Some(format!("已运行 {} 分钟", secs / 60))
+    } else if secs < 86400 {
+        Some(format!("已运行 {} 小时", secs / 3600))
+    } else {
+        Some(format!("已运行 {} 天", secs / 86400))
+    }
+}
+
+/// 把 `Device` 压成 About 面板要显示的那几行。纯函数，好钉判据 4。
+/// `now_ms` 由调用方给（`std::time::SystemTime`），测试给固定值。
+pub(crate) fn device_facts(device: Option<&nous_engine::types::Device>, now_ms: i128) -> DeviceFacts {
+    let Some(d) = device else { return DeviceFacts::default() };
+    let str_of = |v: Option<&serde_json::Value>| -> Option<String> {
+        v.and_then(|v| v.as_str()).map(str::to_string)
+    };
+    let model = d.model.as_ref().and_then(|m| {
+        let provider = str_of(m.get("provider"))?;
+        let id = str_of(m.get("modelId"))?;
+        Some(format!("{provider}/{id}"))
+    });
+    DeviceFacts {
+        node: d.node.clone(),
+        build: str_of(d.extra.get("build")),
+        target: str_of(d.extra.get("target")),
+        started_at: started_text(d.started_at.as_ref(), now_ms),
+        model,
+        faux: d.faux,
+        available: d.available.len(),
+    }
 }
 
 fn kv(label: &'static str, value: String) -> AnyElement {
@@ -1276,4 +1913,96 @@ fn reveal_config() {
     let _ = std::process::Command::new("open").arg(&dir).spawn();
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    // 不 `use super::*`：gpui 重导出的宏再展开一层会撞递归上限。
+    use super::{default_model_row, device_facts, CONFIG_PATH_HINT, device_field_owners};
+    use nous_engine::types::{Device, ModelRef, Models};
+
+    fn device() -> Device {
+        serde_json::from_value(serde_json::json!({
+            "node": "0.1.2",
+            "build": "abc123",
+            "target": "x86_64-unknown-linux-gnu",
+            "startedAt": 1_700_000_000_000i64,
+            "model": {"provider": "volc-ark", "modelId": "deepseek-v3"},
+            "faux": true,
+            "data": "/var/lib/nous",
+            "catalog": null,
+            "available": ["a/b", "c/d"],
+            "self": "engine-1",
+            "origin": "http://127.0.0.1:4789",
+        }))
+        .unwrap()
+    }
+
+    /// Desk#17：默认模型行的「能不能选 + 理由」纯状态。
+    /// 编目空 = 禁用 + 人话；能力灰 = 禁用 + 引擎原文；有编目 = 可选。
+    #[test]
+    fn default_model_row_state() {
+        let models: Models = serde_json::from_value(serde_json::json!({
+            "default": {"provider":"p","modelId":"one"},
+            "items": [{"provider":"p","modelId":"one","name":"一","thinkingLevels":[]}],
+        })).unwrap();
+        let row = default_model_row(Some(&models), None);
+        assert!(row.enabled);
+        assert_eq!(row.current.as_deref(), Some("p/one"));
+        assert_eq!(row.items.len(), 1);
+        assert!(row.reason.is_none());
+
+        let empty: Models = serde_json::from_value(serde_json::json!({
+            "default": null, "items": [],
+        })).unwrap();
+        let row = default_model_row(Some(&empty), None);
+        assert!(!row.enabled);
+        assert_eq!(row.reason.as_deref(), Some("引擎没有模型编目"));
+
+        let row = default_model_row(None, None);
+        assert!(!row.enabled);
+        assert!(row.reason.as_deref().is_some_and(|r| r.contains("没连上引擎")));
+
+        let row = default_model_row(
+            Some(&models),
+            Some("默认模型还没做（#17 哨兵）".to_string()),
+        );
+        assert!(!row.enabled);
+        assert!(row.reason.as_deref().is_some_and(|r| r.contains("默认模型还没做（#17 哨兵）")));
+
+        // 负向哨兵：回包 default 抄进本地状态（调用方拿它覆盖 Models.default）。
+        let receipt_default = ModelRef {
+            provider: "p".into(), model_id: "two".into(), extra: Default::default(),
+        };
+        assert_eq!(receipt_default.key(), "p/two");
+    }
+
+    /// 判据 4：七个字段每一个都有主（展示 / 明确不用）。哨兵删一个字段就红。
+    #[test]
+    fn every_device_field_has_an_owner() {
+        let facts = device_facts(Some(&device()), 1_700_000_060_000);
+        assert_eq!(facts.node.as_deref(), Some("0.1.2"));
+        assert_eq!(facts.build.as_deref(), Some("abc123"));
+        assert_eq!(facts.target.as_deref(), Some("x86_64-unknown-linux-gnu"));
+        assert!(facts.started_at.unwrap().contains("已运行"));
+        assert_eq!(facts.model.as_deref(), Some("volc-ark/deepseek-v3"));
+        assert_eq!(facts.available, 2);
+        assert_eq!(facts.faux, Some(true));
+        let owners = device_field_owners();
+        for key in ["node", "build", "target", "startedAt", "model", "available", "faux"] {
+            assert!(owners.iter().any(|(k, _)| *k == key), "{key} 没有渲染点 / 不用注释");
+        }
+        for key in ["self", "origin", "data", "catalog"] {
+            assert!(owners.iter().any(|(k, why)| *k == key && why.contains("不用")), "{key} 没有交代");
+        }
+        let none = device_facts(None, 0);
+        assert!(none.node.is_none() && none.faux.is_none() && none.started_at.is_none());
+    }
+
+    /// 判据 2：连接页那句人话不许再提 Windows 的路径变量。
+    #[test]
+    fn connection_hint_never_says_windows_env_var() {
+        assert!(!CONFIG_PATH_HINT.contains('%'));
+        assert!(CONFIG_PATH_HINT.contains("NOUS_DESKTOP_CONFIG"));
+    }
 }

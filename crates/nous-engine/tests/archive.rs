@@ -306,7 +306,7 @@ async fn engine_error_message_is_passed_through_verbatim() {
         }
         .unwrap_or_else(|| panic!("{endpoint} 该报错"));
         match err {
-            EngineError::Engine { status, message } => {
+            EngineError::Engine { status, message, .. } => {
                 assert_eq!(status, 409);
                 assert_eq!(message, ERROR, "{endpoint} 改写了引擎原文");
             }

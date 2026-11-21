@@ -351,6 +351,12 @@ pub(crate) fn missing_field(kind: Kind, name: &str, text: &str) -> Option<&'stat
 // ── 动作 ───────────────────────────────────────────────────────────────
 
 impl Desktop {
+    /// `Desk#13` 返工：等票的能力型端点在引擎声明前保持灰。
+    /// 判定与理由只走 `capability.rs`；这里只负责「不发请求 + 把理由给人看」。
+    fn resource_write_gate(&self, method: &'static str, path: &str) -> Option<String> {
+        self.endpoint_disabled_reason(method, path)
+    }
+
     /// 新建：三个仓各开一张表。**必填项不相同**，所以不是一张通用表。
     pub(crate) fn resource_new(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
         let mut input = |ph: &'static str| cx.new(|cx| InputState::new(window, cx).placeholder(ph));
@@ -406,6 +412,10 @@ impl Desktop {
         };
         let Some(form) = self.resources.form.as_ref() else { return };
         let kind = form.kind;
+        if let Some(reason) = self.resource_write_gate("POST", &format!("/v1/{}/create", kind.repo().key())) {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let name = form.name.read(cx).value().trim().to_string();
         let text = form.text.read(cx).value().trim().to_string();
         let body = form.body.read(cx).value().to_string();
@@ -506,6 +516,12 @@ impl Desktop {
 
     /// 打开整页编辑器：先拉文件清单，再读正文文件。
     pub(crate) fn resource_open_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let repo = self.resources.selected.as_ref()
+            .map(|s| s.kind_of().repo().key()).unwrap_or("skills");
+        if let Some(reason) = self.resource_write_gate("GET", &format!("/v1/{repo}/files")) {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             self.notify("还没连上引擎", NoticeKind::Error, cx);
             return;
@@ -654,6 +670,11 @@ impl Desktop {
 
     /// 存草稿：只落盘、不提交。
     pub(crate) fn resource_save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let repo = self.resources.edit.as_ref().map(|e| e.kind.repo().key()).unwrap_or("skills");
+        if let Some(reason) = self.resource_write_gate("PUT", &format!("/v1/{repo}/file")) {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else { return };
         let Some(e) = self.resources.edit.as_ref() else { return };
         let (kind, name, path) = (e.kind, e.name.clone(), e.active.clone());
@@ -741,6 +762,10 @@ impl Desktop {
 
     /// 发布**一个**仓。三个仓各走各的，谁失败只染谁。
     pub(crate) fn resource_publish(&mut self, repo: Repo, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.resource_write_gate("POST", &format!("/v1/{}/publish", repo.key())) {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             self.notify("还没连上引擎", NoticeKind::Error, cx);
             return;
@@ -860,6 +885,11 @@ impl Desktop {
     }
 
     pub(crate) fn resource_confirm_yes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let repo = self.resources.confirm.as_ref().map(|c| c.kind.repo().key()).unwrap_or("skills");
+        if let Some(reason) = self.resource_write_gate("POST", &format!("/v1/{repo}/{{op}}")) {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
         let Some(engine) = self.engine.clone() else { return };
         let Some(c) = self.resources.confirm.as_mut() else { return };
         let (kind, name, act) = (c.kind, c.name.clone(), c.act);
