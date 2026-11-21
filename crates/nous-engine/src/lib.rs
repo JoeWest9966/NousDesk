@@ -16,8 +16,8 @@
 pub mod auth;
 pub mod capabilities;
 pub mod client;
+pub mod conflict;
 pub mod console;
-pub mod documents;
 pub mod pins;
 pub mod resource;
 pub mod sse;
@@ -48,10 +48,7 @@ pub struct RouteEntry {
 pub use client::{EngineClient, EngineError};
 pub use client::{client_paths, CLIENT_PATHS};
 pub use console::{StatsClient, STATS_PATHS};
-pub use documents::{
-    DOCUMENT_PATHS, DocumentClient, DocumentConflict, document_conflict, document_paths,
-    documents_file_diff, documents_history_commits, documents_pending,
-};
+pub use conflict::{Conflict, conflict_of};
 
 /// 协议层实际发出、且引擎 recovery 分支确实有的 stats 路径（给白名单自检拼表）。
 pub fn stats_paths() -> &'static [(&'static str, &'static str)] {

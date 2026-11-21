@@ -258,9 +258,6 @@ impl ListIndex {
 
 pub struct Desktop {
     pub(crate) engine: Option<Arc<EngineClient>>,
-    /// documents 12 端点的哑客户端（Desk#16）。和 `engine` 同一个 host / token，
-    /// 但走独立的 `DocumentClient`（自建 client 必须 `with_token`，`坑.md` 100）。
-    pub(crate) documents: Option<Arc<nous_engine::DocumentClient>>,
     pub(crate) sessions: Vec<Session>,
     pub(crate) selected: Option<i64>,
     entries: Vec<Entry>,
@@ -1012,7 +1009,6 @@ impl Desktop {
 
         let mut this = Self {
             engine: None,
-            documents: None,
             sessions: vec![],
             selected: None,
             entries: vec![],
@@ -1178,7 +1174,6 @@ impl Desktop {
     pub(crate) fn connect(&mut self, cx: &mut Context<Self>) {
         self.loading = true;
         self.error = None;
-        self.documents = None;
         self.engine_url = None;
         self.device = None;
         self.caps = None;
@@ -1202,9 +1197,8 @@ impl Desktop {
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 match outcome {
-                    Ok((engine, documents, sessions, device, url, caps, route_count, route_drift)) => {
+                    Ok((engine, sessions, device, url, caps, route_count, route_drift)) => {
                         this.engine = Some(engine);
-                        this.documents = Some(documents);
                         this.sessions = sessions;
                         this.engine_node = device.as_ref().and_then(|d| d.node.clone());
                         this.device = device;
@@ -5194,7 +5188,6 @@ async fn load_engine(
 ) -> Result<
     (
         Arc<EngineClient>,
-        Arc<nous_engine::DocumentClient>,
         Vec<Session>,
         Option<nous_engine::types::Device>,
         String,
@@ -5207,10 +5200,6 @@ async fn load_engine(
     let token = cfg.resolve_token();
     let engine = EngineClient::with_token(&cfg.host, Duration::from_secs(10), token.as_deref())
         .map_err(|e| e.to_string())?;
-    let documents = Arc::new(
-        nous_engine::DocumentClient::with_token(&cfg.host, Duration::from_secs(10), token.as_deref())
-            .map_err(|e| e.to_string())?,
-    );
     let sessions = engine.sessions().await.map_err(|e| e.to_string())?.items;
     let mut sessions = sessions;
     sort_sessions(&mut sessions, &recent);
@@ -5225,7 +5214,6 @@ async fn load_engine(
                 .iter()
                 .chain(nous_engine::stats_paths())
                 .chain(nous_engine::pin_paths())
-                .chain(nous_engine::document_paths())
                 .map(|(m, p)| format!("{m} {p}"))
                 .collect::<Vec<_>>();
             client.push("GET v1/_routes".to_string());
@@ -5242,7 +5230,6 @@ async fn load_engine(
     let route_count = if route_count == 0 { None } else { Some(route_count) };
     Ok((
         Arc::new(engine),
-        documents,
         sessions,
         device,
         cfg.host.clone(),

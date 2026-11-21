@@ -11,7 +11,6 @@ use nous_engine::{Module, Reason, ReasonCode};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Feature {
     Sessions,
-    Documents,
     Presets,
     Archive,
     Combos,
@@ -30,8 +29,6 @@ impl Feature {
     fn probe_path(self) -> (&'static str, &'static str) {
         match self {
             Self::Sessions => ("GET", "v1/sessions"),
-            // #16：Desk 不接文档编辑器，这里只供「插件页展示」用，永不作为入口守卫。
-            Self::Documents => ("GET", "v1/documents"),
             Self::Presets => ("GET", "v1/presets/{section}"),
             Self::Archive => ("GET", "v1/archive"),
             Self::Combos => ("GET", "v1/combos"),
@@ -49,7 +46,6 @@ impl Feature {
     pub fn label(self) -> &'static str {
         match self {
             Self::Sessions => "会话",
-            Self::Documents => "文档",
             Self::Presets => "预设",
             Self::Archive => "归档",
             Self::Combos => "组合",
@@ -66,7 +62,6 @@ impl Feature {
     pub fn module_name(self) -> &'static str {
         match self {
             Self::Sessions => "sessions",
-            Self::Documents => "documents",
             Self::Presets => "presets",
             Self::Archive => "archive",
             Self::Combos => "combos",
@@ -123,7 +118,7 @@ pub fn normalize_path(path: &str) -> String {
 /// 没有 Desk 入口 → `None`，插件页照实列出并标「未登记」。
 pub fn module_feature(name: &str) -> Option<Feature> {
     [
-        Feature::Sessions, Feature::Documents, Feature::Presets, Feature::Archive,
+        Feature::Sessions, Feature::Presets, Feature::Archive,
         Feature::Combos, Feature::Triggers, Feature::Skills, Feature::Prompts,
         Feature::Selection, Feature::Device, Feature::Stats, Feature::Ext,
     ]
@@ -209,9 +204,6 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     }
     if path.starts_with("v1/stats/") {
         return Some(Feature::Stats);
-    }
-    if path.starts_with("v1/documents") {
-        return Some(Feature::Documents);
     }
     if path == "v1/skills" || path.starts_with("v1/skills/") {
         return Some(Feature::Skills);
@@ -442,10 +434,9 @@ mod tests {
             (Feature::Selection, "选择"),
             (Feature::Device, "设备"),
             (Feature::Ext, "扩展"),
-            (Feature::Documents, "文档"),
             (Feature::Stats, "数据监控"),
         ];
-        assert_eq!(all.len(), 12, "#18 的 11 个 Feature + #12 的 Stats");
+        assert_eq!(all.len(), 11, "#18 的 10 个 Feature + #12 的 Stats（documents 已下线，Desk 不登记）");
         // engine 恢复分支多出的 `env` 没有 Desk 入口，不在 Feature 里；
         // 插件页照实列出所有模块，未登记的显式标注。
         for (feature, label) in all {
@@ -458,12 +449,12 @@ mod tests {
     #[test]
     fn registered_feature_names_cover_all_desktop_modules() {
         let all = [
-            Feature::Sessions, Feature::Documents, Feature::Presets, Feature::Archive,
+            Feature::Sessions, Feature::Presets, Feature::Archive,
             Feature::Combos, Feature::Triggers, Feature::Skills, Feature::Prompts,
             Feature::Selection, Feature::Device, Feature::Stats, Feature::Ext,
         ];
         let names: Vec<_> = all.iter().map(|f| f.module_name()).collect();
-        assert_eq!(names.len(), 12);
+        assert_eq!(names.len(), 11);
         assert_eq!(names.iter().filter(|n| **n == "env").count(), 0, "env 没有 Desk 入口");
     }
 

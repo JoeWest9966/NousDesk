@@ -171,6 +171,8 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/stats/usage"),
     ("GET", "v1/stats/tasks"),
     ("GET", "v1/stats/db"),
+    // Nous#90：documents 没有产品面（内容真相只有四个私库，见 decisions 2026-11-21）。
+    // Desk 不再调用；这些条目等引擎侧下线后整块删除。
     ("GET", "v1/documents/{kind}"),
     ("GET", "v1/documents/{kind}/{section}/{name}"),
     ("PUT", "v1/documents/{kind}/{section}/{name}"),
@@ -357,7 +359,6 @@ mod tests {
             .iter()
             .chain(nous_engine::stats_paths())
             .chain(nous_engine::pin_paths())
-            .chain(nous_engine::document_paths())
         {
             let key = format!("{} {}", method, crate::capability::normalize_path(path));
             let is_dead = DEAD_PATHS.iter().any(|e| {
@@ -388,7 +389,6 @@ mod tests {
             .iter()
             .chain(nous_engine::stats_paths())
             .chain(nous_engine::pin_paths())
-            .chain(nous_engine::document_paths())
         {
             let key = format!("{} {}", method, crate::capability::normalize_path(path));
             if engine.contains(&key) {
@@ -414,7 +414,6 @@ mod tests {
             .iter()
             .chain(nous_engine::stats_paths())
             .chain(nous_engine::pin_paths())
-            .chain(nous_engine::document_paths())
         {
             known.insert(format!(
                 "{} {}",
@@ -575,7 +574,6 @@ mod source_literal_audit {
         let client_paths: Vec<String> = nous_engine::client_paths().iter()
             .chain(nous_engine::stats_paths().iter())
             .chain(nous_engine::pin_paths().iter())
-            .chain(nous_engine::document_paths().iter())
             .map(|(_, p)| crate::capability::normalize_path(p))
             .collect();
         let dead_paths: Vec<String> = super::DEAD_PATHS.iter()

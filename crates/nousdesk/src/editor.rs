@@ -872,23 +872,13 @@ impl crate::app::Desktop {
             return;
         };
         let section = self.editor.section.clone();
-        let name = self.editor.name.clone();
-        let documents = self.documents.clone();
         cx.spawn(async move |this, cx| {
             let Some(h) = crate::TOKIO.get().cloned() else {
                 return;
             };
-            // 数据源：documents /pending 优先（Desk#16）；失败退回 presets，面板形状不变。
+            // 数据源：presets 的 pending（幂等单元）。
             let got = h
-                .spawn(async move {
-                    if let Some(d) = documents
-                        && let Ok(v) = d.pending("presets", &section, &name).await
-                        && let Ok(p) = nous_engine::documents_pending(&v)
-                    {
-                        return Ok(p);
-                    }
-                    engine.pending(&section).await
-                })
+                .spawn(async move { engine.pending(&section).await })
                 .await
                 .ok();
             let _ = this.update(cx, |this, cx| {
@@ -928,31 +918,15 @@ impl crate::app::Desktop {
         };
         let section = self.editor.section.clone();
         let name = self.editor.name.clone();
-        let documents = self.documents.clone();
         self.editor.hist_loading = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let Some(h) = crate::TOKIO.get().cloned() else {
                 return;
             };
-            // 数据源：documents /history 优先；失败退回 presets 的 history。
+            // 数据源：presets 的修订历史。
             let got = h
-                .spawn(async move {
-                    if let Some(d) = documents
-                        && let Ok(v) = d.history("presets", &section, &name).await
-                        && let Ok(commits) = nous_engine::documents_history_commits(&v)
-                    {
-                        return Ok(nous_engine::types::PresetHistory {
-                            name: name.clone(),
-                            path: None,
-                            commits,
-                            extra: v.as_object().map(|o| o.iter()
-                                .filter(|(k, _)| k.as_str() != "commits")
-                                .map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default(),
-                        });
-                    }
-                    engine.preset_history(&section, &name, 30).await
-                })
+                .spawn(async move { engine.preset_history(&section, &name, 30).await })
                 .await
                 .ok();
             let _ = this.update(cx, |this, cx| {
@@ -988,7 +962,6 @@ impl crate::app::Desktop {
         let section = self.editor.section.clone();
         let name = self.editor.name.clone();
         let manifest = self.editor.manifest.clone();
-        let documents = self.documents.clone();
         let hash = hash.to_string();
         self.editor.hist_pick = Some(hash.clone());
         self.editor.hist_diff = None;
@@ -998,15 +971,9 @@ impl crate::app::Desktop {
             let Some(h) = crate::TOKIO.get().cloned() else {
                 return;
             };
-            // 数据源：documents /history/diff 优先；失败退回 presets。
+            // 数据源：presets 的提交 diff。
             let got = h
                 .spawn(async move {
-                    if let Some(d) = documents
-                        && let Ok(v) = d.history_diff("presets", &section, &name, Some(&hash), Some(&manifest)).await
-                        && let Ok(diff) = nous_engine::documents_file_diff(&v)
-                    {
-                        return Ok(diff);
-                    }
                     engine
                         .preset_commit_diff(&section, &name, &hash, &manifest)
                         .await
@@ -1032,9 +999,7 @@ impl crate::app::Desktop {
             return;
         };
         let section = self.editor.section.clone();
-        let name = self.editor.name.clone();
         let path = path.to_string();
-        let documents = self.documents.clone();
         self.editor.diff_pick = Some(path.clone());
         self.editor.diff = None;
         self.editor.diff_loading = true;
@@ -1043,18 +1008,9 @@ impl crate::app::Desktop {
             let Some(h) = crate::TOKIO.get().cloned() else {
                 return;
             };
-            // 数据源：documents /pending/diff 优先；失败退回 presets。
+            // 数据源：presets 的 pending diff。
             let got = h
-                .spawn(async move {
-                    if let Some(d) = documents
-                        && let Ok(v) = d.pending_diff("presets", &section, &name).await
-                        && let Ok(mut diff) = nous_engine::documents_file_diff(&v)
-                    {
-                        diff.path = path.clone();
-                        return Ok(diff);
-                    }
-                    engine.pending_diff(&section, &path).await
-                })
+                .spawn(async move { engine.pending_diff(&section, &path).await })
                 .await
                 .ok();
             let _ = this.update(cx, |this, cx| {
@@ -1229,7 +1185,6 @@ impl crate::app::Desktop {
         let name = self.editor.name.clone();
         let base = self.editor.etag.clone();
         let manifest = self.editor.manifest.clone();
-        let documents = self.documents.clone();
         let text = serde_json::to_string_pretty(&self.editor.draft).unwrap_or_default() + "\n";
         let text_for_req = text.clone();
         let manifest_for_req = manifest.clone();
@@ -1242,19 +1197,8 @@ impl crate::app::Desktop {
             let result = match &handle {
                 Some(h) => h
                     .spawn(async move {
-                        // 保存优先走 documents `PUT`（`If-Match` 走 header）。
-                        // 409 是**业务信号**，必须原样交回 UI，绝不能降级成 presets 覆盖写。
-                        if let Some(d) = documents {
-                            let draft: serde_json::Value =
-                                serde_json::from_str(&text_for_req).unwrap_or(serde_json::Value::Null);
-                            match d.put("presets", &section, &name, &draft, &base).await {
-                                Ok(v) => return Ok(v),
-                                Err(EngineError::Engine { status: 409, message, body }) => {
-                                    return Err(EngineError::Engine { status: 409, message, body });
-                                }
-                                Err(_) => { /* 其它错误退回旧端点 */ }
-                            }
-                        }
+                        // 保存走 presets 的 `PUT`（`If-Match` 走 header）。
+                        // 409 是**业务信号**，必须原样交回 UI，绝不能降级成覆盖写。
                         engine
                             .put_preset_file(&section, &name, &manifest_for_req, &text_for_req, &base)
                             .await
@@ -1281,7 +1225,7 @@ impl crate::app::Desktop {
                     Some(Err(EngineError::Engine { status: 409, message, body })) => {
                         this.editor.conflict = true;
                         // 引擎回包里的磁盘版本原样带出来；UI 只显示，不解释。
-                        let conflict = nous_engine::document_conflict(&EngineError::Engine {
+                        let conflict = nous_engine::conflict_of(&EngineError::Engine {
                             status: 409,
                             message: message.clone(),
                             body,
