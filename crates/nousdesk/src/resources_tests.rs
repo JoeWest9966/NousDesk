@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::resources::*;
-    use nous_engine::types::{Skill, Skills, Prompt, Prompts, Extension, Extensions};
+    use nous_engine::types::{ExtItem, Extension, Extensions, Prompt, Prompts, Skill, Skills};
 
     fn skill(name: &str, desc: &str, cats: &[&str], hidden: bool) -> Skill {
         let mut s = Skill {
@@ -82,6 +82,7 @@ mod tests {
     #[test]
     fn 扩展五类各有行_筛选对得上() {
         let exts = Extensions {
+            items: vec![],
             installed: vec!["nous".into()],
             loadable: vec!["nous".into()],
             builtin: vec!["coding-tools".into()],
@@ -105,6 +106,61 @@ mod tests {
         let builtin = ext_rows(&exts, Some("@builtin"), "");
         assert_eq!(builtin.len(), 1);
         assert_eq!(builtin[0].name, "coding-tools");
+    }
+
+    /// 引擎 0.1.9 的 `items[]`：`kind` 决定档位，`category` / `summary` 直接可画。
+    /// 这条钉住两件事：老 JS 插件不能落进「加载失败」（那样会让人反复点重装），
+    /// 以及 `items` 非空时**不再**去看老形状（否则段计数和列表会打架）。
+    #[test]
+    fn items_形状按_kind_分档() {
+        let exts = Extensions {
+            items: vec![
+                item("native-one", "native", "running", Some("工具"), Some("跑着的")),
+                item("old-js", "legacy-js", "crashed", None, None),
+                item("broken", "invalid", "crashed", None, None),
+                item("off-one", "native", "disabled", None, None),
+            ],
+            // 老形状故意留着垃圾：items 非空时它必须完全不参与。
+            catalog: vec![Extension {
+                name: "ghost".into(), version: None, summary: None, sections: vec![],
+                category: vec![], is_default: false, tracked: false, file: None,
+                entry: None, needs: None, extra: Default::default(),
+            }],
+            ..Default::default()
+        };
+        let all = ext_rows(&exts, None, "");
+        assert_eq!(all.len(), 4, "有 items 就只画 items");
+        assert_eq!(all[0].name, "native-one");
+        assert_eq!(all[0].kind, ExtKind::On);
+        assert_eq!(all[1].kind, ExtKind::Legacy);
+        assert_eq!(all[2].kind, ExtKind::Failed);
+        assert_eq!(all[3].kind, ExtKind::Failed, "没跑起来的不冒充「启用中」");
+
+        assert_eq!(ext_rows(&exts, Some("@legacy"), "").len(), 1);
+        assert_eq!(ext_rows(&exts, Some("@on"), "").len(), 1);
+        assert_eq!(ext_rows(&exts, None, "跑着").len(), 1, "搜索看 summary");
+        assert_eq!(counts(None, None, Some(&exts)).2, 4);
+    }
+
+    fn item(
+        name: &str,
+        kind: &str,
+        state: &str,
+        category: Option<&str>,
+        summary: Option<&str>,
+    ) -> ExtItem {
+        ExtItem {
+            name: name.into(),
+            version: "0.1.0".into(),
+            kind: kind.into(),
+            category: category.map(Into::into),
+            summary: summary.map(Into::into),
+            loaded: kind == "native",
+            pid: None,
+            state: Some(state.into()),
+            error: None,
+            extra: Default::default(),
+        }
     }
 
     #[test]
