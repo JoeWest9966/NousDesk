@@ -1396,9 +1396,14 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 })),
         );
     } else {
+        // 装 / 卸 / 归档都认源码根里的目录名。变体是另一棵 worktree、已归档在
+        // `.archive/`、旧 JS 的连清单都不合法 —— 三档给了按钮也是 404，
+        // 而 404 看着像「没有这个扩展」。它们各有各的入口（见上面的分支）。
         if let Some(k) = ext_kind
             && k != ExtKind::Builtin
             && k != ExtKind::Legacy
+            && k != ExtKind::Variant
+            && k != ExtKind::Archived
         {
             let installed = k != ExtKind::Off;
             acts = acts.child(
