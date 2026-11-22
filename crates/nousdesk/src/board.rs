@@ -752,11 +752,23 @@ impl Desktop {
                     // 核心四条**无条件在**（引擎总是带上，勾掉是假动作，见 ExtKind::Core）。
                     // 其余 = 这台装上且能加载的。用户改过就不动。
                     if b.picked_exts.is_empty() {
+                        // 预勾 = 核心（勾不掉）+ 这台真能跑的。
+                        // 内核 0.1.10 不再回 `loadable` 那份投影，判据改成
+                        // 「原生 + 进程在跑」；坏的 / 旧 JS 的默认不进会话。
                         b.picked_exts = x
-                            .loadable
+                            .items
                             .iter()
-                            .cloned()
-                            .chain(core_exts(&x))
+                            .filter(|item| item.core)
+                            .map(|item| item.name.clone())
+                            .chain(
+                                x.items
+                                    .iter()
+                                    .filter(|item| {
+                                        item.kind == "native"
+                                            && item.state.as_deref() == Some("running")
+                                    })
+                                    .map(|item| item.name.clone()),
+                            )
                             .collect();
                     }
                     b.exts = Some(x);
