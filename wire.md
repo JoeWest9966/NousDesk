@@ -578,12 +578,15 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
-| `GET` | `/v1/combos` | 组合预设 |
-| `POST` | `/v1/combos/:name/:action` | |
+| `GET` | `/v1/combos/{section}` | 组合清单，**按段**（`Session-Template` / `Ultimate-Template`）。回 `{ combos: [{ name, trigger, params, session, enabled, problem, version }] }`；`enabled` / `problem` 由引擎算，`version` 是下面 `PATCH` 的 `If-Match` 料 |
+| `PATCH` | `/v1/combos/{section}/{name}` | 只翻 `{enabled}`，必带 `If-Match` + `requestId`；回包是**平铺的一条**（不是 `{combo:{…}}`），带新 `version` |
 | `GET` | `/v1/extensions` | Rust 版先返回空清单（扩展运行时已冻结） |
 | `GET` | `/v1/triggers` | 触发器目前只有 trait，没有实现 |
 | `POST` | `/v1/selection` | 写当前选择（板 / 机器 / 模型） |
 | `GET` | `/v1/fs/dirs` | 列的是 **引擎那台机器**的目录，不是客户端的 |
+
+> 旧的 `GET /v1/combos`（不带段）与 `POST /v1/combos/:name/enable|disable` 在 Nous 0.1.7
+> 已取消 —— 前者会 **404**，后者压根没路由。`enabled` 是一个字段，不是两个动作。
 
 **规矩**：往这张表里加一条 = 客户端多了一处没有字段合同的调用。要么先在本文件写清形状，
 要么确认它是整包转发并且在 `types.rs` 里有类型 —— 两者都没有的话，别加。

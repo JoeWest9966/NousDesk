@@ -63,11 +63,11 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     // 发布预留（Nous#75）：私库 git 写端点，夹具里还没有，等票。
     DeadPath::wait("POST", "v1/repos/presets/commit", "Nous#75"),
     DeadPath::wait("GET", "v1/repos/presets/history", "Nous#75"),
-    // combos 2 —— 等票 #61 + Desk#11
+    // combos 已落活路由（`GET /v1/combos/{section}` + `PATCH /v1/combos/{section}/{name}`，
+    // 见 `ENGINE_ROUTES`）：旧版的 `GET /v1/combos` 与 `POST /v1/combos/:name/:action`
+    // 已从客户端消失，台账那两条整块删除。
     // recovery 快照只有 skills/prompts 两条只读；extensions 的 GET 没有路由。
     DeadPath::wait("GET", "v1/extensions", "Nous#63 / Desk#13"),
-    DeadPath::wait("GET", "v1/combos", "#61 / Desk#11"),
-    DeadPath::wait("POST", "v1/combos/{name}/{action}", "#61 / Desk#11"),
     // skills/prompts/extensions 写操作：`create/files/file/publish` 四动词 × 三仓 = 12 条
     // 能力型端点，等票 Nous#75、期间入口灰；`/ {op}` 三条是旧拓扑化石 → 删。
     DeadPath::wait("POST", "v1/skills/create", "Nous#75"),
@@ -182,6 +182,9 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/presets/{section}/{name}/revisions"),
     ("GET", "v1/presets/{section}/{name}/revisions/{n}"),
     ("POST", "v1/presets/{section}/{name}/rollback"),
+    // combos（Nous 0.1.7）：开关面按段取，旧的全局 GET 与 enable/disable 两条动作已取消。
+    ("GET", "v1/combos/{section}"),
+    ("PATCH", "v1/combos/{section}/{name}"),
     ("GET", "v1/_routes"),
 ];
 
@@ -323,7 +326,7 @@ mod tests {
         println!("routes 夹具 provenance={}", fixture["_provenance"]);
         assert!(!captured.is_empty(), "夹具缺 _captured_at");
         assert!(!version.is_empty(), "夹具缺 _engine_version");
-        assert_eq!(fixture["routes"].as_array().unwrap().len(), 59);
+        assert_eq!(fixture["routes"].as_array().unwrap().len(), 62, "59 条 0.1.3 快照 + 2026-11-22 补的 combos 三条");
         assert!(fixture["_provenance"].get("commit").is_some());
     }
 
@@ -428,11 +431,15 @@ mod tests {
 
     #[test]
     fn catalog_covers_all_fifty_dead_path_families() {
-        assert_eq!(DEAD_PATHS.len(), 45, "原 63 条减去 presets 旧 20 条 + 加 repo 预留 2 条");
+        assert_eq!(
+            DEAD_PATHS.len(),
+            43,
+            "原 63 条减去 presets 旧 20 条 + 加 repo 预留 2 条 - combos 落活 2 条"
+        );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::WaitTicket).count(),
-            30,
-            "原 48 条减去 presets 旧 20 条 + 加 repo 预留 2 条"
+            28,
+            "原 48 条减去 presets 旧 20 条 + 加 repo 预留 2 条 - combos 落活 2 条"
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Gray).count(),
