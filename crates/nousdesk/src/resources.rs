@@ -95,7 +95,7 @@ pub(crate) enum ExtKind {
     On,
     /// 仓库里但本机没装。
     Off,
-    /// 加载失败（引擎给了 `load.state == "failed"`）。
+    /// 加载失败（引擎给了 `load.state == "failed"`，或 `items[].kind == "invalid"`）。
     Failed,
     /// 引擎自带的，不在仓库里。
     Builtin,
@@ -103,6 +103,11 @@ pub(crate) enum ExtKind {
     Variant,
     /// `.archive/` 里，别人也看不见。
     Archived,
+    /// TS 时代（`qrd3wh`）的 JS 插件：清单都不合法，`index.js` 在新运行时里没有解释器。
+    ///
+    /// 这档不是「坏了」——是**换代**：装 / 卸都救不了，只能按 `nous-ext-sdk` 重写。
+    /// 把它涂成「加载失败」会让人反复点「重装」，每点一次都是同一个错。
+    Legacy,
 }
 
 impl ExtKind {
@@ -114,13 +119,14 @@ impl ExtKind {
             Self::Builtin => "内置",
             Self::Variant => "变体",
             Self::Archived => "已归档",
+            Self::Legacy => "待重写（旧 JS）",
         }
     }
 
     fn color(self) -> u32 {
         match self {
             Self::On => t().p.accent,
-            Self::Failed => t().p.danger,
+            Self::Failed | Self::Legacy => t().p.danger,
             _ => t().p.muted,
         }
     }
@@ -265,8 +271,34 @@ pub(crate) fn visible_prompts<'a>(prompts: &'a Prompts, cat: Option<&str>, q: &s
 ///
 /// 顺序不是字母序：`installed` 的先按仓库目录顺序，内置 / 变体 / 归档跟上。
 /// demo 里默认勾选的 `catalog` 在最上面 —— 用户找「扩展」先看仓里有什么。
+///
+/// **引擎 0.1.9 起给的是 `items[]`**（`{name, version, kind, category, summary,
+/// loaded, pid, state, error}`）：它只说「盘上这一条现在是什么状态」，不再分
+/// catalog / builtin / variants / archived 五份。所以有 `items` 就用 `items`，
+/// 老形状只在拿不到 `items` 时兜底 —— 两条路只留一个真相，不合并两套再猜。
 pub(crate) fn ext_rows(exts: &Extensions, cat: Option<&str>, q: &str) -> Vec<ExtRow> {
     let mut out = Vec::new();
+    if !exts.items.is_empty() {
+        for item in &exts.items {
+            let kind = match item.kind.as_str() {
+                // 换代，不是故障：清单是 JS 时代的，新运行时没有解释器。
+                "legacy-js" => ExtKind::Legacy,
+                // 清单不合法 / 进程崩了 —— 都是「这一条现在跑不起来」。
+                "invalid" => ExtKind::Failed,
+                _ if item.state.as_deref() == Some("running") => ExtKind::On,
+                _ => ExtKind::Failed,
+            };
+            out.push(ExtRow {
+                name: item.name.clone(),
+                // 清单不合法时没有 summary，引擎给的 error 才是人能看懂的那句话。
+                summary: item.summary.clone().or_else(|| item.error.clone()),
+                // 新形状里 category 是一个字符串（清单里就是 Option<String>）。
+                category: item.category.clone().into_iter().collect(),
+                kind,
+            });
+        }
+        return filter_ext_row(out, cat, q);
+    }
     for e in &exts.catalog {
         let failed = exts
             .load
@@ -333,6 +365,14 @@ pub(crate) fn ext_rows(exts: &Extensions, cat: Option<&str>, q: &str) -> Vec<Ext
             kind: ExtKind::Archived,
         });
     }
+    filter_ext_row(out, cat, q)
+}
+
+/// 列表的筛选：状态桶（`@on` / `@bad` / …）+ 类别 + 搜索词。
+///
+/// 从 `ext_rows` 拆出来：两种数据形状（`items[]` 与老的五份）走同一条筛选，
+/// 分开写就会出现「一边能搜、一边不能」。
+fn filter_ext_row(out: Vec<ExtRow>, cat: Option<&str>, q: &str) -> Vec<ExtRow> {
     let q_lower = q.trim().to_lowercase();
     out.into_iter()
         .filter(|r| match cat {
@@ -342,6 +382,7 @@ pub(crate) fn ext_rows(exts: &Extensions, cat: Option<&str>, q: &str) -> Vec<Ext
             Some("@builtin") => r.kind == ExtKind::Builtin,
             Some("@variant") => r.kind == ExtKind::Variant || r.kind == ExtKind::Failed,
             Some("@archived") => r.kind == ExtKind::Archived,
+            Some("@legacy") => r.kind == ExtKind::Legacy,
             Some("∅") => r.category.is_empty(),
             Some(c) => r.category.iter().any(|x| is_under(x, c)),
         })
@@ -356,11 +397,17 @@ pub(crate) fn ext_rows(exts: &Extensions, cat: Option<&str>, q: &str) -> Vec<Ext
 }
 
 /// 当前段能看到的条目数（段按钮上那个小数字）。
+///
+/// 扩展的计数只数**能看见的那一份**：有 `items` 就数 `items`（盘上真相），
+/// 没有才退回老形状的 `catalog`。两个都数是「段写 4、列表 7」的老毛病。
 pub(crate) fn counts(skills: Option<&Skills>, prompts: Option<&Prompts>, exts: Option<&Extensions>) -> (usize, usize, usize) {
     (
         skills.map(|s| s.skills.iter().filter(|x| !x.hidden).count()).unwrap_or(0),
         prompts.map(|p| p.prompts.len()).unwrap_or(0),
-        exts.map(|e| e.catalog.len()).unwrap_or(0),
+        exts.map(|e| {
+            if e.items.is_empty() { e.catalog.len() } else { e.items.len() }
+        })
+        .unwrap_or(0),
     )
 }
 
@@ -562,11 +609,21 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
         Section::Extensions => {
             let exts = r.exts.as_ref();
             let cats = exts.map(|e| e.categories.as_slice()).unwrap_or(&[]);
+            // `items[]` 时代没有仓库级类别词表（`categories` 为空），类别只在每条清单里；
+            // 老形状则是「词表 + catalog/archived 的类别」。两种都归一成同一种形状：
+            // 每条一个类别列表，交给 `build_tree` 去数。
             let items: Vec<Vec<String>> = exts
                 .map(|e| {
-                    e.catalog.iter().map(|x| x.category.clone())
-                        .chain(e.archived.iter().map(|x| x.category.clone()))
-                        .collect()
+                    if e.items.is_empty() {
+                        e.catalog.iter().map(|x| x.category.clone())
+                            .chain(e.archived.iter().map(|x| x.category.clone()))
+                            .collect()
+                    } else {
+                        e.items
+                            .iter()
+                            .map(|x| x.category.clone().into_iter().collect())
+                            .collect()
+                    }
                 })
                 .unwrap_or_default();
             (
@@ -574,6 +631,7 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
                 vec![
                     ("@on", "启用中".into()),
                     ("@bad", "加载失败".into()),
+                    ("@legacy", "待重写".into()),
                     ("@builtin", "内置".into()),
                     ("@variant", "变体".into()),
                     ("@archived", "已归档".into()),
@@ -1129,6 +1187,7 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     } else {
         if let Some(k) = ext_kind
             && k != ExtKind::Builtin
+            && k != ExtKind::Legacy
         {
             let installed = k != ExtKind::Off;
             acts = acts.child(
@@ -1248,6 +1307,10 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     body = body.child(note_line("在 .archive/ 里 —— 别人也看不见。「恢复」把它搬回仓库并提交，「真删」会一起提交删掉。"));
                 } else if e.kind == ExtKind::Builtin {
                     body = body.child(note_line("内置扩展是引擎硬编码 import 的 —— 卸载会 403，也不在仓库里，发不出去。"));
+                } else if e.kind == ExtKind::Legacy {
+                    // 这一档不是「装 / 卸」能治的：新运行时只 spawn 原生产物（协议握手 +
+                    // artifacts），`index.js` 没有解释器。说清楚该干什么，别让人反复点重装。
+                    body = body.child(note_line("TS 时代的 JS 插件（index.js + defineExtension）—— 新运行时只装载原生进程扩展，改清单也跑不起来；需按 nous-ext-sdk 重写。"));
                 } else {
                     body = body.child(note_line("装 / 卸 / 归档是三件不同的事；核心三条（nous / skills / prompts）卸载会被引擎 403 挡回来。"));
                 }

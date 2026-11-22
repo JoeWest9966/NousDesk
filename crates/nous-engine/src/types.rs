@@ -837,11 +837,19 @@ pub struct Skills {
 
 /// `GET /v1/extensions` —— 扩展清单页吃这个。
 ///
-/// 这里有**五类不同的东西**，别当成一个数组：
-/// `catalog`（仓库里的）/ `builtin`（引擎自带，只有名字）/ `variants`（本机 checkout）/
-/// `archived`（`.archive/` 里）/ 以及 `installed` + `loadable` 这两个名字清单。
-#[derive(Debug, Clone, Deserialize)]
+/// **两种形状并存，先看 `items`**：
+///
+/// - 引擎 0.1.9 起（`nous-ext` #81 解冻）回 `{ items: [...] }`：盘上每一条一个对象，
+///   带 `kind`（`native` / `legacy-js` / `invalid`）、`category`、`summary`、`state`、`pid`。
+///   这就是运行时自己的观测，没有「仓库 / 内置 / 变体 / 归档」这四分。
+/// - 旧形状（下面那七份）：`catalog`（仓库里的）/ `builtin`（引擎自带）/ `variants` /
+///   `archived` / 以及 `installed` + `loadable` 两个名字清单 —— TS 面板时代的投影。
+///   留着是因为旧引擎还在跑，但**新引擎不会回这些字段**，别当它还在。
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Extensions {
+    /// 引擎 0.1.9 起的真清单。空 = 旧引擎，退回下面的七份投影。
+    #[serde(default)]
+    pub items: Vec<ExtItem>,
     #[serde(default)]
     pub installed: Vec<String>,
     #[serde(default)]
@@ -871,6 +879,38 @@ pub struct Extensions {
     pub nameplates: Option<serde_json::Value>,
     pub local: Option<serde_json::Value>,
     pub live: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `items[]` 里的这一条（引擎 0.1.9 起）。
+///
+/// **只有运行时知道的事实**：清单合法不合法、进程在不在、状态机在哪一态。
+/// `kind` 说的是**装载形态**（`native` / `legacy-js` / `invalid`），不是分类 ——
+/// 分类在 `category`；两个混在一起就会画错层。
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtItem {
+    pub name: String,
+    #[serde(default)]
+    pub version: String,
+    /// `native` / `legacy-js` / `invalid`。
+    #[serde(default)]
+    pub kind: String,
+    /// 清单里的 `category`（一个字符串，不是数组）。
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    /// 清单读进来了并成功装载过（不是「进程现在活着」）。
+    #[serde(default)]
+    pub loaded: bool,
+    pub pid: Option<i64>,
+    /// `running` / `crashed` / `disabled` / …
+    #[serde(default)]
+    pub state: Option<String>,
+    /// 装载 / 运行失败时引擎的原话（老 JS 清单会写“需按 nous-ext-sdk 重写”）。
+    #[serde(default)]
+    pub error: Option<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }

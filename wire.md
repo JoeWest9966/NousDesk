@@ -580,13 +580,42 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 |---|---|---|
 | `GET` | `/v1/combos/{section}` | 组合清单。**段只有一个值：`Ultimate-Template`**（`Session-Template` 的条目是「开一条会话用什么」，不是组合；传它会 `400`）。回 `{ combos: [{ name, trigger, params, session, enabled, problem, version }] }`；`enabled` / `problem` 由引擎算，`version` 是下面 `PATCH` 的 `If-Match` 料 |
 | `PATCH` | `/v1/combos/{section}/{name}` | 只翻 `{enabled}`，必带 `If-Match` + `requestId`；回包是**平铺的一条**（不是 `{combo:{…}}`），带新 `version` |
-| `GET` | `/v1/extensions` | Rust 版先返回空清单（扩展运行时已冻结） |
+| `GET` | `/v1/extensions` | **不是空清单**（0.1.9 起 `#81` 已解冻）。回 `{ items: [{name, version, kind, category, summary, loaded, pid, state, error}] }`；`kind` 是装载形态（`native` / `legacy-js` / `invalid`），**不是分类**。旧形状（`catalog` / `builtin` / `variants` / `archived`）新引擎不再回，客户端只在 `items` 为空时兜底 |
 | `GET` | `/v1/triggers` | 触发器目前只有 trait，没有实现 |
 | `POST` | `/v1/selection` | 写当前选择（板 / 机器 / 模型） |
 | `GET` | `/v1/fs/dirs` | 列的是 **引擎那台机器**的目录，不是客户端的 |
 
 > 旧的 `GET /v1/combos`（不带段）与 `POST /v1/combos/:name/enable|disable` 在 Nous 0.1.7
 > 已取消 —— 前者会 **404**，后者压根没路由。`enabled` 是一个字段，不是两个动作。
+
+### GET /v1/extensions —— 扩展清单（0.1.9 起是运行时观测，不是仓库投影）
+
+```jsonc
+{ "items": [ { "name": "nous", "version": "0.1.0",
+                "kind": "native",        // native | legacy-js | invalid
+                "category": "工具",      // 清单里的，一个字符串（不是数组）
+                "summary": "…",
+                "loaded": true,           // 清单读进来了并装载过（≠ 进程现在活着）
+                "pid": 4821,
+                "state": "running",      // running | crashed | disabled | …
+                "error": null } ] }
+```
+
+- **`kind` 说的是装载形态，不是分类。** 0.1.8 及以前这里塞的是清单的 `category`，
+  同一份响应里 `kind` 与 `category` 是同一个值 —— 客户端照它画分类树就会把
+  「原生 / 老 JS / 不合法」三件事画成类别。分类看 `category`。
+- **`legacy-js` = TS 时代（`qrd3wh`）的 `index.js` + `defineExtension` 插件。**
+  新运行时只 `spawn` 原生产物（协议握手 + `artifacts/`），JS 没有解释器；这不是「改
+  JSON 就能修」，是**整个装载形态换了一代**。引擎在这类清单的 `error` 里明说「需按
+  nous-ext-sdk 重写」，客户端照原话显示，别自己编。
+- **没有 `catalog` / `builtin` / `variants` / `archived` 了。** 新清单就是「源码根下一个
+  目录一条」：内置三条现在也是盘上目录，归档在 `.archive/`（点开头，扫描排除）。
+  客户端只在 `items` 为空（旧引擎）时回退到那七份投影。
+- **装 / 卸仍是两个端点**：`POST /v1/extensions/{install,uninstall}`（body `{name}`），
+  核心三条卸载 403 —— 原话照登。
+- **重载 / 管理面**：`POST /v1/extensions/reload` → `{reloaded:[…]}`；`create` /
+  `duplicate` / `categories` / `category` 见 `crates/nous/server/src/ext_admin.rs`。
+  Desk 当前只用到 `items` 与装 / 卸。
 
 **规矩**：往这张表里加一条 = 客户端多了一处没有字段合同的调用。要么先在本文件写清形状，
 要么确认它是整包转发并且在 `types.rs` 里有类型 —— 两者都没有的话，别加。

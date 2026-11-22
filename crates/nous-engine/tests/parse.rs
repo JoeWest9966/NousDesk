@@ -383,3 +383,35 @@ fn parse_combos_per_section_and_flat_patch_receipt() {
     assert!(changed.enabled);
     assert_eq!(changed.extra.get("requestId").and_then(|v| v.as_str()), Some("desk-1"));
 }
+
+/// `GET /v1/extensions` 在引擎 0.1.9 之后的真形状：`{ items: [...] }`。
+/// 样本照着线上 j1900 的回包抄的（含老 JS 插件那一条）。
+#[test]
+fn parse_extensions_items() {
+    let json = r#"{
+      "items": [
+        {"name":"native-one","version":"0.1.0","kind":"native","category":"工具",
+         "summary":"原生那条","loaded":true,"pid":4821,"state":"running","error":null},
+        {"name":"123","version":"","kind":"legacy-js","category":null,"summary":null,
+         "loaded":false,"pid":null,"state":"crashed",
+         "error":"legacy-js: TS 时代的 JS 插件（index.js + defineExtension）新运行时装载不了"}
+      ]
+    }"#;
+    let exts: nous_engine::types::Extensions = serde_json::from_str(json).unwrap();
+    assert_eq!(exts.items.len(), 2);
+    assert_eq!(exts.items[0].kind, "native");
+    assert_eq!(exts.items[0].category.as_deref(), Some("工具"));
+    assert_eq!(exts.items[0].summary.as_deref(), Some("原生那条"));
+    assert_eq!(exts.items[0].state.as_deref(), Some("running"));
+    assert_eq!(exts.items[0].pid, Some(4821));
+    assert_eq!(exts.items[1].kind, "legacy-js");
+    assert!(!exts.items[1].loaded);
+    assert!(exts.items[1].error.as_deref().unwrap_or_default().contains("legacy-js"));
+
+    // 旧引擎回老形状（没有 items）：不能解析失败，只是 items 为空。
+    let legacy: nous_engine::types::Extensions =
+        serde_json::from_str(r#"{"installed":["nous"],"builtin":["coding-tools"],"catalog":[]}"#)
+            .unwrap();
+    assert!(legacy.items.is_empty());
+    assert_eq!(legacy.installed, vec!["nous".to_string()]);
+}
