@@ -520,33 +520,54 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 | `POST` | `/v1/sessions/:id/purge` |
 | `POST` | `/v1/sessions/:id/config` |
 
-### 预设资源化端点（Desk#11：12 条，与 Nous#60 逐字一致）
+### 预设端点（TS 内核同形，Nous#60 恢复）
 
-旧 18 条（files / file / validate / history / pending / publish / reload / category / rename /
-categories / `{op}`）已随 Desk#11 从客户端全部删除。现在是 12 条资源化端点：
+`Desk#11` 曾把这一族收窄成 12 条并丢掉 `resolved` / 扁平 `spec`，导致模板页画不出关系图、
+「开一条新对话」对引用失效的模板也照亮。2026-11-22 按 TS 内核（`presets.js` +
+`presets-api.js`）恢复，判定由引擎的 `nous-presets-admin` 给，客户端只消费。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/v1/presets/:section` | roster（清单即详情，字段名 `items`） |
+| `GET` | `/v1/presets` | 段清单：`{ root, sections: [{ id, title, count, manifest, checker }] }` |
+| `GET` | `/v1/presets/:section` | overview：`{ section, title, root, repo, presets, archived, categories }` |
+| `GET` | `/v1/presets/model` | 能引用的模型清单 |
+| `GET` | `/v1/presets/:section/order` | 盘上的排序表 |
+| `PUT` | `/v1/presets/:section/order` | 整段顺序 |
+| `GET` | `/v1/presets/:section/categories` | 类别名册（词表 ∪ 挂载，父在子前） |
+| `POST` | `/v1/presets/:section/categories` | 词表增 / 删 / 改名 `{ op, name, to? }` |
+| `POST` | `/v1/presets/:section/category` | 改一条预设挂着的类别 `{ name, category }` |
+| `POST` | `/v1/presets/:section/create` | 起手式：`spec` / `from: "device"` / 空白 |
+| `POST` | `/v1/presets/:section/rename` | 改名（目录 + 清单 `name` + 引用它的终极模板 `session`） |
+| `POST` | `/v1/presets/:section/archive` | 搬进 `<段>/.archive/<名>/`，body `{ name }` |
+| `POST` | `/v1/presets/:section/restore` | 搬回，body `{ name }` |
+| `POST` | `/v1/presets/:section/purge` | 彻底删除归档副本，body `{ name }` |
+| `GET` | `/v1/presets/:section/validate` | 只读校验（`?name=`），回 `{ ok, errors, warnings, spec, resolved }` |
+| `POST` | `/v1/presets/:section/validate` | 同上（草稿用 `{ spec }`） |
+| `GET` | `/v1/presets/:section/resolve` | 只要解析结果 |
+| `POST` | `/v1/presets/:section/resolve` | 同上 |
+| `GET` | `/v1/presets/:section/files` | 一条预设目录里的文件 |
+| `GET` | `/v1/presets/:section/file` | 单文件原文 `{ text, etag }` |
+| `PUT` | `/v1/presets/:section/file` | 写回单文件（写清单先过形状闸） |
+| `GET` | `/v1/presets/:section/pending` | 仓状态 + 待提交单元 |
+| `POST` | `/v1/presets/:section/sync` | 提交这一段 |
+| `POST` | `/v1/presets/:section/publish` | 形状闸 → 提交这一段 |
+| `POST` | `/v1/presets/:section/reload` | 重扫 |
 | `GET` | `/v1/presets/:section/:name` | 单条原文 + ETag |
 | `PUT` | `/v1/presets/:section/:name` | 建或覆盖（`If-Match`；`?dry_run=1` 校验不落盘） |
-| `DELETE` | `/v1/presets/:section/:name` | 软删（archived） |
 | `PATCH` | `/v1/presets/:section/:name` | `{archived}` / `{name}` / `{category}` / `{order}` |
+| `DELETE` | `/v1/presets/:section/:name` | 软删 = 搬进 `.archive/` |
 | `POST` | `/v1/presets/:section/:name/copy` | `{name, requestId}` |
-| `PUT` | `/v1/presets/:section/order` | 整段顺序 |
-| `GET` | `/v1/presets/:section/categories` | 类别名册（只读，由预设的 `category` 收敛） |
 | `GET` | `/v1/presets/:section/:name/revisions` | 引擎内修订清单 |
 | `GET` | `/v1/presets/:section/:name/revisions/:n` | 某一版原文 |
 | `POST` | `/v1/presets/:section/:name/rollback` | `{n, requestId}` |
-| `GET` | `/v1/presets/model` | 能引用的模型清单 |
 
-写端点统一带 `requestId`，并发用 `If-Match`（ETag = version）。**发布不是 presets 端点**：
-保存后走 Nous#75 的 `POST /v1/repos/presets/commit`，私库 git 历史走
-`GET /v1/repos/presets/history` —— 与引擎内 revisions 是两件事。
+`presets[]` 的每行带 `name` / `summary` / `description` / `category` / `spec` / `specError` /
+`tracked` / `dir` / `resolved` / `version` / `sha` / `order`；`spec` 是**整份扁平清单**
+（不再包一层 `spec` 键）。写端点统一带 `requestId`，并发用 `If-Match`（ETag = version）。
+归档是**搬目录**（`<段>/<名>` ↔ `<段>/.archive/<名>`），不是 `archived.json`。
+发布 / 同步走 `nous-repo`（`POST /v1/repos/presets/commit` 仍是私库 git 面）。
 diff 由 Desk 对「当前原文 vs 第 n 版原文」做文本计算（`crates/nous-engine/src/diff.rs`）。
-`roster` 的 `problem` 非空 = 不出现在选模板列表；草稿不再有独立状态位。
-
-> 形状以 `Nous` 侧 `/v1/openapi.json` 为准（Nous#60 判据 9 保证两边集合相等）。
+`specError` 非空 = 这条写坏了，不出现在选模板列表（老引擎的 `problem` 字段同样收）。
 
 ### 私库写回（15；等票 Nous#75）
 

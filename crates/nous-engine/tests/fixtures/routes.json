@@ -1,18 +1,33 @@
 {
   "_captured_at": "2026-11-22",
-  "_engine_version": "0.1.10",
+  "_engine_version": "0.1.15",
   "_provenance": {
     "source": "GET /v1/_routes (0.1.10 真产物，带 Bearer token)",
     "repo": "JoeWest9966/Nous",
     "branch": "feat/ext-parity",
-    "commit": "ee77955（0.1.10 + GET /v1/repos/:repo/archive；主线尚未发版）",
+    "commit": "11659c5（0.1.15：模板面回到 TS 内核同形 + stats 六屏语义化）",
     "host": "远程开发机 cnb.space（临时库 /tmp/routes-cap，不是 j1900）",
     "environment": "faux 引擎（非 j1900 真数据）；0.1.10 部署上线后应再抓一次真引擎",
-    "route_count": 120,
-    "module_count": 12,
-    "patched": "2026-11-22：整份按 0.1.10 重抓（114 → 115）。新增 GET /v1/repos/:repo/archive —— 资源页「已归档」档的读面，写面 archive/restore/purge 一直在。2026-11-23：补 5 条 stats 明细读口（overview / conversations / conversation/:id / cost / health，来自在途分支 feat/stats-parity，尚未发版），115 → 120。"
+    "route_count": 139,
+    "module_count": 13,
+    "patched": "2026-11-22：在 0.1.15 上并入 presets-admin 的 19 条（validate/resolve/create/rename/files/file/pending/sync/publish/reload/categories 写面/archive/restore/purge/order GET），与 stats 明细 5 条共存。"
   },
   "routes": [
+    {
+      "module": "archive",
+      "method": "GET",
+      "path": "/v1/archive"
+    },
+    {
+      "module": "archive",
+      "method": "POST",
+      "path": "/v1/archive/{id}/restore"
+    },
+    {
+      "module": "archive",
+      "method": "POST",
+      "path": "/v1/sessions/:id/archive"
+    },
     {
       "module": "combos",
       "method": "GET",
@@ -34,184 +49,24 @@
       "path": "/v1/presets/Ultimate-Template/launch"
     },
     {
-      "module": "sessions",
+      "module": "device",
       "method": "GET",
-      "path": "/v1/sessions"
+      "path": "/v1/_routes"
     },
     {
-      "module": "sessions",
+      "module": "device",
       "method": "GET",
-      "path": "/v1/unread"
+      "path": "/v1/capabilities"
     },
     {
-      "module": "sessions",
+      "module": "device",
       "method": "GET",
-      "path": "/v1/origins"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/read/:id"
+      "path": "/v1/device"
     },
     {
       "module": "device",
       "method": "GET",
       "path": "/v1/machines"
-    },
-    {
-      "module": "env",
-      "method": "GET",
-      "path": "/v1/fs/dirs"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/status"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/pending"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/pending/diff"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/pending/commit"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/history"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/history/diff"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/commit"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/archive"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/archive"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/restore"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/purge"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/variants"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/variants/bind"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/variants/unbind"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/variants/branch"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/variants/publish"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/variants/prune"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/variants/usage"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/sources"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/sources"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/upstream"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/upstream/refresh"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/upstream/pin"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/upstream/check"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/upstream/sync"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/upstream/tree"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/upstream/file"
-    },
-    {
-      "module": "repo",
-      "method": "GET",
-      "path": "/v1/repos/:repo/upstream/files"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/upstream/copy"
-    },
-    {
-      "module": "repo",
-      "method": "POST",
-      "path": "/v1/repos/:repo/upstream/adopt"
     },
     {
       "module": "device",
@@ -220,8 +75,8 @@
     },
     {
       "module": "device",
-      "method": "PUT",
-      "path": "/v1/default"
+      "method": "GET",
+      "path": "/v1/openapi.json"
     },
     {
       "module": "device",
@@ -229,164 +84,14 @@
       "path": "/v1/catalog/refresh"
     },
     {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/sessions"
-    },
-    {
-      "module": "sessions",
-      "method": "GET",
-      "path": "/v1/sessions/:id/entries"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/sessions/:id/messages"
-    },
-    {
-      "module": "sessions",
-      "method": "GET",
-      "path": "/v1/sessions/:id/events"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/sessions/:id/abort"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/sessions/:id/fork"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/sessions/:id/rename"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/sessions/:id/pin"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/sessions/:id/config"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/sessions/:id/purge"
-    },
-    {
-      "module": "archive",
-      "method": "POST",
-      "path": "/v1/sessions/:id/archive"
-    },
-    {
-      "module": "archive",
-      "method": "GET",
-      "path": "/v1/archive"
-    },
-    {
-      "module": "archive",
-      "method": "POST",
-      "path": "/v1/archive/{id}/restore"
-    },
-    {
-      "module": "sessions",
-      "method": "GET",
-      "path": "/v1/selection"
-    },
-    {
-      "module": "sessions",
-      "method": "POST",
-      "path": "/v1/selection"
-    },
-    {
       "module": "device",
-      "method": "GET",
-      "path": "/v1/device"
-    },
-    {
-      "module": "skills",
-      "method": "GET",
-      "path": "/v1/skills"
-    },
-    {
-      "module": "skills",
-      "method": "GET",
-      "path": "/v1/skills/files"
-    },
-    {
-      "module": "skills",
-      "method": "GET",
-      "path": "/v1/skills/file"
-    },
-    {
-      "module": "skills",
       "method": "PUT",
-      "path": "/v1/skills/file"
+      "path": "/v1/default"
     },
     {
-      "module": "skills",
-      "method": "POST",
-      "path": "/v1/skills/create"
-    },
-    {
-      "module": "skills",
-      "method": "POST",
-      "path": "/v1/skills/publish"
-    },
-    {
-      "module": "prompts",
+      "module": "env",
       "method": "GET",
-      "path": "/v1/prompts/files"
-    },
-    {
-      "module": "prompts",
-      "method": "GET",
-      "path": "/v1/prompts/file"
-    },
-    {
-      "module": "prompts",
-      "method": "PUT",
-      "path": "/v1/prompts/file"
-    },
-    {
-      "module": "prompts",
-      "method": "POST",
-      "path": "/v1/prompts/create"
-    },
-    {
-      "module": "prompts",
-      "method": "POST",
-      "path": "/v1/prompts/publish"
-    },
-    {
-      "module": "ext",
-      "method": "GET",
-      "path": "/v1/extensions/files"
-    },
-    {
-      "module": "ext",
-      "method": "GET",
-      "path": "/v1/extensions/file"
-    },
-    {
-      "module": "ext",
-      "method": "PUT",
-      "path": "/v1/extensions/file"
-    },
-    {
-      "module": "ext",
-      "method": "POST",
-      "path": "/v1/extensions/publish"
-    },
-    {
-      "module": "prompts",
-      "method": "GET",
-      "path": "/v1/prompts"
+      "path": "/v1/fs/dirs"
     },
     {
       "module": "ext",
@@ -395,8 +100,28 @@
     },
     {
       "module": "ext",
+      "method": "GET",
+      "path": "/v1/extensions/categories"
+    },
+    {
+      "module": "ext",
+      "method": "GET",
+      "path": "/v1/extensions/file"
+    },
+    {
+      "module": "ext",
+      "method": "GET",
+      "path": "/v1/extensions/files"
+    },
+    {
+      "module": "ext",
       "method": "POST",
-      "path": "/v1/extensions/reload"
+      "path": "/v1/extensions/categories"
+    },
+    {
+      "module": "ext",
+      "method": "POST",
+      "path": "/v1/extensions/category"
     },
     {
       "module": "ext",
@@ -416,132 +141,27 @@
     {
       "module": "ext",
       "method": "POST",
+      "path": "/v1/extensions/publish"
+    },
+    {
+      "module": "ext",
+      "method": "POST",
+      "path": "/v1/extensions/reload"
+    },
+    {
+      "module": "ext",
+      "method": "POST",
       "path": "/v1/extensions/uninstall"
     },
     {
       "module": "ext",
-      "method": "GET",
-      "path": "/v1/extensions/categories"
-    },
-    {
-      "module": "ext",
-      "method": "POST",
-      "path": "/v1/extensions/categories"
-    },
-    {
-      "module": "ext",
-      "method": "POST",
-      "path": "/v1/extensions/category"
-    },
-    {
-      "module": "sessions",
-      "method": "GET",
-      "path": "/v1/search"
-    },
-    {
-      "module": "triggers",
-      "method": "GET",
-      "path": "/v1/triggers"
-    },
-    {
-      "module": "triggers",
-      "method": "POST",
-      "path": "/v1/triggers"
-    },
-    {
-      "module": "triggers",
-      "method": "GET",
-      "path": "/v1/triggers/categories"
-    },
-    {
-      "module": "triggers",
-      "method": "POST",
-      "path": "/v1/triggers/category"
-    },
-    {
-      "module": "triggers",
-      "method": "POST",
-      "path": "/v1/triggers/{code}/archive"
-    },
-    {
-      "module": "triggers",
-      "method": "POST",
-      "path": "/v1/triggers/{code}/restore"
-    },
-    {
-      "module": "triggers",
-      "method": "POST",
-      "path": "/v1/triggers/{code}/purge"
-    },
-    {
-      "module": "triggers",
-      "method": "POST",
-      "path": "/v1/triggers/{code}/fire"
-    },
-    {
-      "module": "triggers",
-      "method": "GET",
-      "path": "/v1/triggers/{code}/fires"
-    },
-    {
-      "module": "triggers",
-      "method": "PATCH",
-      "path": "/v1/triggers/{code}"
-    },
-    {
-      "module": "triggers",
       "method": "PUT",
-      "path": "/v1/triggers/{code}"
+      "path": "/v1/extensions/file"
     },
     {
-      "module": "device",
-      "method": "GET",
-      "path": "/v1/capabilities"
-    },
-    {
-      "module": "stats",
-      "method": "GET",
-      "path": "/v1/stats/usage"
-    },
-    {
-      "module": "stats",
-      "method": "GET",
-      "path": "/v1/stats/tasks"
-    },
-    {
-      "module": "stats",
-      "method": "GET",
-      "path": "/v1/stats/db"
-    },
-    {
-      "module": "stats",
-      "method": "GET",
-      "path": "/v1/stats/overview"
-    },
-    {
-      "module": "stats",
-      "method": "GET",
-      "path": "/v1/stats/conversations"
-    },
-    {
-      "module": "stats",
-      "method": "GET",
-      "path": "/v1/stats/conversation/:id"
-    },
-    {
-      "module": "stats",
-      "method": "GET",
-      "path": "/v1/stats/cost"
-    },
-    {
-      "module": "stats",
-      "method": "GET",
-      "path": "/v1/stats/health"
-    },
-    {
-      "module": "device",
-      "method": "GET",
-      "path": "/v1/openapi.json"
+      "module": "presets",
+      "method": "DELETE",
+      "path": "/v1/presets/{section}/{name}"
     },
     {
       "module": "presets",
@@ -560,11 +180,6 @@
     },
     {
       "module": "presets",
-      "method": "PUT",
-      "path": "/v1/presets/{section}/order"
-    },
-    {
-      "module": "presets",
       "method": "GET",
       "path": "/v1/presets/{section}/categories"
     },
@@ -572,26 +187,6 @@
       "module": "presets",
       "method": "GET",
       "path": "/v1/presets/{section}/{name}"
-    },
-    {
-      "module": "presets",
-      "method": "PUT",
-      "path": "/v1/presets/{section}/{name}"
-    },
-    {
-      "module": "presets",
-      "method": "PATCH",
-      "path": "/v1/presets/{section}/{name}"
-    },
-    {
-      "module": "presets",
-      "method": "DELETE",
-      "path": "/v1/presets/{section}/{name}"
-    },
-    {
-      "module": "presets",
-      "method": "POST",
-      "path": "/v1/presets/{section}/{name}/copy"
     },
     {
       "module": "presets",
@@ -605,13 +200,513 @@
     },
     {
       "module": "presets",
+      "method": "PATCH",
+      "path": "/v1/presets/{section}/{name}"
+    },
+    {
+      "module": "presets",
+      "method": "POST",
+      "path": "/v1/presets/{section}/{name}/copy"
+    },
+    {
+      "module": "presets",
       "method": "POST",
       "path": "/v1/presets/{section}/{name}/rollback"
     },
     {
-      "module": "device",
+      "module": "presets",
+      "method": "PUT",
+      "path": "/v1/presets/{section}/order"
+    },
+    {
+      "module": "presets",
+      "method": "PUT",
+      "path": "/v1/presets/{section}/{name}"
+    },
+    {
+      "module": "presets-admin",
       "method": "GET",
-      "path": "/v1/_routes"
+      "path": "/v1/presets/{section}/file"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/files"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/order"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/pending"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/resolve"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/validate"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/archive"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/categories"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/category"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/create"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/publish"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/purge"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/reload"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/rename"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/resolve"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/restore"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/sync"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/validate"
+    },
+    {
+      "module": "presets-admin",
+      "method": "PUT",
+      "path": "/v1/presets/{section}/file"
+    },
+    {
+      "module": "prompts",
+      "method": "GET",
+      "path": "/v1/prompts"
+    },
+    {
+      "module": "prompts",
+      "method": "GET",
+      "path": "/v1/prompts/file"
+    },
+    {
+      "module": "prompts",
+      "method": "GET",
+      "path": "/v1/prompts/files"
+    },
+    {
+      "module": "prompts",
+      "method": "POST",
+      "path": "/v1/prompts/create"
+    },
+    {
+      "module": "prompts",
+      "method": "POST",
+      "path": "/v1/prompts/publish"
+    },
+    {
+      "module": "prompts",
+      "method": "PUT",
+      "path": "/v1/prompts/file"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/archive"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/history"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/history/diff"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/pending"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/pending/commit"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/pending/diff"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/sources"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/status"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/upstream"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/upstream/file"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/upstream/files"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/upstream/tree"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/variants"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/variants/usage"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/archive"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/commit"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/purge"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/restore"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/sources"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/upstream/adopt"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/upstream/check"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/upstream/copy"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/upstream/pin"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/upstream/refresh"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/upstream/sync"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/variants/bind"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/variants/branch"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/variants/prune"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/variants/publish"
+    },
+    {
+      "module": "repo",
+      "method": "POST",
+      "path": "/v1/repos/:repo/variants/unbind"
+    },
+    {
+      "module": "sessions",
+      "method": "GET",
+      "path": "/v1/origins"
+    },
+    {
+      "module": "sessions",
+      "method": "GET",
+      "path": "/v1/search"
+    },
+    {
+      "module": "sessions",
+      "method": "GET",
+      "path": "/v1/selection"
+    },
+    {
+      "module": "sessions",
+      "method": "GET",
+      "path": "/v1/sessions"
+    },
+    {
+      "module": "sessions",
+      "method": "GET",
+      "path": "/v1/sessions/:id/entries"
+    },
+    {
+      "module": "sessions",
+      "method": "GET",
+      "path": "/v1/sessions/:id/events"
+    },
+    {
+      "module": "sessions",
+      "method": "GET",
+      "path": "/v1/unread"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/read/:id"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/selection"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/sessions"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/sessions/:id/abort"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/sessions/:id/config"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/sessions/:id/fork"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/sessions/:id/messages"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/sessions/:id/pin"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/sessions/:id/purge"
+    },
+    {
+      "module": "sessions",
+      "method": "POST",
+      "path": "/v1/sessions/:id/rename"
+    },
+    {
+      "module": "skills",
+      "method": "GET",
+      "path": "/v1/skills"
+    },
+    {
+      "module": "skills",
+      "method": "GET",
+      "path": "/v1/skills/file"
+    },
+    {
+      "module": "skills",
+      "method": "GET",
+      "path": "/v1/skills/files"
+    },
+    {
+      "module": "skills",
+      "method": "POST",
+      "path": "/v1/skills/create"
+    },
+    {
+      "module": "skills",
+      "method": "POST",
+      "path": "/v1/skills/publish"
+    },
+    {
+      "module": "skills",
+      "method": "PUT",
+      "path": "/v1/skills/file"
+    },
+    {
+      "module": "stats",
+      "method": "GET",
+      "path": "/v1/stats/conversation/:id"
+    },
+    {
+      "module": "stats",
+      "method": "GET",
+      "path": "/v1/stats/conversations"
+    },
+    {
+      "module": "stats",
+      "method": "GET",
+      "path": "/v1/stats/cost"
+    },
+    {
+      "module": "stats",
+      "method": "GET",
+      "path": "/v1/stats/db"
+    },
+    {
+      "module": "stats",
+      "method": "GET",
+      "path": "/v1/stats/health"
+    },
+    {
+      "module": "stats",
+      "method": "GET",
+      "path": "/v1/stats/overview"
+    },
+    {
+      "module": "stats",
+      "method": "GET",
+      "path": "/v1/stats/tasks"
+    },
+    {
+      "module": "stats",
+      "method": "GET",
+      "path": "/v1/stats/usage"
+    },
+    {
+      "module": "triggers",
+      "method": "GET",
+      "path": "/v1/triggers"
+    },
+    {
+      "module": "triggers",
+      "method": "GET",
+      "path": "/v1/triggers/categories"
+    },
+    {
+      "module": "triggers",
+      "method": "GET",
+      "path": "/v1/triggers/{code}/fires"
+    },
+    {
+      "module": "triggers",
+      "method": "PATCH",
+      "path": "/v1/triggers/{code}"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/triggers"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/triggers/category"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/triggers/{code}/archive"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/triggers/{code}/fire"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/triggers/{code}/purge"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/triggers/{code}/restore"
+    },
+    {
+      "module": "triggers",
+      "method": "PUT",
+      "path": "/v1/triggers/{code}"
     }
   ]
 }

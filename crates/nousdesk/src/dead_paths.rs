@@ -200,6 +200,7 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/presets/{section}"),
     ("PUT", "v1/presets/{section}/order"),
     ("GET", "v1/presets/{section}/categories"),
+    ("POST", "v1/presets/{section}/create"),
     ("GET", "v1/presets/{section}/{name}"),
     ("PUT", "v1/presets/{section}/{name}"),
     ("PATCH", "v1/presets/{section}/{name}"),
@@ -357,8 +358,8 @@ mod tests {
         assert!(!version.is_empty(), "夹具缺 _engine_version");
         assert_eq!(
             fixture["routes"].as_array().unwrap().len(),
-            120,
-            "0.1.10 整份重抓(114 + GET /v1/repos/:repo/archive) + 在途 stats 明细读口 5 条(feat/stats-parity)"
+            139,
+            "0.1.15 整份重抓：114 + repos archive 1 + stats 明细 5 + presets-admin 19"
         );
         assert!(fixture["_provenance"].get("commit").is_some());
     }

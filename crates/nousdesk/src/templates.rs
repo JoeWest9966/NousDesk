@@ -22,18 +22,6 @@ fn new_request_id() -> String {
     format!("desk-{n}-{}", std::process::id())
 }
 
-/// `NewPreset` → 新契约 `PUT` 的 body（引擎按 name/summary/category 覆盖 spec 同名字段）。
-fn new_preset_body(body: &NewPreset) -> serde_json::Value {
-    let mut v = body.spec.clone().unwrap_or(serde_json::json!({}));
-    if !v.is_object() { v = serde_json::json!({}); }
-    let o = v.as_object_mut().unwrap();
-    o.insert("name".into(), serde_json::json!(body.name));
-    o.insert("summary".into(), serde_json::json!(body.summary));
-    o.insert("category".into(), serde_json::json!(body.category));
-    // `from: device` 在新契约没有等价字段：起手式交给编辑器里的模型选择，不再由端点代填。
-    v
-}
-
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
 use gpui_kit::component::input::{Input, InputState};
@@ -356,16 +344,12 @@ pub(crate) fn visible_presets<'a>(
     cat: Option<&str>,
     query: &str,
 ) -> Vec<&'a Preset> {
-    // Desk#11：`problem` 非空 = 写坏了，不出现在「选模板建会话」的列表里。
-    // 草稿降级成字段后，这里就是唯一的可见性判定（搜索 / 类别视图都过它）。
+    // 写坏了的条目不进「选模板建会话」的列表（搜索 / 类别视图都过它）。
+    // `specError` 是引擎的形状闸结论；`problem` 是老引擎的字段名，两边都收 ——
+    // 只认一个的话，换引擎那一下坏条目会突然冒出来。
     let usable: Vec<&Preset> = presets
         .iter()
-        .filter(|p| {
-            !p.extra
-                .get("problem")
-                .and_then(|v| v.as_str())
-                .is_some_and(|s| !s.is_empty())
-        })
+        .filter(|p| p.spec_error.is_none() && problem_of(p).is_none())
         .collect();
     if !query.trim().is_empty() {
         return usable.into_iter().filter(|p| matches_query(p, query)).collect();
@@ -819,8 +803,7 @@ impl Desktop {
                 Some(h) => h
                     .spawn(async move {
                         let name = body.name.clone();
-                        let v = new_preset_body(&body);
-                        engine.preset_put(section_id, &name, &v, &new_request_id(), None, false).await
+                        engine.preset_create(section_id, &body).await
                     })
                     .await
                     .ok(),
@@ -975,14 +958,11 @@ impl Desktop {
                     spec: Some(spec.take()),
                     body,
                 };
-                {
-                    let v = new_preset_body(&body);
-                    engine
-                        .preset_put(section_id, &name, &v, &new_request_id(), None, false)
-                        .await
-                        .map(|_| ())
-                        .map_err(|e| e.to_string())
-                }
+                engine
+                    .preset_create(section_id, &body)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
             }
             .await;
 
@@ -1464,9 +1444,7 @@ impl Desktop {
             let result = match &handle {
                 Some(h) => h
                     .spawn(async move {
-                        let v = new_preset_body(&req);
-                        let n = req.name.clone();
-                        engine.preset_put(section_id, &n, &v, &new_request_id(), None, false).await
+                        engine.preset_create(section_id, &req).await
                     })
                     .await
                     .ok(),
@@ -4152,19 +4130,36 @@ fn next_combo_enabled(current: Option<bool>) -> Option<bool> {
 }
 
 
+/// 老引擎的 `problem`（新引擎改叫 `specError`）。
+fn problem_of(p: &Preset) -> Option<&str> {
+    p.extra
+        .get("problem")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+}
+
 /// 能开 = spec 没坏 && 没有失效引用。tracked 只影响显示，不影响可开。
 fn launchable(p: &Preset) -> bool {
-    p.spec_error.is_none() && !has_invalid(p)
+    p.spec_error.is_none() && problem_of(p).is_none() && !has_invalid(p)
 }
 
 /// `resolved` 里任何一项 `state == "invalid"` 就开不了。
+///
+/// 七个维度里有五个是**单值对象**（model / thinking / template / cwd / machine），
+/// 另两个是**数组**（skills / extensions，一条引用一项）—— 只看顶层 `state` 会漏掉
+/// 「技能被卸了」这种最常见的失效，所以数组要逐项看。
 pub(crate) fn has_invalid(p: &Preset) -> bool {
+    fn item_invalid(v: &serde_json::Value) -> bool {
+        v.get("state").and_then(|s| s.as_str()) == Some("invalid")
+    }
     p.resolved
         .as_ref()
         .and_then(|v| v.as_object())
         .map(|m| {
-            m.values()
-                .any(|x| x.get("state").and_then(|s| s.as_str()) == Some("invalid"))
+            m.values().any(|x| match x {
+                serde_json::Value::Array(items) => items.iter().any(item_invalid),
+                other => item_invalid(other),
+            })
         })
         .unwrap_or(false)
 }
@@ -4223,6 +4218,7 @@ mod tests {
         CATEGORY_WRITE_UNAVAILABLE, EXPORT_ENVELOPE, Preset, UNCATEGORIZED, export_doc,
         facet_tree, import_doc, in_category, combo_label, keep_category, matches_query,
         next_combo_enabled, reorder_move, sanitize_file_name, visible_presets,
+        has_invalid, launchable,
     };
 
     /// 新契约没有类别写端点，失败文案必须解释真实原因，不许说在等异步任务。
@@ -4380,15 +4376,16 @@ mod tests {
         }
     }
 
-    /// Desk#11 判据 3：roster 上 `problem` 非空 = 不出现在「选模板建会话」的列表里。
-    /// 草稿降级成字段后，没有第二个「pending」状态位；搜索 / 类别视图同样过滤。
+    /// 写坏了的条目（`specError` / 老引擎的 `problem`）不出现在「选模板建会话」的列表里。
     #[test]
     fn presets_with_a_problem_are_not_visible() {
         let mut bad = preset("bad", &[]);
         bad.extra.insert("problem".into(), serde_json::json!("preset.json 解析失败"));
+        let mut spec_error = preset("spec-error", &[]);
+        spec_error.spec_error = Some("preset.json 里有不认识的键「spec」".into());
         let mut null_problem = preset("null-problem", &[]);
         null_problem.extra.insert("problem".into(), serde_json::Value::Null);
-        let all = vec![preset("good", &[]), bad, null_problem];
+        let all = vec![preset("good", &[]), bad, spec_error, null_problem];
         let names = visible_presets(&all, None, "")
             .into_iter()
             .map(|p| p.name.clone())
@@ -4396,6 +4393,27 @@ mod tests {
         assert_eq!(names, ["good", "null-problem"]);
         assert!(visible_presets(&all, None, "bad").is_empty(), "problem 条目搜索也不出现");
         assert!(visible_presets(&all, Some("写作"), "").iter().all(|p| p.name != "bad"));
+    }
+
+    /// 数组维度（skills / extensions）里有一项失效 = 这条开不了 —— 最常见的失效就在这儿。
+    #[test]
+    fn invalid_skill_ref_blocks_launch() {
+        let mut p = preset("bad-skill", &[]);
+        p.resolved = Some(serde_json::json!({
+            "model": { "state": "ok" },
+            "skills": [{ "state": "ok", "ref": "a" }, { "state": "invalid", "ref": "gone" }],
+            "extensions": [],
+        }));
+        assert!(has_invalid(&p), "数组里的 invalid 必须被看见");
+        assert!(!launchable(&p));
+
+        let mut ok = preset("ok", &[]);
+        ok.resolved = Some(serde_json::json!({
+            "model": { "state": "auto" },
+            "skills": [{ "state": "ok", "ref": "a" }],
+        }));
+        assert!(!has_invalid(&ok));
+        assert!(launchable(&ok));
     }
 
     fn cats(list: &[&str]) -> Vec<String> {
