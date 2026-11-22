@@ -55,7 +55,7 @@ impl DeadPath {
 ///
 /// `等票` / `灰` / `删` 的交叉口径按票面：presets 等 `Desk#11`、combos 等 `#61`、
 /// archive 与 sessions/{config,archive,purge} 灰、fs/dirs 灰（Nous#68）、
-/// 三仓的文件面已随 Nous 0.1.8 落活（移进 `ENGINE_ROUTES`）、triggers 写等 `Nous#80 / Nous#73`（期间入口灰）、
+/// 三仓的文件面已随 Nous 0.1.8 落活（移进 `ENGINE_ROUTES`）、触发器工程面随 Nous#95 落活、
 /// 只有旧拓扑 `/{op}` 与 `旧面板 REST 路径` 是删。能力型端点一律不删。
 pub const DEAD_PATHS: &[DeadPath] = &[
     // presets 旧 18 条（含 `{op}` / `categories` 泛化）已随 Desk#11 从客户端消失。
@@ -72,18 +72,8 @@ pub const DEAD_PATHS: &[DeadPath] = &[
     DeadPath::removed("POST", "v1/skills/{op}"),
     DeadPath::removed("POST", "v1/prompts/{op}"),
     DeadPath::removed("POST", "v1/extensions/{op}"),
-    // triggers 10 条写端点 —— 等票 Nous#80 / Nous#73（期间保持灰 + 理由）。
-    DeadPath::wait("GET", "v1/triggers/files", "Nous#80 / Nous#73"),
-    DeadPath::wait("GET", "v1/triggers/file", "Nous#80 / Nous#73"),
-    DeadPath::wait("PUT", "v1/triggers/file", "Nous#80 / Nous#73"),
-    DeadPath::wait("POST", "v1/triggers/create", "Nous#80 / Nous#73"),
-    DeadPath::wait("POST", "v1/triggers/publish", "Nous#80 / Nous#73"),
-    DeadPath::wait("POST", "v1/triggers/archive", "Nous#80 / Nous#73"),
-    DeadPath::wait("POST", "v1/triggers/restore", "Nous#80 / Nous#73"),
-    DeadPath::wait("POST", "v1/triggers/purge", "Nous#80 / Nous#73"),
-    DeadPath::wait("POST", "v1/triggers/category", "Nous#80 / Nous#73"),
-    DeadPath::wait("POST", "v1/triggers/categories", "Nous#80 / Nous#73"),
-    DeadPath::gray("POST", "v1/triggers/sync"),
+    // triggers 的工程面（Nous#95）已随 0.1.12 落活：`/v1/trigger-projects/*` 13 条
+    // 移进 `ENGINE_ROUTES`，死路径台账整块删除 —— 不改成第四种状态。
     // archive 2 —— 灰（Nous#67 落真后翻活）
     DeadPath::gray("GET", "v1/archive"),
     DeadPath::gray("POST", "v1/archive/{id}/restore"),
@@ -169,6 +159,20 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/triggers"),
     ("POST", "v1/triggers/{code}/fire"),
     ("GET", "v1/triggers/{code}/fires"),
+    // Nous#95：触发器工程面（n8qkkj 的宿主）13 条。与上面的定义面不是一层。
+    ("GET", "v1/trigger-projects"),
+    ("GET", "v1/trigger-projects/files"),
+    ("GET", "v1/trigger-projects/file"),
+    ("PUT", "v1/trigger-projects/file"),
+    ("POST", "v1/trigger-projects/create"),
+    ("POST", "v1/trigger-projects/publish"),
+    ("POST", "v1/trigger-projects/archive"),
+    ("POST", "v1/trigger-projects/restore"),
+    ("POST", "v1/trigger-projects/purge"),
+    ("GET", "v1/trigger-projects/categories"),
+    ("POST", "v1/trigger-projects/categories"),
+    ("POST", "v1/trigger-projects/category"),
+    ("POST", "v1/trigger-projects/sync"),
     ("GET", "v1/capabilities"),
     // stats（Nous#62）：recovery 分支真有这三条，客户端可以打，不进死路径白名单。
     ("GET", "v1/stats/usage"),
@@ -228,13 +232,13 @@ mod tests {
             .filter(|e| e.disposition == Disposition::Gray)
             .map(|e| e.path)
             .collect();
-        assert_eq!(gray.len(), 7);
-        // 映射表覆盖全部 7 条（fs/dirs 走 device，其余 archive / sessions / triggers）。
+        assert_eq!(gray.len(), 6);
+        // 映射表覆盖全部 6 条（fs/dirs 走 device，其余 archive / sessions）。
         for path in gray {
             assert!(
                 matches!(path, "v1/archive" | "v1/archive/{id}/restore"
                     | "v1/sessions/{id}/archive" | "v1/sessions/{id}/purge"
-                    | "v1/sessions/{id}/config" | "v1/fs/dirs" | "v1/triggers/sync"),
+                    | "v1/sessions/{id}/config" | "v1/fs/dirs"),
                 "{path} 没有灰理由通道"
             );
         }
@@ -286,10 +290,9 @@ mod tests {
     }
 
     /// Nous 0.1.8：三仓的 `create/files/file/publish` 已落活 —— 活路由表必须有，
-    /// 死路径账本里不许再留；triggers 的写端点仍等票（票号必填）。
+    /// 死路径账本里不许再留；触发器工程面（Nous#95）也已落活。
     #[test]
-    fn resource_file_endpoints_are_live_and_trigger_writes_still_wait() {
-        const TRIGGER_TICKETS: &[&str] = &["Nous#80", "Nous#73"];
+    fn resource_file_endpoints_and_trigger_projects_are_live() {
         let resources: Vec<_> = ["skills", "prompts", "extensions"]
             .into_iter()
             .flat_map(|kind| {
@@ -315,21 +318,29 @@ mod tests {
             );
         }
         let triggers = [
-            ("GET", "v1/triggers/files"), ("GET", "v1/triggers/file"),
-            ("PUT", "v1/triggers/file"), ("POST", "v1/triggers/create"),
-            ("POST", "v1/triggers/publish"), ("POST", "v1/triggers/archive"),
-            ("POST", "v1/triggers/restore"), ("POST", "v1/triggers/purge"),
-            ("POST", "v1/triggers/category"), ("POST", "v1/triggers/categories"),
+            ("GET", "v1/trigger-projects"),
+            ("GET", "v1/trigger-projects/files"),
+            ("GET", "v1/trigger-projects/file"),
+            ("PUT", "v1/trigger-projects/file"),
+            ("POST", "v1/trigger-projects/create"),
+            ("POST", "v1/trigger-projects/publish"),
+            ("POST", "v1/trigger-projects/archive"),
+            ("POST", "v1/trigger-projects/restore"),
+            ("POST", "v1/trigger-projects/purge"),
+            ("GET", "v1/trigger-projects/categories"),
+            ("POST", "v1/trigger-projects/categories"),
+            ("POST", "v1/trigger-projects/category"),
+            ("POST", "v1/trigger-projects/sync"),
         ];
         for (method, path) in triggers {
-            let found = DEAD_PATHS.iter().find(|e| e.method == method && e.path == path);
-            assert_eq!(
-                found.map(|e| e.disposition),
-                Some(Disposition::WaitTicket),
-                "{method} {path} 是能力型端点，不许 removed"
+            assert!(
+                ENGINE_ROUTES.iter().any(|(m, p)| *m == method && *p == path),
+                "{method} {path} 已落活却没进活路由表"
             );
-            let ticket = found.unwrap().ticket.unwrap_or_default();
-            assert!(TRIGGER_TICKETS.iter().all(|t| ticket.contains(t)), "{path} 缺票号：{ticket}");
+            assert!(
+                !DEAD_PATHS.iter().any(|e| e.method == method && e.path == path),
+                "{method} {path} 已落活，不许还挂在死路径台账里"
+            );
         }
         let removed: Vec<_> = DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Removed).collect();
         assert_eq!(removed.len(), 8, "删只允许 3 条旧拓扑化石 + 5 条旧面板");
@@ -351,8 +362,8 @@ mod tests {
         assert!(!version.is_empty(), "夹具缺 _engine_version");
         assert_eq!(
             fixture["routes"].as_array().unwrap().len(),
-            115,
-            "0.1.10 整份重抓（114 + GET /v1/repos/:repo/archive）"
+            128,
+            "0.1.12：115 + 触发器工程面 13 条（Nous#95）"
         );
         assert!(fixture["_provenance"].get("commit").is_some());
     }
@@ -464,18 +475,18 @@ mod tests {
     fn catalog_covers_every_dead_path_family() {
         assert_eq!(
             DEAD_PATHS.len(),
-            27,
-            "43 条减去三仓文件面 16 条（Nous 0.1.8 落活，移进 ENGINE_ROUTES）"
+            16,
+            "27 条减去触发器工程面 11 条（Nous#95 落活，移进 ENGINE_ROUTES）"
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::WaitTicket).count(),
-            12,
-            "28 条减去三仓文件面 16 条；剩 presets 2 + triggers 10"
+            2,
+            "剩 presets 2 条等票"
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Gray).count(),
-            7,
-            "archive 2 + sessions 3 + fs/dirs 1 + triggers/sync 1"
+            6,
+            "archive 2 + sessions 3 + fs/dirs 1"
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Removed).count(),

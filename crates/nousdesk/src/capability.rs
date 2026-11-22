@@ -227,7 +227,7 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     if path == "v1/extensions" || path.starts_with("v1/extensions/") {
         return Some(Feature::Ext);
     }
-    if path.starts_with("v1/triggers") {
+    if path.starts_with("v1/triggers") || path.starts_with("v1/trigger-projects") {
         return Some(Feature::Triggers);
     }
     if path == "v1/selection" {
@@ -649,7 +649,7 @@ mod tests {
     #[test]
     fn waiting_capability_endpoints_get_gray_reason_from_caps_only() {
         // 目标引擎 faux caps 的形状：skills/prompts enabled 但只声明 GET list；
-        // triggers enabled 但只声明 fire/fires；ext disabled 且给了 reason。
+        // ext disabled 且给了 reason。triggers 工程面已落活，不再进这张表。
         let caps: Capabilities = serde_json::from_value(serde_json::json!({
             "contract": 1,
             "server": { "name": "nous", "version": "0.1.3" },
@@ -673,11 +673,6 @@ mod tests {
             ("POST", "/v1/extensions/create"), ("PUT", "/v1/extensions/file"),
             ("GET", "/v1/extensions/files"), ("GET", "/v1/extensions/file"),
             ("POST", "/v1/extensions/publish"),
-            ("GET", "/v1/triggers/files"), ("GET", "/v1/triggers/file"),
-            ("PUT", "/v1/triggers/file"), ("POST", "/v1/triggers/create"),
-            ("POST", "/v1/triggers/publish"), ("POST", "/v1/triggers/archive"),
-            ("POST", "/v1/triggers/restore"), ("POST", "/v1/triggers/purge"),
-            ("POST", "/v1/triggers/category"), ("POST", "/v1/triggers/categories"),
         ];
         for (method, path) in paths {
             let reason = endpoint_disabled_reason(&caps, method, path)
