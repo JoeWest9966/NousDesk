@@ -578,7 +578,7 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
-| `GET` | `/v1/combos/{section}` | 组合清单，**按段**（`Session-Template` / `Ultimate-Template`）。回 `{ combos: [{ name, trigger, params, session, enabled, problem, version }] }`；`enabled` / `problem` 由引擎算，`version` 是下面 `PATCH` 的 `If-Match` 料 |
+| `GET` | `/v1/combos/{section}` | 组合清单。**段只有一个值：`Ultimate-Template`**（`Session-Template` 的条目是「开一条会话用什么」，不是组合；传它会 `400`）。回 `{ combos: [{ name, trigger, params, session, enabled, problem, version }] }`；`enabled` / `problem` 由引擎算，`version` 是下面 `PATCH` 的 `If-Match` 料 |
 | `PATCH` | `/v1/combos/{section}/{name}` | 只翻 `{enabled}`，必带 `If-Match` + `requestId`；回包是**平铺的一条**（不是 `{combo:{…}}`），带新 `version` |
 | `GET` | `/v1/extensions` | Rust 版先返回空清单（扩展运行时已冻结） |
 | `GET` | `/v1/triggers` | 触发器目前只有 trait，没有实现 |

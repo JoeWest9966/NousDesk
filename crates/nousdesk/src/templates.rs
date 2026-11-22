@@ -54,6 +54,9 @@ use crate::app::{Bar, Desktop, Tab};
 ///
 /// 标题**直接等于 API 段名**：用户平时就按 `Session-Template` / `Ultimate-Template` 叫，
 /// 界面再翻译一次只会多一套词。「终极模板」这种叫法只留在注释和文档里。
+/// 组合只活在终极模板那一段（引擎的段白名单只有这一个值）。写死一处，别跟着当前段走。
+pub(crate) const COMBO_SECTION: &str = "Ultimate-Template";
+
 pub(crate) const SECTIONS: [(&str, &str); 2] = [
     ("Session-Template", "Session-Template"),
     ("Ultimate-Template", "Ultimate-Template"),
@@ -431,7 +434,7 @@ impl Desktop {
         self.tab = tab;
         if tab == Tab::Templates {
             self.load_all_sections(false, cx);
-            self.load_combos(self.section, false, cx);
+            self.load_combos(false, cx);
         }
         if tab == Tab::Triggers {
             self.load_trigger_list(false, cx);
@@ -450,7 +453,7 @@ impl Desktop {
     /// 拉当前段。已拉到且非 force 就不动。
     pub(crate) fn load_presets(&mut self, force: bool, cx: &mut Context<Self>) {
         self.load_section(self.section, force, cx);
-        self.load_combos(self.section, false, cx);
+        self.load_combos(false, cx);
     }
 
     /// 两段都拉一遍。段按钮下面要写真实条数，「—」看着像坏了。
@@ -466,16 +469,14 @@ impl Desktop {
         }
     }
 
-    /// 拉**这一段**的组合清单（引擎：`GET /v1/combos/{section}`）。
+    /// 拉组合清单。**组合只活在终极模板那一段**（引擎的段白名单只有一个值），
+    /// 所以这里不跟当前段走 —— 切到会话模板段也照样只有这一份。
     /// 开关状态只认引擎的回包（`combos[].enabled`），不读 `preset.json` 自己算。
-    pub(crate) fn load_combos(&mut self, i: usize, force: bool, cx: &mut Context<Self>) {
+    pub(crate) fn load_combos(&mut self, force: bool, cx: &mut Context<Self>) {
         if !self.feature_enabled(crate::capability::Feature::Combos) {
             return;
         }
-        let Some(section_id) = SECTIONS.get(i).map(|(id, _)| *id) else {
-            return;
-        };
-        if !force && self.combos.contains_key(section_id) {
+        if !force && self.combos.is_some() {
             return;
         }
         let Some(engine) = self.engine.clone() else {
@@ -483,19 +484,14 @@ impl Desktop {
         };
         cx.spawn(async move |this, cx| {
             let got = match crate::TOKIO.get().cloned() {
-                Some(h) => h
-                    .spawn(async move { engine.combos(section_id).await })
-                    .await
-                    .ok(),
+                Some(h) => h.spawn(async move { engine.combos(COMBO_SECTION).await }).await.ok(),
                 None => None,
             };
             let _ = this.update(cx, |this, cx| {
                 match got {
-                    Some(Ok(list)) => {
-                        this.combos.insert(section_id, list.combos);
-                    }
-                    // 拉不到就不存：详情页显示「状态未知」，下次切段还会重试，
+                    // 拉不到就不存：详情页显示「状态未知」，下次还会重试，
                     // 不拿旧值假装真相。
+                    Some(Ok(list)) => this.combos = Some(list.combos),
                     Some(Err(e)) => this.notify(
                         format!("读组合开关失败：{e}"),
                         crate::app::NoticeKind::Error,
@@ -513,7 +509,7 @@ impl Desktop {
     /// 回包里的 `enabled` 是盘上的真相，拿它覆盖（引擎可能顺手改了别的）。
     ///
     /// `PATCH` 必带 `If-Match`：引擎没给 `version` 就不发 —— 盲写会把别人刚改的覆盖掉。
-    pub(crate) fn toggle_combo(&mut self, i: usize, name: String, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_combo(&mut self, name: String, cx: &mut Context<Self>) {
         if let Some(reason) = self.disabled_reason(crate::capability::Feature::Combos) {
             self.notify(reason, crate::app::NoticeKind::Info, cx);
             return;
@@ -521,18 +517,12 @@ impl Desktop {
         if self.combo_flying.is_some() {
             return;
         }
-        let Some(section_id) = SECTIONS.get(i).map(|(id, _)| *id) else {
-            return;
-        };
-        let found = self
-            .combos
-            .get(section_id)
-            .and_then(|v| v.iter().find(|c| c.name == name));
+        let found = self.combos.as_ref().and_then(|v| v.iter().find(|c| c.name == name));
         let enabled = found.map(|c| c.enabled);
         let version = found.and_then(|c| c.version.clone()).unwrap_or_default();
         // 状态还没拉到就别猜着翻 —— 去重拉一次。
         let Some(next) = next_combo_enabled(enabled) else {
-            self.load_combos(i, true, cx);
+            self.load_combos(true, cx);
             return;
         };
         if version.is_empty() {
@@ -546,11 +536,7 @@ impl Desktop {
         }
         let current = enabled.unwrap();
         // 本地先翻 —— 点下去立刻看得见。
-        if let Some(c) = self
-            .combos
-            .get_mut(section_id)
-            .and_then(|v| v.iter_mut().find(|c| c.name == name))
-        {
+        if let Some(c) = self.combos.as_mut().and_then(|v| v.iter_mut().find(|c| c.name == name)) {
             c.enabled = next;
         }
         self.combo_flying = Some(name.clone());
@@ -567,7 +553,7 @@ impl Desktop {
                 Some(h) => h
                     .spawn(async move {
                         engine
-                            .set_combo_enabled(section_id, &url_name, next, &version, &request_id)
+                            .set_combo_enabled(COMBO_SECTION, &url_name, next, &version, &request_id)
                             .await
                     })
                     .await
@@ -581,7 +567,7 @@ impl Desktop {
                         // 用回包覆盖，别信自己翻的那一下。
                         if let Some(c) = this
                             .combos
-                            .get_mut(section_id)
+                            .as_mut()
                             .and_then(|v| v.iter_mut().find(|c| c.name == changed.name))
                         {
                             *c = changed;
@@ -591,7 +577,7 @@ impl Desktop {
                         // 回滚到翻之前。
                         if let Some(c) = this
                             .combos
-                            .get_mut(section_id)
+                            .as_mut()
                             .and_then(|v| v.iter_mut().find(|c| c.name == name))
                         {
                             c.enabled = current;
@@ -605,7 +591,7 @@ impl Desktop {
                     None => {
                         if let Some(c) = this
                             .combos
-                            .get_mut(section_id)
+                            .as_mut()
                             .and_then(|v| v.iter_mut().find(|c| c.name == name))
                         {
                             c.enabled = current;
@@ -699,7 +685,6 @@ impl Desktop {
             self.preset_cat = keep_category(&self.preset_cat, &tree);
         }
         self.load_section(i, false, cx);
-        self.load_combos(i, false, cx);
         cx.notify();
     }
 
@@ -5374,9 +5359,7 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
         // 开关状态只认引擎回包。没拉到 / 正在翻时不猜、不连点。
         // 组合清单是**按段**的（`GET /v1/combos/{section}`），只取当前这一段。
         let combo = if is_ultimate {
-            self.combos
-                .get(sec.id)
-                .and_then(|v| v.iter().find(|c| c.name == p.name))
+            self.combos.as_ref().and_then(|v| v.iter().find(|c| c.name == p.name))
         } else {
             None
         };
@@ -5384,7 +5367,7 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
         let combo_problem = combo.map(|c| c.problem.clone()).unwrap_or_default();
         let combo_flying = self.combo_flying.as_deref() == Some(p.name.as_str());
         let toggle_name = p.name.clone();
-        let toggle_section = self.section;
+
 
         shell(
             div()
@@ -5470,7 +5453,7 @@ fn preset_pick_row(&self, p: &Preset, cx: &mut Context<Self>) -> AnyElement {
                                         el.hover(|h| h.bg(rgb(t().p.hover)))
                                     })
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        this.toggle_combo(toggle_section, toggle_name.clone(), cx);
+                                        this.toggle_combo(toggle_name.clone(), cx);
                                     }))
                                     .child(label),
                             )
