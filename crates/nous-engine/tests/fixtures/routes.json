@@ -9,8 +9,9 @@
     "commit": "8922fc2",
     "host": "asus",
     "environment": "NOUS_PROVIDER=faux, NOUS_LISTEN=127.0.0.1:0",
-    "route_count": 59,
-    "module_count": 12
+    "route_count": 62,
+    "module_count": 12,
+    "patched": "2026-11-22：补 combos 三条（Nous 0.1.7 起开关面按段，GET /v1/combos 与 POST /:name/:action 已取消）。整份仍是 0.1.3 快照，其余差异见 dead_paths 的 warning 清单。"
   },
   "routes": [
     {
@@ -307,6 +308,21 @@
       "module": "device",
       "method": "GET",
       "path": "/v1/_routes"
+    },
+    {
+      "module": "combos",
+      "method": "GET",
+      "path": "/v1/combos/:section"
+    },
+    {
+      "module": "combos",
+      "method": "PATCH",
+      "path": "/v1/combos/:section/:name"
+    },
+    {
+      "module": "combos",
+      "method": "POST",
+      "path": "/v1/combos/{section}/{name}/fire"
     }
   ],
   "modules": [

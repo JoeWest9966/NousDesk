@@ -31,7 +31,7 @@ impl Feature {
             Self::Sessions => ("GET", "v1/sessions"),
             Self::Presets => ("GET", "v1/presets/{section}"),
             Self::Archive => ("GET", "v1/archive"),
-            Self::Combos => ("GET", "v1/combos"),
+            Self::Combos => ("GET", "v1/combos/{section}"),
             Self::Triggers => ("GET", "v1/triggers"),
             Self::Skills => ("GET", "v1/skills"),
             Self::Prompts => ("GET", "v1/prompts"),
@@ -204,7 +204,7 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     if path == "v1/archive" || path.starts_with("v1/archive/") {
         return Some(Feature::Archive);
     }
-    if path.strip_prefix(concat!("v1/presets", "/")).is_some() || path == "v1/combos" || path.starts_with("v1/combos/") {
+    if path.strip_prefix(concat!("v1/presets", "/")).is_some() || path.starts_with("v1/combos") {
         return Some(if path.starts_with("v1/combos") { Feature::Combos } else { Feature::Presets });
     }
     if path.starts_with("v1/stats/") {
@@ -814,8 +814,8 @@ mod tests {
             ("PUT", "/v1/presets/{section}/order"), ("GET", "/v1/presets/{section}/categories"),
             ("GET", "/v1/presets/{section}/{name}/revisions"), ("GET", "/v1/presets/{section}/{name}/revisions/{n}"),
             ("POST", "/v1/presets/{section}/{name}/rollback"), ("GET", "/v1/presets/model"),
-            ("GET", "/v1/combos"),
-            ("POST", "/v1/combos/:name/:action"), ("GET", "/v1/triggers"),
+            ("GET", "/v1/combos/{section}"),
+            ("PATCH", "/v1/combos/{section}/{name}"), ("GET", "/v1/triggers"),
             ("GET", "/v1/selection"), ("POST", "/v1/selection"),
             ("GET", "/v1/sessions/:id/events"),
             // 资源仓：resource_root 只给 skills / prompts / extensions 三种字面量。

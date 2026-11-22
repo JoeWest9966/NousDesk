@@ -1128,7 +1128,7 @@ pub struct DirEntry {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// `GET /v1/combos` 里的一条。开着没开由引擎算（`enabled` 缺省 true），客户端不自己读 spec。
+/// `GET /v1/combos/{section}` 里的一条。开着没开由引擎算（`enabled` 缺省 true），客户端不自己读 spec。
 #[derive(Debug, Clone, Deserialize)]
 pub struct Combo {
     pub name: String,
@@ -1141,6 +1141,10 @@ pub struct Combo {
     /// 为什么跑不起来（写坏了 / 引用没了）。空串 = 没问题。
     #[serde(default)]
     pub problem: String,
+    /// 引擎给的版本串（`v<sha>`）。`PATCH` 的 `If-Match` 就填它 —— 没版本就不翻开关，
+    /// 不带 `If-Match` 去改等于让引擎盲写。
+    #[serde(default)]
+    pub version: Option<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -1153,20 +1157,17 @@ fn null_as_empty_string<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Er
     Option::<String>::deserialize(d).map(|v| v.unwrap_or_default())
 }
 
-/// `GET /v1/combos` 的整包。调度器节拍也在里面（引擎给的，客户端只显示）。
+/// `GET /v1/combos/{section}` 的整包。
 #[derive(Debug, Clone, Deserialize)]
 pub struct Combos {
     #[serde(default)]
     pub combos: Vec<Combo>,
-    pub scheduler: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// `POST /v1/combos/:name/enable|disable` 的回包。
-#[derive(Debug, Clone, Deserialize)]
-pub struct ComboChanged {
-    pub combo: Combo,
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
-}
+/// `PATCH /v1/combos/{section}/{name}` 的回包。
+///
+/// **平铺的一条 Combo**（不是 `{combo:{…}}`）：`{name, trigger, params, session,
+/// enabled, problem, version, requestId}`，`requestId` 落 `extra` 原样透传。
+pub type ComboChanged = Combo;

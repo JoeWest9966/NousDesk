@@ -356,3 +356,30 @@ fn parse_tracked_null_is_unknown_not_false() {
     let p: nous_engine::types::Prompts = serde_json::from_str(json).unwrap();
     assert_eq!(p.prompts[0].tracked, None);
 }
+
+/// Nous 0.1.7：开关面按段取（`GET /v1/combos/{section}`），`PATCH` 的回包是**平铺的一条**，
+/// 不是旧版的 `{combo:{…}}`。`version` 是 `If-Match` 的料，丢了就翻不了开关。
+#[test]
+fn parse_combos_per_section_and_flat_patch_receipt() {
+    let json = r#"{
+      "combos": [{
+        "name": "read-only-review", "trigger": "nightly", "params": {"depth": 2},
+        "session": "review", "enabled": false,
+        "problem": "这条没钉触发器；这条没钉会话模板",
+        "version": "v3116592b88e9"
+      }]
+    }"#;
+    let c: nous_engine::types::Combos = serde_json::from_str(json).unwrap();
+    assert_eq!(c.combos.len(), 1);
+    assert_eq!(c.combos[0].name, "read-only-review");
+    assert_eq!(c.combos[0].version.as_deref(), Some("v3116592b88e9"));
+    assert!(!c.combos[0].enabled);
+
+    // PATCH 回包：平铺 + requestId（落 extra，原样透传）。
+    let json = r#"{"name":"asd","trigger":null,"params":{},"session":null,
+                   "enabled":true,"problem":"","version":"v3116592b88e9","requestId":"desk-1"}"#;
+    let changed: nous_engine::types::ComboChanged = serde_json::from_str(json).unwrap();
+    assert_eq!(changed.name, "asd");
+    assert!(changed.enabled);
+    assert_eq!(changed.extra.get("requestId").and_then(|v| v.as_str()), Some("desk-1"));
+}

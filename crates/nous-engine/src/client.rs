@@ -655,22 +655,40 @@ impl EngineClient {
         self.json(resp).await
     }
 
-    /// 终极模板的组合清单。开着没开、能不能跑都由引擎算好，客户端只显示。
-    pub async fn combos(&self) -> Result<Combos, EngineError> {
-        let resp = self.http.get(self.url("v1/combos")?).send().await?;
+    /// `GET /v1/combos/{section}`：一段的组合清单。开着没开、能不能跑都由引擎算好，
+    /// 客户端只显示。段与 `presets` 同两个值（`Session-Template` / `Ultimate-Template`）。
+    pub async fn combos(&self, section: &str) -> Result<Combos, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("v1/combos/{section}"))?)
+            .send()
+            .await?;
         self.json(resp).await
     }
 
-    /// 启停一条组合。引擎翻 `enabled` 并写回 `ultimate.json`；回包里是**盘上的真相**。
+    /// `PATCH /v1/combos/{section}/{name}`：只翻 `enabled` 那一位，不碰别的字段、别的组合。
+    ///
+    /// 必带 `If-Match`（版本不匹配 → 412）与 `requestId`（幂等锚：重放回第一次回执）。
+    /// 回包是**平铺的一条** `Combo`，不是 `{combo:{…}}`。
     pub async fn set_combo_enabled(
         &self,
+        section: &str,
         name: &str,
         enabled: bool,
+        version: &str,
+        request_id: &str,
     ) -> Result<ComboChanged, EngineError> {
-        let action = if enabled { "enable" } else { "disable" };
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body<'a> {
+            enabled: bool,
+            request_id: &'a str,
+        }
         let resp = self
             .http
-            .post(self.url(&format!("v1/combos/{name}/{action}"))?)
+            .patch(self.url(&format!("v1/combos/{section}/{name}"))?)
+            .header(reqwest::header::IF_MATCH, version)
+            .json(&Body { enabled, request_id })
             .send()
             .await?;
         self.json(resp).await
@@ -991,8 +1009,8 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/triggers/purge"),
     ("POST", "v1/triggers/category"),
     ("POST", "v1/triggers/categories"),
-    ("GET", "v1/combos"),
-    ("POST", "v1/combos/:name/:action"),
+    ("GET", "v1/combos/{section}"),
+    ("PATCH", "v1/combos/{section}/{name}"),
     ("GET", "v1/selection"),
     ("POST", "v1/selection"),
     ("GET", "v1/sessions/:id/events"),
