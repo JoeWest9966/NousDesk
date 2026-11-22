@@ -28,7 +28,9 @@ use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
-use nous_engine::types::{Extensions, Prompt, Prompts, Skill, Skills};
+use nous_engine::types::{
+    ExtCategories, Extensions, Prompt, Prompts, RepoArchive, RepoVariants, Skill, Skills,
+};
 
 use crate::app::Desktop;
 use crate::category::{CatNode, build_tree, is_under};
@@ -139,6 +141,12 @@ pub(crate) struct ResourceState {
     pub(crate) skills: Option<Skills>,
     pub(crate) prompts: Option<Prompts>,
     pub(crate) exts: Option<Extensions>,
+    /// 变体绑定表（`GET /v1/repos/extend/variants`，Nous #76）。
+    pub(crate) ext_variants: Option<RepoVariants>,
+    /// 归档区（`GET /v1/repos/extend/archive`）：`.archive/` 里有什么。
+    pub(crate) ext_archive: Option<RepoArchive>,
+    /// 类别词表（`GET /v1/extensions/categories`）。
+    pub(crate) ext_cats: Option<ExtCategories>,
     /// 三个 tab 各自的类别筛选，切来切去能回到原来那一行。
     cat: [Option<String>; 3],
     /// 三段各自的搜索框。**各存一份**，切段时词还在（跟 `cat` 同款语义）。
@@ -179,6 +187,9 @@ impl ResourceState {
             skills: None,
             prompts: None,
             exts: None,
+            ext_variants: None,
+            ext_archive: None,
+            ext_cats: None,
             cat: [None, None, None],
             search: [
                 box_for("搜技能：名字 / 描述"),
@@ -210,6 +221,15 @@ impl ResourceState {
 
     fn hydrated(&self) -> bool {
         self.skills.is_some() && self.prompts.is_some() && self.exts.is_some()
+    }
+
+    /// 扩展页的三份数据合成一个视图。没拉到清单就没有视图（其余两份单独来也没用）。
+    pub(crate) fn ext_view(&self) -> Option<ExtView<'_>> {
+        self.exts.as_ref().map(|exts| ExtView {
+            exts,
+            variants: self.ext_variants.as_ref(),
+            archive: self.ext_archive.as_ref(),
+        })
     }
 }
 
@@ -276,17 +296,78 @@ pub(crate) fn visible_prompts<'a>(prompts: &'a Prompts, cat: Option<&str>, q: &s
 /// loaded, pid, state, error}`）：它只说「盘上这一条现在是什么状态」，不再分
 /// catalog / builtin / variants / archived 五份。所以有 `items` 就用 `items`，
 /// 老形状只在拿不到 `items` 时兜底 —— 两条路只留一个真相，不合并两套再猜。
-pub(crate) fn ext_rows(exts: &Extensions, cat: Option<&str>, q: &str) -> Vec<ExtRow> {
+/// 扩展页要的三份数据：运行时清单 + 变体绑定表 + 归档区。
+///
+/// 三者不是一份响应：`GET /v1/extensions` 说的是「进程现在怎么样」，
+/// `/v1/repos/extend/{variants,archive}` 说的是「仓库里还有什么」。以前 TS 内核把
+/// 它们塞在一份响应里，现在分开了 —— 合成在这里做，别让渲染层知道有三份。
+#[derive(Clone, Copy)]
+pub(crate) struct ExtView<'a> {
+    pub(crate) exts: &'a Extensions,
+    pub(crate) variants: Option<&'a RepoVariants>,
+    pub(crate) archive: Option<&'a RepoArchive>,
+}
+
+impl<'a> ExtView<'a> {
+    fn variant_count(&self) -> usize {
+        self.variants.map(|v| v.family("extend").count()).unwrap_or(0)
+    }
+
+    fn archived_count(&self) -> usize {
+        self.archive.map(|a| a.items.len()).unwrap_or(0)
+    }
+
+    /// 变体行的名字：绑定表按 `<id>` 记账，不记「本体是谁」—— 本体看详情里的分支。
+    fn variant_rows(&self) -> Vec<ExtRow> {
+        let Some(variants) = self.variants else { return Vec::new() };
+        variants
+            .family("extend")
+            .map(|(id, binding)| ExtRow {
+                name: id.clone(),
+                summary: Some(if binding.branch.is_empty() {
+                    "extend 的变体".to_string()
+                } else {
+                    format!("变体分支 {}", binding.branch)
+                }),
+                category: vec![],
+                kind: ExtKind::Variant,
+            })
+            .collect()
+    }
+
+    fn archived_rows(&self) -> Vec<ExtRow> {
+        let Some(archive) = self.archive else { return Vec::new() };
+        archive
+            .items
+            .iter()
+            .map(|unit| ExtRow {
+                name: unit.name.clone(),
+                // 归档物只有名字：`.archive/` 里没有清单、没有版本。
+                summary: Some("已归档（在 .archive/ 里，恢复回来才知道是什么）".to_string()),
+                category: vec![],
+                kind: ExtKind::Archived,
+            })
+            .collect()
+    }
+}
+
+pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtRow> {
+    let exts = src.exts;
     let mut out = Vec::new();
     if !exts.items.is_empty() {
         for item in &exts.items {
-            let kind = match item.kind.as_str() {
-                // 换代，不是故障：清单是 JS 时代的，新运行时没有解释器。
-                "legacy-js" => ExtKind::Legacy,
-                // 清单不合法 / 进程崩了 —— 都是「这一条现在跑不起来」。
-                "invalid" => ExtKind::Failed,
-                _ if item.state.as_deref() == Some("running") => ExtKind::On,
-                _ => ExtKind::Failed,
+            // 判档顺序有讲究：换代（legacy-js）先判，别混进「加载失败」；
+            // 核心三条再判，它们跑着也还是「内置」那一档；最后才看进程在不在。
+            let kind = if item.kind == "legacy-js" {
+                ExtKind::Legacy
+            } else if item.core {
+                ExtKind::Builtin
+            } else if item.kind == "invalid" {
+                ExtKind::Failed
+            } else if item.state.as_deref() == Some("running") {
+                ExtKind::On
+            } else {
+                ExtKind::Failed
             };
             out.push(ExtRow {
                 name: item.name.clone(),
@@ -297,6 +378,8 @@ pub(crate) fn ext_rows(exts: &Extensions, cat: Option<&str>, q: &str) -> Vec<Ext
                 kind,
             });
         }
+        out.extend(src.variant_rows());
+        out.extend(src.archived_rows());
         return filter_ext_row(out, cat, q);
     }
     for e in &exts.catalog {
@@ -400,12 +483,17 @@ fn filter_ext_row(out: Vec<ExtRow>, cat: Option<&str>, q: &str) -> Vec<ExtRow> {
 ///
 /// 扩展的计数只数**能看见的那一份**：有 `items` 就数 `items`（盘上真相），
 /// 没有才退回老形状的 `catalog`。两个都数是「段写 4、列表 7」的老毛病。
-pub(crate) fn counts(skills: Option<&Skills>, prompts: Option<&Prompts>, exts: Option<&Extensions>) -> (usize, usize, usize) {
+pub(crate) fn counts(skills: Option<&Skills>, prompts: Option<&Prompts>, ext: Option<ExtView<'_>>) -> (usize, usize, usize) {
     (
         skills.map(|s| s.skills.iter().filter(|x| !x.hidden).count()).unwrap_or(0),
         prompts.map(|p| p.prompts.len()).unwrap_or(0),
-        exts.map(|e| {
-            if e.items.is_empty() { e.catalog.len() } else { e.items.len() }
+        ext.map(|v| {
+            if v.exts.items.is_empty() {
+                v.exts.catalog.len()
+            } else {
+                // 段上那个数字 = 列表里能看到的行数（清单 + 变体 + 归档）。
+                v.exts.items.len() + v.variant_count() + v.archived_count()
+            }
         })
         .unwrap_or(0),
     )
@@ -435,11 +523,15 @@ impl Desktop {
         cx.notify();
 
         cx.spawn(async move |this, cx| {
-            // 三份并发：一份 500 不该把另两份一起拖成白屏。
-            let (skills, prompts, exts) = tokio::join!(
+            // 六份并发：一份 500 不该把另两份一起拖成白屏。扩展那三份同理 ——
+            // 变体 / 归档端点旧引擎没有（404），不能因此把扩展清单本身也画成空。
+            let (skills, prompts, exts, variants, archive, cats) = tokio::join!(
                 engine.skills(),
                 engine.prompts(),
                 engine.extensions(),
+                engine.ext_variants(),
+                engine.ext_archive(),
+                engine.ext_categories(),
             );
             let _ = this.update(cx, |this, cx| {
                 this.resources.loading = false;
@@ -456,6 +548,11 @@ impl Desktop {
                     Ok(v) => this.resources.exts = Some(v),
                     Err(e) => errs.push(format!("扩展：{e}")),
                 }
+                // 这三份失败不进 `error`（页面照常可看），但也不许各自编个默认值装作成功：
+                // 没拿到就是 `None`，视图里那一档自然空着。
+                this.resources.ext_variants = variants.ok();
+                this.resources.ext_archive = archive.ok();
+                this.resources.ext_cats = cats.ok();
                 if !errs.is_empty() {
                     this.resources.error = Some(errs.join(" · "));
                 }
@@ -549,7 +646,7 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
     let (n_skills, n_prompts, n_ext) = counts(
         r.skills.as_ref(),
         r.prompts.as_ref(),
-        r.exts.as_ref(),
+        r.ext_view(),
     );
 
     // 段的子开关：内容段里再切「技能 / 提示词」。
@@ -608,9 +705,17 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
         },
         Section::Extensions => {
             let exts = r.exts.as_ref();
-            let cats = exts.map(|e| e.categories.as_slice()).unwrap_or(&[]);
-            // `items[]` 时代没有仓库级类别词表（`categories` 为空），类别只在每条清单里；
-            // 老形状则是「词表 + catalog/archived 的类别」。两种都归一成同一种形状：
+            // 类别树要的是「这个仓定义了哪几个类别」：优先取词表
+            // （`GET /v1/extensions/categories`，住在私库里、随发布走），没有再退回
+            // 老形状的 `Extensions.categories`。一个类别下暂时没条目也要留在树上 ——
+            // 只按条目凑，空类别会悄悄消失。
+            let cats: &[String] = r
+                .ext_cats
+                .as_ref()
+                .map(|c| c.categories.as_slice())
+                .filter(|c| !c.is_empty())
+                .or_else(|| exts.map(|e| e.categories.as_slice()))
+                .unwrap_or(&[]);
             // 每条一个类别列表，交给 `build_tree` 去数。
             let items: Vec<Vec<String>> = exts
                 .map(|e| {
@@ -909,8 +1014,8 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             }
         },
         Section::Extensions => {
-            if let Some(exts) = r.exts.as_ref() {
-                for row in ext_rows(exts, cat, &q) {
+            if let Some(view) = r.ext_view() {
+                for row in ext_rows(view, cat, &q) {
                     body = body.child(row_btn(
                         &row.name,
                         row.summary.as_deref().unwrap_or(""),
@@ -1139,9 +1244,8 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     );
     // 扩展的五类各有各的动作：已归档给「恢复 / 真删」，在册的给「卸载 / 安装」+「归档」。
     let ext_kind = if kind == Kind::Ext {
-        r.exts
-            .as_ref()
-            .and_then(|e| ext_rows(e, None, "").into_iter().find(|x| x.name == name))
+        r.ext_view()
+            .and_then(|v| ext_rows(v, None, "").into_iter().find(|x| x.name == name))
             .map(|x| x.kind)
     } else {
         None
@@ -1294,8 +1398,8 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             }
         }
         Selected::Ext(name) => {
-            let found = r.exts.as_ref().and_then(|exts| {
-                let row = ext_rows(exts, None, "");
+            let found = r.ext_view().and_then(|view| {
+                let row = ext_rows(view, None, "");
                 row.into_iter().find(|x| &x.name == name)
             });
             if let Some(e) = found {
@@ -1306,7 +1410,7 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 if e.kind == ExtKind::Archived {
                     body = body.child(note_line("在 .archive/ 里 —— 别人也看不见。「恢复」把它搬回仓库并提交，「真删」会一起提交删掉。"));
                 } else if e.kind == ExtKind::Builtin {
-                    body = body.child(note_line("内置扩展是引擎硬编码 import 的 —— 卸载会 403，也不在仓库里，发不出去。"));
+                    body = body.child(note_line("核心扩展（nous / skills / prompts）引擎自己要跑 —— 卸载会被 403 挡回来；它们在仓库里，改得动，删不得。"));
                 } else if e.kind == ExtKind::Legacy {
                     // 这一档不是「装 / 卸」能治的：新运行时只 spawn 原生产物（协议握手 +
                     // artifacts），`index.js` 没有解释器。说清楚该干什么，别让人反复点重装。

@@ -32,9 +32,19 @@ chmod 600 "$WORK/home/.config/nous/token"
 mkdir -p "$WORK/presets/Session-Template/probe"
 printf '%s\n' '{"name":"probe","category":[],"spec":{}}' > "$WORK/presets/Session-Template/probe/preset.json"
 
+# 扩展页的三份数据要有东西可断言：临时源码根里放两条 —— 一条合法原生清单、
+# 一条 TS 时代（`index.js` + 字符串 sections）的老清单。没有种子，`kind` 一栏
+# 永远空着，`ext.items.kind.*` 两条断言就会变成「空也能过」。
+mkdir -p "$WORK/extend/native-one" "$WORK/extend/old-js"
+printf '%s\n' '{"name":"native-one","version":"0.1.0","protocol":1,"file":"native-one","entry":"native-one","sections":[{"key":"a","tag":"a"}],"summary":"探针种的原生扩展","category":"工具"}' \
+  > "$WORK/extend/native-one/nous.json"
+printf '%s\n' '{"name":"old-js","version":"0.1.0","file":"index.js","entry":"default","sections":["preamble"]}' \
+  > "$WORK/extend/old-js/nous.json"
+
 # 端口 0 由内核选；绑定行是 stdout 唯一一行，脚本靠它拿真实地址。
 HOME="$WORK/home" NOUS_PROVIDER=faux NOUS_LISTEN=127.0.0.1:0 \
-  NOUS_PRESETS="$WORK/presets" NOUS_DB="$WORK/nous.db" NOUS_PLUGINS_DB="$WORK/nous-plugins.db" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
+  NOUS_PRESETS="$WORK/presets" NOUS_DB="$WORK/nous.db" NOUS_PLUGINS_DB="$WORK/nous-plugins.db" \
+  NOUS_EXTEND="$WORK/extend" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
 SERVER_PID=$!
 
 ADDR=""
@@ -86,6 +96,14 @@ done
 # #12 判据 4：stats 200 + totals 在场；archive 200 且带 gens 数组。
 # archive 原本钉的是「未实现就说未实现」（404）；Nous#67 把存档做出来之后，
 # 钉的东西反过来：**必须真能拉到** —— 哪天它悄悄回 404，这条先红。
+# 资源页（扩展段）的三份读面：清单分档、类别词表、归档区、变体表。
+# 少一条就是「页面照常打开、那一行永远没有」——这种静默最费劲，所以钉死。
+for assert_name in ext.items.kind.native ext.items.kind.legacy_js \
+                  ext.categories.200 ext.archive.200 ext.variants.200; do
+  grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
+    || { echo "FAIL: 扩展段少了一条断言：$assert_name"; exit 1; }
+done
+
 for assert_name in stats.usage.200.totals archive.200.gens presets.enabled presets.roster.200 presets.roster.items.nonempty; do
   grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
     || { echo "FAIL: 缺了判据 4 的断言：$assert_name"; exit 1; }

@@ -146,6 +146,24 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("PUT", "v1/extensions/file"),
     ("POST", "v1/extensions/create"),
     ("POST", "v1/extensions/publish"),
+    // Nous 0.1.10：资源页恢复 TS 时代那一套要的读面。
+    // 类别词表与 reload 早就在引擎里；私库的归档区读面是 0.1.10 新加的
+    // （写面 archive/restore/purge 一直在，缺读 → 「归档了就再也看不见」）。
+    ("GET", "v1/extensions/categories"),
+    ("POST", "v1/extensions/reload"),
+    ("GET", "v1/repos/extend/variants"),
+    ("GET", "v1/repos/extend/archive"),
+    // 仓级生命周期：三个内容仓共用一套路由，仓名写在路径里而不是 `{repo}` 模板 ——
+    // 台账要的是「客户端真会打的这一条」。
+    ("POST", "v1/repos/extend/archive"),
+    ("POST", "v1/repos/extend/restore"),
+    ("POST", "v1/repos/extend/purge"),
+    ("POST", "v1/repos/skills/archive"),
+    ("POST", "v1/repos/skills/restore"),
+    ("POST", "v1/repos/skills/purge"),
+    ("POST", "v1/repos/prompts/archive"),
+    ("POST", "v1/repos/prompts/restore"),
+    ("POST", "v1/repos/prompts/purge"),
     // Desk#14：recovery 夹具里没有 GET /v1/extensions，已从活路由移入死路径账本。
     ("GET", "v1/triggers"),
     ("POST", "v1/triggers/{code}/fire"),
@@ -330,23 +348,40 @@ mod tests {
         println!("routes 夹具 provenance={}", fixture["_provenance"]);
         assert!(!captured.is_empty(), "夹具缺 _captured_at");
         assert!(!version.is_empty(), "夹具缺 _engine_version");
-        assert_eq!(fixture["routes"].as_array().unwrap().len(), 114, "0.1.8 线上整份重抓（真引擎 114 条）");
+        assert_eq!(
+            fixture["routes"].as_array().unwrap().len(),
+            115,
+            "0.1.10 整份重抓（114 + GET /v1/repos/:repo/archive）"
+        );
         assert!(fixture["_provenance"].get("commit").is_some());
+    }
+
+    /// 夹具里的路由模板 + 把 `{repo}` 展开成四个真仓名。
+    ///
+    /// 引擎侧 `/v1/repos/{repo}/…` 是**一条**路由带路径参数，客户端打的却是
+    /// `/v1/repos/extend/archive` 这种具体地址。只按模板字面比，两边永远对不上，
+    /// 于是「客户端在用的路径」会被误判成漏账。
+    fn fixture_engine_paths() -> std::collections::BTreeSet<String> {
+        let raw = include_str!("../../nous-engine/tests/fixtures/routes.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let mut engine = std::collections::BTreeSet::new();
+        for route in fixture["routes"].as_array().unwrap() {
+            let method = route["method"].as_str().unwrap().to_string();
+            let path = crate::capability::normalize_path(route["path"].as_str().unwrap());
+            engine.insert(format!("{method} {path}"));
+            if path.contains("{repo}") {
+                for repo in ["presets", "skills", "prompts", "extend"] {
+                    engine.insert(format!("{method} {}", path.replace("{repo}", repo)));
+                }
+            }
+        }
+        engine
     }
 
     /// Desk#14 判据：每条客户端活路径（method + path）必须在夹具里。
     #[test]
     fn live_client_paths_are_in_routes_fixture() {
-        let raw = include_str!("../../nous-engine/tests/fixtures/routes.json");
-        let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
-        let mut engine = std::collections::BTreeSet::new();
-        for route in fixture["routes"].as_array().unwrap() {
-            engine.insert(format!(
-                "{} {}",
-                route["method"].as_str().unwrap(),
-                crate::capability::normalize_path(route["path"].as_str().unwrap())
-            ));
-        }
+        let engine = fixture_engine_paths();
         let mut leaked = Vec::new();
         for &(method, path) in engine_call_paths()
             .iter()
@@ -367,16 +402,7 @@ mod tests {
     /// Desk#14 判据：客户端路径表里不在夹具的，必须在死路径账本且处置 != 活。
     #[test]
     fn paths_absent_from_fixture_are_in_dead_paths() {
-        let raw = include_str!("../../nous-engine/tests/fixtures/routes.json");
-        let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
-        let mut engine = std::collections::BTreeSet::new();
-        for route in fixture["routes"].as_array().unwrap() {
-            engine.insert(format!(
-                "{} {}",
-                route["method"].as_str().unwrap(),
-                crate::capability::normalize_path(route["path"].as_str().unwrap())
-            ));
-        }
+        let engine = fixture_engine_paths();
         let mut unaccounted = Vec::new();
         for &(method, path) in engine_call_paths()
             .iter()
@@ -621,11 +647,19 @@ mod source_literal_audit {
                     // 生成模板（`{repo}` / `{}`）按已知取值展开：资源仓三种 ×
                     // presets 生命周期动词；任一实际展开没进账就算漏账。
                     let expansions: Vec<String> = if path.contains("{repo}") {
-                        // UI 的 `/v1/{repo}/...`：{repo} 取三种资源仓。
+                        // UI 的 `/v1/{repo}/...`：两种叫法都存在，按前缀分开取。
+                        // 文件面（`/v1/{repo}/file`）是三种资源仓；私库面
+                        // （`/v1/repos/{repo}/…`）是四个**仓名**，扩展在那里叫 `extend`。
                         let template = path.clone();
-                        ["skills", "prompts", "extensions"].into_iter()
-                            .map(move |kind| template.replace("{repo}", kind))
-                            .collect()
+                        if path.starts_with("v1/repos/{repo}") {
+                            ["presets", "skills", "prompts", "extend"].into_iter()
+                                .map(move |repo| template.replace("{repo}", repo))
+                                .collect()
+                        } else {
+                            ["skills", "prompts", "extensions"].into_iter()
+                                .map(move |kind| template.replace("{repo}", kind))
+                                .collect()
+                        }
                     } else if path.contains("{}") && !path.starts_with("v1/documents/")
                         && !path.strip_prefix(concat!("v1/presets", "/")).is_some_and(|_| true) {
                         // `format!("/v1/{}/publish", kind.repo().key())`：{} 是资源仓。

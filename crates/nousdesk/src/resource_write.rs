@@ -837,18 +837,27 @@ impl Desktop {
 
         cx.spawn_in(window, async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let reload_engine = engine.clone();
             let res = handle
                 .spawn(async move { engine.resource_op("extensions", op, &body).await })
                 .await;
+
+            // 装 / 卸是盘面动作，注册表要引擎自己重装一次才算数
+            // （`POST /v1/extensions/reload`）。以前那句「引擎装完会立刻重装」是新内核
+            // 之前的行为，现在要显式喊；不喊就是「页面说装着、会话里没有」。
+            let reload = match &res {
+                Ok(Ok(_)) => Some(reload_engine.ext_reload().await),
+                _ => None,
+            };
 
             let _ = this.update_in(cx, |this, window, cx| {
                 match res {
                     Ok(Ok(_)) => {
                         this.notify(
-                            if install {
-                                format!("装上了 {name} —— 立刻重装注册表，不用等轮询")
-                            } else {
-                                format!("卸载了 {name} —— 目录还在仓库里，只是这台不装")
+                            match (install, reload.map(|r| r.is_ok())) {
+                                (true, Some(true)) => format!("装上了 {name} —— 注册表已重装"),
+                                (true, _) => format!("装上了 {name}（重装注册表没成功，清单可能还是旧的）"),
+                                (false, _) => format!("卸载了 {name} —— 目录仍在仓库里，只是这台不装"),
                             },
                             NoticeKind::Info,
                             cx,
@@ -885,8 +894,16 @@ impl Desktop {
     }
 
     pub(crate) fn resource_confirm_yes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let repo = self.resources.confirm.as_ref().map(|c| c.kind.repo().key()).unwrap_or("skills");
-        if let Some(reason) = self.resource_write_gate("POST", &format!("/v1/{repo}/{{op}}")) {
+        let kind = self.resources.confirm.as_ref().map(|c| c.kind);
+        // 归档 / 恢复 / 真删是**仓级**动作（`/v1/repos/{repo}/{op}`），不是文件面的
+        // `/v1/{kind}/{op}` —— 后者在引擎里根本不存在，以前点「归档」会静默 404。
+        // 三条路径逐个写死（不拼模板）：台账扫描器要看见「客户端真会打的这一条」。
+        let gate_path = match kind {
+            Some(Kind::Skill) => "/v1/repos/skills/archive",
+            Some(Kind::Prompt) => "/v1/repos/prompts/archive",
+            _ => "/v1/repos/extend/archive",
+        };
+        if let Some(reason) = self.resource_write_gate("POST", gate_path) {
             self.notify(reason, NoticeKind::Error, cx);
             return;
         }
@@ -912,10 +929,10 @@ impl Desktop {
                 ConfirmAct::Purge => "purge",
                 ConfirmAct::DiscardEdit => unreachable!(),
             };
-            let repo = kind.repo().key();
+            let repo = kind.repo().repo_key();
             let (n, body) = (name.clone(), serde_json::json!({ "name": name }));
             let res = handle
-                .spawn(async move { engine.resource_op(repo, op, &body).await })
+                .spawn(async move { engine.repo_op(repo, op, &body).await })
                 .await;
 
             let _ = this.update_in(cx, |this, window, cx| {
