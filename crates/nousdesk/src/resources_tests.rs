@@ -145,6 +145,42 @@ mod write_tests {
         }
     }
 
+    /// 引擎 0.1.8 起三仓文件面真的声明了：同一条判定必须放行（否则线上还是灰的）。
+    #[test]
+    fn declared_write_endpoints_are_enabled() {
+        let mut modules = Vec::new();
+        for (name, segment) in [("skills", "skills"), ("prompts", "prompts"), ("ext", "extensions")] {
+            modules.push(serde_json::json!({
+                "name": name,
+                "enabled": true,
+                "endpoints": [
+                    format!("POST /v1/{segment}/create"),
+                    format!("GET /v1/{segment}/files"),
+                    format!("GET /v1/{segment}/file"),
+                    format!("PUT /v1/{segment}/file"),
+                    format!("POST /v1/{segment}/publish"),
+                ],
+            }));
+        }
+        let caps: nous_engine::Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.8" },
+            "modules": modules,
+            "runtime": { "provider": { "kind": "faux" } }
+        }))
+        .unwrap();
+        for repo in ["skills", "prompts", "extensions"] {
+            for (method, op) in [("GET", "files"), ("GET", "file"), ("PUT", "file"), ("POST", "create"), ("POST", "publish")] {
+                let path = format!("/v1/{repo}/{op}");
+                assert_eq!(
+                    crate::capability::endpoint_disabled_reason(&caps, method, &path),
+                    None,
+                    "{method} {path} 已声明，入口不该再灰"
+                );
+            }
+        }
+    }
+
     #[test]
     fn 类别输入框按逗号空白切() {
         assert_eq!(parse_categories("写作, 效率"), vec!["写作", "效率"]);
