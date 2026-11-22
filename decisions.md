@@ -1311,3 +1311,15 @@ Nous `#47`（7 端点 + `capabilities`）→ Nous `#44`（会话轮次，消息�
 **已经协商的偏差**：新契约没有 `GET /files`、`/validate`、`/reload`、类别写端点，也没有 `PRESET.md` 第二份文件 —— 复制/导出只带单条 `preset.json`；`validate` 用 `PUT ?dry_run=1`；`reload` 就是重拉（roster 每次现扫盘）；类别写操作不发 HTTP（词表由预设的 `category` 字段收敛），UI 入口保留但给一句人话。`Purge` 与 `Archive` 同形（都是软删 `archived=true`），不可逆的“彻底删”在新契约里不存在。
 
 **反悔点**：引擎若补上类别写端点或真正的 purge，把对应调用点从「提示」改回真请求（仍只在 `crates/nous-engine`）；若私库 commit 端点正式进 fixtures，把 repo 两条从死路径账本 `等票` 移到 `ENGINE_ROUTES`。
+
+## 2026-11-22 · 组合清单只有一份，不跟当前段走
+
+**选了**：Desk 的 `combos` 从「按段存」（`HashMap<段名, Vec<Combo>>`）退回单份
+`Option<Vec<Combo>>`，固定拉 `Ultimate-Template`（`COMBO_SECTION` 常量）；切段不再重拉。
+
+**为什么**：引擎把 combos 的段白名单收窄成只剩 `Ultimate-Template`（Nous `docs/decisions.md`
+同日）。会话模板段根本不是组合段，跟着当前段拉只会在那一段撞 400 并弹「读组合开关失败」。
+一份数据一个真相，`COMBO_SECTION` 写死一处。
+
+**反悔点**：引擎若放开别的段（见 Nous 侧反悔点），这里恢复成按段存并把 `COMBO_SECTION`
+换成「当前段」——两处要同时改，否则又会出现「切到某段就报错」。
