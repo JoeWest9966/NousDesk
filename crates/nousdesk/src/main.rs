@@ -31,6 +31,8 @@ mod fonts;
 mod live;
 mod md;
 mod nav_ui;
+#[cfg(test)]
+mod nav_toggle_tests;
 mod new_entry;
 mod perf;
 mod preset_confirm;
