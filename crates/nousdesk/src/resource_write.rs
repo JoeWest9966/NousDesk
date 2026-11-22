@@ -855,9 +855,9 @@ impl Desktop {
                     Ok(Ok(_)) => {
                         this.notify(
                             match (install, reload.map(|r| r.is_ok())) {
-                                (true, Some(true)) => format!("装上了 {name} —— 注册表已重装"),
+                                (true, Some(true)) => format!("装上了 {name} —— 注册表已重装（优先从垃圾站取回）"),
                                 (true, _) => format!("装上了 {name}（重装注册表没成功，清单可能还是旧的）"),
-                                (false, _) => format!("卸载了 {name} —— 目录仍在仓库里，只是这台不装"),
+                                (false, _) => format!("卸载了 {name} —— 目录搬进垃圾站（data/extend-trash），装回来优先拿它"),
                             },
                             NoticeKind::Info,
                             cx,

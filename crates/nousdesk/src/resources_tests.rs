@@ -234,7 +234,10 @@ mod tests {
         assert!(file_backed(Some(ExtKind::On)));
         assert!(file_backed(Some(ExtKind::Off)));
         assert!(file_backed(Some(ExtKind::Builtin)));
-        assert!(file_backed(Some(ExtKind::Variant)));
+        assert!(
+            !file_backed(Some(ExtKind::Variant)),
+            "变体是另一棵工作树，源码根里没有这个目录"
+        );
         assert!(file_backed(Some(ExtKind::Failed)), "坏清单还能改，所以给编辑");
         assert!(!file_backed(Some(ExtKind::Archived)));
         assert!(!file_backed(Some(ExtKind::Legacy)));

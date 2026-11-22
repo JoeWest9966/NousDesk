@@ -457,7 +457,12 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
 /// 但连清单都不合法 —— 两档都不该挂「编辑 / 发布 / 复制」：点下去只会 404，
 /// 而 404 长得像「没有这个扩展」，查起来最费劲。
 pub(crate) fn file_backed(kind: Option<ExtKind>) -> bool {
-    !matches!(kind, Some(ExtKind::Archived) | Some(ExtKind::Legacy))
+    // 变体也是「不在这里」：绑定表里它是另一棵 worktree（`/v1/repos/extend/variants`），
+    // 源码根里没有 `<id>` 这个目录，文件面按名字找只会 404。
+    !matches!(
+        kind,
+        Some(ExtKind::Archived) | Some(ExtKind::Legacy) | Some(ExtKind::Variant)
+    )
 }
 
 /// 列表的筛选：状态桶（`@on` / `@bad` / …）+ 类别 + 搜索词。
@@ -1476,6 +1481,11 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 // 装 / 卸 / 归档是三件不同的事，按钮分开摆；核心三条卸载会被引擎 403 挡回来。
                 if e.kind == ExtKind::Archived {
                     body = body.child(note_line("在 .archive/ 里 —— 别人也看不见。「恢复」把它搬回仓库并提交，「真删」会一起提交删掉。"));
+                } else if e.kind == ExtKind::Variant {
+                    body = body.child(note_line(
+                        "变体是另一棵工作树（`/v1/repos/extend/variants`）：路径与分支看上面的摘要。\
+                         改名 / 解绑 / 发布这一刀还没接入口，先在仓库里操作。",
+                    ));
                 } else if e.kind == ExtKind::Builtin {
                     body = body.child(note_line("核心扩展（nous / skills / prompts）引擎自己要跑 —— 卸载会被 403 挡回来；它们在仓库里，改得动，删不得。"));
                 } else if e.kind == ExtKind::Legacy {
