@@ -24,9 +24,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use nous_engine::console::{
-    Conversation as Replay, Conversations, Cost, CostBucket, Health, Overview, StatsConvEntry,
-    ConvRow, StatsCostTotals, StatsCounts, StatsDb, StatsHealth, StatsOverview, StatsMaintenance,
-    StatsStatusBucket, StatsTasks, StatsUsage,
+    Conversation as Replay, Conversations, Cost, CostBucket, ConvRow, Health, Overview,
 };
 use nous_engine::types::{ArchiveGens, ArchiveItem};
 
@@ -742,257 +740,6 @@ impl BucketAt for CostBucket {
     }
 }
 
-// ── /v1 数据装配 ────────────────────────────────────────────────────
-//
-// 端点算好、Desk 只画。六个函数都是纯函数：吃 `/v1/*` 的回包，吐渲染层原有的
-// Stats* 展示形状（版式一字不动）。不在这里算成本、不算会话 token、不造「健康」。
-
-/// 解剖屏：`/v1/device` + `/v1/capabilities` + `/v1/stats/db`。
-pub(crate) fn assemble_overview(
-    device: &nous_engine::types::Device,
-    caps: &nous_engine::Capabilities,
-    db: &StatsDb,
-) -> Overview {
-    let durable_rows = &db.durable.rows;
-    let mut extra = std::collections::BTreeMap::new();
-    extra.insert("contract".into(), serde_json::json!(caps.contract));
-    extra.insert(
-        "modules".into(),
-        serde_json::json!(caps.modules.iter().map(|m| {
-            serde_json::json!({"name": m.name, "enabled": m.enabled,
-                               "reason": m.reason.as_ref().map(|r| &r.message)})
-        }).collect::<Vec<_>>()),
-    );
-    extra.insert("serverVersion".into(), serde_json::json!(caps.server.version));
-    if let Some(node) = &device.node {
-        extra.insert("node".into(), serde_json::json!(node));
-    }
-    for key in ["build", "target"] {
-        if let Some(v) = device.extra.get(key) {
-            extra.insert(key.to_string(), v.clone());
-        }
-    }
-    let bytes = db.durable.bytes;
-    StatsOverview {
-        target: nous_engine::console::StatsTarget {
-            id: device.node.clone().unwrap_or_default(),
-            path: device.data.clone().unwrap_or_default(),
-            extra: Default::default(),
-        },
-        file: nous_engine::console::StatsDbFiles {
-            db: bytes,
-            wal: 0, // /v1/stats/db 报的是两库字节，不拆 WAL；没有就不画数字。
-            shm: 0,
-            mtime: 0.,
-            wal_mtime: 0.,
-            extra: Default::default(),
-        },
-        pragmas: nous_engine::console::StatsPragmas {
-            page_count: if bytes > 0 { 1 } else { 0 },
-            freelist: 0,
-            extra: Default::default(),
-            ..Default::default()
-        },
-        bytes: nous_engine::console::StatsBytes {
-            free: 0,
-            used: bytes,
-            on_disk: bytes + db.plugins.bytes,
-            extra: Default::default(),
-        },
-        counts: StatsCounts { by_table: durable_rows.clone() },
-        tables: durable_rows
-            .iter()
-            .map(|(name, rows)| nous_engine::console::StatsTable {
-                name: name.clone(),
-                rows: *rows,
-                bytes,
-                ..Default::default()
-            })
-            .collect(),
-        integrity: nous_engine::console::StatsIntegrity {
-            checked: true,
-            ok: db.durable.quick_check == "ok" && db.plugins.quick_check == "ok",
-            messages: [&db.durable, &db.plugins]
-                .iter()
-                .filter(|r| r.quick_check != "ok")
-                .map(|r| r.quick_check.clone())
-                .collect(),
-            extra: Default::default(),
-        },
-        entries_by_kind: Vec::new(),
-        indexes: Vec::new(),
-        extra,
-    }
-}
-
-/// 会话树：`GET /v1/sessions`。条数 == `items.len()`（不自己排序、不算 token 列）。
-pub(crate) fn assemble_convs(sessions: &nous_engine::types::Sessions) -> Conversations {
-    Conversations {
-        count: sessions.items.len() as i64,
-        list: sessions
-            .items
-            .iter()
-            .map(|s| nous_engine::console::StatsConvRow {
-                id: s.id,
-                title: s.name.clone(),
-                entries: 0,
-                tokens: 0,
-                tool_calls: 0,
-                models: s.model.clone().into_iter().collect(),
-                first_at: 0,
-                last_at: s.updated_at.unwrap_or(0),
-                pinned: s.pinned,
-                archived: s.archived.is_some(),
-                read_only: s.read_only,
-                busy: s.busy.clone().unwrap_or(serde_json::Value::Null),
-                template: s.template.clone(),
-                skills: s.skills.clone(),
-                extra: Default::default(),
-            })
-            .collect(),
-        totals: Default::default(),
-        extra: Default::default(),
-    }
-}
-
-/// 回放：`GET /v1/sessions/:id/entries`。`model[0]` 里已有 usage / durationMs /
-/// timestamp / stopReason / errorMessage —— 只读不转手算。
-pub(crate) fn assemble_replay(id: i64, entries: &nous_engine::types::Entries) -> Replay {
-    let mut out: Vec<StatsConvEntry> = entries
-        .items
-        .iter()
-        .enumerate()
-        .map(|(i, e)| {
-            let model = e.extra.get("model").and_then(|v| v.as_array()).and_then(|a| a.first());
-            let usage = model.and_then(|m| m.get("usage"));
-            let num = |v: Option<&serde_json::Value>| {
-                v.and_then(|x| x.as_i64())
-                    .or_else(|| v.and_then(|x| x.as_f64()).map(|n| n as i64))
-                    .unwrap_or(0)
-            };
-            StatsConvEntry {
-                seq: i as i64 + 1,
-                kind: e.kind.clone(),
-                bytes: model
-                    .map(|m| serde_json::to_string(m).map_or(0, |s| s.len() as i64))
-                    .unwrap_or(0),
-                at: num(model.and_then(|m| m.get("timestamp"))),
-                tokens: num(usage.and_then(|u| u.get("totalTokens"))),
-                text: e.text.clone().unwrap_or_default(),
-                is_error: model
-                    .and_then(|m| m.get("stopReason"))
-                    .and_then(|v| v.as_str())
-                    == Some("error"),
-                tool: e.extra.get("tool").and_then(|v| v.as_str()).map(str::to_owned),
-                stop_reason: model
-                    .and_then(|m| m.get("stopReason"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_owned),
-                error_message: model
-                    .and_then(|m| m.get("errorMessage"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_owned),
-                extra: e.extra.clone().into_iter().collect(),
-            }
-        })
-        .collect();
-    out.reverse(); // 引擎新的在前，回放按轮次正序画。
-    Replay {
-        id,
-        entries: out,
-        tasks: Vec::new(),
-        documents: Vec::new(),
-        prompt: Default::default(),
-        extra: Default::default(),
-    }
-}
-
-/// 账单：`GET /v1/stats/usage?group_by=day|model`。totals / rows 端点算好，原样画。
-pub(crate) fn assemble_cost(usage: &StatsUsage) -> Cost {
-    let mut by_day = Vec::new();
-    let mut by_model = Vec::new();
-    let mut by_conv = Vec::new();
-    let group = usage.group_by.as_str();
-    for row in &usage.rows {
-        let label = row
-            .get("label")
-            .or_else(|| row.get("key"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let tokens = row.get("totalTokens").and_then(|v| v.as_i64()).unwrap_or(0);
-        let cost = row.get("costTotal").and_then(|v| v.as_f64()).unwrap_or(0.);
-        let calls = row.get("requests").and_then(|v| v.as_i64()).unwrap_or(0);
-        let bucket = CostBucket {
-            label,
-            tokens,
-            cost,
-            calls,
-            ..Default::default()
-        };
-        match group {
-            "model" => by_model.push(bucket),
-            "conversation" => by_conv.push(bucket),
-            _ => by_day.push(bucket),
-        }
-    }
-    let t = &usage.totals;
-    Cost {
-        totals: StatsCostTotals {
-            tokens: t.total_tokens,
-            cost: t.cost_total,
-            entries: t.requests,
-            extra: [("errors".to_string(), serde_json::json!(t.errors))]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        },
-        by_day,
-        by_model,
-        by_conv,
-        note: String::new(),
-        ..Default::default()
-    }
-}
-
-/// 维修：`GET /v1/stats/tasks` + `/v1/device`。按状态计数直接来自 `byState`，
-/// 探针是 `/v1/device` —— 不造「健康」概念，不自己判运行状况。
-pub(crate) fn assemble_health(tasks: &StatsTasks, device: &nous_engine::types::Device) -> Health {
-    let total = tasks.by_state.values().sum();
-    let statuses: Vec<StatsStatusBucket> = tasks
-        .by_state
-        .iter()
-        .map(|(status, count)| StatsStatusBucket {
-            status: status.clone(),
-            count: *count,
-            extra: Default::default(),
-        })
-        .collect();
-    StatsHealth {
-        tasks: nous_engine::console::StatsHealthTasks {
-            total,
-            by_status: statuses,
-            extra: Default::default(),
-            ..Default::default()
-        },
-        submissions: Default::default(),
-        documents: Default::default(),
-        wal_bytes: 0,
-        freelist: Default::default(),
-        maintenance: vec![StatsMaintenance {
-            label: "连接 / 版本".into(),
-            why: format!(
-                "node={} build={} target={}",
-                device.node.clone().unwrap_or_else(|| "—".into()),
-                device.extra.get("build").and_then(|v| v.as_str()).unwrap_or("—"),
-                device.extra.get("target").and_then(|v| v.as_str()).unwrap_or("—"),
-            ),
-            ..Default::default()
-        }],
-        extra: Default::default(),
-    }
-}
-
 /// 归档屏**是否发 `GET /v1/archive`** 的唯一判定（#12 判据 5 哨兵缝）。
 ///
 /// 能力关 / 没连引擎 → 不发；能力开 → 才真拉。渲染层的灰理由仍走
@@ -1043,11 +790,7 @@ impl Desktop {
         };
         let host = self.conn.host.clone();
         let token = self.conn.resolve_token();
-        let device = self.device.clone();
-        let caps = self.caps.clone();
-        let sessions_enabled = self.feature_enabled(crate::capability::Feature::Sessions);
         let stats_enabled = stats_reason.is_none();
-        let has_device = device.is_some();
 
         // 归档库：`GET /v1/archive`（Nous#67 落地）。有数据就留着 —— 刷新时把整屏清空
         // 看着像「东西没了」，所以只在没有旧数据时才标「在等」。
@@ -1071,71 +814,69 @@ impl Desktop {
             .detach();
         }
 
-        // 解剖：/v1/device + /v1/capabilities + /v1/stats/db。本地已有前两份快照，
-        // stats/db 现拉。设备或能力缺失时不猜，画「还没拿到」。
-        if stats_enabled && has_device {
-            let (handle2, engine2, device2, caps2) =
-                (handle.clone(), engine.clone(), device.clone(), caps.clone());
-            let stats = Self::new_stats_client(&host, token.as_deref());
-            cx.spawn(async move |this, cx| {
-                let db = match stats {
-                    Some(c) => handle2.spawn(async move { c.db().await }).await,
-                    None => return,
-                };
-                let _ = this.update(cx, |this, _cx| match db {
-                    Ok(Ok(db)) => {
-                        if let (Some(d), Some(c)) = (device2.as_ref(), caps2.as_ref()) {
-                            this.console.overview = Some(assemble_overview(d, c, &db));
-                        }
-                    }
-                    Ok(Err(e)) => this.console.error = Some(e.to_string()),
-                    Err(e) => this.console.error = Some(e.to_string()),
-                });
-            })
-            .detach();
-            let _ = engine2; // device/caps 已由 app 启动时拉过，不再重复打 /v1/device。
-        }
-
-        // 会话树：/v1/sessions（已有 archived/busy/...，条数就是 items.len()）。
-        if sessions_enabled {
-            let handle2 = handle.clone();
-            cx.spawn(async move |this, cx| {
-                let got = handle2.spawn(async move { engine.sessions().await }).await;
-                let _ = this.update(cx, |this, _cx| match got {
-                    Ok(Ok(s)) => this.console.convs = Some(assemble_convs(&s)),
-                    Ok(Err(e)) => this.console.error = Some(e.to_string()),
-                    Err(e) => this.console.error = Some(e.to_string()),
-                });
-            })
-            .detach();
-        }
-
-        // 账单：/v1/stats/usage?group_by=day（端点算好 totals，Desk 只画）。
+        // 五屏都走 stats 的明细读口（引擎算好，Desk 只画）。
+        // 每屏一个请求、各一个槽：谁的请求挂了只影响谁。
         if stats_enabled {
+            // 解剖：`/v1/stats/overview`（dbstat 真页数 + pragma + entriesByKind + integrity）。
             if let Some(stats) = Self::new_stats_client(&host, token.as_deref()) {
                 let handle2 = handle.clone();
                 cx.spawn(async move |this, cx| {
-                    let got = handle2.spawn(async move { stats.usage("day").await }).await;
-                    let _ = this.update(cx, |this, _cx| match got {
-                        Ok(Ok(u)) => this.console.cost = Some(assemble_cost(&u)),
-                        Ok(Err(e)) => this.console.error = Some(e.to_string()),
-                        Err(e) => this.console.error = Some(e.to_string()),
+                    let got = handle2.spawn(async move { stats.overview().await }).await;
+                    let _ = this.update(cx, |this, cx| {
+                        match got {
+                            Ok(Ok(o)) => this.console.overview = Some(o),
+                            Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                            Err(e) => this.console.error = Some(e.to_string()),
+                        }
+                        cx.notify();
                     });
                 })
                 .detach();
             }
-            // 维修：/v1/stats/tasks + /v1/device（没有「健康」探针）。
-            if let (Some(stats), Some(device)) = (
-                Self::new_stats_client(&host, token.as_deref()),
-                device.clone(),
-            ) {
+            // 会话树：`/v1/stats/conversations`（每会话 entries/tokens/toolCalls + totals）。
+            if let Some(stats) = Self::new_stats_client(&host, token.as_deref()) {
                 let handle2 = handle.clone();
                 cx.spawn(async move |this, cx| {
-                    let got = handle2.spawn(async move { stats.tasks().await }).await;
-                    let _ = this.update(cx, |this, _cx| match got {
-                        Ok(Ok(t)) => this.console.health = Some(assemble_health(&t, &device)),
-                        Ok(Err(e)) => this.console.error = Some(e.to_string()),
-                        Err(e) => this.console.error = Some(e.to_string()),
+                    let got = handle2.spawn(async move { stats.conversations().await }).await;
+                    let _ = this.update(cx, |this, cx| {
+                        match got {
+                            Ok(Ok(c)) => this.console.convs = Some(c),
+                            Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                            Err(e) => this.console.error = Some(e.to_string()),
+                        }
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+            // 账单：`/v1/stats/cost`（四组桶 + usage 分项 + byHour）。
+            if let Some(stats) = Self::new_stats_client(&host, token.as_deref()) {
+                let handle2 = handle.clone();
+                cx.spawn(async move |this, cx| {
+                    let got = handle2.spawn(async move { stats.cost().await }).await;
+                    let _ = this.update(cx, |this, cx| {
+                        match got {
+                            Ok(Ok(c)) => this.console.cost = Some(c),
+                            Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                            Err(e) => this.console.error = Some(e.to_string()),
+                        }
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+            // 维修：`/v1/stats/health`（卡住任务 / 提交 / revisions / WAL / 工单）。
+            if let Some(stats) = Self::new_stats_client(&host, token.as_deref()) {
+                let handle2 = handle.clone();
+                cx.spawn(async move |this, cx| {
+                    let got = handle2.spawn(async move { stats.health().await }).await;
+                    let _ = this.update(cx, |this, cx| {
+                        match got {
+                            Ok(Ok(h)) => this.console.health = Some(h),
+                            Ok(Err(e)) => this.console.error = Some(e.to_string()),
+                            Err(e) => this.console.error = Some(e.to_string()),
+                        }
+                        cx.notify();
                     });
                 })
                 .detach();
@@ -1161,16 +902,18 @@ impl Desktop {
 }
 
 impl Desktop {
-    /// 回放按需拉：`GET /v1/sessions/:id/entries`，轮次从 `model[0]` 取。
+    /// 回放按需拉：`GET /v1/stats/conversation/:id`（entries + tasks + documents + prompt）。
     pub(crate) fn load_replay(&mut self, id: i64, cx: &mut Context<Self>) {
         self.console.replay_id = Some(id);
-        let reason = self.disabled_reason(crate::capability::Feature::Sessions);
+        let reason = self.disabled_reason(crate::capability::Feature::Stats);
         if reason.is_some() {
             self.console.replay_error = reason;
             cx.notify();
             return;
         }
-        let Some(engine) = self.engine.clone() else {
+        let host = self.conn.host.clone();
+        let token = self.conn.resolve_token();
+        let Some(stats) = Self::new_stats_client(&host, token.as_deref()) else {
             self.console.replay_error = Some("还没连上引擎 —— 去「≡ 更多」里重新连接".to_string());
             cx.notify();
             return;
@@ -1179,14 +922,17 @@ impl Desktop {
             return;
         };
         cx.spawn(async move |this, cx| {
-            let got = handle.spawn(async move { engine.entries(id).await }).await;
-            let _ = this.update(cx, |this, _cx| match got {
-                Ok(Ok(e)) => {
-                    this.console.replay = Some(assemble_replay(id, &e));
-                    this.console.replay_error = None;
+            let got = handle.spawn(async move { stats.conversation(id).await }).await;
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Ok(Ok(r)) => {
+                        this.console.replay = Some(r);
+                        this.console.replay_error = None;
+                    }
+                    Ok(Err(e)) => this.console.replay_error = Some(e.to_string()),
+                    Err(e) => this.console.replay_error = Some(e.to_string()),
                 }
-                Ok(Err(e)) => this.console.replay_error = Some(e.to_string()),
-                Err(e) => this.console.replay_error = Some(e.to_string()),
+                cx.notify();
             });
         })
         .detach();

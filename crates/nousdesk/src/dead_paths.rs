@@ -155,6 +155,12 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/stats/usage"),
     ("GET", "v1/stats/tasks"),
     ("GET", "v1/stats/db"),
+    // 数据监控室六屏复原：明细读口（同属 stats 插件）。
+    ("GET", "v1/stats/overview"),
+    ("GET", "v1/stats/conversations"),
+    ("GET", "v1/stats/conversation/{id}"),
+    ("GET", "v1/stats/cost"),
+    ("GET", "v1/stats/health"),
     // Nous#90：documents 没有产品面（内容真相只有四个私库，见 decisions 2026-11-21）。
     // Desk 不再调用；这些条目等引擎侧下线后整块删除。
     ("GET", "v1/documents/{kind}"),
@@ -330,7 +336,7 @@ mod tests {
         println!("routes 夹具 provenance={}", fixture["_provenance"]);
         assert!(!captured.is_empty(), "夹具缺 _captured_at");
         assert!(!version.is_empty(), "夹具缺 _engine_version");
-        assert_eq!(fixture["routes"].as_array().unwrap().len(), 114, "0.1.8 线上整份重抓（真引擎 114 条）");
+        assert_eq!(fixture["routes"].as_array().unwrap().len(), 119, "0.1.8 线上 114 条 + 在途 stats 明细读口 5 条（feat/stats-parity）");
         assert!(fixture["_provenance"].get("commit").is_some());
     }
 

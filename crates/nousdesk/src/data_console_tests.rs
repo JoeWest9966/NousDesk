@@ -4,7 +4,7 @@
 //! 递归到爆栈（试过 `recursion_limit = 2048` 都不够），拆开就没事。
 
 use crate::data_console::*;
-use nous_engine::console::{Conversations, Cost, Health, Overview};
+use nous_engine::console::{Conversation as Replay, Conversations, Cost, Health, Overview};
 use nous_engine::types::ArchiveGens;
 
 
@@ -292,89 +292,106 @@ use nous_engine::types::ArchiveGens;
         assert!(!Screen::Convs.hint().contains("token"));
     }
 
-    // ── #12：六屏的 /v1 装配（端点算好，Desk 只画） ────────────────────
+    // ── 六屏：端点算好，Desk 直接反序列化（不再有 assemble_* ） ──────────
 
     #[test]
-    fn stats_装配不解构账本_totals_原样画() {
-        let usage: nous_engine::console::StatsUsage = serde_json::from_value(serde_json::json!({
-            "groupBy": "day",
-            "totals": {"totalTokens": 1234, "costTotal": 0.25, "requests": 7, "errors": 1},
-            "rows": [{"key": "2026-11-21", "label": "2026-11-21", "totalTokens": 1234,
-                      "costTotal": 0.25, "requests": 7, "errors": 1}]
+    fn stats_账单直接反序列化_cost_端点() {
+        // 形状对齐引擎 `GET /v1/stats/cost`；Desk 只画，不重算。
+        let cost: Cost = serde_json::from_value(serde_json::json!({
+            "totals": {"entries": 7, "tokens": 1234, "input": 100, "output": 50,
+                       "cacheRead": 200, "cacheWrite": 3, "reasoning": 4, "cost": 0.25},
+            "byDay": [{"label": "11-21", "tokens": 1234, "cost": 0.25, "calls": 7,
+                       "input": 100, "output": 50, "cacheRead": 200}],
+            "byHour": [{"label": "11-21 03h", "tokens": 1234, "cost": 0.25, "calls": 7,
+                        "input": 100, "output": 50, "cacheRead": 200}],
+            "byModel": [],
+            "byConv": [],
+            "note": "cost 为 0 不代表免费"
         })).unwrap();
-        let cost = assemble_cost(&usage);
-        assert_eq!(cost.totals.tokens, 1234, "totals 逐字来自端点，不在客户端求和");
-        assert!((cost.totals.cost - 0.25).abs() < 1e-9);
+        assert_eq!(cost.totals.tokens, 1234);
+        assert_eq!(cost.totals.input, 100);
+        assert_eq!(cost.totals.cache_read, 200);
         assert_eq!(cost.by_day.len(), 1);
-        assert_eq!(cost.by_day[0].label, "2026-11-21");
-        assert_eq!(cost.by_day[0].tokens, 1234);
+        assert_eq!(cost.by_day[0].label, "11-21");
+        assert!(!cost.by_hour.is_empty(), "byHour 现在有来源了");
+        assert!(!cost.note.is_empty());
     }
 
     #[test]
-    fn stats_装配维修屏用_by_state_不造健康概念() {
-        let tasks: nous_engine::console::StatsTasks = serde_json::from_value(serde_json::json!({
-            "byState": {"pending": 3, "running": 2, "terminal": 11}, "active": 5
+    fn stats_维修屏直接反序列化_health_端点() {
+        let health: Health = serde_json::from_value(serde_json::json!({
+            "tasks": {"total": 16,
+                      "byStatus": [{"status": "running", "count": 2, "sample": []},
+                                   {"status": "pending", "count": 3, "sample": []}],
+                      "stuck": [{"id": 1, "ageMs": 700000}], "sleeping": 0,
+                      "avgMs": 1000, "p95": 2000, "slowest": []},
+            "submissions": {"total": 5, "byStatus": [], "unanswered": [{"id": 9, "conv": 1, "status": "unanswered"}]},
+            "documents": {"documents": 2, "byKind": [], "revisions": 4, "base": 2, "delta": 2, "deltaRatio": 0.5},
+            "walBytes": 4096,
+            "freelist": {"free": 1, "bytes": 4096},
+            "maintenance": [{"label": "备份", "why": "", "cmd": "cp", "danger": false}]
         })).unwrap();
-        let device: nous_engine::types::Device = serde_json::from_value(serde_json::json!({
-            "node": "qrd3wh", "build": "abc", "target": "x86_64-unknown-linux-gnu",
-            "available": []
-        })).unwrap();
-        let health = assemble_health(&tasks, &device);
+        assert_eq!(health.tasks.total, 16);
         assert_eq!(health.tasks.by_status.iter().find(|b| b.status == "running").unwrap().count, 2);
-        assert_eq!(health.tasks.by_status.iter().find(|b| b.status == "pending").unwrap().count, 3);
-        assert_eq!(health.tasks.total, 16, "总数就是 byState 各状态之和");
+        assert_eq!(health.tasks.stuck.len(), 1, "卡住的任务现在有来源了");
+        assert_eq!(health.submissions.unanswered.len(), 1);
+        assert_eq!(health.documents.revisions, 4);
+        assert_eq!(health.wal_bytes, 4096);
     }
 
     #[test]
-    fn stats_装配解剖屏显示_device_与_stats_db() {
-        let device: nous_engine::types::Device = serde_json::from_value(serde_json::json!({
-            "node": "qrd3wh", "build": "abc123", "target": "x86_64-unknown-linux-gnu",
-            "available": []
+    fn stats_解剖屏直接反序列化_overview_端点() {
+        let ov: Overview = serde_json::from_value(serde_json::json!({
+            "target": {"id": "nous.db", "path": "/var/lib/nous/nous.db"},
+            "file": {"db": 1142784, "wal": 0, "shm": 0, "mtime": 0.0, "walMtime": 0.0},
+            "pragmas": {"pageSize": 4096, "pageCount": 279, "freelist": 0, "journalMode": "wal", "schemaVersion": 2},
+            "bytes": {"db": 1142784, "wal": 0, "shm": 0, "free": 0, "used": 1142784, "onDisk": 1142784},
+            "counts": {"entries": 216, "conversations": 120},
+            "tables": [{"name": "entries", "bytes": 800000, "pages": 200, "rows": 216}],
+            "indexes": [{"name": "entries_by_conversation", "bytes": 40000, "pages": 10, "table": "entries"}],
+            "entriesByKind": [{"kind": "pi.assistant", "count": 91, "bytes": 85579}],
+            "integrity": {"checked": true, "ok": true, "messages": []},
+            "attention": []
         })).unwrap();
-        let caps: nous_engine::Capabilities = serde_json::from_value(serde_json::json!({
-            "contract": 1, "server": {"name": "nous", "version": "0.1.3"},
-            "modules": [
-                {"name": "sessions", "enabled": true, "endpoints": []},
-                {"name": "stats", "enabled": true, "endpoints": []}
-            ],
-            "runtime": {"provider": {"kind": "faux"}}
-        })).unwrap();
-        let db: nous_engine::console::StatsDb = serde_json::from_value(serde_json::json!({
-            "durable": {"bytes": 1142784, "rows": {"entries": 216}, "quickCheck": "ok", "schema": 2},
-            "plugins": {"bytes": 288432, "rows": {}, "quickCheck": "ok", "schema": 1}
-        })).unwrap();
-        let ov = assemble_overview(&device, &caps, &db);
         assert_eq!(ov.file.db, 1142784);
+        assert_eq!(ov.pragmas.page_count, 279, "真页数，不是假 1");
         assert_eq!(ov.counts.get("entries"), 216);
-        assert_eq!(ov.pragmas.page_count, 1, "bytes 换成展示用的页数：至少有 1 页");
-        assert!(ov.extra.contains_key("contract"));
-        assert!(ov.extra.contains_key("modules"));
+        assert_eq!(ov.tables.len(), 1);
+        assert_eq!(ov.tables[0].bytes, 800000, "dbstat 真字节");
+        assert_eq!(ov.indexes.len(), 1);
+        assert_eq!(ov.entries_by_kind.len(), 1);
+        assert!(ov.integrity.ok);
     }
 
     #[test]
-    fn 会话树_按token排_这一列已删() {
-        // 不是排序测试：这条记账明确「按 token 排」列不再存在（只按引擎给的顺序画）。
-        assert!(!Screen::Convs.hint().contains("token"));
-        assert!(!std::any::type_name::<Conversations>().is_empty());
-        // 屏幕不再提供按 token 排的入口：以 hint 为人话锚点，防止有人把那句加回来。
-    }
-
-    #[test]
-    fn 回放_从_entries_装配轮次() {
-        let entries: nous_engine::types::Entries = serde_json::from_value(serde_json::json!({
-            "items": [
-                {"id": 1, "kind": "pi.user", "text": "hi", "parent": null},
-                {"id": 2, "kind": "pi.assistant", "text": "ho", "parent": null,
-                 "model": [{"provider": "faux", "modelId": "echo", "usage": {"totalTokens": 5},
-                            "timestamp": 1794222429551i64, "stopReason": "stop"}]}
-            ], "next": null
+    fn 回放直接反序列化_conversation_端点() {
+        // 形状对齐引擎 `GET /v1/stats/conversation/:id`。
+        let r: Replay = serde_json::from_value(serde_json::json!({
+            "id": 42,
+            "ownerConv": null,
+            "ownerTask": null,
+            "entries": [
+                {"id": 1, "conv": 42, "seq": 1, "head": null, "kind": "pi.user", "bytes": 10,
+                 "at": 1794222420000i64, "role": "user", "tokens": 0, "cost": 0,
+                 "toolCalls": [], "isError": false},
+                {"id": 2, "conv": 42, "seq": 2, "head": null, "kind": "pi.assistant", "bytes": 20,
+                 "at": 1794222429551i64, "role": "assistant", "model": "echo", "tokens": 5, "cost": 0,
+                 "usage": {"input": 5, "output": 0, "cacheRead": 0, "totalTokens": 5, "cost": 0},
+                 "toolCalls": [], "isError": false, "stopReason": "stop"}
+            ],
+            "tasks": [{"id": 7, "kind": "pi.agent", "status": "terminal", "startedAt": 1, "endedAt": 2001, "ms": 2000, "conv": 42, "outcome": "done"}],
+            "documents": [{"id": 3, "kind": "pi.agent", "key": "k", "revisions": 2, "bytes": 100, "createdAt": 1, "retired": false}],
+            "submissions": [{"id": 9, "status": "unanswered", "requestId": null}],
+            "prompt": {"messages": [{"id": 1, "label": "user", "kind": "pi.user", "chars": 10, "tokens": 0, "cost": 0, "head": false, "text": "hi"}],
+                       "totals": {"messages": 1, "chars": 10, "toolChars": 0, "approxTokens": 3, "realInputTokens": 5}}
         })).unwrap();
-        let r = assemble_replay(42, &entries);
         assert_eq!(r.id, 42);
         assert_eq!(r.entries.len(), 2);
-        // 引擎新的在前；回放按轮次正序画，所以 assistant 是 index 1。
         let assistant = r.entries.iter().find(|e| e.kind == "pi.assistant").unwrap();
-        assert_eq!(assistant.tokens, 5, "usage 从 model[0] 取，不另算");
+        assert_eq!(assistant.tokens, 5);
         assert_eq!(assistant.stop_reason.as_deref(), Some("stop"));
         assert_eq!(assistant.at, 1794222429551);
+        assert_eq!(r.tasks.len(), 1, "回放屏的任务现在有来源了");
+        assert_eq!(r.documents.len(), 1);
+        assert_eq!(r.prompt.messages.len(), 1, "prompt 重建现在有来源了");
     }

@@ -210,13 +210,43 @@ impl StatsClient {
     pub async fn db(&self) -> Result<StatsDb, EngineError> {
         self.get_json("v1/stats/db").await
     }
+
+    /// `GET /v1/stats/overview`：durable 库的 X 光片（解剖屏）。
+    pub async fn overview(&self) -> Result<StatsOverview, EngineError> {
+        self.get_json("v1/stats/overview").await
+    }
+
+    /// `GET /v1/stats/conversations`：会话树。
+    pub async fn conversations(&self) -> Result<StatsConvs, EngineError> {
+        self.get_json("v1/stats/conversations").await
+    }
+
+    /// `GET /v1/stats/conversation/:id`：一条会话的明细（回放屏，含 prompt 重建）。
+    pub async fn conversation(&self, id: i64) -> Result<StatsReplay, EngineError> {
+        self.get_json(&format!("v1/stats/conversation/{id}")).await
+    }
+
+    /// `GET /v1/stats/cost`：账单屏（四组桶 + usage 分项 + byHour）。
+    pub async fn cost(&self) -> Result<StatsCost, EngineError> {
+        self.get_json("v1/stats/cost").await
+    }
+
+    /// `GET /v1/stats/health`：维修屏（任务 / 提交 / 文档 / WAL / 空闲页 / 工单）。
+    pub async fn health(&self) -> Result<StatsHealth, EngineError> {
+        self.get_json("v1/stats/health").await
+    }
 }
 
-/// 三条 stats 路径的模板（给能力表/白名单自检用；只维护这一处）。
+/// stats 路径的模板（给能力表/白名单自检用；只维护这一处）。
 pub const STATS_PATHS: &[(&str, &str)] = &[
     ("GET", "v1/stats/usage"),
     ("GET", "v1/stats/tasks"),
     ("GET", "v1/stats/db"),
+    ("GET", "v1/stats/overview"),
+    ("GET", "v1/stats/conversations"),
+    ("GET", "v1/stats/conversation/:id"),
+    ("GET", "v1/stats/cost"),
+    ("GET", "v1/stats/health"),
 ];
 
 // ── 六屏展示形状（/v1 数据装配后的只读画材） ───────────────────────────
