@@ -745,10 +745,10 @@ mod tests {
         assert!(contract_mismatch(&c, 2));
     }
 
-    /// Desk#11 判据 3：12 条 presets 路径都归到 `Feature::Presets`，一条不多一条不少。
+    /// Desk#11 判据 3：presets 路径都归到 `Feature::Presets`，一条不多一条不少。
     /// 这张表是契约的影子：有人偷偷加路径，先红在这里。
     #[test]
-    fn presets_gate_table_is_exactly_the_twelve_contract_routes() {
+    fn presets_gate_table_is_exactly_the_contract_routes() {
         const CONTRACT: &[(&str, &str)] = &[
             ("GET", "/v1/presets/{section}"),
             ("GET", "/v1/presets/{section}/{name}"),
@@ -758,12 +758,14 @@ mod tests {
             ("POST", "/v1/presets/{section}/{name}/copy"),
             ("PUT", "/v1/presets/{section}/order"),
             ("GET", "/v1/presets/{section}/categories"),
+            ("POST", "/v1/presets/{section}/create"),
+            ("POST", "/v1/presets/{section}/validate"),
             ("GET", "/v1/presets/{section}/{name}/revisions"),
             ("GET", "/v1/presets/{section}/{name}/revisions/{n}"),
             ("POST", "/v1/presets/{section}/{name}/rollback"),
             ("GET", "/v1/presets/model"),
         ];
-        assert_eq!(CONTRACT.len(), 12);
+        assert_eq!(CONTRACT.len(), 14);
         let c = caps();
         for &(method, path) in CONTRACT {
             assert_eq!(
@@ -775,9 +777,9 @@ mod tests {
         }
     }
 
-    /// Desk#11 判据 2：客户端实际拼出的 presets 路径模板必须恰好是契约 12 条。
+    /// Desk#11 判据 2：客户端实际拼出的 presets 路径模板必须恰好是契约这几条。
     #[test]
-    fn client_paths_have_exactly_thirteen_presets_routes() {
+    fn client_paths_have_exactly_the_presets_routes() {
         let got: Vec<_> = nous_engine::client_paths()
             .iter()
             .filter(|(_, p)| p.starts_with(concat!("v1/", "presets")))
@@ -793,6 +795,7 @@ mod tests {
             ("PUT", "v1/presets/{section}/order"),
             ("GET", "v1/presets/{section}/categories"),
             ("POST", "v1/presets/{section}/create"),
+            ("POST", "v1/presets/{section}/validate"),
             ("GET", "v1/presets/{section}/{name}/revisions"),
             ("GET", "v1/presets/{section}/{name}/revisions/{n}"),
             ("POST", "v1/presets/{section}/{name}/rollback"),
