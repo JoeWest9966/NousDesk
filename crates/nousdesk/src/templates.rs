@@ -22,18 +22,6 @@ fn new_request_id() -> String {
     format!("desk-{n}-{}", std::process::id())
 }
 
-/// `NewPreset` → 新契约 `PUT` 的 body（引擎按 name/summary/category 覆盖 spec 同名字段）。
-fn new_preset_body(body: &NewPreset) -> serde_json::Value {
-    let mut v = body.spec.clone().unwrap_or(serde_json::json!({}));
-    if !v.is_object() { v = serde_json::json!({}); }
-    let o = v.as_object_mut().unwrap();
-    o.insert("name".into(), serde_json::json!(body.name));
-    o.insert("summary".into(), serde_json::json!(body.summary));
-    o.insert("category".into(), serde_json::json!(body.category));
-    // `from: device` 在新契约没有等价字段：起手式交给编辑器里的模型选择，不再由端点代填。
-    v
-}
-
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
 use gpui_kit::component::input::{Input, InputState};
@@ -815,8 +803,7 @@ impl Desktop {
                 Some(h) => h
                     .spawn(async move {
                         let name = body.name.clone();
-                        let v = new_preset_body(&body);
-                        engine.preset_put(section_id, &name, &v, &new_request_id(), None, false).await
+                        engine.preset_create(section_id, &body).await
                     })
                     .await
                     .ok(),
@@ -971,14 +958,11 @@ impl Desktop {
                     spec: Some(spec.take()),
                     body,
                 };
-                {
-                    let v = new_preset_body(&body);
-                    engine
-                        .preset_put(section_id, &name, &v, &new_request_id(), None, false)
-                        .await
-                        .map(|_| ())
-                        .map_err(|e| e.to_string())
-                }
+                engine
+                    .preset_create(section_id, &body)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
             }
             .await;
 
@@ -1460,9 +1444,7 @@ impl Desktop {
             let result = match &handle {
                 Some(h) => h
                     .spawn(async move {
-                        let v = new_preset_body(&req);
-                        let n = req.name.clone();
-                        engine.preset_put(section_id, &n, &v, &new_request_id(), None, false).await
+                        engine.preset_create(section_id, &req).await
                     })
                     .await
                     .ok(),

@@ -723,7 +723,7 @@ mod tests {
 
     /// Desk#11 判据 2：客户端实际拼出的 presets 路径模板必须恰好是契约 12 条。
     #[test]
-    fn client_paths_have_exactly_twelve_presets_routes() {
+    fn client_paths_have_exactly_thirteen_presets_routes() {
         let got: Vec<_> = nous_engine::client_paths()
             .iter()
             .filter(|(_, p)| p.starts_with(concat!("v1/", "presets")))
@@ -738,6 +738,7 @@ mod tests {
             ("POST", "v1/presets/{section}/{name}/copy"),
             ("PUT", "v1/presets/{section}/order"),
             ("GET", "v1/presets/{section}/categories"),
+            ("POST", "v1/presets/{section}/create"),
             ("GET", "v1/presets/{section}/{name}/revisions"),
             ("GET", "v1/presets/{section}/{name}/revisions/{n}"),
             ("POST", "v1/presets/{section}/{name}/rollback"),

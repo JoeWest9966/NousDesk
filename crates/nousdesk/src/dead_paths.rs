@@ -175,6 +175,7 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/presets/{section}"),
     ("PUT", "v1/presets/{section}/order"),
     ("GET", "v1/presets/{section}/categories"),
+    ("POST", "v1/presets/{section}/create"),
     ("GET", "v1/presets/{section}/{name}"),
     ("PUT", "v1/presets/{section}/{name}"),
     ("PATCH", "v1/presets/{section}/{name}"),
@@ -330,7 +331,7 @@ mod tests {
         println!("routes 夹具 provenance={}", fixture["_provenance"]);
         assert!(!captured.is_empty(), "夹具缺 _captured_at");
         assert!(!version.is_empty(), "夹具缺 _engine_version");
-        assert_eq!(fixture["routes"].as_array().unwrap().len(), 114, "0.1.8 线上整份重抓（真引擎 114 条）");
+        assert_eq!(fixture["routes"].as_array().unwrap().len(), 133, "0.1.10 + presets-admin 整份重抓（真引擎 133 条）");
         assert!(fixture["_provenance"].get("commit").is_some());
     }
 

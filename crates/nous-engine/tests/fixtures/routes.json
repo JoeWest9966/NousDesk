@@ -1,16 +1,16 @@
 {
   "_captured_at": "2026-11-22",
-  "_engine_version": "0.1.8",
+  "_engine_version": "0.1.10",
   "_provenance": {
-    "source": "GET /v1/_routes (线上真引擎，带 Bearer token)",
+    "source": "GET /v1/_routes（本地验收引擎，带 Bearer token）",
     "repo": "JoeWest9966/Nous",
-    "branch": "main",
-    "commit": "06cb2fb（v0.1.8 合并点；产物 build d0746637）",
-    "host": "j1900:4789（systemd nous-app.service）",
-    "environment": "真引擎（非 faux），数据 /var/lib/nous/",
-    "route_count": 114,
-    "module_count": 12,
-    "patched": "2026-11-22：整份按 0.1.8 重抓（原 0.1.3 快照 + combos 三条补丁已作废）。新增 skills/prompts/extensions 的 files/file/create/publish。"
+    "branch": "feat/presets-admin",
+    "commit": "e24ece4（模板面回到 TS 内核同形）",
+    "host": "127.0.0.1:4790（/tmp/accept 数据副本；j1900 仍是 0.1.10 旧面）",
+    "environment": "真引擎（非 faux），数据为 /opt/Nous-Template 等目录的只读副本",
+    "route_count": 133,
+    "module_count": 13,
+    "patched": "2026-11-22：随 feat/presets-admin 重抓（新增 presets-admin 19 条：validate/resolve/create/rename/files/file/pending/sync/publish/reload/categories 写面/archive/restore/purge/order GET）。"
   },
   "routes": [
     {
@@ -577,6 +577,101 @@
       "module": "presets",
       "method": "POST",
       "path": "/v1/presets/{section}/{name}/rollback"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/order"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/categories"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/category"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/create"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/rename"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/archive"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/restore"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/purge"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/validate"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/validate"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/resolve"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/resolve"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/files"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/file"
+    },
+    {
+      "module": "presets-admin",
+      "method": "PUT",
+      "path": "/v1/presets/{section}/file"
+    },
+    {
+      "module": "presets-admin",
+      "method": "GET",
+      "path": "/v1/presets/{section}/pending"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/sync"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/publish"
+    },
+    {
+      "module": "presets-admin",
+      "method": "POST",
+      "path": "/v1/presets/{section}/reload"
     },
     {
       "module": "device",

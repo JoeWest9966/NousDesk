@@ -13,7 +13,7 @@ use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
     DefaultSet, Dirs, Entries, Extensions, Forked, Machines, Models, ModelRef, PresetFile,
-    Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset,
+    NewPreset, Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset,
     SessionConfig, Sessions, Skills, Submission, Triggers, Unread,
 };
 
@@ -441,6 +441,24 @@ impl EngineClient {
                 .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                 .unwrap_or_default(),
         })
+    }
+
+    /// `POST /v1/presets/{section}/create`：起手式三种（整份 `spec` / `from: "device"` / 空白）。
+    ///
+    /// 引擎会盖 `v` / `name` / `summary` / `category`，并在落盘前过形状闸（终极模板还过引用闸）。
+    /// 回包是 `{ ok, section, name, categories }` —— 客户端只当回执。
+    pub async fn preset_create(
+        &self,
+        section: &str,
+        body: &NewPreset,
+    ) -> Result<serde_json::Value, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/create"))?)
+            .json(body)
+            .send()
+            .await?;
+        self.json(resp).await
     }
 
     /// `PUT /v1/presets/{section}/{name}`：建或覆盖。`body` 是**整份预设**（不含 requestId，
@@ -992,6 +1010,7 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/presets/{section}/{name}/copy"),
     ("PUT", "v1/presets/{section}/order"),
     ("GET", "v1/presets/{section}/categories"),
+    ("POST", "v1/presets/{section}/create"),
     ("GET", "v1/presets/{section}/{name}/revisions"),
     ("GET", "v1/presets/{section}/{name}/revisions/{n}"),
     ("POST", "v1/presets/{section}/{name}/rollback"),
