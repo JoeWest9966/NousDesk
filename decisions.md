@@ -1340,3 +1340,23 @@ Nous `#47`（7 端点 + `capabilities`）→ Nous `#44`（会话轮次，消息�
 **反悔点**：若这些端点从引擎回退（下线/改路径），在**同一次**改动里把它们移回 `DEAD_PATHS`
 并从夹具删除，否则 Desk 会「声明里没有、账本里也没有」→ `Gate::Unknown` 静默变成灰，
 理由却是「服务端未声明这个功能」——两个错叠在一起最难查。
+
+## 2026-11-23 · 数据监控室六屏复原：Desk 改吃 5 条 stats 明细端点，不再从汇总端点硬拼
+
+**选了什么**：数据监控室六屏（解剖 / 会话树 / 回放 / 账单 / 维修）不再各自拿 `/v1/stats/usage|tasks|db`
+和 `/v1/sessions` 去硬拼、不再给屏里填占位零；改为各打一条明细端点
+`/v1/stats/{overview,conversations,conversation/:id,cost,health}`，直接反序列化进原来的
+`Stats*` 展示结构体。删掉 `assemble_overview/convs/cost/health/replay` 五个装配函数。
+
+**为什么**：TS 面板时代（`d6s4v1`）这六屏吃的是**明细级**数据（dbstat 真页数、每会话 entries/tokens、
+prompt 重建、usage 分项、卡住任务明细）。切到 Rust 内核时只有 3 条汇总端点，Desk 用汇总硬拼，
+拼不出来的地方全填 0 / 空 / 灰理由 —— 皮还在，肉没了。复原的正解是让内核把明细算出来（哑协议：
+客户端只画不算），Desk 重新接线，而不是在客户端补算（那会把「不算业务状态」这条铁律破掉）。
+
+**代价**：内核 `stats` 插件多 5 条只读端点（dbstat / 按会话聚合 / prompt 重建 / 四组桶 / 健康明细），
+`wire.md` 与 `docs/plugins.md` 同步登记；`routes.json` 夹具从 0.1.8 的 114 条加到 119 条
+（5 条来自在途 `feat/stats-parity`，尚未发版，夹具 `patched` 已注明）。
+
+**反悔点**：若某条明细端点从引擎回退，Desk 对应屏会变回空槽（收不到就画「还没拿到」，不崩）。
+真回退了就把它移出 `STATS_PATHS` / `ENGINE_ROUTES` / `routes.json`，并在 `capability.rs` 里让那屏灰掉、
+理由来自 capabilities —— 别在 Desk 里退回「自己算」。
