@@ -150,6 +150,31 @@ mod tests {
         assert_eq!(counts(None, None, Some(exts_only(&exts))).2, 4);
     }
 
+    /// 真机上的样子：核心三条装的还是 TS 时代的 JS 插件（`kind == "legacy-js"` +
+    /// `core == true`）。它**是内置的**，只是跑不起来 —— 档位与「待重写」这个标记正交。
+    #[test]
+    fn 核心的旧_js_进内置档_chip_仍写待重写() {
+        let exts = Extensions {
+            items: vec![
+                ExtItem { core: true, ..item("nous", "legacy-js", "crashed", None, None) },
+                ExtItem { core: true, ..item("skills", "legacy-js", "crashed", None, None) },
+                item("123", "legacy-js", "crashed", None, None),
+            ],
+            ..Default::default()
+        };
+        let all = ext_rows(exts_only(&exts), None, "");
+        assert_eq!(all[0].kind, ExtKind::Builtin, "核心先判：引擎自带的就在「内置」里");
+        assert!(all[0].legacy, "但它是老 JS，chip 要写「待重写」");
+        assert_eq!(all[0].chip().0, "待重写（旧 JS）");
+        assert_eq!(all[2].kind, ExtKind::Legacy, "不是核心的老 JS 才单独成档");
+
+        // 桶里的数要能加得起来：内置 2 + 待重写 1 = 全部 3。
+        assert_eq!(ext_rows(exts_only(&exts), Some("@builtin"), "").len(), 2);
+        assert_eq!(ext_rows(exts_only(&exts), Some("@legacy"), "").len(), 1);
+        assert_eq!(counts(None, None, Some(exts_only(&exts))).2, 3);
+        assert_eq!(all[0].chip().2, true, "危险色：这一档确实要人动手");
+    }
+
     fn item(
         name: &str,
         kind: &str,

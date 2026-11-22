@@ -226,6 +226,45 @@ impl EngineClient {
         self.json(resp).await
     }
 
+    /// 变体的三个动作：`/v1/repos/{repo}/variants/{op}`（解绑 / 发布 / 清理）。
+    ///
+    /// 变体不是源码根里的一个目录，它是绑定表里的另一棵 worktree —— 所以走仓级路径，
+    /// 不走文件面，也不能按名字调 `repo_op`（那是 `{repo}/{op}`，没有 `variants` 这一段）。
+    pub async fn variant_op<B: serde::Serialize + ?Sized>(
+        &self,
+        repo: &str,
+        op: &str,
+        body: &B,
+    ) -> Result<serde_json::Value, EngineError> {
+        let base = match repo {
+            "skills" => "v1/repos/skills",
+            "extend" => "v1/repos/extend",
+            other => {
+                return Err(EngineError::Engine {
+                    status: 400,
+                    message: format!("这个私库没有变体：{other}"),
+                    body: None,
+                });
+            }
+        };
+        let path = match op {
+            "unbind" => format!("{base}/variants/unbind"),
+            "publish" => format!("{base}/variants/publish"),
+            "prune" => format!("{base}/variants/prune"),
+            other => {
+                return Err(EngineError::Engine {
+                    status: 400,
+                    message: format!("变体没有这个动作：{other}"),
+                    body: None,
+                });
+            }
+        };
+        let v = Self::body_json(body)?;
+        let url = self.url(&path)?;
+        let resp = self.http.post(url).json(&v).send().await?;
+        self.json(resp).await
+    }
+
     /// 私库的**仓级**动作：`/v1/repos/{repo}/{op}`（归档 / 恢复 / 真删）。
     ///
     /// 与 `resource_op`（文件面 `/v1/{kind}/{op}`）是两条路：仓级动作用仓库名
@@ -1089,6 +1128,9 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/repos/extend/archive"),
     ("POST", "v1/repos/extend/restore"),
     ("POST", "v1/repos/extend/purge"),
+    ("POST", "v1/repos/extend/variants/unbind"),
+    ("POST", "v1/repos/extend/variants/publish"),
+    ("POST", "v1/repos/extend/variants/prune"),
     ("GET", "v1/machines"),
     ("GET", "v1/fs/dirs"),
     ("GET", "v1/sessions"),

@@ -89,6 +89,21 @@ pub(crate) struct ExtRow {
     pub(crate) summary: Option<String>,
     pub(crate) category: Vec<String>,
     pub(crate) kind: ExtKind,
+    /// 「清单是 TS 时代的 JS」这件事本身，与档位正交：`nous` / `skills` / `prompts`
+    /// 三条核心里装的还是老 JS 插件，它们**是内置的**，只是跑不起来。
+    /// 以前把换代当档位（legacy 压过 core），于是真机上「内置 0 条、待重写 4 条」——
+    /// 看着像引擎没带核心扩展，其实带了两件事：内置于它，待重写于它们。
+    pub(crate) legacy: bool,
+}
+
+impl ExtRow {
+    /// 行尾那个 chip：说什么 + 用什么颜色 + 要不要当危险色画。
+    pub(crate) fn chip(&self) -> (&'static str, u32, bool) {
+        if self.legacy {
+            return (ExtKind::Legacy.label(), t().p.danger, true);
+        }
+        (self.kind.label(), self.kind.color(), self.kind == ExtKind::Failed)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -331,6 +346,7 @@ impl<'a> ExtView<'a> {
                 }),
                 category: vec![],
                 kind: ExtKind::Variant,
+                legacy: false,
             })
             .collect()
     }
@@ -346,6 +362,7 @@ impl<'a> ExtView<'a> {
                 summary: Some("已归档（在 .archive/ 里，恢复回来才知道是什么）".to_string()),
                 category: vec![],
                 kind: ExtKind::Archived,
+                legacy: false,
             })
             .collect()
     }
@@ -356,12 +373,14 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
     let mut out = Vec::new();
     if !exts.items.is_empty() {
         for item in &exts.items {
-            // 判档顺序有讲究：换代（legacy-js）先判，别混进「加载失败」；
-            // 核心三条再判，它们跑着也还是「内置」那一档；最后才看进程在不在。
-            let kind = if item.kind == "legacy-js" {
-                ExtKind::Legacy
-            } else if item.core {
+            // 判档顺序有讲究：**核心先判** —— 引擎自带的就该在「内置」里，
+            // 哪怕它装的是老 JS（那是 chip 上的一句「待重写」，不是另一个档）。
+            // 然后才是换代 / 清单不合法 / 进程在不在。
+            let legacy = item.kind == "legacy-js";
+            let kind = if item.core {
                 ExtKind::Builtin
+            } else if legacy {
+                ExtKind::Legacy
             } else if item.kind == "invalid" {
                 ExtKind::Failed
             } else if item.state.as_deref() == Some("running") {
@@ -376,6 +395,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
                 // 新形状里 category 是一个字符串（清单里就是 Option<String>）。
                 category: item.category.clone().into_iter().collect(),
                 kind,
+                legacy,
             });
         }
         out.extend(src.variant_rows());
@@ -400,6 +420,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
             summary: e.summary.clone(),
             category: e.category.clone(),
             kind,
+            legacy: false,
         });
     }
     for name in &exts.builtin {
@@ -408,6 +429,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
             summary: None,
             category: vec![],
             kind: ExtKind::Builtin,
+            legacy: false,
         });
     }
     for (family, variants) in &exts.variants {
@@ -437,6 +459,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
                 summary,
                 category,
                 kind: if failed { ExtKind::Failed } else { ExtKind::Variant },
+                legacy: false,
             });
         }
     }
@@ -446,6 +469,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
             summary: a.summary.clone(),
             category: a.category.clone(),
             kind: ExtKind::Archived,
+            legacy: false,
         });
     }
     filter_ext_row(out, cat, q)
@@ -1058,12 +1082,13 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         Section::Extensions => {
             if let Some(view) = r.ext_view() {
                 for row in ext_rows(view, cat, &q) {
+                    let (chip, chip_color, chip_danger) = row.chip();
                     body = body.child(row_btn(
                         &row.name,
                         row.summary.as_deref().unwrap_or(""),
-                        row.kind.label(),
-                        row.kind == ExtKind::Failed,
-                        row.kind.color(),
+                        chip,
+                        chip_danger,
+                        chip_color,
                         Selected::Ext(row.name.clone()),
                         &r.selected,
                         cx,
@@ -1299,6 +1324,39 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             })),
         );
     }
+    if ext_kind == Some(ExtKind::Variant) {
+        // 变体自己的三个动作（`/v1/repos/extend/variants/*`）：发布 / 解绑 / 清理。
+        // 它不在源码根里，所以没有「编辑 / 卸载」，也没有 git 之外的路子。
+        for (id, label, act, danger) in [
+            ("res-act-vpub", "发布变体", ConfirmAct::PublishVariant, false),
+            ("res-act-vunbind", "解绑", ConfirmAct::Unbind, false),
+            ("res-act-vprune", "清理", ConfirmAct::Prune, true),
+        ] {
+            let (bg, fg) = if danger {
+                (t().p.danger_soft, t().p.danger)
+            } else {
+                (t().p.surface, t().p.text_2)
+            };
+            acts = acts.child(
+                div()
+                    .id(id)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(t().d(28.))
+                    .px(t().d(10.))
+                    .rounded(t().r(7.))
+                    .bg(rgb(bg))
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(fg))
+                    .hover(|el| el.opacity(0.85))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.resource_ask_confirm(act, cx);
+                    })),
+            );
+        }
+    }
     if ext_kind == Some(ExtKind::Archived) {
         acts = acts.child(
             div()
@@ -1338,9 +1396,14 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 })),
         );
     } else {
+        // 装 / 卸 / 归档都认源码根里的目录名。变体是另一棵 worktree、已归档在
+        // `.archive/`、旧 JS 的连清单都不合法 —— 三档给了按钮也是 404，
+        // 而 404 看着像「没有这个扩展」。它们各有各的入口（见上面的分支）。
         if let Some(k) = ext_kind
             && k != ExtKind::Builtin
             && k != ExtKind::Legacy
+            && k != ExtKind::Variant
+            && k != ExtKind::Archived
         {
             let installed = k != ExtKind::Off;
             acts = acts.child(
@@ -1363,6 +1426,13 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     })),
             );
         }
+        // 归档认的也是源码根里的目录名：变体 / 已归档 / 旧 JS / 核心四条都不该给这个按钮
+        // （核心归档了引擎自己就少一块，变体与归档区的名字 git mv 也找不到）。
+        let can_archive = match ext_kind {
+            None => true,
+            Some(k) => k == ExtKind::On || k == ExtKind::Off,
+        };
+        if can_archive {
         acts = acts.child(
             div()
                 .id("res-act-archive")
@@ -1382,6 +1452,7 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 this.resource_ask_confirm(ConfirmAct::Archive, cx);
             })),
         );
+        }
     }
     if kind == Kind::Ext && file_backed {
         acts = acts.child(
@@ -1484,11 +1555,16 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 } else if e.kind == ExtKind::Variant {
                     body = body.child(note_line(
                         "变体是另一棵工作树（`/v1/repos/extend/variants`）：路径与分支看上面的摘要。\
-                         改名 / 解绑 / 发布这一刀还没接入口，先在仓库里操作。",
+                         上面三个按钮是「发布 / 解绑 / 清理」；改名（换分支）要填新分支名，\
+                         这一刀还没接入口，先在仓库里操作。",
                     ));
+                } else if e.legacy && e.kind == ExtKind::Builtin {
+                    body = body
+                        .child(note_line("核心扩展（nous / skills / prompts）引擎自己要跑 —— 卸载会被 403 挡回来；它们在仓库里，改得动，删不得。"))
+                        .child(note_line("但它现在装的是 TS 时代的 JS 插件（index.js + defineExtension）：新运行时只 spawn 原生进程扩展，`index.js` 没有解释器，改清单也跑不起来，需按 nous-ext-sdk 重写。"));
                 } else if e.kind == ExtKind::Builtin {
                     body = body.child(note_line("核心扩展（nous / skills / prompts）引擎自己要跑 —— 卸载会被 403 挡回来；它们在仓库里，改得动，删不得。"));
-                } else if e.kind == ExtKind::Legacy {
+                } else if e.legacy {
                     // 这一档不是「装 / 卸」能治的：新运行时只 spawn 原生产物（协议握手 +
                     // artifacts），`index.js` 没有解释器。说清楚该干什么，别让人反复点重装。
                     body = body.child(note_line("TS 时代的 JS 插件（index.js + defineExtension）—— 新运行时只装载原生进程扩展，改清单也跑不起来；需按 nous-ext-sdk 重写。"));
