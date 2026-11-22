@@ -159,6 +159,10 @@ pub(crate) enum ConfirmAct {
     Purge,
     /// 编辑器里有没存的改动，关掉前问一句。
     DiscardEdit,
+    /// 变体的三个动作（`/v1/repos/extend/variants/*`）。
+    PublishVariant,
+    Unbind,
+    Prune,
 }
 
 pub(crate) struct Confirm {
@@ -176,6 +180,9 @@ impl Confirm {
             ConfirmAct::Restore => format!("恢复 {}？", self.name),
             ConfirmAct::Purge => format!("真删 {}？", self.name),
             ConfirmAct::DiscardEdit => "有没存的改动".into(),
+            ConfirmAct::PublishVariant => format!("发布变体 {}？", self.name),
+            ConfirmAct::Unbind => format!("解绑变体 {}？", self.name),
+            ConfirmAct::Prune => format!("清理变体 {}？", self.name),
         }
     }
 
@@ -185,6 +192,16 @@ impl Confirm {
             ConfirmAct::Restore => "从 .archive/ 搬回仓库并 commit + push —— 回到「已发布」。".into(),
             ConfirmAct::Purge => "不可逆。会 git rm -r 掉归档区那份并 commit + push —— 恢复不了。".into(),
             ConfirmAct::DiscardEdit => "这些改动只在编辑器里，关掉就没了。".into(),
+            ConfirmAct::PublishVariant => {
+                "把变体分支推到远端（`variants/publish`）。主干不动，合不合由你在仓库里决定。".into()
+            }
+            ConfirmAct::Unbind => {
+                "只从绑定表里划掉，工作树与分支都留着 —— 想回来得重新绑。".into()
+            }
+            ConfirmAct::Prune => {
+                "删掉变体的工作树与分支。有没合的提交时引擎会拒（带 unmerged 列表），\
+                 这条不替你强推。".into()
+            }
         }
     }
 
@@ -194,11 +211,17 @@ impl Confirm {
             ConfirmAct::Restore => "恢复",
             ConfirmAct::Purge => "真删",
             ConfirmAct::DiscardEdit => "不存，关掉",
+            ConfirmAct::PublishVariant => "发布",
+            ConfirmAct::Unbind => "解绑",
+            ConfirmAct::Prune => "清理",
         }
     }
 
     pub(crate) fn danger(&self) -> bool {
-        matches!(self.act, ConfirmAct::Purge | ConfirmAct::DiscardEdit)
+        matches!(
+            self.act,
+            ConfirmAct::Purge | ConfirmAct::DiscardEdit | ConfirmAct::Prune
+        )
     }
 }
 
@@ -976,10 +999,18 @@ impl Desktop {
         // 归档 / 恢复 / 真删是**仓级**动作（`/v1/repos/{repo}/{op}`），不是文件面的
         // `/v1/{kind}/{op}` —— 后者在引擎里根本不存在，以前点「归档」会静默 404。
         // 三条路径逐个写死（不拼模板）：台账扫描器要看见「客户端真会打的这一条」。
-        let gate_path = match kind {
-            Some(Kind::Skill) => "/v1/repos/skills/archive",
-            Some(Kind::Prompt) => "/v1/repos/prompts/archive",
-            _ => "/v1/repos/extend/archive",
+        // 变体三条走的是 `/v1/repos/extend/variants/*`（另一个前缀），闸门要按真实路径问，
+        // 不然「能力没开」这件事会被一条不相干的模板挡掉或放行。
+        let act_now = self.resources.confirm.as_ref().map(|c| c.act);
+        let gate_path = match act_now {
+            Some(ConfirmAct::PublishVariant) => "/v1/repos/extend/variants/publish",
+            Some(ConfirmAct::Unbind) => "/v1/repos/extend/variants/unbind",
+            Some(ConfirmAct::Prune) => "/v1/repos/extend/variants/prune",
+            _ => match kind {
+                Some(Kind::Skill) => "/v1/repos/skills/archive",
+                Some(Kind::Prompt) => "/v1/repos/prompts/archive",
+                _ => "/v1/repos/extend/archive",
+            },
         };
         if let Some(reason) = self.resource_write_gate("POST", gate_path) {
             self.notify(reason, NoticeKind::Error, cx);
@@ -1006,12 +1037,37 @@ impl Desktop {
                 ConfirmAct::Restore => "restore",
                 ConfirmAct::Purge => "purge",
                 ConfirmAct::DiscardEdit => unreachable!(),
+                ConfirmAct::PublishVariant => "publish",
+                ConfirmAct::Unbind => "unbind",
+                ConfirmAct::Prune => "prune",
             };
+            // 变体只在扩展私库上（`extend`）；它的 body 用 `id`，仓级归档用 `name`。
+            let variant_act = matches!(
+                act,
+                ConfirmAct::PublishVariant | ConfirmAct::Unbind | ConfirmAct::Prune
+            );
             let repo = kind.repo().repo_key();
-            let (n, body) = (name.clone(), serde_json::json!({ "name": name }));
-            let res = handle
-                .spawn(async move { engine.repo_op(repo, op, &body).await })
-                .await;
+            let (n, body) = if variant_act {
+                let body = match act {
+                    ConfirmAct::PublishVariant => {
+                        serde_json::json!({ "id": name, "message": format!("发布变体 {name}") })
+                    }
+                    ConfirmAct::Prune => serde_json::json!({ "id": name, "force": false }),
+                    _ => serde_json::json!({ "id": name }),
+                };
+                (name.clone(), body)
+            } else {
+                (name.clone(), serde_json::json!({ "name": name }))
+            };
+            let res = if variant_act {
+                handle
+                    .spawn(async move { engine.variant_op("extend", op, &body).await })
+                    .await
+            } else {
+                handle
+                    .spawn(async move { engine.repo_op(repo, op, &body).await })
+                    .await
+            };
 
             let _ = this.update_in(cx, |this, window, cx| {
                 let Some(c) = this.resources.confirm.as_mut() else { return };
@@ -1022,6 +1078,9 @@ impl Desktop {
                             ConfirmAct::Archive => "归档了（搬进 .archive/ 并提交）",
                             ConfirmAct::Restore => "恢复回来了",
                             ConfirmAct::Purge => "真删了，归档区那份也没了",
+                            ConfirmAct::PublishVariant => "变体分支推出去了",
+                            ConfirmAct::Unbind => "解绑了（工作树还在，重新绑才回来）",
+                            ConfirmAct::Prune => "清理了（工作树与分支都删了）",
                             ConfirmAct::DiscardEdit => unreachable!(),
                         };
                         this.resources.confirm = None;

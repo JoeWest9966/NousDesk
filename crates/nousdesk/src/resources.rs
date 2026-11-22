@@ -1323,6 +1323,39 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             })),
         );
     }
+    if ext_kind == Some(ExtKind::Variant) {
+        // 变体自己的三个动作（`/v1/repos/extend/variants/*`）：发布 / 解绑 / 清理。
+        // 它不在源码根里，所以没有「编辑 / 卸载」，也没有 git 之外的路子。
+        for (id, label, act, danger) in [
+            ("res-act-vpub", "发布变体", ConfirmAct::PublishVariant, false),
+            ("res-act-vunbind", "解绑", ConfirmAct::Unbind, false),
+            ("res-act-vprune", "清理", ConfirmAct::Prune, true),
+        ] {
+            let (bg, fg) = if danger {
+                (t().p.danger_soft, t().p.danger)
+            } else {
+                (t().p.surface, t().p.text_2)
+            };
+            acts = acts.child(
+                div()
+                    .id(id)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(t().d(28.))
+                    .px(t().d(10.))
+                    .rounded(t().r(7.))
+                    .bg(rgb(bg))
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(fg))
+                    .hover(|el| el.opacity(0.85))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.resource_ask_confirm(act, cx);
+                    })),
+            );
+        }
+    }
     if ext_kind == Some(ExtKind::Archived) {
         acts = acts.child(
             div()
@@ -1508,7 +1541,8 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 } else if e.kind == ExtKind::Variant {
                     body = body.child(note_line(
                         "变体是另一棵工作树（`/v1/repos/extend/variants`）：路径与分支看上面的摘要。\
-                         改名 / 解绑 / 发布这一刀还没接入口，先在仓库里操作。",
+                         上面三个按钮是「发布 / 解绑 / 清理」；改名（换分支）要填新分支名，\
+                         这一刀还没接入口，先在仓库里操作。",
                     ));
                 } else if e.legacy && e.kind == ExtKind::Builtin {
                     body = body
