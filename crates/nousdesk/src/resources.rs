@@ -1426,6 +1426,13 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     })),
             );
         }
+        // 归档认的也是源码根里的目录名：变体 / 已归档 / 旧 JS / 核心四条都不该给这个按钮
+        // （核心归档了引擎自己就少一块，变体与归档区的名字 git mv 也找不到）。
+        let can_archive = match ext_kind {
+            None => true,
+            Some(k) => k == ExtKind::On || k == ExtKind::Off,
+        };
+        if can_archive {
         acts = acts.child(
             div()
                 .id("res-act-archive")
@@ -1445,6 +1452,7 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 this.resource_ask_confirm(ConfirmAct::Archive, cx);
             })),
         );
+        }
     }
     if kind == Kind::Ext && file_backed {
         acts = acts.child(
