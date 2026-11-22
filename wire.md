@@ -611,11 +611,24 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 - **没有 `catalog` / `builtin` / `variants` / `archived` 了。** 新清单就是「源码根下一个
   目录一条」：内置三条现在也是盘上目录，归档在 `.archive/`（点开头，扫描排除）。
   客户端只在 `items` 为空（旧引擎）时回退到那七份投影。
+- **`core: true` = 核心三条**（`nous` / `skills` / `prompts`）：`uninstall` 会 403。
+  以前这条事实只活在 403 的文案里，界面只能等用户点一次才知道。
 - **装 / 卸仍是两个端点**：`POST /v1/extensions/{install,uninstall}`（body `{name}`），
-  核心三条卸载 403 —— 原话照登。
-- **重载 / 管理面**：`POST /v1/extensions/reload` → `{reloaded:[…]}`；`create` /
-  `duplicate` / `categories` / `category` 见 `crates/nous/server/src/ext_admin.rs`。
-  Desk 当前只用到 `items` 与装 / 卸。
+  核心三条卸载 403 —— 原话照登。装完 / 卸完要显式喊一次
+  `POST /v1/extensions/reload`（`{reloaded:[…]}`）：注册表重装是引擎的动作，
+  不喊就是「页面说装着、会话里没有」。
+- **类别词表**：`GET /v1/extensions/categories` → `{categories:[…]}`。类别树用它，
+  不要从 `items[].category` 凑 —— 一个类别下暂时没条目时，凑出来的树会把它弄丢。
+- **变体 / 归档在私库面上**（`/v1/repos/extend/*`，与技能同一套）：
+  `GET variants` → `{v, variants:{extend:{<id>:{root,branch}}}}`；
+  `GET archive` → `{items:[{name}]}`（`.archive/` 只有名字，没有清单）；
+  写面 `POST {archive,restore,purge}`。**注意仓名是 `extend`，不是 `extensions`** ——
+  拿文件面的 `extensions` 去拼仓级路径只会 404，而 404 长得像「没有这东西」。
+- **管理面**：`create` / `duplicate` / `category` 见 `crates/nous/server/src/ext_admin.rs`。
+  Desk 当前只用到 `items`、类别词表、装 / 卸、`reload` 与私库面的归档 / 变体读。
+- **`GET /v1/repos/{repo}/archive` 四个仓共用**（`presets` / `skills` / `prompts` / `extend`，
+  0.1.10 新增）：返回 `.archive/` 下的目录名。写面（`archive` / `restore` / `purge`）
+  一直在，缺的就是这条读 —— 没有它，「归档」等于「再也看不见」。
 
 **规矩**：往这张表里加一条 = 客户端多了一处没有字段合同的调用。要么先在本文件写清形状，
 要么确认它是整包转发并且在 `types.rs` 里有类型 —— 两者都没有的话，别加。

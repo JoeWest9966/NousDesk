@@ -14,10 +14,10 @@
 | `catalog[]`（仓里有什么：name/summary/category/sections/file/entry） | `items[]`（`name/version/kind/category/summary/loaded/pid/state/error`） | ✅ 已接（`feat/ext-items-fields`） |
 | `load{name:{state,error}}` | `items[].state` / `items[].error` / `kind=="invalid"` | ✅ 已接 |
 | `installed[]` | `items[].loaded` + `state=="running"` | ✅ 已接 |
-| `categories[]`（类别词表） | `GET /v1/extensions/categories` | ⬜ 待接 |
-| `builtin[]`（引擎硬编码 import 的 `coding-tools`） | **没有等价物**：新引擎三条核心（`nous`/`skills`/`prompts`）也在源码根里，只是 `uninstall` 会 403 | ⬜ 内核补 `core` 字段 |
-| `variants{family:[{id,key,dir,branch,installed,load}]}` | `GET /v1/repos/extend/variants`（#76，与技能同一套） | ⬜ 待接 |
-| `archived[{name,summary,category}]` | `POST /v1/repos/extend/{archive,restore,purge}` 有写、**没有读**（归档物在 `.archive/`） | ⬜ 内核补 `GET /v1/repos/{repo}/archive` |
+| `categories[]`（类别词表） | `GET /v1/extensions/categories` | ✅ 已接 |
+| `builtin[]`（引擎硬编码 import 的 `coding-tools`） | 新引擎三条核心（`nous`/`skills`/`prompts`）也在源码根里，只是 `uninstall` 会 403 → `items[].core`（0.1.10 新增） | ✅ 已接 |
+| `variants{family:[{id,key,dir,branch,installed,load}]}` | `GET /v1/repos/extend/variants`（#76，与技能同一套） | ✅ 已接 |
+| `archived[{name,summary,category}]` | `POST /v1/repos/extend/{archive,restore,purge}` 写面 + `GET /v1/repos/{repo}/archive` 读面（0.1.10 新增） | ✅ 已接 |
 | `protected[]` / `defaults[]` | 核心三条的 403 文本里；`defaults` 已无意义（会话内 `extensions` 只加不减那条随 TS 内核一起没了） | ➖ 不恢复 |
 
 ## 二、内核要补的两件（改现有 `nous-ext` / `nous-server`，不新增 crate）
@@ -39,6 +39,9 @@
    与技能 / 提示词同一套。
 5. `POST /v1/extensions/reload` —— 装 / 卸之后不再靠「重拉清单」猜，直接让引擎重装注册表
    （原来那句 `立刻重装注册表` 是内核自己做的，现在要显式喊一次）。
+
+五条都接上了；另外顺手修了一条**真 bug**：归档 / 恢复 / 真删以前打 `/v1/{kind}/{op}`
+（引擎里没有这条路由，点下去静默 404），现在走仓级 `/v1/repos/{repo}/{op}`。
 
 ## 四、验收：0.9.5 能做的，现在也能做
 
