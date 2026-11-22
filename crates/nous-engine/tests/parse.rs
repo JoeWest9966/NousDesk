@@ -391,22 +391,27 @@ fn parse_extensions_items() {
     let json = r#"{
       "items": [
         {"name":"native-one","version":"0.1.0","kind":"native","category":"工具",
-         "summary":"原生那条","loaded":true,"pid":4821,"state":"running","error":null},
+         "summary":"原生那条","core":false,"loaded":true,"pid":4821,"state":"running","error":null},
+        {"name":"nous","version":"0.1.0","kind":"native","category":null,"summary":null,
+         "core":true,"loaded":true,"pid":99,"state":"running","error":null},
         {"name":"123","version":"","kind":"legacy-js","category":null,"summary":null,
          "loaded":false,"pid":null,"state":"crashed",
          "error":"legacy-js: TS 时代的 JS 插件（index.js + defineExtension）新运行时装载不了"}
       ]
     }"#;
     let exts: nous_engine::types::Extensions = serde_json::from_str(json).unwrap();
-    assert_eq!(exts.items.len(), 2);
+    assert_eq!(exts.items.len(), 3);
     assert_eq!(exts.items[0].kind, "native");
     assert_eq!(exts.items[0].category.as_deref(), Some("工具"));
     assert_eq!(exts.items[0].summary.as_deref(), Some("原生那条"));
     assert_eq!(exts.items[0].state.as_deref(), Some("running"));
     assert_eq!(exts.items[0].pid, Some(4821));
-    assert_eq!(exts.items[1].kind, "legacy-js");
-    assert!(!exts.items[1].loaded);
-    assert!(exts.items[1].error.as_deref().unwrap_or_default().contains("legacy-js"));
+    assert!(!exts.items[0].core, "不带 core 就是 false，不是「未知」");
+    assert_eq!(exts.items[1].name, "nous");
+    assert!(exts.items[1].core, "核心三条靠字段认，不靠客户端硬编码名字");
+    assert_eq!(exts.items[2].kind, "legacy-js");
+    assert!(!exts.items[2].loaded);
+    assert!(exts.items[2].error.as_deref().unwrap_or_default().contains("legacy-js"));
 
     // 旧引擎回老形状（没有 items）：不能解析失败，只是 items 为空。
     let legacy: nous_engine::types::Extensions =
@@ -414,4 +419,33 @@ fn parse_extensions_items() {
             .unwrap();
     assert!(legacy.items.is_empty());
     assert_eq!(legacy.installed, vec!["nous".to_string()]);
+}
+
+/// 资源页恢复 TS 时代那一套，靠的是三个**新读面**：变体绑定表、归档区、类别词表。
+/// 形状钉在这里：字段名错了会静默变成空档（页面一片「没有」，比报错难查）。
+#[test]
+fn parse_repo_variants_archive_and_ext_categories() {
+    let variants: nous_engine::types::RepoVariants = serde_json::from_str(
+        r#"{"v":1,"variants":{"extend":{"mine@abc":{"root":"/tmp/wt","branch":"variant/extend/abc"}}}}"#,
+    )
+    .unwrap();
+    let rows: Vec<_> = variants.family("extend").collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "mine@abc");
+    assert_eq!(rows[0].1.branch, "variant/extend/abc");
+    assert_eq!(variants.family("skills").count(), 0, "别的族不许串进来");
+
+    let archive: nous_engine::types::RepoArchive =
+        serde_json::from_str(r#"{"items":[{"name":"old-card"}]}"#).unwrap();
+    assert_eq!(archive.items.len(), 1);
+    assert_eq!(archive.items[0].name, "old-card");
+
+    let cats: nous_engine::types::ExtCategories =
+        serde_json::from_str(r#"{"categories":["工具","写作"]}"#).unwrap();
+    assert_eq!(cats.categories, vec!["工具".to_string(), "写作".to_string()]);
+
+    // 老引擎没有这三条端点 → 客户端拿到的是 404，解析层不许因此炸；
+    // 空对象也要解析成空表（不是 `None`），否则页面会一直「在等」。
+    let empty: nous_engine::types::RepoArchive = serde_json::from_str("{}").unwrap();
+    assert!(empty.items.is_empty());
 }

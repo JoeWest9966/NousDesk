@@ -195,10 +195,18 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     if !known {
         return None;
     }
-    // 私库 git 写等票 Nous#75，还没登记成 Desk 功能面：不能借 presets 前缀
-    // 把它算进 Sessions，否则「模块 enabled」就能把按钮点亮。
-    if path.starts_with("v1/repos/") {
-        return None;
+    // 仓级动作（`/v1/repos/{repo}/{op}`：归档 / 恢复 / 真删 / 变体）按**仓**归到
+    // 对应的功能面。以前这里一律 `None`（Nous#75 等票期：写了就 404，宁可灰着）；
+    // 现在这些端点在引擎里都在，再一律置灰就是把入口焊死。仓名不认识仍然 `None`。
+    if let Some(rest) = path.strip_prefix("v1/repos/") {
+        let repo = rest.split('/').next().unwrap_or("");
+        return match repo {
+            "skills" => Some(Feature::Skills),
+            "prompts" => Some(Feature::Prompts),
+            "extend" => Some(Feature::Ext),
+            "presets" => Some(Feature::Presets),
+            _ => None,
+        };
     }
     // 功能归属：前缀判定。顺序从特殊到一般，archive 不落进 sessions。
     if path == "v1/archive" || path.starts_with("v1/archive/") {
@@ -382,11 +390,31 @@ pub fn endpoint_enabled(caps: &Capabilities, method: &str, path: &str) -> bool {
     if !matches!(gate_for_path(caps, method, path), Gate::Enabled) {
         return false;
     }
+    let wanted = normalize_path(path);
     caps.modules.iter().any(|m| {
         m.endpoints.iter().any(|e| {
             let mut parts = e.split_whitespace();
-            parts.next() == Some(method) && parts.next() == Some(path)
+            parts.next() == Some(method)
+                && parts.next().is_some_and(|declared| same_route(&normalize_path(declared), &wanted))
         })
+    })
+}
+
+/// 声明的路由模板和实际要打的路径是不是同一条。
+///
+/// 引擎声明的是 `/v1/repos/:repo/archive`（一条路由 + 路径参数），客户端打的是
+/// `/v1/repos/extend/archive`。只按字符串相等比，所有带路径参数的端点都会被判成
+/// 「服务端没声明」—— 灰掉的理由还是「旧版本不支持」，查起来最费劲。
+///
+/// 规则：段数相同，且模板里 `{x}` 那一段接受任意非空值；其余逐段字面相等。
+fn same_route(declared: &str, wanted: &str) -> bool {
+    let declared: Vec<&str> = declared.split('/').collect();
+    let wanted: Vec<&str> = wanted.split('/').collect();
+    if declared.len() != wanted.len() {
+        return false;
+    }
+    declared.iter().zip(wanted.iter()).all(|(d, w)| {
+        (d.starts_with('{') && d.ends_with('}') && d.len() > 2 && !w.is_empty()) || d == w
     })
 }
 
@@ -492,13 +520,36 @@ mod tests {
         }
     }
 
-    /// 等票端点不能被前缀规则误归到 Sessions：没登记 = 不可用。
+    /// 仓级端点按**仓**归功能面，不再一律「没登记 = 不可用」。
+    ///
+    /// 旧口径（Nous#75 等票期）是 prefixed None；现在这些端点在引擎里都在：
+    /// `/v1/repos/skills/archive` 归技能、`/v1/repos/extend/archive` 归扩展
+    /// （私库名是 `extend`，不是 `extensions`）。仓名不认识仍然 None。
     #[test]
-    fn repo_commit_endpoint_is_not_mapped_to_a_feature() {
-        assert_eq!(feature_for_path("POST", "/v1/repos/presets/commit"), None);
-        assert_eq!(feature_for_path("GET", "/v1/repos/presets/history"), None);
-        let c = caps();
-        assert!(!endpoint_enabled(&c, "POST", "/v1/repos/presets/commit"));
+    fn repo_paths_map_to_the_owning_feature() {
+        assert_eq!(feature_for_path("POST", "/v1/repos/presets/commit"), Some(Feature::Presets));
+        assert_eq!(feature_for_path("POST", "/v1/repos/skills/archive"), Some(Feature::Skills));
+        assert_eq!(feature_for_path("POST", "/v1/repos/prompts/archive"), Some(Feature::Prompts));
+        assert_eq!(feature_for_path("GET", "/v1/repos/extend/archive"), Some(Feature::Ext));
+        assert_eq!(feature_for_path("GET", "/v1/repos/extensions/archive"), None, "extensions 不是仓名");
+        assert_eq!(feature_for_path("GET", "/v1/repos/nope/archive"), None);
+    }
+
+    /// 引擎声明的是路由模板（`/v1/repos/:repo/archive`），客户端打的是具体仓名。
+    /// 只按字符串相等比，所有带路径参数的端点都会被判成「服务端没声明」。
+    #[test]
+    fn endpoint_match_understands_path_parameters() {
+        let caps: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.10" },
+            "modules": [
+                { "name": "ext", "enabled": true, "endpoints": ["GET /v1/repos/:repo/archive"] },
+            ],
+            "runtime": { "provider": { "kind": "faux" } }
+        })).unwrap();
+        assert!(endpoint_enabled(&caps, "GET", "/v1/repos/extend/archive"));
+        assert!(!endpoint_enabled(&caps, "POST", "/v1/repos/extend/archive"), "方法也要对上");
+        assert!(!endpoint_enabled(&caps, "GET", "/v1/repos/extend/variants"), "歧义的段不接受");
     }
 
     #[test]
@@ -776,10 +827,11 @@ mod tests {
             );
         }
         for entry in crate::dead_paths::DEAD_PATHS {
-            // 私库 git 写仍是 Nous#75 的等票端点，没登记成 Desk 功能面；
-            // 这两条刻意返回 None（= 未登记 = 不可用），不进派生表。
+            // 私库 git 写（`presets/commit` 那两条）仍是 Nous#75 的等票端点，
+            // 但**路径归属**现在按仓算（见 `repo_paths_map_to_the_owning_feature`）：
+            // 归属 ≠ 可用，可不可用由 capabilities 的模块门控决定。
             if entry.path.starts_with("v1/repos/") {
-                assert_eq!(feature_for_path(entry.method, entry.path), None);
+                assert!(feature_for_path(entry.method, entry.path).is_some());
                 continue;
             }
             assert!(

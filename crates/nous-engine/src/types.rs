@@ -904,6 +904,10 @@ pub struct ExtItem {
     /// 清单读进来了并成功装载过（不是「进程现在活着」）。
     #[serde(default)]
     pub loaded: bool,
+    /// 核心三条（`nous` / `skills` / `prompts`）：卸载会 403，也删不掉。
+    /// 引擎 0.1.10 起直说，不用等用户点一次卸载才知道。
+    #[serde(default)]
+    pub core: bool,
     pub pid: Option<i64>,
     /// `running` / `crashed` / `disabled` / …
     #[serde(default)]
@@ -963,6 +967,66 @@ pub struct ExtVariant {
     #[serde(default)]
     pub installed: bool,
     pub load: Option<ExtLoad>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/repos/extend/variants`：变体绑定表原样（Nous #76）。
+///
+/// 形状是 `{ v: 1, variants: { extend: { <id>: { root, branch } } } }` —— 按私库族分组、
+/// 与技能共用一张表。所以 `extend` 这个键不编进类型：换族名时这里不该跟着改。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RepoVariants {
+    #[serde(default)]
+    pub variants: HashMap<String, HashMap<String, VariantBinding>>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl RepoVariants {
+    /// 某一族的绑定（`extend` / `skills`）。没有绑定就是空迭代器，不是 `None`。
+    pub fn family(&self, family: &str) -> impl Iterator<Item = (&String, &VariantBinding)> {
+        self.variants
+            .get(family)
+            .into_iter()
+            .flat_map(|rows| rows.iter())
+    }
+}
+
+/// 变体绑定的两项事实：工作树在哪、建在哪条分支上。
+#[derive(Debug, Clone, Deserialize)]
+pub struct VariantBinding {
+    #[serde(default)]
+    pub root: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/repos/{repo}/archive`：归档区（`.archive/`）里有什么。
+///
+/// **只有名字**：归档物没有清单、没有版本 —— 想知道它是什么，恢复回来再读。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RepoArchive {
+    #[serde(default)]
+    pub items: Vec<ArchivedUnit>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ArchivedUnit {
+    pub name: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/extensions/categories`：类别词表（住在私库里，随发布进历史）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExtCategories {
+    #[serde(default)]
+    pub categories: Vec<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
