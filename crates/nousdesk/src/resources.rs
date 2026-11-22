@@ -89,6 +89,21 @@ pub(crate) struct ExtRow {
     pub(crate) summary: Option<String>,
     pub(crate) category: Vec<String>,
     pub(crate) kind: ExtKind,
+    /// 「清单是 TS 时代的 JS」这件事本身，与档位正交：`nous` / `skills` / `prompts`
+    /// 三条核心里装的还是老 JS 插件，它们**是内置的**，只是跑不起来。
+    /// 以前把换代当档位（legacy 压过 core），于是真机上「内置 0 条、待重写 4 条」——
+    /// 看着像引擎没带核心扩展，其实带了两件事：内置于它，待重写于它们。
+    pub(crate) legacy: bool,
+}
+
+impl ExtRow {
+    /// 行尾那个 chip：说什么 + 用什么颜色 + 要不要当危险色画。
+    fn chip(&self) -> (&'static str, u32, bool) {
+        if self.legacy {
+            return (ExtKind::Legacy.label(), t().p.danger, true);
+        }
+        (self.kind.label(), self.kind.color(), self.kind == ExtKind::Failed)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -331,6 +346,7 @@ impl<'a> ExtView<'a> {
                 }),
                 category: vec![],
                 kind: ExtKind::Variant,
+                legacy: false,
             })
             .collect()
     }
@@ -346,6 +362,7 @@ impl<'a> ExtView<'a> {
                 summary: Some("已归档（在 .archive/ 里，恢复回来才知道是什么）".to_string()),
                 category: vec![],
                 kind: ExtKind::Archived,
+                legacy: false,
             })
             .collect()
     }
@@ -356,12 +373,14 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
     let mut out = Vec::new();
     if !exts.items.is_empty() {
         for item in &exts.items {
-            // 判档顺序有讲究：换代（legacy-js）先判，别混进「加载失败」；
-            // 核心三条再判，它们跑着也还是「内置」那一档；最后才看进程在不在。
-            let kind = if item.kind == "legacy-js" {
-                ExtKind::Legacy
-            } else if item.core {
+            // 判档顺序有讲究：**核心先判** —— 引擎自带的就该在「内置」里，
+            // 哪怕它装的是老 JS（那是 chip 上的一句「待重写」，不是另一个档）。
+            // 然后才是换代 / 清单不合法 / 进程在不在。
+            let legacy = item.kind == "legacy-js";
+            let kind = if item.core {
                 ExtKind::Builtin
+            } else if legacy {
+                ExtKind::Legacy
             } else if item.kind == "invalid" {
                 ExtKind::Failed
             } else if item.state.as_deref() == Some("running") {
@@ -376,6 +395,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
                 // 新形状里 category 是一个字符串（清单里就是 Option<String>）。
                 category: item.category.clone().into_iter().collect(),
                 kind,
+                legacy,
             });
         }
         out.extend(src.variant_rows());
@@ -400,6 +420,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
             summary: e.summary.clone(),
             category: e.category.clone(),
             kind,
+            legacy: false,
         });
     }
     for name in &exts.builtin {
@@ -408,6 +429,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
             summary: None,
             category: vec![],
             kind: ExtKind::Builtin,
+            legacy: false,
         });
     }
     for (family, variants) in &exts.variants {
@@ -446,6 +468,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
             summary: a.summary.clone(),
             category: a.category.clone(),
             kind: ExtKind::Archived,
+            legacy: false,
         });
     }
     filter_ext_row(out, cat, q)
@@ -1058,12 +1081,13 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         Section::Extensions => {
             if let Some(view) = r.ext_view() {
                 for row in ext_rows(view, cat, &q) {
+                    let (chip, chip_color, chip_danger) = row.chip();
                     body = body.child(row_btn(
                         &row.name,
                         row.summary.as_deref().unwrap_or(""),
-                        row.kind.label(),
-                        row.kind == ExtKind::Failed,
-                        row.kind.color(),
+                        chip,
+                        chip_danger,
+                        chip_color,
                         Selected::Ext(row.name.clone()),
                         &r.selected,
                         cx,
@@ -1486,9 +1510,13 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                         "变体是另一棵工作树（`/v1/repos/extend/variants`）：路径与分支看上面的摘要。\
                          改名 / 解绑 / 发布这一刀还没接入口，先在仓库里操作。",
                     ));
+                } else if e.legacy && e.kind == ExtKind::Builtin {
+                    body = body
+                        .child(note_line("核心扩展（nous / skills / prompts）引擎自己要跑 —— 卸载会被 403 挡回来；它们在仓库里，改得动，删不得。"))
+                        .child(note_line("但它现在装的是 TS 时代的 JS 插件（index.js + defineExtension）：新运行时只 spawn 原生进程扩展，`index.js` 没有解释器，改清单也跑不起来，需按 nous-ext-sdk 重写。"));
                 } else if e.kind == ExtKind::Builtin {
                     body = body.child(note_line("核心扩展（nous / skills / prompts）引擎自己要跑 —— 卸载会被 403 挡回来；它们在仓库里，改得动，删不得。"));
-                } else if e.kind == ExtKind::Legacy {
+                } else if e.legacy {
                     // 这一档不是「装 / 卸」能治的：新运行时只 spawn 原生产物（协议握手 +
                     // artifacts），`index.js` 没有解释器。说清楚该干什么，别让人反复点重装。
                     body = body.child(note_line("TS 时代的 JS 插件（index.js + defineExtension）—— 新运行时只装载原生进程扩展，改清单也跑不起来；需按 nous-ext-sdk 重写。"));
