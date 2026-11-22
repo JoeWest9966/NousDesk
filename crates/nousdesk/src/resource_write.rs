@@ -91,6 +91,9 @@ pub(crate) enum View {
     New,
     Edit,
     Publish,
+    /// 变体表单：开变体（bind）或改分支（branch）。两个都只有一个输入框，
+    /// 但**落的是两个不同端点**，所以用 mode 分而不是拆两个视图。
+    Variant,
 }
 
 /// 新建表单。三个仓的字段集不一样，所以「那个必填的长文本」共用 `text` 一个输入框，
@@ -102,6 +105,27 @@ pub(crate) struct NewForm {
     /// 只有提示词用：正文可以由调用方给，不给就落一个 `# 名字` 的标题。
     pub(crate) body: Entity<InputState>,
     pub(crate) category: Entity<InputState>,
+    pub(crate) busy: bool,
+    pub(crate) err: Option<String>,
+}
+
+/// 变体表单要干的两件事。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum VariantMode {
+    /// 从在册扩展开一个变体：`POST /v1/repos/extend/variants/bind {id, paths}`。
+    Bind,
+    /// 换分支：`POST /v1/repos/extend/variants/branch {id, branch}`。
+    Branch,
+}
+
+pub(crate) struct VariantForm {
+    pub(crate) mode: VariantMode,
+    /// Bind 时是「给哪个扩展开变体」，Branch 时是变体 id（只读展示）。
+    pub(crate) name: String,
+    /// Bind 时是变体 id（可改，默认 `<name>-copy`）；Branch 时不用。
+    pub(crate) id: Entity<InputState>,
+    /// Branch 时是新分支名（默认填现有分支）。
+    pub(crate) branch: Entity<InputState>,
     pub(crate) busy: bool,
     pub(crate) err: Option<String>,
 }
@@ -419,6 +443,141 @@ impl Desktop {
         });
         self.resources.view = View::New;
         cx.notify();
+    }
+
+    /// 打开变体表单。两个入口共用：在册扩展给 `Bind`，变体行给 `Branch`。
+    pub(crate) fn resource_open_variant(
+        &mut self,
+        mode: VariantMode,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (id_default, branch_default) = match mode {
+            // 变体 id 得是不重名的一眼能认的：`<本体>-copy` 是最省事又不至于撞车的默认值，
+            // 撞了引擎会原话拒绝（重复 id），人到时改一个字符就行。
+            VariantMode::Bind => (format!("{name}-copy"), String::new()),
+            VariantMode::Branch => (name.clone(), self
+                .resources
+                .ext_view()
+                .and_then(|v| v.variants)
+                .and_then(|vs| vs.family("extend").find(|(id, _)| *id == &name).map(|(_, b)| b.branch.clone()))
+                .unwrap_or_default()),
+        };
+        let mut subs = Vec::new();
+        let mut input = |ph: &'static str, value: String, cx: &mut Context<Self>, subs: &mut Vec<Subscription>| {
+            let state = cx.new(|cx| InputState::new(window, cx).placeholder(ph).default_value(value));
+            subs.push(cx.subscribe_in(&state, window, |_, _, ev: &InputEvent, _, cx| {
+                if matches!(ev, InputEvent::Change) {
+                    cx.notify();
+                }
+            }));
+            state
+        };
+        let id = input("变体 id（目录 / 分支都用它）", id_default, cx, &mut subs);
+        let branch = input("新分支名（main / master / HEAD 不行）", branch_default, cx, &mut subs);
+        self.resources.write_subs.extend(subs);
+        self.resources.variant = Some(VariantForm {
+            mode,
+            name,
+            id,
+            branch,
+            busy: false,
+            err: None,
+        });
+        self.resources.view = View::Variant;
+        cx.notify();
+    }
+
+    pub(crate) fn resource_cancel_variant(&mut self, cx: &mut Context<Self>) {
+        self.resources.variant = None;
+        self.resources.view = View::Browse;
+        cx.notify();
+    }
+
+    // ── 变体 ──────────────────────────────────────────────────────
+
+    pub(crate) fn resource_submit_variant(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        let Some(form) = self.resources.variant.as_ref() else { return };
+        let mode = form.mode;
+        let gate = match mode {
+            VariantMode::Bind => "/v1/repos/extend/variants/bind",
+            VariantMode::Branch => "/v1/repos/extend/variants/branch",
+        };
+        if let Some(reason) = self.resource_write_gate("POST", gate) {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
+        let name = form.name.clone();
+        let id = form.id.read(cx).value().trim().to_string();
+        let branch = form.branch.read(cx).value().trim().to_string();
+        let (id, branch) = (id, branch);
+        let problem = match mode {
+            VariantMode::Bind if id.is_empty() => Some("变体 id 不能空"),
+            VariantMode::Branch if branch.is_empty() => Some("分支名不能空"),
+            VariantMode::Branch if matches!(branch.as_str(), "main" | "master" | "HEAD") => {
+                Some("主干分支不许当变体分支（main / master / HEAD）")
+            }
+            _ => None,
+        };
+        if let Some(msg) = problem {
+            if let Some(f) = self.resources.variant.as_mut() {
+                f.err = Some(msg.to_string());
+            }
+            cx.notify();
+            return;
+        }
+        if let Some(f) = self.resources.variant.as_mut() {
+            f.busy = true;
+            f.err = None;
+        }
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (op, body) = match mode {
+                VariantMode::Bind => (
+                    "bind",
+                    serde_json::json!({ "id": id, "paths": [name] }),
+                ),
+                VariantMode::Branch => (
+                    "branch",
+                    serde_json::json!({ "id": id, "branch": branch }),
+                ),
+            };
+            let res = handle
+                .spawn(async move { engine.variant_op("extend", op, &body).await })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let Some(f) = this.resources.variant.as_mut() else { return };
+                f.busy = false;
+                match res {
+                    Ok(Ok(_)) => {
+                        this.resources.variant = None;
+                        this.resources.view = View::Browse;
+                        this.resources.selected = None;
+                        this.load_resources(true, cx);
+                        this.notify(
+                            match mode {
+                                VariantMode::Bind => "变体开好了（新工作树在自己的分支上）",
+                                VariantMode::Branch => "分支换了（工作树跟着切）",
+                            },
+                            NoticeKind::Info,
+                            cx,
+                        );
+                        let _ = window;
+                    }
+                    Ok(Err(e)) => f.err = Some(format!("{e}")),
+                    Err(e) => f.err = Some(format!("任务挂了：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub(crate) fn resource_cancel_new(&mut self, cx: &mut Context<Self>) {
@@ -1106,6 +1265,157 @@ fn muted() -> u32 {
 }
 fn text_color() -> u32 {
     t().p.text
+}
+
+/// 变体表单：开变体（`bind`）或改分支（`branch`）。
+///
+/// 两个动作各只有一个输入框，但端点不同、必填项不同 —— 所以用一个视图 + `mode`，
+/// 而不是两个几乎一样的表单。
+pub(crate) fn render_variant(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+    let Some(form) = desk.resources.variant.as_ref() else {
+        return div().into_any_element();
+    };
+    let mode = form.mode;
+    let busy = form.busy;
+    let name = form.name.clone();
+    let id = form.id.read(cx).value().to_string();
+    // 「现在在哪条分支上」要读**绑定表里的那条**，不是输入框里的值 ——
+    // 输入框默认被填成现有分支，两者长得一样，但人一改就分不清谁是谁了。
+    let current = desk
+        .resources
+        .ext_view()
+        .and_then(|v| v.variants)
+        .and_then(|vs| {
+            vs.family("extend")
+                .find(|(vid, _)| *vid == &name)
+                .map(|(_, b)| b.branch.clone())
+        })
+        .unwrap_or_default();
+
+    let (title, sub, submit) = match mode {
+        VariantMode::Bind => (
+            format!("给 {name} 开变体"),
+            "会把这条扩展的目录拷进一棵新的工作树，在自己的分支上改 —— 主干不动。",
+            "开变体",
+        ),
+        VariantMode::Branch => (
+            format!("{name} 换分支"),
+            "工作树会切到新分支。主干（main / master / HEAD）不许当变体分支。",
+            "换分支",
+        ),
+    };
+
+    let mut left = div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .gap(t().d(15.))
+        .px(t().d(22.))
+        .py(t().d(18.));
+
+    if mode == VariantMode::Bind {
+        left = left.child(field(
+            "变体 id",
+            true,
+            "绑定表里这一条的名字，也是分支名 `variant/extension/<id>` 的后半段。\n             默认 `<名字>-copy`；撞了引擎会原话拒绝。",
+            div()
+                .w_full()
+                .h(t().d(31.))
+                .child(Input::new(&form.id).appearance(true))
+                .into_any_element(),
+        ));
+    } else {
+        left = left.child(field(
+            "新分支名",
+            true,
+            "变体分支由引擎建（`variant/extension/<id>`）；这里填**要切过去的那个分支**。\n             填错只会失败，不会动主干。",
+            div()
+                .w_full()
+                .h(t().d(31.))
+                .child(Input::new(&form.branch).appearance(true))
+                .into_any_element(),
+        ));
+    }
+
+    if mode == VariantMode::Branch {
+        left = left.child(field(
+            "现在在哪条分支上",
+            false,
+            "只作对照，改不了这一格。",
+            div()
+                .w_full()
+                .px(t().d(10.))
+                .py(t().d(7.))
+                .rounded(t().r(6.))
+                .bg(rgb(t().p.surface))
+                .font_family("JetBrainsMono")
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.text_2))
+                .child(if current.is_empty() { "—（绑定表里没有这一条）".to_string() } else { current.clone() })
+                .into_any_element(),
+        ));
+    }
+
+    if let Some(err) = form.err.as_ref() {
+        left = left.child(
+            div()
+                .px(t().d(10.))
+                .py(t().d(8.))
+                .rounded(t().r(6.))
+                .bg(rgb(t().p.danger_soft))
+                .text_size(t().fs(11.5))
+                .line_height(t().d(17.))
+                .text_color(rgb(t().p.danger_fg))
+                .child(err.clone()),
+        );
+    }
+
+    let foot = div()
+        .flex()
+        .items_center()
+        .gap(t().d(10.))
+        .px(t().d(22.))
+        .py(t().d(11.))
+        .border_t(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
+        .child(
+            div()
+                .flex_1()
+                .text_size(t().fs(11.5))
+                .text_color(rgb(muted()))
+                .child(if busy { "正在问引擎…".to_string() } else { id.clone() }),
+        )
+        .child(ghost_btn("res-var-cancel", "取消").on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| {
+                this.resource_cancel_variant(cx);
+            },
+        )))
+        .child(btn("res-var-submit", submit, true).on_click(cx.listener(
+            |this, _: &ClickEvent, window, cx| {
+                this.resource_submit_variant(window, cx);
+            },
+        )));
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .h_full()
+        .min_w(t().d(0.))
+        .bg(rgb(t().p.panel))
+        .child(page_head(&title, &sub))
+        .child(
+            div()
+                .id("res-var-body")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(t().d(0.))
+                .overflow_y_scroll()
+                .child(left),
+        )
+        .child(foot)
+        .into_any_element()
 }
 
 fn btn(id: &str, label: &str, primary: bool) -> Stateful<Div> {

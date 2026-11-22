@@ -149,6 +149,8 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("POST", "v1/repos/extend/archive"),
     ("POST", "v1/repos/extend/restore"),
     ("POST", "v1/repos/extend/purge"),
+    ("POST", "v1/repos/extend/variants/bind"),
+    ("POST", "v1/repos/extend/variants/branch"),
     ("POST", "v1/repos/extend/variants/unbind"),
     ("POST", "v1/repos/extend/variants/publish"),
     ("POST", "v1/repos/extend/variants/prune"),

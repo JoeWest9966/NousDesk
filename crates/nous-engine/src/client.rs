@@ -248,6 +248,8 @@ impl EngineClient {
             }
         };
         let path = match op {
+            "bind" => format!("{base}/variants/bind"),
+            "branch" => format!("{base}/variants/branch"),
             "unbind" => format!("{base}/variants/unbind"),
             "publish" => format!("{base}/variants/publish"),
             "prune" => format!("{base}/variants/prune"),
@@ -1147,6 +1149,8 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/repos/extend/archive"),
     ("POST", "v1/repos/extend/restore"),
     ("POST", "v1/repos/extend/purge"),
+    ("POST", "v1/repos/extend/variants/bind"),
+    ("POST", "v1/repos/extend/variants/branch"),
     ("POST", "v1/repos/extend/variants/unbind"),
     ("POST", "v1/repos/extend/variants/publish"),
     ("POST", "v1/repos/extend/variants/prune"),
