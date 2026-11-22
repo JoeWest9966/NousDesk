@@ -177,6 +177,8 @@ pub(crate) struct ResourceState {
     /// 不叠在列表上面 —— 「编辑是整页工作台，不是右栏抽屉」。
     pub(crate) view: crate::resource_write::View,
     pub(crate) form: Option<crate::resource_write::NewForm>,
+    /// 变体表单（开变体 / 改分支）。与 `form` 互斥，跟 `view` 一起活着。
+    pub(crate) variant: Option<crate::resource_write::VariantForm>,
     pub(crate) edit: Option<crate::resource_write::EditSession>,
     pub(crate) publish: crate::resource_write::PublishState,
     /// 归档 / 真删 / 丢掉改动 的确认层。不可逆的动作必须先过这一步。
@@ -216,6 +218,7 @@ impl ResourceState {
             error: None,
             view: crate::resource_write::View::Browse,
             form: None,
+            variant: None,
             edit: None,
             publish: Default::default(),
             confirm: None,
@@ -239,6 +242,14 @@ impl ResourceState {
     }
 
     /// 扩展页的三份数据合成一个视图。没拉到清单就没有视图（其余两份单独来也没用）。
+    /// 当前选中那条的名字（三段的选中都是名字，不是下标）。
+    pub(crate) fn selected_name(&self) -> String {
+        match self.selected.as_ref() {
+            Some(Selected::Ext(n)) | Some(Selected::Skill(n)) | Some(Selected::Prompt(n)) => n.clone(),
+            None => String::new(),
+        }
+    }
+
     pub(crate) fn ext_view(&self) -> Option<ExtView<'_>> {
         self.exts.as_ref().map(|exts| ExtView {
             exts,
@@ -651,6 +662,7 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         View::New => crate::resource_write::render_new(desk, cx),
         View::Edit => crate::resource_write::render_edit(desk, cx),
         View::Publish => crate::resource_write::render_publish(desk, cx),
+        View::Variant => crate::resource_write::render_variant(desk, cx),
         View::Browse => {
             let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
             if !narrow {
@@ -1327,6 +1339,31 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     if ext_kind == Some(ExtKind::Variant) {
         // 变体自己的三个动作（`/v1/repos/extend/variants/*`）：发布 / 解绑 / 清理。
         // 它不在源码根里，所以没有「编辑 / 卸载」，也没有 git 之外的路子。
+        // 「改分支」要填新分支名，走表单不走确认层。
+        acts = acts.child(
+            div()
+                .id("res-act-vbranch")
+                .flex()
+                .items_center()
+                .justify_center()
+                .h(t().d(28.))
+                .px(t().d(10.))
+                .rounded(t().r(7.))
+                .bg(rgb(t().p.surface))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.text_2))
+                .hover(|el| el.opacity(0.85))
+                .child("改分支")
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    let name = this.resources.selected_name();
+                    this.resource_open_variant(
+                        crate::resource_write::VariantMode::Branch,
+                        name,
+                        window,
+                        cx,
+                    );
+                })),
+        );
         for (id, label, act, danger) in [
             ("res-act-vpub", "发布变体", ConfirmAct::PublishVariant, false),
             ("res-act-vunbind", "解绑", ConfirmAct::Unbind, false),
@@ -1455,6 +1492,31 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         }
     }
     if kind == Kind::Ext && file_backed {
+        acts = acts.child(
+            div()
+                .id("res-act-variant")
+                .flex()
+                .items_center()
+                .justify_center()
+                .h(t().d(28.))
+                .px(t().d(10.))
+                .rounded(t().r(7.))
+                .border(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.text_2))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child("开变体")
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    let name = this.resources.selected_name();
+                    this.resource_open_variant(
+                        crate::resource_write::VariantMode::Bind,
+                        name,
+                        window,
+                        cx,
+                    );
+                })),
+        );
         acts = acts.child(
             div()
                 .id("res-act-duplicate")
