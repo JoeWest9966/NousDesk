@@ -8,7 +8,9 @@
 
 // 主题接线：所有硬编码色 / 尺寸都走这里。`t()` 取的是 `Desktop::render`
 // 每帧从 `ActiveSkin` 拍下来的帧内快照，不是第二个真相。
-fn t() -> crate::theme::Skin { crate::theme::cur() }
+fn t() -> crate::theme::Skin {
+    crate::theme::cur()
+}
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,9 +24,13 @@ use crate::session_nav::{NavDay, NavRound, answer_preview, build_nav, main_from,
 pub(crate) const NAV_W: f32 = 240.;
 const DRAWER_W: f32 = 0.86;
 /// 原 `DAY_MUTED = 0x9a9a9a`；由 muted 这个语义槽接管。
-fn day_muted() -> u32 { t().p.muted }
+fn day_muted() -> u32 {
+    t().p.muted
+}
 /// 原 `SOFT_GREEN = 0xe8f6ec`；由 accent_soft 这个语义槽接管。
-fn soft_green() -> u32 { t().p.accent_soft }
+fn soft_green() -> u32 {
+    t().p.accent_soft
+}
 
 /// 目录 + 抽屉的全部状态。都是**纯内存**的「我眼下看到哪」，不是事实。
 #[derive(Default)]
@@ -40,6 +46,12 @@ pub struct SessionNav {
     pub drawer_open: bool,
     /// 折叠着的日期组（key 是 `NavDay.label`）。
     pub closed: HashSet<String>,
+    /// 正文滚到哪，当前日期组就自动摊开（顶栏「自动展开」开关）。
+    /// 关掉后 `reveal()` 不再动 `closed`，手动折的组不会被滚动冲掉。
+    pub auto_reveal: bool,
+    /// 目录行的悬停浮窗（顶栏「悬停预览」开关）。
+    /// 关掉后 `nav_row` 直接画裸行，不挂 `HoverCard`。
+    pub hover_preview: bool,
     /// 当前高亮的是第几轮。
     pub current: usize,
     /// 目录列自己的滚动句柄（跟随高亮时让它别跑出视口）。
@@ -58,8 +70,18 @@ impl SessionNav {
     pub fn new() -> Self {
         Self {
             scope_all: true,
+            auto_reveal: true,
+            hover_preview: true,
             ..Default::default()
         }
+    }
+
+    pub fn toggle_auto_reveal(&mut self) {
+        self.auto_reveal = !self.auto_reveal;
+    }
+
+    pub fn toggle_hover_preview(&mut self) {
+        self.hover_preview = !self.hover_preview;
     }
 
     /// 换会话：抽屉收起、折叠清空、时间清掉（等新会话的快照）。
@@ -97,10 +119,23 @@ impl SessionNav {
 
     /// 跟随高亮：正文滚到哪，当前那组自动摊开（J 里补掉 H 的那个坑）。
     pub fn reveal(&mut self, group: &str) {
-        if self.closed.remove(group) {
-            // 手动折的被自动展开覆盖；用户手动展开的组不会自动收回去。
+        if !self.auto_reveal {
+            return;
         }
+        self.closed.remove(group);
     }
+}
+
+/// 「折叠旧组」要折哪些组：除最后一组（当前日期）外，**还跳过当前高亮所在的组**。
+/// 不跳过的话，正文正停在旧组时一点「折叠旧组」，紧跟着的 `nav_spy` 又把它摊开，
+/// 看起来就像按钮没反应。
+pub fn fold_targets(groups: &[NavDay], current_label: Option<&str>) -> Vec<String> {
+    groups
+        .iter()
+        .take(groups.len().saturating_sub(1))
+        .filter(|g| Some(g.label.as_str()) != current_label)
+        .map(|g| g.label.clone())
+        .collect()
 }
 
 /// 目录整列。`entries` 用来算每行的浮窗摘要（回答首行）。
@@ -109,7 +144,7 @@ pub fn nav_column(
     groups: &[NavDay],
     nav: &SessionNav,
     main_from: usize,
-    drawer_open: bool,
+    _drawer_open: bool,
     bar: (bool, bool),
     cx: &mut Context<crate::app::Desktop>,
 ) -> AnyElement {
@@ -131,7 +166,7 @@ pub fn nav_column(
             .px(t().d(6.))
             .py(t().d(8.))
             .children(groups.iter().enumerate().map(|(gi, g)| {
-                day_group(gi, g, groups, &previews, nav, main_from, drawer_open, cx)
+                day_group(gi, g, groups, &previews, nav, main_from, cx)
             }));
 
     div()
@@ -209,13 +244,19 @@ fn nav_toggles(nav: &SessionNav, cx: &mut Context<crate::app::Desktop>) -> AnyEl
         ))
         .child(toggle(
             "自动展开",
-            true,
-            cx.listener(|_: &mut crate::app::Desktop, _: &ClickEvent, _, _| {}),
+            nav.auto_reveal,
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.nav.toggle_auto_reveal();
+                cx.notify();
+            }),
         ))
         .child(toggle(
             "悬停预览",
-            true,
-            cx.listener(|_: &mut crate::app::Desktop, _: &ClickEvent, _, _| {}),
+            nav.hover_preview,
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.nav.toggle_hover_preview();
+                cx.notify();
+            }),
         ))
         .into_any_element()
 }
@@ -232,12 +273,22 @@ fn toggle(
         .py(t().d(2.))
         .rounded(t().r(10.))
         .border_1()
-        .border_color(rgb(if on { t().p.accent_soft } else { t().p.line_soft }))
+        .border_color(rgb(if on {
+            t().p.accent_soft
+        } else {
+            t().p.line_soft
+        }))
         .bg(rgb(if on { soft_green() } else { t().p.panel }))
         .text_size(t().fs(10.5))
         .text_color(rgb(if on { t().p.accent_fg } else { t().p.muted }))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(if on { t().p.accent_soft_hover } else { t().p.hover })))
+        .hover(|el| {
+            el.bg(rgb(if on {
+                t().p.accent_soft_hover
+            } else {
+                t().p.hover
+            }))
+        })
         .on_click(action)
         .child(label.to_string())
         .into_any_element()
@@ -251,7 +302,6 @@ fn day_group(
     previews: &HashMap<usize, String>,
     nav: &SessionNav,
     main_from: usize,
-    drawer_open: bool,
     cx: &mut Context<crate::app::Desktop>,
 ) -> AnyElement {
     let closed = nav.closed.contains(&g.label);
@@ -298,16 +348,7 @@ fn day_group(
         )
         .when(!closed, |el| {
             el.children(g.rounds.iter().map(|r| {
-                nav_row(
-                    r,
-                    g,
-                    groups,
-                    previews,
-                    nav.current,
-                    main_from,
-                    drawer_open,
-                    cx,
-                )
+                nav_row(r, g, groups, previews, nav, main_from, cx)
             }))
         })
         .into_any_element()
@@ -319,11 +360,13 @@ fn nav_row(
     g: &NavDay,
     _groups: &[NavDay],
     previews: &HashMap<usize, String>,
-    current: usize,
+    nav: &SessionNav,
     main_from: usize,
-    drawer_open: bool,
     cx: &mut Context<crate::app::Desktop>,
 ) -> AnyElement {
+    let current = nav.current;
+    let drawer_open = nav.drawer_open;
+    let hover_preview = nav.hover_preview;
     let on = r.index == current;
     let old = r.entry_index < main_from && !drawer_open;
     let idx = r.index;
@@ -354,7 +397,13 @@ fn nav_row(
         // （gpui 的 rgb 只吃 24 位），真踩过：目录里半数列变成黑块。
         .when(on, |el| el.bg(rgb(soft_green())))
         .cursor_pointer()
-        .hover(|el| el.bg(rgb(if on { t().p.accent_soft_hover } else { t().p.hover })))
+        .hover(|el| {
+            el.bg(rgb(if on {
+                t().p.accent_soft_hover
+            } else {
+                t().p.hover
+            }))
+        })
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.nav_jump(idx, label.clone(), cx);
         }))
@@ -374,10 +423,18 @@ fn nav_row(
                 .whitespace_nowrap()
                 .text_ellipsis()
                 .text_size(t().fs(12.5))
-                .text_color(rgb(if on || !old { t().p.text_2 } else { t().p.faint }))
+                .text_color(rgb(if on || !old {
+                    t().p.text_2
+                } else {
+                    t().p.faint
+                }))
                 .child(one_line(&r.text)),
         )
         .children(marks);
+
+    if !hover_preview {
+        return trigger.into_any_element();
+    }
 
     HoverCard::new(format!("nav-peek-{idx}"))
         // `Anchor` 指的是**浮窗自己贴着触发器的哪一角**，不是「浮窗去哪边」：
@@ -405,11 +462,12 @@ fn nav_row(
                         .child(pill("悬停预览"))
                         .child(pill(where_to)),
                 )
-                .child(div().mb(t().d(5.)).text_color(rgb(t().p.text)).child(format!(
-                    "{} · {}",
-                    idx + 1,
-                    text
-                )))
+                .child(
+                    div()
+                        .mb(t().d(5.))
+                        .text_color(rgb(t().p.text))
+                        .child(format!("{} · {}", idx + 1, text)),
+                )
                 .child(
                     div().mb(t().d(7.)).text_color(rgb(t().p.text_2)).child(
                         preview

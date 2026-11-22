@@ -4433,11 +4433,11 @@ impl Desktop {
 
     pub(crate) fn nav_toggle_fold(&mut self, cx: &mut Context<Self>) {
         let groups = self.nav_groups();
-        let keys: Vec<String> = groups
+        let current_label = groups
             .iter()
-            .take(groups.len().saturating_sub(1))
-            .map(|g| g.label.clone())
-            .collect();
+            .find(|g| g.rounds.iter().any(|r| r.index == self.nav.current))
+            .map(|g| g.label.as_str());
+        let keys = crate::nav_ui::fold_targets(&groups, current_label);
         let any_open = keys.iter().any(|k| !self.nav.closed.contains(k));
         for k in keys {
             if any_open {
