@@ -669,7 +669,8 @@ fn skill_row(sk: &&Skill, id: String, s: &Session, hooks: &Hooks, busy: bool) ->
             .unwrap_or_default()
             .replace(['\n', '\r'], " "),
         None,
-        sk.tracked.then_some("git"),
+        // 三态：只有引擎明说 `true` 才挂「已进 git」的标记；`null` = 不提供，不标。
+        (sk.tracked == Some(true)).then_some("git"),
         busy,
         Rc::new(move |_, window, cx| on_skill(&name, window, cx)),
     )

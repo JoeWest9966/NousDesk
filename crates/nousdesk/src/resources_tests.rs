@@ -9,7 +9,7 @@ mod tests {
             description: Some(desc.into()),
             category: cats.iter().map(|c| c.to_string()).collect(),
             hidden,
-            tracked: true,
+            tracked: Some(true),
             dir: None, file: None, load: None, extra: Default::default(),
         };
         s.load = Some(serde_json::json!({"state": "ok"}));
@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn 默认提示词有标记_筛选能捞出() {
         let p = |name: &str, cats: &[&str]| Prompt {
-            tracked: true,
+            tracked: Some(true),
             name: name.into(), description: None,
             summary: Some(format!("摘要 of {name}")),
             category: cats.iter().map(|c| c.to_string()).collect(),

@@ -805,7 +805,14 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     } else {
                         for s in visible_skills(skills, cat, &q) {
                             let bad = !s.loadable();
-                            let chip = if bad { "加载失败" } else if s.tracked { "" } else { "未提交" };
+                            // `tracked` 三态：`None` = 引擎不查 git，不挂 chip（不撒谎）。
+                            let chip = if bad {
+                                "加载失败"
+                            } else if s.tracked == Some(false) {
+                                "未提交"
+                            } else {
+                                ""
+                            };
                             body = body.child(row_btn(
                                 &s.name,
                                 s.description.as_deref().unwrap_or(""),
@@ -1196,18 +1203,22 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                         detail_kv("类别", &cats)
                     })
                     .child(detail_kv("状态", if skill.loadable() { "可加载" } else { "加载失败" }))
-                    .child(detail_kv("出处", if skill.tracked { "仓库里（已提交）" } else { "未提交" }));
+                    .child(detail_kv("出处", match skill.tracked {
+                        Some(true) => "仓库里（已提交）",
+                        Some(false) => "未提交",
+                        None => "未知（引擎暂不查 git）",
+                    }));
                 if skill.hidden {
                     body = body.child(note_line("隐藏：模型看不见它，勾上也不进提示词。"));
                 }
-                if !skill.tracked {
+                if skill.tracked == Some(false) {
                     body = body.child(note_line("还没提交 —— 只在这台机器上看得见。点「发布」才会进别人的视野。"));
                 }
             }
         }
         Selected::Prompt(name) => {
             if let Some(p) = r.prompts.as_ref().and_then(|p| p.prompts.iter().find(|x| &x.name == name)) {
-                let untracked = !p.tracked;
+                let untracked = p.tracked == Some(false);
                 body = body
                     .child(detail_kv("摘要", p.summary.as_deref().or(p.description.as_deref()).unwrap_or("—")))
                     .child({

@@ -1696,18 +1696,21 @@ pub(crate) fn repo_root(desk: &Desktop, repo: Repo) -> String {
 }
 
 /// 这个仓有几处待发布。技能 / 提示词按 `tracked==false` 数，扩展按仓库 drift。
+///
+/// `tracked` 是**三态**：`None` = 引擎不查 git（Nous#71 起技能恒 `null`），
+/// 那不是「未提交」，不能计数 —— 否则整库都成了待发布。
 fn pending_count(desk: &Desktop, repo: Repo) -> usize {
     let r = &desk.resources;
     match repo {
         Repo::Skills => r
             .skills
             .as_ref()
-            .map(|s| s.skills.iter().filter(|x| !x.tracked).count())
+            .map(|s| s.skills.iter().filter(|x| x.tracked == Some(false)).count())
             .unwrap_or(0),
         Repo::Prompts => r
             .prompts
             .as_ref()
-            .map(|p| p.prompts.iter().filter(|x| !x.tracked).count())
+            .map(|p| p.prompts.iter().filter(|x| x.tracked == Some(false)).count())
             .unwrap_or(0),
         Repo::Extensions => r
             .exts
@@ -1721,6 +1724,7 @@ fn pending_count(desk: &Desktop, repo: Repo) -> usize {
 }
 
 /// 这条是不是还没进 HEAD。**只看引擎给的 pending 清单**，不在客户端推算。
+/// `tracked` 为 `None`（引擎不查 git）时一律当「不知道」，不当作未提交。
 pub(crate) fn is_untracked(kind: Kind, name: &str, desk: &Desktop) -> bool {
     let r = &desk.resources;
     match kind {
@@ -1728,12 +1732,12 @@ pub(crate) fn is_untracked(kind: Kind, name: &str, desk: &Desktop) -> bool {
             .skills
             .as_ref()
             .and_then(|s| s.skills.iter().find(|x| x.name == name))
-            .is_some_and(|s| !s.tracked),
+            .is_some_and(|s| s.tracked == Some(false)),
         Kind::Prompt => r
             .prompts
             .as_ref()
             .and_then(|p| p.prompts.iter().find(|x| x.name == name))
-            .is_some_and(|p| !p.tracked),
+            .is_some_and(|p| p.tracked == Some(false)),
         Kind::Ext => r
             .exts
             .as_ref()
