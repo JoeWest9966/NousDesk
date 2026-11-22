@@ -98,7 +98,7 @@ pub(crate) struct ExtRow {
 
 impl ExtRow {
     /// 行尾那个 chip：说什么 + 用什么颜色 + 要不要当危险色画。
-    fn chip(&self) -> (&'static str, u32, bool) {
+    pub(crate) fn chip(&self) -> (&'static str, u32, bool) {
         if self.legacy {
             return (ExtKind::Legacy.label(), t().p.danger, true);
         }
@@ -459,6 +459,7 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
                 summary,
                 category,
                 kind: if failed { ExtKind::Failed } else { ExtKind::Variant },
+                legacy: false,
             });
         }
     }

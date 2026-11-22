@@ -405,7 +405,6 @@ impl NewChat {
         let Some(x) = self.exts.as_ref() else {
             return Vec::new();
         };
-        let core = core_exts(x);
         x.items
             .iter()
             // 只勾得动「原生 + 跑着 + 不是核心」的：清单不合法的、旧 JS 的、进程没起来的，
