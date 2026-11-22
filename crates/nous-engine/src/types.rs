@@ -946,8 +946,14 @@ pub struct Skill {
     /// `true` = `disable-model-invocation`，进不了 `<available_skills>`，勾上也不动。
     #[serde(default, rename = "hidden")]
     pub hidden: bool,
+    /// 进没进 HEAD。**三态，不是布尔**：`None` = 引擎不查 git（Nous#71 起 `tracked`
+    /// 恒 `null`，它自己 wire.md 写的是「可空，当前不提供」）。把 `null` 当 `false`
+    /// 是在替引擎撒谎（满屏「未提交」），当 `true` 也一样。
+    ///
+    /// 这里必须收 `Option<bool>`：`#[serde(default)] bool` 只兜「字段缺失」，
+    /// 兜不住 `null` —— 一个 `"tracked":null` 会让整份清单反序列化失败，技能页直接白屏。
     #[serde(default)]
-    pub tracked: bool,
+    pub tracked: Option<bool>,
     pub dir: Option<String>,
     pub file: Option<String>,
     /// `{ state: "ok" | ... }`。不是 `ok` 的技能加载不出来，别让人勾。
@@ -990,8 +996,9 @@ pub struct Prompt {
     #[serde(default)]
     pub category: Vec<String>,
     /// `false` = 还没进 HEAD。**引擎在这个 GET 里就给了**，不用另打 `/pending`。
+    /// 三态同 `Skill::tracked`：`None` = 引擎不提供，别拿它当 `false` 数「待发布」。
     #[serde(default)]
-    pub tracked: bool,
+    pub tracked: Option<bool>,
     pub load: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,

@@ -365,12 +365,17 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 
 - **只列 `load.state == "ok" && !hidden`**。`hidden` 是 `disable-model-invocation`，
   勾上也不会动；`state != ok` 的加载不出来。
+- `tracked` 是**三态，不是布尔**：`null` = 引擎不查 git（Nous#71 起恒 `null`，
+  Nous 自己的 `wire.md` 写的是「可空，当前不提供」）。`null` ≠ `false`，别拿它数「待发布」。
+  客户端的 `Skill.tracked` 因此是 `Option<bool>`；写成 `bool` 会让一个 `null` 把整份清单打回 200 报错。
 - `categories` 只是词表，和技能身上挂的 `category` 取并集才是栏里该有的那些。
 
 ### GET /v1/prompts
 
 `{ default: string | null, categories: string[], prompts: [...] }`。模板那条至少有
 `{ name, description?, category?, load: { state } }`。
+
+- `tracked` 同技能：可空，`null` = 不提供（`Prompt.tracked` 是 `Option<bool>`）。
 
 - 和技能不是一回事：**模板是单值**（每轮都带的那份规则），技能是集合。所以列表里
   模板用单选框、技能用复选框 —— 形状本身在说能选几个。

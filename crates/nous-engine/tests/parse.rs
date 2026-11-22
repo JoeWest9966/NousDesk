@@ -327,3 +327,32 @@ fn parse_new_presets_roster_items() {
     assert_eq!(p.presets.len(), 1);
     assert_eq!(p.presets[0].name, "probe");
 }
+
+/// Nous#71 起 `GET /v1/skills` 的 `tracked` 恒 `null`（「本票不碰 git」），
+/// `GET /v1/prompts` 随时可能补上同一个键。`null` 不是 `false`、也不是字段缺失 ——
+/// 收成 `bool` 会让整份清单反序列化失败，技能页白屏（2026-11-22 真机上就是这样）。
+#[test]
+fn parse_tracked_null_is_unknown_not_false() {
+    let json = r#"{
+      "root": "/opt/Nous-skills",
+      "categories": [],
+      "skills": [
+        {"name":"ask-matt","description":"router","category":[],"hidden":false,
+         "dir":"/opt/Nous-skills/ask-matt","file":"/opt/Nous-skills/ask-matt/SKILL.md",
+         "load":{"state":"ok"},"tracked":null}
+      ]
+    }"#;
+    let s: nous_engine::types::Skills = serde_json::from_str(json).unwrap();
+    assert_eq!(s.skills[0].tracked, None, "null 是「不知道」，不是 false");
+
+    // 字段整个缺失时同样是 None；老引擎的 true / false 照收。
+    let json = r#"{"skills":[{"name":"a"},{"name":"b","tracked":false},{"name":"c","tracked":true}]}"#;
+    let s: nous_engine::types::Skills = serde_json::from_str(json).unwrap();
+    assert_eq!(s.skills[0].tracked, None);
+    assert_eq!(s.skills[1].tracked, Some(false));
+    assert_eq!(s.skills[2].tracked, Some(true));
+
+    let json = r#"{"prompts":[{"name":"p","tracked":null}]}"#;
+    let p: nous_engine::types::Prompts = serde_json::from_str(json).unwrap();
+    assert_eq!(p.prompts[0].tracked, None);
+}
