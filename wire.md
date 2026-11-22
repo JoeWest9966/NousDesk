@@ -647,6 +647,13 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
   `GET archive` → `{items:[{name}]}`（`.archive/` 只有名字，没有清单）；
   写面 `POST {archive,restore,purge}`。**注意仓名是 `extend`，不是 `extensions`** ——
   拿文件面的 `extensions` 去拼仓级路径只会 404，而 404 长得像「没有这东西」。
+- **变体自己的三条**（0.1.9 起就有，Desk 0.9.12 才接上）：
+  `POST variants/unbind`（body `{id}`，只划掉绑定，工作树与分支留着）、
+  `POST variants/publish`（body `{id, message, requestId?}`，把变体分支推远端）、
+  `POST variants/prune`（body `{id, force}`，删工作树与分支；有没合的提交时回 `unmerged`
+  列表并拒绝，`force:true` 才真删 —— 客户端不替人强推）。
+  另有 `variants/bind`（`{id, paths}`）与 `variants/branch`（`{id, branch}`）没接：
+  前者要选路径、后者要填新分支名，都得先有输入框。
 - **管理面**：`create` / `duplicate` / `category` 见 `crates/nous/server/src/ext_admin.rs`。
   Desk 当前只用到 `items`、类别词表、装 / 卸、`reload` 与私库面的归档 / 变体读。
 - **`GET /v1/repos/{repo}/archive` 四个仓共用**（`presets` / `skills` / `prompts` / `extend`，
