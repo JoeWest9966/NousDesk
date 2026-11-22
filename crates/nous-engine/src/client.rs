@@ -12,8 +12,8 @@ use crate::capabilities::Capabilities;
 use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
-    DefaultSet, Dirs, Entries, Extensions, Forked, Machines, Models, ModelRef, PresetFile,
-    Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset,
+    DefaultSet, Dirs, Entries, ExtCategories, Extensions, Forked, Machines, Models, ModelRef, PresetFile,
+    Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset, RepoArchive, RepoVariants,
     SessionConfig, Sessions, Skills, Submission, Triggers, Unread,
 };
 
@@ -179,6 +179,94 @@ impl EngineClient {
     /// 扩展清单。五类东西混在一份响应里（见 [`Extensions`] 的注释）。
     pub async fn extensions(&self) -> Result<Extensions, EngineError> {
         let resp = self.http.get(self.url("v1/extensions")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 扩展的类别词表（`GET /v1/extensions/categories`）。
+    ///
+    /// 类别树要的是「这个仓定义了哪几个类别」，不是从条目里 `category` 凑出来的集合 ——
+    /// 一个类别全空的时候，凑出来的树会把那一行悄悄弄丢。
+    pub async fn ext_categories(&self) -> Result<ExtCategories, EngineError> {
+        let resp = self.http.get(self.url("v1/extensions/categories")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 变体绑定表（`GET /v1/repos/extend/variants`，Nous #76）。技能与扩展同一套。
+    pub async fn ext_variants(&self) -> Result<RepoVariants, EngineError> {
+        let resp = self.http.get(self.url("v1/repos/extend/variants")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 归档区（`GET /v1/repos/extend/archive`）：`.archive/` 里的单元名。
+    pub async fn ext_archive(&self) -> Result<RepoArchive, EngineError> {
+        let resp = self.http.get(self.url("v1/repos/extend/archive")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 复制一份扩展（`POST /v1/extensions/duplicate`，Nous #84）。
+    ///
+    /// 复制的是**源码根里的目录**（`name` → `to`），不是「安装」。所以归档区里的、
+    /// 清单不合法的那两种都复制不了 —— 引擎会回 NotFound，原话照登。
+    pub async fn ext_duplicate(&self, name: &str, to: &str) -> Result<serde_json::Value, EngineError> {
+        let body = serde_json::json!({ "name": name, "to": to });
+        let resp = self
+            .http
+            .post(self.url("v1/extensions/duplicate")?)
+            .json(&body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// 按盘上现状重装注册表（`POST /v1/extensions/reload`）。装 / 卸之后喊一次，
+    /// 不用靠「再拉一遍清单」猜装载结果。
+    pub async fn ext_reload(&self) -> Result<serde_json::Value, EngineError> {
+        let resp = self.http.post(self.url("v1/extensions/reload")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// 私库的**仓级**动作：`/v1/repos/{repo}/{op}`（归档 / 恢复 / 真删）。
+    ///
+    /// 与 `resource_op`（文件面 `/v1/{kind}/{op}`）是两条路：仓级动作用仓库名
+    /// （`skills` / `prompts` / `extend`），文件面用资源名（`extensions` 不是仓库名）。
+    pub async fn repo_op<B: serde::Serialize + ?Sized>(
+        &self,
+        repo: &str,
+        op: &str,
+        body: &B,
+    ) -> Result<serde_json::Value, EngineError> {
+        const REPOS: &[&str] = &["presets", "skills", "prompts", "extend"];
+        if !REPOS.contains(&repo) {
+            return Err(EngineError::Engine {
+                status: 400,
+                message: format!("未知私库：{repo}"),
+                body: None,
+            });
+        }
+        // 前缀按仓写死、动词再判：路径字面量里不留 `{}` / `{repo}` 占位 ——
+        // 台账扫描器只会看到一条谁也认不得的模板，等于把审计放空。
+        let base = match repo {
+            "presets" => "v1/repos/presets",
+            "skills" => "v1/repos/skills",
+            "prompts" => "v1/repos/prompts",
+            "extend" => "v1/repos/extend",
+            _ => unreachable!("上面的 REPOS 已经挡过"),
+        };
+        let path = match op {
+            "archive" => format!("{base}/archive"),
+            "restore" => format!("{base}/restore"),
+            "purge" => format!("{base}/purge"),
+            other => {
+                return Err(EngineError::Engine {
+                    status: 400,
+                    message: format!("私库没有这个动作：{other}"),
+                    body: None,
+                });
+            }
+        };
+        let v = Self::body_json(body)?;
+        let url = self.url(&path)?;
+        let resp = self.http.post(url).json(&v).send().await?;
         self.json(resp).await
     }
 
@@ -968,6 +1056,20 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("PUT", "v1/extensions/file"),
     ("POST", "v1/extensions/publish"),
     ("GET", "v1/extensions"),
+    ("GET", "v1/extensions/categories"),
+    ("POST", "v1/extensions/reload"),
+    ("POST", "v1/extensions/duplicate"),
+    ("GET", "v1/repos/extend/variants"),
+    ("GET", "v1/repos/extend/archive"),
+    ("POST", "v1/repos/skills/archive"),
+    ("POST", "v1/repos/skills/restore"),
+    ("POST", "v1/repos/skills/purge"),
+    ("POST", "v1/repos/prompts/archive"),
+    ("POST", "v1/repos/prompts/restore"),
+    ("POST", "v1/repos/prompts/purge"),
+    ("POST", "v1/repos/extend/archive"),
+    ("POST", "v1/repos/extend/restore"),
+    ("POST", "v1/repos/extend/purge"),
     ("GET", "v1/machines"),
     ("GET", "v1/fs/dirs"),
     ("GET", "v1/sessions"),

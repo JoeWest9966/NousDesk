@@ -1,7 +1,15 @@
 #[cfg(test)]
 mod tests {
     use crate::resources::*;
-    use nous_engine::types::{ExtItem, Extension, Extensions, Prompt, Prompts, Skill, Skills};
+    use nous_engine::types::{
+        ArchivedUnit, ExtItem, Extension, Extensions, Prompt, Prompts, RepoArchive, RepoVariants,
+        Skill, Skills, VariantBinding,
+    };
+
+    /// 老形状的一份 `Extensions`（没有 `items`）：`ext_rows` 的回退分支用它。
+    fn exts_only(view: &Extensions) -> ExtView<'_> {
+        ExtView { exts: view, variants: None, archive: None }
+    }
 
     fn skill(name: &str, desc: &str, cats: &[&str], hidden: bool) -> Skill {
         let mut s = Skill {
@@ -99,11 +107,11 @@ mod tests {
             load: Default::default(),
             repo: None, nameplates: None, local: None, live: None, extra: Default::default(),
         };
-        let all = ext_rows(&exts, None, "");
+        let all = ext_rows(exts_only(&exts), None, "");
         assert_eq!(all.len(), 2, "一条 catalog + 一条 builtin");
         assert_eq!(all[0].kind, ExtKind::On);
         assert_eq!(all[1].kind, ExtKind::Builtin);
-        let builtin = ext_rows(&exts, Some("@builtin"), "");
+        let builtin = ext_rows(exts_only(&exts), Some("@builtin"), "");
         assert_eq!(builtin.len(), 1);
         assert_eq!(builtin[0].name, "coding-tools");
     }
@@ -128,7 +136,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let all = ext_rows(&exts, None, "");
+        let all = ext_rows(exts_only(&exts), None, "");
         assert_eq!(all.len(), 4, "有 items 就只画 items");
         assert_eq!(all[0].name, "native-one");
         assert_eq!(all[0].kind, ExtKind::On);
@@ -136,10 +144,10 @@ mod tests {
         assert_eq!(all[2].kind, ExtKind::Failed);
         assert_eq!(all[3].kind, ExtKind::Failed, "没跑起来的不冒充「启用中」");
 
-        assert_eq!(ext_rows(&exts, Some("@legacy"), "").len(), 1);
-        assert_eq!(ext_rows(&exts, Some("@on"), "").len(), 1);
-        assert_eq!(ext_rows(&exts, None, "跑着").len(), 1, "搜索看 summary");
-        assert_eq!(counts(None, None, Some(&exts)).2, 4);
+        assert_eq!(ext_rows(exts_only(&exts), Some("@legacy"), "").len(), 1);
+        assert_eq!(ext_rows(exts_only(&exts), Some("@on"), "").len(), 1);
+        assert_eq!(ext_rows(exts_only(&exts), None, "跑着").len(), 1, "搜索看 summary");
+        assert_eq!(counts(None, None, Some(exts_only(&exts))).2, 4);
     }
 
     fn item(
@@ -156,11 +164,83 @@ mod tests {
             category: category.map(Into::into),
             summary: summary.map(Into::into),
             loaded: kind == "native",
+            core: false,
             pid: None,
             state: Some(state.into()),
             error: None,
             extra: Default::default(),
         }
+    }
+
+    /// TS 时代的「变体」与「已归档」两档现在各有各的端点（`/v1/repos/extend/*`）：
+    /// 合成在一处做，五档才齐。核心三条靠 `core` 进「内置」，不是靠名字硬编码。
+    #[test]
+    fn 变体与归档各成一档_核心三条进内置档() {
+        let exts = Extensions {
+            items: vec![
+                item("nous", "native", "running", Some("工具"), Some("核心")),
+                ExtItem {
+                    core: true,
+                    ..item("skills", "native", "running", None, None)
+                },
+                item("mine", "native", "running", None, None),
+            ],
+            ..Default::default()
+        };
+        let variants = RepoVariants {
+            variants: [(
+                "extend".to_string(),
+                [(
+                    "mine@abc".to_string(),
+                    VariantBinding { root: "/tmp/wt".into(), branch: "variant/extend/abc".into(), extra: Default::default() },
+                )]
+                .into_iter()
+                .collect(),
+            )]
+            .into_iter()
+            .collect(),
+            extra: Default::default(),
+        };
+        let archive = RepoArchive {
+            items: vec![ArchivedUnit { name: "old-card".into(), extra: Default::default() }],
+            extra: Default::default(),
+        };
+        let view = ExtView { exts: &exts, variants: Some(&variants), archive: Some(&archive) };
+
+        let all = ext_rows(view, None, "");
+        assert_eq!(all.len(), 5, "3 条清单 + 1 个变体 + 1 条归档");
+        let kind_of = |name: &str| all.iter().find(|r| r.name == name).map(|r| r.kind);
+        assert_eq!(kind_of("skills"), Some(ExtKind::Builtin), "core=true 就是内置档");
+        assert_eq!(kind_of("mine"), Some(ExtKind::On));
+        assert_eq!(kind_of("mine@abc"), Some(ExtKind::Variant));
+        assert_eq!(kind_of("old-card"), Some(ExtKind::Archived));
+
+        assert_eq!(ext_rows(view, Some("@variant"), "").len(), 1);
+        assert_eq!(ext_rows(view, Some("@archived"), "").len(), 1);
+        assert_eq!(ext_rows(view, Some("@builtin"), "").len(), 1);
+        // 段按钮上的数字 = 列表能看到的行数，两边不许打架。
+        assert_eq!(counts(None, None, Some(view)).2, 5);
+
+        // 三份数据缺两份时只少那两档，已有档位不许跟着变空。
+        let only_items = ext_rows(exts_only(&exts), None, "");
+        assert_eq!(only_items.len(), 3);
+    }
+
+    /// 「编辑 / 发布 / 复制」走文件面，只对源码根里真有的目录成立。
+    /// 已归档（在 `.archive/`）和旧 JS（清单都不合法）点进去只会 404。
+    #[test]
+    fn 文件面动作只给源码根里的档位() {
+        assert!(file_backed(None), "技能 / 提示词段照旧全给");
+        assert!(file_backed(Some(ExtKind::On)));
+        assert!(file_backed(Some(ExtKind::Off)));
+        assert!(file_backed(Some(ExtKind::Builtin)));
+        assert!(
+            !file_backed(Some(ExtKind::Variant)),
+            "变体是另一棵工作树，源码根里没有这个目录"
+        );
+        assert!(file_backed(Some(ExtKind::Failed)), "坏清单还能改，所以给编辑");
+        assert!(!file_backed(Some(ExtKind::Archived)));
+        assert!(!file_backed(Some(ExtKind::Legacy)));
     }
 
     #[test]

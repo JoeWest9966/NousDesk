@@ -123,6 +123,18 @@ impl Repo {
         }
     }
 
+    /// 私库的**仓名**（`/v1/repos/{repo}/…`）：归档 / 恢复 / 真删 / 变体走这一套。
+    ///
+    /// 与 `key()` 不是一回事：扩展在文件面叫 `extensions`，在私库面叫 `extend`。
+    /// 拿 `key()` 去拼 `v1/repos/extensions/archive` 只会 404，而且 404 长得像「没有这东西」。
+    pub fn repo_key(self) -> &'static str {
+        match self {
+            Self::Skills => "skills",
+            Self::Prompts => "prompts",
+            Self::Extensions => "extend",
+        }
+    }
+
     /// 带 `v1/` 的路径前缀，只给「拼 URL」的地方用。
     pub fn path(self) -> &'static str {
         match self {

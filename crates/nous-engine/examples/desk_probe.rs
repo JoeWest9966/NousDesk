@@ -454,5 +454,48 @@ async fn main() {
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     assert_line(found, "entries.assistant.done", format!("{id} {last:?}"));
+
+    // ── 扩展页的三份数据 ───────────────────────────────────────────
+    //
+    // 资源页要恢复 TS 时代那一套（五档 / 类别树 / 归档 / 变体），靠的是这三份读面。
+    // 少一份不是「显示不全」而是**静默变空档**：页面看起来正常，只是那一行永远没有。
+    // 引擎那边的种子在 `scripts/check-desk.sh`（临时 NOUS_EXTEND：一条原生 + 一条
+    // TS 时代 JS 清单），所以这里能钉住 `kind` 的真实取值。
+    let exts = good.extensions().await.expect("扩展清单可读");
+    assert_line(
+        exts.items.iter().any(|item| item.kind == "native"),
+        "ext.items.kind.native",
+        format!("{} 条", exts.items.len()),
+    );
+    assert_line(
+        exts.items.iter().any(|item| item.kind == "legacy-js"),
+        "ext.items.kind.legacy_js",
+        exts.items
+            .iter()
+            .filter(|item| item.kind == "legacy-js")
+            .map(|item| item.name.clone())
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    // `core` 只有种子里真有核心扩展时才为真；探针的临时源码根里没有，所以这里只报数，
+    // 不做断言（`core` 的判据在内核 `nous-ext` 的单测里，不靠这一条兜底）。
+    println!(
+        "INFO ext.items.core_count | {}",
+        exts.items.iter().filter(|item| item.core).count()
+    );
+
+    let cats = good.ext_categories().await.expect("类别词表可读");
+    assert_line(true, "ext.categories.200", cats.categories.len());
+
+    let archive = good.ext_archive().await.expect("归档区可读");
+    assert_line(true, "ext.archive.200", format!("{} 条", archive.items.len()));
+
+    let variants = good.ext_variants().await.expect("变体绑定表可读");
+    assert_line(
+        true,
+        "ext.variants.200",
+        variants.family("extend").count(),
+    );
+
     println!("DONE");
 }

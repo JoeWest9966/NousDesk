@@ -1,16 +1,16 @@
 {
   "_captured_at": "2026-11-22",
-  "_engine_version": "0.1.8",
+  "_engine_version": "0.1.10",
   "_provenance": {
-    "source": "GET /v1/_routes (线上真引擎，带 Bearer token)",
+    "source": "GET /v1/_routes (0.1.10 真产物，带 Bearer token)",
     "repo": "JoeWest9966/Nous",
-    "branch": "main",
-    "commit": "06cb2fb（v0.1.8 合并点；产物 build d0746637）",
-    "host": "j1900:4789（systemd nous-app.service）",
-    "environment": "真引擎（非 faux），数据 /var/lib/nous/",
-    "route_count": 119,
+    "branch": "feat/ext-parity",
+    "commit": "ee77955（0.1.10 + GET /v1/repos/:repo/archive；主线尚未发版）",
+    "host": "远程开发机 cnb.space（临时库 /tmp/routes-cap，不是 j1900）",
+    "environment": "faux 引擎（非 j1900 真数据）；0.1.10 部署上线后应再抓一次真引擎",
+    "route_count": 120,
     "module_count": 12,
-    "patched": "2026-11-22：整份按 0.1.8 重抓（原 0.1.3 快照 + combos 三条补丁已作废）。新增 skills/prompts/extensions 的 files/file/create/publish。2026-11-23：补 5 条 stats 明细读口（overview / conversations / conversation/:id / cost / health，来自在途分支 feat/stats-parity，尚未发版），共 119 条。"
+    "patched": "2026-11-22：整份按 0.1.10 重抓（114 → 115）。新增 GET /v1/repos/:repo/archive —— 资源页「已归档」档的读面，写面 archive/restore/purge 一直在。2026-11-23：补 5 条 stats 明细读口（overview / conversations / conversation/:id / cost / health，来自在途分支 feat/stats-parity，尚未发版），115 → 120。"
   },
   "routes": [
     {
@@ -97,6 +97,11 @@
       "module": "repo",
       "method": "POST",
       "path": "/v1/repos/:repo/commit"
+    },
+    {
+      "module": "repo",
+      "method": "GET",
+      "path": "/v1/repos/:repo/archive"
     },
     {
       "module": "repo",

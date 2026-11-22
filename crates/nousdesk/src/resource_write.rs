@@ -837,18 +837,27 @@ impl Desktop {
 
         cx.spawn_in(window, async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let reload_engine = engine.clone();
             let res = handle
                 .spawn(async move { engine.resource_op("extensions", op, &body).await })
                 .await;
+
+            // 装 / 卸是盘面动作，注册表要引擎自己重装一次才算数
+            // （`POST /v1/extensions/reload`）。以前那句「引擎装完会立刻重装」是新内核
+            // 之前的行为，现在要显式喊；不喊就是「页面说装着、会话里没有」。
+            let reload = match &res {
+                Ok(Ok(_)) => Some(reload_engine.ext_reload().await),
+                _ => None,
+            };
 
             let _ = this.update_in(cx, |this, window, cx| {
                 match res {
                     Ok(Ok(_)) => {
                         this.notify(
-                            if install {
-                                format!("装上了 {name} —— 立刻重装注册表，不用等轮询")
-                            } else {
-                                format!("卸载了 {name} —— 目录还在仓库里，只是这台不装")
+                            match (install, reload.map(|r| r.is_ok())) {
+                                (true, Some(true)) => format!("装上了 {name} —— 注册表已重装（优先从垃圾站取回）"),
+                                (true, _) => format!("装上了 {name}（重装注册表没成功，清单可能还是旧的）"),
+                                (false, _) => format!("卸载了 {name} —— 目录搬进垃圾站（data/extend-trash），装回来优先拿它"),
                             },
                             NoticeKind::Info,
                             cx,
@@ -856,6 +865,84 @@ impl Desktop {
                         this.load_resources(true, cx);
                     }
                     // 核心三条卸载会被引擎 403 挡回来：把原话显示出来，不自己编一句。
+                    Ok(Err(e)) => this.notify(format!("{e}"), NoticeKind::Error, cx),
+                    Err(e) => this.notify(format!("任务挂了：{e}"), NoticeKind::Error, cx),
+                }
+                let _ = window;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 重载：按盘上现状重装注册表（`POST /v1/extensions/reload`）。
+    ///
+    /// 为什么要有这个按钮：扩展是「盘上目录 + 运行中的进程」，手工放了文件 / 改了清单
+    /// 之后，不喊一次运行时根本不知道。以前只能重启引擎 —— 那会把会话一起带走。
+    pub(crate) fn resource_ext_reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.resource_write_gate("POST", "/v1/extensions/reload") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let res = handle.spawn(async move { engine.ext_reload().await }).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                match res {
+                    Ok(Ok(v)) => {
+                        let n = v
+                            .get("reloaded")
+                            .and_then(|x| x.as_array())
+                            .map(|rows| rows.len())
+                            .unwrap_or(0);
+                        this.notify(format!("重载完成：{n} 条"), NoticeKind::Info, cx);
+                        this.load_resources(true, cx);
+                    }
+                    // 失败的扩展会保留旧进程与旧状态（引擎语义）—— 原话照登，不自己编。
+                    Ok(Err(e)) => this.notify(format!("{e}"), NoticeKind::Error, cx),
+                    Err(e) => this.notify(format!("任务挂了：{e}"), NoticeKind::Error, cx),
+                }
+                let _ = window;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 复制：把源码根里的目录复制成 `<名字>-copy`（`POST /v1/extensions/duplicate`）。
+    ///
+    /// 不起名、不弹表单：复制是「照着这条再开一份」的第一步，名字随时能改；
+    /// 多一层输入框只是把一次点击变成三次。重名由引擎挡住，原话照登。
+    pub(crate) fn resource_ext_duplicate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.resource_write_gate("POST", "/v1/extensions/duplicate") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        let Some(sel) = self.resources.selected.clone() else { return };
+        let name = sel.name_of().to_string();
+        let to = format!("{name}-copy");
+
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, target) = (name.clone(), to.clone());
+            let res = handle
+                .spawn(async move { engine.ext_duplicate(&n, &target).await })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                match res {
+                    Ok(Ok(_)) => {
+                        this.notify(format!("复制成 {to} —— 在仓库里，改完记得发布"), NoticeKind::Info, cx);
+                        this.resources.selected = Some(Selected::Ext(to.clone()));
+                        this.load_resources(true, cx);
+                    }
                     Ok(Err(e)) => this.notify(format!("{e}"), NoticeKind::Error, cx),
                     Err(e) => this.notify(format!("任务挂了：{e}"), NoticeKind::Error, cx),
                 }
@@ -885,8 +972,16 @@ impl Desktop {
     }
 
     pub(crate) fn resource_confirm_yes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let repo = self.resources.confirm.as_ref().map(|c| c.kind.repo().key()).unwrap_or("skills");
-        if let Some(reason) = self.resource_write_gate("POST", &format!("/v1/{repo}/{{op}}")) {
+        let kind = self.resources.confirm.as_ref().map(|c| c.kind);
+        // 归档 / 恢复 / 真删是**仓级**动作（`/v1/repos/{repo}/{op}`），不是文件面的
+        // `/v1/{kind}/{op}` —— 后者在引擎里根本不存在，以前点「归档」会静默 404。
+        // 三条路径逐个写死（不拼模板）：台账扫描器要看见「客户端真会打的这一条」。
+        let gate_path = match kind {
+            Some(Kind::Skill) => "/v1/repos/skills/archive",
+            Some(Kind::Prompt) => "/v1/repos/prompts/archive",
+            _ => "/v1/repos/extend/archive",
+        };
+        if let Some(reason) = self.resource_write_gate("POST", gate_path) {
             self.notify(reason, NoticeKind::Error, cx);
             return;
         }
@@ -912,10 +1007,10 @@ impl Desktop {
                 ConfirmAct::Purge => "purge",
                 ConfirmAct::DiscardEdit => unreachable!(),
             };
-            let repo = kind.repo().key();
+            let repo = kind.repo().repo_key();
             let (n, body) = (name.clone(), serde_json::json!({ "name": name }));
             let res = handle
-                .spawn(async move { engine.resource_op(repo, op, &body).await })
+                .spawn(async move { engine.repo_op(repo, op, &body).await })
                 .await;
 
             let _ = this.update_in(cx, |this, window, cx| {
