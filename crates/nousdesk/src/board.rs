@@ -76,24 +76,21 @@ enum ExtKind {
     Core,
     /// 引擎自带，不在仓库里。
     Builtin,
-    /// 变体，加载失败了。
+    /// 装不起来：清单不合法，或者进程没跑起来。
     Broken,
-    /// 已归档。
-    Archived,
 }
 
-/// 引擎**无条件**带上的那几条：`coding-tools` + `nous` + `skills` + `prompts`。
+/// 引擎自己要用、界面上勾不掉的几条。
 ///
-/// 不从 `installed` 推：`coding-tools` 是 `builtin`，根本不在 `installed` 里；
-/// 从 `defaults` 取也不对 —— 那是「额外可装扩展」的默认勾选项（demo 里的 `123`
-/// 那种），跟这四个硬编码的不是一回事。
+/// 内核 0.1.10 起直接给 `items[].core`（`nous` / `skills` / `prompts`）：以前只能从
+/// `builtin` / `defaults` 两份投影里猜，而那份投影在新内核里根本不回 —— 猜出来的
+/// 结果是空表，卡片上「4/4」就永远画成「0/0」。
 fn core_exts(x: &nous_engine::types::Extensions) -> Vec<String> {
-    let mut v = Vec::new();
-    if let Some(builtin) = x.builtin.first() {
-        v.push(builtin.clone()); // coding-tools
-    }
-    v.extend(x.defaults.iter().cloned());
-    v
+    x.items
+        .iter()
+        .filter(|item| item.core)
+        .map(|item| item.name.clone())
+        .collect()
 }
 
 impl ExtKind {
@@ -103,7 +100,6 @@ impl ExtKind {
             ExtKind::Pickable | ExtKind::Core => "installed",
             ExtKind::Builtin => "builtin",
             ExtKind::Broken => "broken",
-            ExtKind::Archived => "archived",
         }
     }
 }
@@ -410,23 +406,27 @@ impl NewChat {
             return Vec::new();
         };
         let core = core_exts(x);
-        x.catalog
+        x.items
             .iter()
-            .filter(|e| x.installed.contains(&e.name))
-            .filter(|e| !core.contains(&e.name))
-            .map(|e| e.name.clone())
+            // 只勾得动「原生 + 跑着 + 不是核心」的：清单不合法的、旧 JS 的、进程没起来的，
+            // 勾进会话也带不来任何能力（`kind` 说的是装载形态，见 wire.md）。
+            .filter(|item| item.kind == "native" && item.state.as_deref() == Some("running"))
+            .filter(|item| !item.core)
+            .map(|item| item.name.clone())
             .collect()
     }
 
-    /// 加载失败的变体有几条 —— 卡上那个红点就靠它。
+    /// 装载不起来的条目有几条 —— 卡上那个红点就靠它。
+    ///
+    /// 两种都算：清单不合法（`invalid`）与 TS 时代的老 JS 插件（`legacy-js`，
+    /// 换代不是故障，但对这个会话来说同样是「带不来能力」）。
     fn ext_broken(&self) -> usize {
         self.exts
             .as_ref()
             .map(|x| {
-                x.variants
-                    .values()
-                    .flatten()
-                    .filter(|v| v.load.as_ref().and_then(|l| l.state.as_deref()) == Some("failed"))
+                x.items
+                    .iter()
+                    .filter(|item| !item.core && item.kind != "native")
                     .count()
             })
             .unwrap_or(0)
@@ -752,11 +752,23 @@ impl Desktop {
                     // 核心四条**无条件在**（引擎总是带上，勾掉是假动作，见 ExtKind::Core）。
                     // 其余 = 这台装上且能加载的。用户改过就不动。
                     if b.picked_exts.is_empty() {
+                        // 预勾 = 核心（勾不掉）+ 这台真能跑的。
+                        // 内核 0.1.10 不再回 `loadable` 那份投影，判据改成
+                        // 「原生 + 进程在跑」；坏的 / 旧 JS 的默认不进会话。
                         b.picked_exts = x
-                            .loadable
+                            .items
                             .iter()
-                            .cloned()
-                            .chain(core_exts(&x))
+                            .filter(|item| item.core)
+                            .map(|item| item.name.clone())
+                            .chain(
+                                x.items
+                                    .iter()
+                                    .filter(|item| {
+                                        item.kind == "native"
+                                            && item.state.as_deref() == Some("running")
+                                    })
+                                    .map(|item| item.name.clone()),
+                            )
                             .collect();
                     }
                     b.exts = Some(x);
@@ -1485,7 +1497,7 @@ impl Desktop {
             .filter(|n| b.picked_exts.contains(*n))
             .count();
         let broken = b.ext_broken();
-        let builtin = b.exts.as_ref().map(|x| x.builtin.len()).unwrap_or(0);
+        let builtin = b.exts.as_ref().map(|x| x.items.iter().filter(|i| i.core).count()).unwrap_or(0);
 
         let dot = |on: bool, hollow: bool| {
             div()
@@ -3001,8 +3013,20 @@ impl Desktop {
         let searching = !q.is_empty();
         let cat = b.ext_cat.clone();
 
-        let n_var: usize = x.variants.values().map(|v| v.len()).sum();
-        let n_all = x.installed.len() + x.builtin.len() + n_var + x.archived.len();
+        // 三类处境各自数一遍：能勾的 / 引擎自己要用的 / 装不起来的。
+        let n_pick = x
+            .items
+            .iter()
+            .filter(|item| item.kind == "native" && item.state.as_deref() == Some("running"))
+            .filter(|item| !item.core)
+            .count();
+        let n_core = x.items.iter().filter(|item| item.core).count();
+        let n_bad = x
+            .items
+            .iter()
+            .filter(|item| !item.core && item.kind != "native")
+            .count();
+        let n_all = x.items.len();
 
         let mk = |name: String,
                   ver: String,
@@ -3149,85 +3173,41 @@ impl Desktop {
 
         let mut rows: Vec<AnyElement> = Vec::new();
 
-        for e in x.catalog.iter().filter(|e| x.installed.contains(&e.name)) {
-            let kind = if e.is_default {
+        // 一张表画完：内核 0.1.10 的 `items[]` 每条的 `kind` / `state` / `core` 就够分了。
+        // 以前这里要读 `catalog` + `builtin` + `variants` + `archived` 四份投影，
+        // 那四份新内核不回 —— 弹层会整块空白（不是报错，是「看起来没有扩展」）。
+        for item in x.items.iter() {
+            let cats: Vec<String> = item.category.clone().into_iter().collect();
+            let kind = if item.kind == "legacy-js" {
+                ExtKind::Broken
+            } else if item.core {
                 ExtKind::Core
+            } else if item.kind == "invalid" || item.state.as_deref() != Some("running") {
+                ExtKind::Broken
             } else {
                 ExtKind::Pickable
             };
-            if !show(kind, &e.category) || !want(&e.name, e.summary.as_deref(), &e.category) {
+            if !show(kind, &cats) || !want(&item.name, item.summary.as_deref(), &cats) {
                 continue;
             }
+            let tag = match kind {
+                ExtKind::Core => "固定 · 引擎总带上（勾不掉）",
+                ExtKind::Broken if item.kind == "legacy-js" => "待重写（旧 JS）",
+                ExtKind::Broken => "装载不上",
+                _ => "",
+            };
             rows.push(mk(
-                e.name.clone(),
-                e.version.clone().unwrap_or_default(),
-                e.summary.clone().unwrap_or_default().replace(['\n', '\r'], " "),
-                e.sections.join(" · "),
-                if e.is_default {
-                    "固定 · 引擎总带上".to_string()
-                } else {
-                    String::new()
-                },
-                kind,
-                b.picked_exts.contains(&e.name),
-            ));
-        }
-        for name in x.builtin.iter() {
-            if !show(ExtKind::Builtin, &[]) || !want(name, None, &[]) {
-                continue;
-            }
-            rows.push(mk(
-                name.clone(),
-                String::new(),
-                "引擎自带，不在仓库里 · 会话里一直在".into(),
-                String::new(),
-                "内置".into(),
-                ExtKind::Builtin,
-                true,
-            ));
-        }
-        for (family, list) in x.variants.iter() {
-            for v in list {
-                let name = v.key.clone().unwrap_or_else(|| family.clone());
-                let failed = v.load.as_ref().and_then(|l| l.state.as_deref()) == Some("failed");
-                let err = v.load.as_ref().and_then(|l| l.error.clone());
-                if !show(ExtKind::Broken, &[]) || !want(&name, err.as_deref(), &[]) {
-                    continue;
-                }
-                rows.push(mk(
-                    name,
-                    String::new(),
-                    err.or_else(|| v.dir.clone())
-                        .unwrap_or_default()
-                        .replace(['\n', '\r'], " "),
-                    String::new(),
-                    if failed { "加载失败" } else { "变体" }.into(),
-                    if failed {
-                        ExtKind::Broken
-                    } else {
-                        ExtKind::Archived
-                    },
-                    false,
-                ));
-            }
-        }
-        for a in x.archived.iter() {
-            if !show(ExtKind::Archived, &a.category)
-                || !want(&a.name, a.summary.as_deref(), &a.category)
-            {
-                continue;
-            }
-            rows.push(mk(
-                a.name.clone(),
-                a.version.clone().unwrap_or_default(),
-                a.summary.clone().unwrap_or_default().replace(['\n', '\r'], " "),
-                String::new(),
-                a.archived_at
+                item.name.clone(),
+                item.version.clone(),
+                item.summary
                     .clone()
-                    .map(|d| d.chars().take(10).collect::<String>())
-                    .unwrap_or_else(|| "已归档".into()),
-                ExtKind::Archived,
-                false,
+                    .or_else(|| item.error.clone())
+                    .unwrap_or_default()
+                    .replace(['\n', '\r'], " "),
+                cats.join(" · "),
+                tag.to_string(),
+                kind,
+                kind == ExtKind::Core || b.picked_exts.contains(&item.name),
             ));
         }
 
@@ -3278,10 +3258,9 @@ impl Desktop {
         tree.push(el.into_any_element());
 
         for (key, label, count) in [
-            ("@installed", "启用中", x.installed.len()),
-            ("@builtin", "内置", x.builtin.len()),
-            ("@broken", "变体", n_var),
-            ("@archived", "已归档", x.archived.len()),
+            ("@installed", "启用中", n_pick),
+            ("@builtin", "内置", n_core),
+            ("@broken", "装载不上", n_bad),
         ] {
             let on = !searching && cat.as_deref() == Some(key);
             let mut el = node(label, count, 1, on, count > 0, &key[1..]);
@@ -3314,12 +3293,24 @@ impl Desktop {
                 .child("按类别")
                 .into_any_element(),
         );
-        for path in x.categories.iter() {
+        // 类别：内核 0.1.10 的 `items[]` 每条一个类别字符串，没有仓库级词表可读
+        // （词表在 `GET /v1/extensions/categories`，创建会话这页不拉它 —— 多一次请求
+        // 换一棵树，不如直接从已有的条目里归并）。
+        let mut cats: Vec<String> = x
+            .items
+            .iter()
+            .filter_map(|item| item.category.clone())
+            .collect();
+        cats.sort();
+        cats.dedup();
+        for path in cats.iter() {
             let label = path.rsplit('/').next().unwrap_or(path).to_string();
             let depth = path.matches('/').count();
-            // 父类含子类：`工具` 要把 `工具/搜索` 里的也算上，
-            // 否则会出现「工具 1，但它的子类搜索也 1」这种自相矛盾的树。
-            let count = x.catalog.iter().filter(|e| in_cat(&e.category, path)).count();
+            let count = x
+                .items
+                .iter()
+                .filter(|item| item.category.as_deref().is_some_and(|c| in_cat(&[c.to_string()], path)))
+                .count();
             let on = !searching && cat.as_deref() == Some(path.as_str());
             let mut el = node(&label, count, depth + 1, on, count > 0, path);
             if !searching {
@@ -4116,10 +4107,10 @@ mod tests {
         assert_eq!(SessRow::Perms.step(false), SessRow::Model);
     }
 
-    /// 核心扩展 = builtin 的第一个（coding-tools）+ defaults 三条。
-    /// 这条钉住「从哪取」：不能从 installed 推（coding-tools 不在里面），
-    /// 也不能把 catalog 里 `default: true` 的普通扩展算进来（那是「默认勾」，
-    /// 跟「引擎无条件带上」不是一回事）。
+    /// 核心扩展 = `items[].core` 为真的那几条（`nous` / `skills` / `prompts`）。
+    ///
+    /// 这条钉住「从哪取」：不能从 `installed` / `catalog` 推 —— 新内核只回 `items[]`，
+    /// 老的两份投影是空的，猜出来就是「一个核心都没有」，卡片上的点全落空。
     // 用 JSON 造清单：`Extensions` 每个字段都有 `#[serde(default)]`，
     // 这正是它在生产里被构造的方式（引擎的 GET 回包）。手写 14 个字段，
     // 引擎哪天加一个字段测试就编不过 —— 那是 `deny_unknown_fields` 的毛病，
@@ -4129,26 +4120,24 @@ mod tests {
     }
 
     #[test]
-    fn 核心扩展从_builtin_和_defaults_取() {
+    fn 核心扩展从_items_core_取() {
         let x = exts(
             r#"{
-                "builtin": ["coding-tools", "另一个内置"],
-                "defaults": ["nous", "skills", "prompts"],
-                "installed": ["nous", "skills", "prompts", "123"]
+                "items": [
+                    {"name":"nous","kind":"native","core":true,"loaded":true,"state":"running"},
+                    {"name":"skills","kind":"native","core":true,"loaded":true,"state":"running"},
+                    {"name":"123","kind":"native","core":false,"loaded":true,"state":"running"},
+                    {"name":"old-js","kind":"legacy-js","core":false,"loaded":false,"state":"crashed"}
+                ]
             }"#,
         );
-        assert_eq!(
-            super::core_exts(&x),
-            vec!["coding-tools", "nous", "skills", "prompts"]
-        );
+        assert_eq!(super::core_exts(&x), vec!["nous", "skills"]);
     }
 
-    /// 引擎连 defaults 都没给（老版本 / 读到半截）时至少别 panic。
+    /// 老形状（没有 `items`）与半截清单上都不许 panic —— 只是没有核心。
     #[test]
     fn 核心扩展在空清单上不炸() {
         assert!(super::core_exts(&exts("{}")).is_empty());
-        // builtin 有但 defaults 空：只认 builtin 第一条。
-        let x = exts(r#"{"builtin": ["coding-tools"]}"#);
-        assert_eq!(super::core_exts(&x), vec!["coding-tools"]);
+        assert!(super::core_exts(&exts(r#"{"installed":["nous"],"builtin":["coding-tools"]}"#)).is_empty());
     }
 }

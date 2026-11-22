@@ -226,6 +226,23 @@ mod tests {
         assert_eq!(only_items.len(), 3);
     }
 
+    /// 「编辑 / 发布 / 复制」走文件面，只对源码根里真有的目录成立。
+    /// 已归档（在 `.archive/`）和旧 JS（清单都不合法）点进去只会 404。
+    #[test]
+    fn 文件面动作只给源码根里的档位() {
+        assert!(file_backed(None), "技能 / 提示词段照旧全给");
+        assert!(file_backed(Some(ExtKind::On)));
+        assert!(file_backed(Some(ExtKind::Off)));
+        assert!(file_backed(Some(ExtKind::Builtin)));
+        assert!(
+            !file_backed(Some(ExtKind::Variant)),
+            "变体是另一棵工作树，源码根里没有这个目录"
+        );
+        assert!(file_backed(Some(ExtKind::Failed)), "坏清单还能改，所以给编辑");
+        assert!(!file_backed(Some(ExtKind::Archived)));
+        assert!(!file_backed(Some(ExtKind::Legacy)));
+    }
+
     #[test]
     fn 段切换计数是可见条数不是总条数() {
         let skills = Skills {

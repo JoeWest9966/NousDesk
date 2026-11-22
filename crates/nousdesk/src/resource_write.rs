@@ -855,9 +855,9 @@ impl Desktop {
                     Ok(Ok(_)) => {
                         this.notify(
                             match (install, reload.map(|r| r.is_ok())) {
-                                (true, Some(true)) => format!("装上了 {name} —— 注册表已重装"),
+                                (true, Some(true)) => format!("装上了 {name} —— 注册表已重装（优先从垃圾站取回）"),
                                 (true, _) => format!("装上了 {name}（重装注册表没成功，清单可能还是旧的）"),
-                                (false, _) => format!("卸载了 {name} —— 目录仍在仓库里，只是这台不装"),
+                                (false, _) => format!("卸载了 {name} —— 目录搬进垃圾站（data/extend-trash），装回来优先拿它"),
                             },
                             NoticeKind::Info,
                             cx,
@@ -865,6 +865,84 @@ impl Desktop {
                         this.load_resources(true, cx);
                     }
                     // 核心三条卸载会被引擎 403 挡回来：把原话显示出来，不自己编一句。
+                    Ok(Err(e)) => this.notify(format!("{e}"), NoticeKind::Error, cx),
+                    Err(e) => this.notify(format!("任务挂了：{e}"), NoticeKind::Error, cx),
+                }
+                let _ = window;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 重载：按盘上现状重装注册表（`POST /v1/extensions/reload`）。
+    ///
+    /// 为什么要有这个按钮：扩展是「盘上目录 + 运行中的进程」，手工放了文件 / 改了清单
+    /// 之后，不喊一次运行时根本不知道。以前只能重启引擎 —— 那会把会话一起带走。
+    pub(crate) fn resource_ext_reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.resource_write_gate("POST", "/v1/extensions/reload") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let res = handle.spawn(async move { engine.ext_reload().await }).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                match res {
+                    Ok(Ok(v)) => {
+                        let n = v
+                            .get("reloaded")
+                            .and_then(|x| x.as_array())
+                            .map(|rows| rows.len())
+                            .unwrap_or(0);
+                        this.notify(format!("重载完成：{n} 条"), NoticeKind::Info, cx);
+                        this.load_resources(true, cx);
+                    }
+                    // 失败的扩展会保留旧进程与旧状态（引擎语义）—— 原话照登，不自己编。
+                    Ok(Err(e)) => this.notify(format!("{e}"), NoticeKind::Error, cx),
+                    Err(e) => this.notify(format!("任务挂了：{e}"), NoticeKind::Error, cx),
+                }
+                let _ = window;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 复制：把源码根里的目录复制成 `<名字>-copy`（`POST /v1/extensions/duplicate`）。
+    ///
+    /// 不起名、不弹表单：复制是「照着这条再开一份」的第一步，名字随时能改；
+    /// 多一层输入框只是把一次点击变成三次。重名由引擎挡住，原话照登。
+    pub(crate) fn resource_ext_duplicate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.resource_write_gate("POST", "/v1/extensions/duplicate") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        let Some(sel) = self.resources.selected.clone() else { return };
+        let name = sel.name_of().to_string();
+        let to = format!("{name}-copy");
+
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, target) = (name.clone(), to.clone());
+            let res = handle
+                .spawn(async move { engine.ext_duplicate(&n, &target).await })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                match res {
+                    Ok(Ok(_)) => {
+                        this.notify(format!("复制成 {to} —— 在仓库里，改完记得发布"), NoticeKind::Info, cx);
+                        this.resources.selected = Some(Selected::Ext(to.clone()));
+                        this.load_resources(true, cx);
+                    }
                     Ok(Err(e)) => this.notify(format!("{e}"), NoticeKind::Error, cx),
                     Err(e) => this.notify(format!("任务挂了：{e}"), NoticeKind::Error, cx),
                 }
