@@ -8,9 +8,9 @@
     "commit": "11659c5（0.1.15：模板面回到 TS 内核同形 + stats 六屏语义化）",
     "host": "远程开发机 cnb.space（临时库 /tmp/routes-cap，不是 j1900）",
     "environment": "faux 引擎（非 j1900 真数据）；0.1.10 部署上线后应再抓一次真引擎",
-    "route_count": 139,
+    "route_count": 152,
     "module_count": 13,
-    "patched": "2026-11-22：在 0.1.15 上并入 presets-admin 的 19 条（validate/resolve/create/rename/files/file/pending/sync/publish/reload/categories 写面/archive/restore/purge/order GET），与 stats 明细 5 条共存。"
+    "patched": "2026-11-22：在 0.1.15 的 139 条上并入触发器工程面 13 条（Nous#95，139 → 152）。"
   },
   "routes": [
     {
@@ -707,6 +707,71 @@
       "module": "triggers",
       "method": "PUT",
       "path": "/v1/triggers/{code}"
+    },
+    {
+      "module": "triggers",
+      "method": "GET",
+      "path": "/v1/trigger-projects"
+    },
+    {
+      "module": "triggers",
+      "method": "GET",
+      "path": "/v1/trigger-projects/files"
+    },
+    {
+      "module": "triggers",
+      "method": "GET",
+      "path": "/v1/trigger-projects/file"
+    },
+    {
+      "module": "triggers",
+      "method": "PUT",
+      "path": "/v1/trigger-projects/file"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/trigger-projects/create"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/trigger-projects/publish"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/trigger-projects/archive"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/trigger-projects/restore"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/trigger-projects/purge"
+    },
+    {
+      "module": "triggers",
+      "method": "GET",
+      "path": "/v1/trigger-projects/categories"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/trigger-projects/categories"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/trigger-projects/category"
+    },
+    {
+      "module": "triggers",
+      "method": "POST",
+      "path": "/v1/trigger-projects/sync"
     }
   ]
 }
