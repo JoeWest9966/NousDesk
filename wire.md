@@ -620,7 +620,9 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 - **类别词表**：`GET /v1/extensions/categories` → `{categories:[…]}`。类别树用它，
   不要从 `items[].category` 凑 —— 一个类别下暂时没条目时，凑出来的树会把它弄丢。
 - **变体 / 归档在私库面上**（`/v1/repos/extend/*`，与技能同一套）：
-  `GET variants` → `{v, variants:{extend:{<id>:{root,branch}}}}`；
+  `GET variants` → `{v, variants:{extend:{<id>:{root,branch}}}}` —— **族名就是私库名**
+  （`skills` / `extend`）。Nous 0.1.12 之前这里是 `skill` / `extension`，客户端照路径名
+  读 `variants.extend` 永远读不到内核写的那条（页面一片空，像「没有变体」）；
   `GET archive` → `{items:[{name}]}`（`.archive/` 只有名字，没有清单）；
   写面 `POST {archive,restore,purge}`。**注意仓名是 `extend`，不是 `extensions`** ——
   拿文件面的 `extensions` 去拼仓级路径只会 404，而 404 长得像「没有这东西」。
