@@ -1323,3 +1323,20 @@ Nous `#47`（7 端点 + `capabilities`）→ Nous `#44`（会话轮次，消息�
 
 **反悔点**：引擎若放开别的段（见 Nous 侧反悔点），这里恢复成按段存并把 `COMBO_SECTION`
 换成「当前段」——两处要同时改，否则又会出现「切到某段就报错」。
+
+## 2026-11-22 · 三仓文件面随 Nous 0.1.8 落活：移出死路径台账，routes 夹具整份重抓
+
+**选了**：`skills` / `prompts` / `extensions` 的 `create` / `files` / `file(GET,PUT)` / `publish`
+与 `GET /v1/extensions` 从 `DEAD_PATHS`（原「等票 Nous#75」）移进 `ENGINE_ROUTES`；
+`crates/nous-engine/tests/fixtures/routes.json` 从 0.1.3 的 62 条快照换成 0.1.8 线上
+`GET /v1/_routes` 真抓（114 条，带 `_provenance`：j1900:4789 / main `06cb2fb` / build `d0746637`）。
+死路径剩 27 条（等票 12 = presets 2 + triggers 10；灰 7；删 8）。新增正向判据：
+`declared_write_endpoints_are_enabled` —— caps 真声明了这五条时，`endpoint_disabled_reason` 必须放行。
+
+**为什么**：引擎 0.1.8 已经声明并实现这些端点、Desk 的入口只认 capabilities；台账继续写
+「等票」与夹具继续停 0.1.3，会让 `live_client_paths_are_in_routes_fixture` 和线上相反 ——
+之后的排查会照着假账本走。能力判定仍然只有 `capability.rs` 一处，这次只动账本与夹具。
+
+**反悔点**：若这些端点从引擎回退（下线/改路径），在**同一次**改动里把它们移回 `DEAD_PATHS`
+并从夹具删除，否则 Desk 会「声明里没有、账本里也没有」→ `Gate::Unknown` 静默变成灰，
+理由却是「服务端未声明这个功能」——两个错叠在一起最难查。
