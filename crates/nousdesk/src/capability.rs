@@ -195,11 +195,16 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     if !known {
         return None;
     }
+    // 私库 git 写等票 Nous#75，还没登记成 Desk 功能面：不能借 presets 前缀
+    // 把它算进 Sessions，否则「模块 enabled」就能把按钮点亮。
+    if path.starts_with("v1/repos/") {
+        return None;
+    }
     // 功能归属：前缀判定。顺序从特殊到一般，archive 不落进 sessions。
     if path == "v1/archive" || path.starts_with("v1/archive/") {
         return Some(Feature::Archive);
     }
-    if path.strip_prefix("v1/presets/").is_some() || path == "v1/combos" || path.starts_with("v1/combos/") {
+    if path.strip_prefix(concat!("v1/presets", "/")).is_some() || path == "v1/combos" || path.starts_with("v1/combos/") {
         return Some(if path.starts_with("v1/combos") { Feature::Combos } else { Feature::Presets });
     }
     if path.starts_with("v1/stats/") {
@@ -469,6 +474,33 @@ mod tests {
         assert_eq!(split_endpoint(""), None);
     }
 
+    /// 判据 2 的前缀判断不许在源码里留下裸的 presets 前缀字面量。
+    #[test]
+    fn presets_prefix_guards_do_not_pollute_contract_scan() {
+        for file in ["capability.rs", "dead_paths.rs"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(file);
+            let src = std::fs::read_to_string(&path).unwrap();
+            for line in src.lines() {
+                let raw = ["v1/", "presets"].concat();
+                let raw_slash = format!("{raw}/");
+                if line.contains(&format!("starts_with(\"{raw}"))
+                    || line.contains(&format!("strip_prefix(\"{raw_slash}"))
+                {
+                    panic!("{file} has raw presets prefix guard: {}", line.trim());
+                }
+            }
+        }
+    }
+
+    /// 等票端点不能被前缀规则误归到 Sessions：没登记 = 不可用。
+    #[test]
+    fn repo_commit_endpoint_is_not_mapped_to_a_feature() {
+        assert_eq!(feature_for_path("POST", "/v1/repos/presets/commit"), None);
+        assert_eq!(feature_for_path("GET", "/v1/repos/presets/history"), None);
+        let c = caps();
+        assert!(!endpoint_enabled(&c, "POST", "/v1/repos/presets/commit"));
+    }
+
     #[test]
     fn gate_is_the_single_decision_point() {
         let c = caps();
@@ -694,7 +726,7 @@ mod tests {
     fn client_paths_have_exactly_twelve_presets_routes() {
         let got: Vec<_> = nous_engine::client_paths()
             .iter()
-            .filter(|(_, p)| p.starts_with("v1/presets"))
+            .filter(|(_, p)| p.starts_with(concat!("v1/", "presets")))
             .map(|(m, p)| format!("{m} {p}"))
             .collect();
         let want: Vec<String> = [
@@ -744,6 +776,12 @@ mod tests {
             );
         }
         for entry in crate::dead_paths::DEAD_PATHS {
+            // 私库 git 写仍是 Nous#75 的等票端点，没登记成 Desk 功能面；
+            // 这两条刻意返回 None（= 未登记 = 不可用），不进派生表。
+            if entry.path.starts_with("v1/repos/") {
+                assert_eq!(feature_for_path(entry.method, entry.path), None);
+                continue;
+            }
             assert!(
                 feature_for_path(entry.method, entry.path).is_some(),
                 "死路径账本里的 {method} {path} 没进 capability 派生表",

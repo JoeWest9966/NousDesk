@@ -3,7 +3,7 @@
 //! 从 `editor.rs` 拆出来的**另一半**：这一半只认 `serde_json::Value` 与
 //! `PresetFileMeta`，不认 `EditorState` / GPUI / Entity —— 所以 `#[test]` 能直接展开
 //! （`EditorState` 带一堆 Entity，在 `#[test]` 里会撞递归上限，`坑.md` 68）。
-//! 通用文档编辑器（状态、JSON 读写、diff / history / pending、渲染）仍在 `editor.rs`。
+//! 通用文档编辑器（状态、JSON 读写、diff / history、渲染）仍在 `editor.rs`。
 
 /// 从目录清单里挑出这一段的清单文件。
 ///

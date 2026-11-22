@@ -42,7 +42,7 @@ pub(crate) enum EditorTab {
     Json,
     Effective,
     Issues,
-    /// 仓里这份预设还没提交的改动（引擎 `/pending` + `/pending/diff`）。
+    /// 本地原文 vs 当前草稿的展示层差异（客户端 `diff_lines` 现算）。
     Diff,
     /// 这条预设提交过哪些次（引擎 `/history`）。
     History,
@@ -252,8 +252,6 @@ pub(crate) struct EditorState {
     pub picker: Option<PickerState>,
     /// Ctrl+K 命令面板。
     pub palette: Option<Palette>,
-    /// 仓里这一段有什么没提交（`/pending`）。
-    pub pending: Option<nous_engine::types::Pending>,
     /// 当前选中那个文件的 `before` / `after`。
     pub diff: Option<nous_engine::types::FileDiff>,
     /// 正在拉 diff 的那个文件路径（相对段目录）。
@@ -292,7 +290,6 @@ impl Default for EditorState {
             publish_msg: None,
             picker: None,
             palette: None,
-            pending: None,
             diff: None,
             diff_pick: None,
             history: None,
@@ -824,14 +821,22 @@ impl crate::app::Desktop {
             Cmd::Tab(t) => {
                 self.editor.tab = t;
                 if t == EditorTab::Diff && self.editor.diff.is_none() {
-                    self.load_pending(cx);
+                    self.recompute_diff(cx);
                 }
                 if t == EditorTab::History && self.editor.history.is_none() {
                     self.load_history(cx);
                 }
             }
             Cmd::Save => self.save_editor(cx),
-            Cmd::Publish => self.open_publish_dialog(window, cx),
+            Cmd::Publish => {
+                if publish_enabled(self.caps.as_ref()) {
+                    self.open_publish_dialog(window, cx);
+                } else {
+                    let reason = publish_reason(self.caps.as_ref())
+                        .unwrap_or_else(|| "服务端未声明这个功能".to_string());
+                    self.notify(reason, crate::app::NoticeKind::Error, cx);
+                }
+            }
             Cmd::Reload => self.reload_editor(cx),
             Cmd::Validate => self.validate_preset(cx),
             Cmd::Back => {
@@ -884,11 +889,10 @@ impl crate::app::Desktop {
         cx.notify();
     }
 
-    /// Desk#11：草稿降级后没有 `pending` 状态位。差异是展示层计算 ——
-    /// 拿刚读到的盘上原文和当前 draft 比，不发 HTTP。
+    /// Desk#11：差异是展示层计算 —— 拿刚读到的盘上原文和当前 draft 比，不发 HTTP。
     /// 结果包成 `FileDiff` 只为了复用已有的逐行渲染（`before`/`after` 是**重建的全文**，
     /// 不是引擎给的原文；这里没有状态语义）。
-    pub(crate) fn load_pending(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn recompute_diff(&mut self, cx: &mut Context<Self>) {
         let current = serde_json::to_string_pretty(&self.editor.draft).unwrap_or_default() + "\n";
         let rows = nous_engine::diff::diff_lines(&self.editor.text, &current);
         let (before, after) = rebuild_texts(&rows);
@@ -1180,7 +1184,7 @@ impl crate::app::Desktop {
                         this.editor.conflict = false;
                         this.notify("已保存到盘上 · 还没提交", crate::app::NoticeKind::Info, cx);
                         this.validate_preset(cx);
-                        this.load_pending(cx);
+                        this.recompute_diff(cx);
                         this.load_section(this.section, true, cx);
                     }
                     Some(Err(EngineError::Engine { status: 409, message, body })) => {
@@ -1208,6 +1212,13 @@ impl crate::app::Desktop {
 
     /// 发布：commit + push。和保存分开 —— 这个会真的动仓库。
     pub(crate) fn publish_editor(&mut self, cx: &mut Context<Self>) {
+        // 点击 / 键盘 / 对话框三条路都到这儿；等票端点在这里再挡一次。
+        if !publish_enabled(self.caps.as_ref()) {
+            if let Some(reason) = publish_reason(self.caps.as_ref()) {
+                self.notify(reason, crate::app::NoticeKind::Error, cx);
+            }
+            return;
+        }
         let Some(input) = self.editor.publish_msg.clone() else {
             return;
         };
@@ -1448,20 +1459,39 @@ impl crate::app::Desktop {
                             .child("Ctrl+S"),
                     ),
             )
-            .child(
-                div()
+            .child({
+                // 等票端点：灰、不挂 on_click、理由原文摆在按钮旁边。
+                let enabled = publish_enabled(self.caps.as_ref());
+                let reason = if enabled { None } else { publish_reason(self.caps.as_ref()) };
+                let mut btn = div()
                     .id("ed-publish")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(6.))
                     .px(t().d(11.))
                     .py(t().d(5.))
                     .rounded(t().r(6.))
-                    .bg(rgb(t().p.accent))
+                    .bg(rgb(if enabled { t().p.accent } else { t().p.line_soft }))
                     .text_size(t().fs(11.5))
-                    .text_color(rgb(t().p.on_accent))
-                    .cursor_pointer()
-                    .hover(|h| h.bg(rgb(t().p.accent_hover)))
-                    .on_click(cx.listener(|this, _, window, cx| this.open_publish_dialog(window, cx)))
-                    .child(if e.publishing { "发布中…" } else { "发布…" }),
-            );
+                    .text_color(rgb(if enabled { t().p.on_accent } else { t().p.faint }));
+                if enabled {
+                    btn = btn
+                        .cursor_pointer()
+                        .hover(|h| h.bg(rgb(t().p.accent_hover)))
+                        .on_click(cx.listener(|this, _, window, cx| this.open_publish_dialog(window, cx)));
+                }
+                btn = btn.child(if e.publishing { "发布中…" } else { "发布…" });
+                if let Some(reason) = reason {
+                    btn = btn.child(
+                        div()
+                            .text_size(t().fs(9.))
+                            .text_color(rgb(t().p.faint))
+                            .child(reason),
+                    );
+                }
+                btn
+            });
 
         let body = div()
             .flex()
@@ -2190,7 +2220,7 @@ impl crate::app::Desktop {
             let on = e.tab == tab;
             let badge = match tab {
                 EditorTab::Issues => errs + warns,
-                EditorTab::Diff => pending_file_count(e),
+                EditorTab::Diff => diff_change_count(e),
                 EditorTab::History => e.history.as_ref().map(|h| h.len()).unwrap_or(0),
                 EditorTab::Changes => changed_labels(e).len(),
                 _ => 0,
@@ -2213,7 +2243,7 @@ impl crate::app::Desktop {
                         this.editor.tab = tab;
                         // 这两个 tab 的数据问引擎要，「第一次点开」才打那一次请求。
                         if tab == EditorTab::Diff && this.editor.diff.is_none() {
-                            this.load_pending(cx);
+                            this.recompute_diff(cx);
                         }
                         if tab == EditorTab::History && this.editor.history.is_none() {
                             this.load_history(cx);
@@ -2583,6 +2613,12 @@ impl crate::app::Desktop {
 
     /// 发布对话框：commit message。
     pub(crate) fn open_publish_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !publish_enabled(self.caps.as_ref()) {
+            if let Some(reason) = publish_reason(self.caps.as_ref()) {
+                self.notify(reason, crate::app::NoticeKind::Error, cx);
+            }
+            return;
+        }
         let default = format!("调整 {}", self.editor.name);
         let input = cx.new(|cx| InputState::new(window, cx).default_value(default));
         self.editor.publish_msg = Some(input);
@@ -3125,25 +3161,42 @@ impl crate::app::Desktop {
                                     }))
                                     .child("取消"),
                             )
-                            .child(
-                                div()
+                            .child({
+                                let enabled = publish_enabled(self.caps.as_ref());
+                                let mut go = div()
                                     .id("ed-pub-go")
                                     .px(t().d(16.))
                                     .py(t().d(5.))
                                     .rounded(t().r(6.))
-                                    .bg(rgb(t().p.accent))
-                                    .text_color(rgb(t().p.on_accent))
-                                    .text_size(t().fs(11.5))
-                                    .cursor_pointer()
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    .bg(rgb(if enabled { t().p.accent } else { t().p.line_soft }))
+                                    .text_color(rgb(if enabled { t().p.on_accent } else { t().p.faint }))
+                                    .text_size(t().fs(11.5));
+                                if enabled {
+                                    go = go.cursor_pointer().on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                         this.publish_editor(cx);
-                                    }))
-                                    .child("发布"),
-                            ),
+                                    }));
+                                }
+                                go.child("发布")
+                            }),
                     ),
             );
         Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
     }
+}
+
+/// `POST /v1/repos/presets/commit` 仍在等票 Nous#75：没有 caps / caps 没声明这条端点
+/// 都不许挂点击。`endpoint_enabled` 是能力判定的唯一通道，这里只消费结果。
+const REPO_COMMIT: (&str, &str) = ("POST", "/v1/repos/presets/commit");
+
+fn publish_enabled(caps: Option<&nous_engine::Capabilities>) -> bool {
+    caps.is_some_and(|c| {
+        crate::capability::endpoint_enabled(c, REPO_COMMIT.0, REPO_COMMIT.1)
+    })
+}
+
+fn publish_reason(caps: Option<&nous_engine::Capabilities>) -> Option<String> {
+    let caps = caps?;
+    crate::capability::endpoint_disabled_reason(caps, REPO_COMMIT.0, REPO_COMMIT.1)
 }
 
 /// 检查单的一行：左边固定的标签，右边一句话。
@@ -3239,13 +3292,22 @@ fn soft(color: u32) -> u32 {
     (color << 8) | 0x16
 }
 
-/// 这份预设有几个文件在待提交里（tab 上的徽标）。
-fn pending_file_count(e: &EditorState) -> usize {
-    e.pending
-        .as_ref()
-        .and_then(|p| p.unit(&e.name))
-        .map(|u| u.files.len())
-        .unwrap_or(0)
+/// 这份预设本地算出来的 diff 有几处增删（tab 上的徽标）。
+/// 新契约没有引擎 pending 状态位：数据源只有 `diff_lines` 重建出的 `editor.diff`。
+fn diff_change_count(e: &EditorState) -> usize {
+    let Some(d) = e.diff.as_ref() else { return 0 };
+    let rows = nous_engine::diff::diff_lines(
+        d.before.as_deref().unwrap_or(""),
+        d.after.as_deref().unwrap_or(""),
+    );
+    let mut changes = 0;
+    for r in rows {
+        match r.kind {
+            nous_engine::diff::DiffKind::Add | nous_engine::diff::DiffKind::Del => changes += 1,
+            nous_engine::diff::DiffKind::Same => {}
+        }
+    }
+    changes
 }
 
 fn pill(text: String, color: u32) -> AnyElement {
@@ -3413,7 +3475,10 @@ fn json_error_line(e: &EditorState) -> Option<usize> {
 mod tests {
     // 别写 `use super::*;` —— 会把 `gpui_kit::*` 带进来，`#[test]` 展开时撞 recursion limit
     // （坑.md 68）。
-    use super::{DiffOp, del_key, is_dirty, line_diff, read_text, toggle_list, write_bool, write_text};
+    use super::{
+        diff_change_count, publish_enabled, publish_reason, DiffOp, del_key, is_dirty,
+        line_diff, read_text, toggle_list, write_bool, write_text,
+    };
 
     fn v(text: &str) -> serde_json::Value {
         serde_json::from_str(text).unwrap()
@@ -3474,6 +3539,38 @@ mod tests {
         assert_eq!((same, add, del), (2, 1, 1));
         assert!(rows.contains(&(DiffOp::Add, "  \"a\": 2".to_string())));
         assert!(rows.contains(&(DiffOp::Del, "  \"a\": 1".to_string())));
+    }
+
+    #[test]
+    fn repo_commit_not_in_caps_disables_publish() {
+        // 没有 caps = 没连上引擎，不许发布；caps 里没有这条端点 = 等票，也不许发布。
+        assert!(!publish_enabled(None));
+        let caps: nous_engine::Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [{ "name": "sessions", "enabled": true, "endpoints": ["/v1/repos/presets/commit"] }],
+            "runtime": { "provider": { "kind": "real" } }
+        })).unwrap();
+        assert!(!publish_enabled(Some(&caps)));
+        let reason = publish_reason(Some(&caps)).expect("灰掉的发布必须带理由");
+        assert!(reason.contains("服务端未声明"), "{reason}");
+    }
+
+    #[test]
+    fn diff_change_count_comes_from_local_diff_rows() {
+        let mut e = super::EditorState::new();
+        e.text = "a\nb\n".into();
+        e.draft = serde_json::from_str("\"c\"").unwrap();
+        e.diff = None;
+        assert_eq!(diff_change_count(&e), 0, "没有本地 diff 就没有待提交数");
+        // 模拟展示层算出来的 diff（recompute_diff 只走 diff_lines，不发 HTTP）。
+        let rows = nous_engine::diff::diff_lines(&e.text, "a\nb\nc\n");
+        let (before, after) = super::rebuild_texts(&rows);
+        e.diff = Some(nous_engine::types::FileDiff {
+            path: e.manifest.clone(), before: Some(before), after: Some(after),
+            extra: Default::default(),
+        });
+        assert_eq!(diff_change_count(&e), 1, "diff 增删行来自 diff_lines");
     }
 
     /// 只加一行。

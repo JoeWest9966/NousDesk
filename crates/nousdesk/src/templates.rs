@@ -150,6 +150,10 @@ impl Section {
     }
 }
 
+/// 新契约没有类别写端点时的统一文案。
+const CATEGORY_WRITE_UNAVAILABLE: &str =
+    "类别由预设的 category 字段决定，服务端没有独立的类别写端点";
+
 /// 类别树那一行在 `category.rs` —— 触发器和模板共用一个，别再各写一份。
 /// **顺序就是引擎给的顺序**（父在子前），客户端不重排。
 pub(crate) use crate::category::{CatNode, ancestors, is_under};
@@ -625,7 +629,7 @@ impl Desktop {
                         }
                     }
                     Some(Err(e)) => this.sections[i].error = Some(e.to_string()),
-                    None => this.sections[i].error = Some("任务没跑完".into()),
+                    None => this.sections[i].error = Some("段数据没拉回来".into()),
                 }
                 cx.notify();
             });
@@ -809,7 +813,7 @@ impl Desktop {
                     None => {
                         if let Some(d) = this.new_preset.as_mut() {
                             d.busy = false;
-                            d.err = Some("任务没跑完".into());
+                            d.err = Some("新建预设没完成".into());
                         }
                     }
                 }
@@ -1035,7 +1039,7 @@ impl Desktop {
                     }
                     None => {
                         this.new_cat.busy = false;
-                        this.new_cat.err = Some("任务没跑完".into());
+                        this.new_cat.err = Some(CATEGORY_WRITE_UNAVAILABLE.into());
                     }
                 }
                 cx.notify();
@@ -1191,7 +1195,7 @@ impl Desktop {
                                 CatDialog::Rename { busy, err, .. }
                                 | CatDialog::Delete { busy, err, .. } => {
                                     *busy = false;
-                                    *err = Some("任务没跑完".into());
+                                    *err = Some(CATEGORY_WRITE_UNAVAILABLE.into());
                                 }
                             }
                         }
@@ -1460,7 +1464,7 @@ impl Desktop {
                     None => {
                         if let Some(d) = this.preset_import.as_mut() {
                             d.busy = false;
-                            d.err = Some("任务没跑完".into());
+                            d.err = Some("导入预设没完成".into());
                         }
                     }
                 }
@@ -1723,7 +1727,7 @@ impl Desktop {
                     None => {
                         if let Some(d) = this.preset_rename.as_mut() {
                             d.busy = false;
-                            d.err = Some("任务没跑完".into());
+                            d.err = Some("改名没完成".into());
                         }
                     }
                 }
@@ -2508,7 +2512,7 @@ impl Desktop {
                         this.notify(format!("已{what} {name}"), crate::app::NoticeKind::Info, cx);
                     }
                     Some(Err(e)) => this.notify(format!("没做成：{e}"), crate::app::NoticeKind::Error, cx),
-                    None => this.notify("任务没跑完", crate::app::NoticeKind::Error, cx),
+                    None => this.notify(CATEGORY_WRITE_UNAVAILABLE, crate::app::NoticeKind::Error, cx),
                 }
             });
         })
@@ -2580,7 +2584,7 @@ impl Desktop {
                     None => {
                         if let Some(d) = this.cat_edit.as_mut() {
                             d.busy = false;
-                            d.err = Some("任务没跑完".into());
+                            d.err = Some(CATEGORY_WRITE_UNAVAILABLE.into());
                         }
                     }
                 }
@@ -2876,7 +2880,7 @@ impl Desktop {
                     Some(Err(e)) => {
                         this.sections[this.section].error = Some(format!("开不了：{e}"))
                     }
-                    None => this.sections[this.section].error = Some("任务没跑完".into()),
+                    None => this.sections[this.section].error = Some("开新对话没完成".into()),
                 }
                 cx.notify();
             });
@@ -4185,10 +4189,23 @@ mod tests {
     // 会把 `#[test]` 抢过去（报「recursion limit reached while expanding #[test]」）。
     // `app.rs` 里的测试也是只挑要用的东西，同一个原因。
     use super::{
-        EXPORT_ENVELOPE, Preset, UNCATEGORIZED, export_doc, facet_tree, import_doc, in_category,
-        combo_label, keep_category, matches_query, next_combo_enabled, reorder_move,
-        sanitize_file_name, visible_presets,
+        CATEGORY_WRITE_UNAVAILABLE, EXPORT_ENVELOPE, Preset, UNCATEGORIZED, export_doc,
+        facet_tree, import_doc, in_category, combo_label, keep_category, matches_query,
+        next_combo_enabled, reorder_move, sanitize_file_name, visible_presets,
     };
+
+    /// 新契约没有类别写端点，失败文案必须解释真实原因，不许说在等异步任务。
+    #[test]
+    fn category_write_failure_explains_missing_endpoint() {
+        assert!(
+            CATEGORY_WRITE_UNAVAILABLE.contains("category")
+                && CATEGORY_WRITE_UNAVAILABLE.contains("服务端没有独立的类别写端点"),
+            "实际文案：{CATEGORY_WRITE_UNAVAILABLE}"
+        );
+        let src = include_str!("templates.rs");
+        let stale = ["任务", "没跑完"].concat();
+        assert!(!src.contains(&stale), "类别写分支还留着假话");
+    }
 
     /// 开关文案：未知状态就是未知，不拿「关掉」糊弄（引擎还没回 = 事实未知）。
     #[test]

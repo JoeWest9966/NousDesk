@@ -616,7 +616,7 @@ mod source_literal_audit {
                             .map(move |kind| template.replace("{repo}", kind))
                             .collect()
                     } else if path.contains("{}") && !path.starts_with("v1/documents/")
-                        && !path.strip_prefix("v1/presets/").is_some_and(|_| true) {
+                        && !path.strip_prefix(concat!("v1/presets", "/")).is_some_and(|_| true) {
                         // `format!("/v1/{}/publish", kind.repo().key())`：{} 是资源仓。
                         let template = path.clone();
                         ["skills", "prompts", "extensions"].into_iter()
@@ -630,7 +630,7 @@ mod source_literal_audit {
                             .collect()
                     } else if path.contains("{}") && path.starts_with("v1/documents/") {
                         vec![path.replace("{}", "{name}")]
-                    } else if path.contains("{}") && path.strip_prefix("v1/presets/").is_some_and(|_| true) {
+                    } else if path.contains("{}") && path.strip_prefix(concat!("v1/presets", "/")).is_some_and(|_| true) {
                         ["archive", "restore", "purge"].into_iter()
                             .map(|op| path.replace("{}", op)).collect()
                     } else {
