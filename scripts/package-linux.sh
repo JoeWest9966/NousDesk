@@ -63,14 +63,15 @@ install -m644 assets/nousdesk.desktop "$PKG/nousdesk.desktop"
 install -m644 assets/icon.png "$PKG/nousdesk.png"
 
 if [ -n "${NOUS_HOST:-}" ]; then
-  printf 'host = "%s"\nboard = "%s"\n' "$NOUS_HOST" "${NOUS_BOARD:-new1}" > "$PKG/desktop.toml"
+  # 一个地址就够：`board` 在 #8 之后已废弃（老配置只警告、不拦启动）。
+  printf 'host = "%s"\n' "$NOUS_HOST" > "$PKG/desktop.toml"
 else
   # 不塞死某个人的内网地址：给一份能照着改的样例，用户复制成 desktop.toml 就行。
   cat > "$PKG/desktop.toml.example" <<'TOML'
 # 复制成 desktop.toml（和 nousdesk 同一个目录）就是这份安装的配置。
-# 引擎地址不写在这儿 —— 它从宿主现拿，这里只写「去哪找宿主」。
-host = "http://127.0.0.1:4790"
-board = "new1"
+# 客户端和引擎不在同一台机器：host 写引擎那台（不是 127.0.0.1），端口默认 4789。
+# token 取值顺序：NOUS_DESK_TOKEN → 本文件 token = "..." → 同目录 token 文件（0600）。
+host = "http://192.168.1.7:4789"
 TOML
 fi
 
@@ -133,7 +134,7 @@ Priority: optional
 Homepage: https://github.com/JoeWest9966/NousDesk
 Description: NousDesk — Nous 桌面客户端
  Nous 的桌面客户端：三栏布局、会话、输入、置顶、New Manual 盘面。
- 原生 GPUI 应用，不是网页；引擎地址从 Nous 宿主的 __nous/resolve 现拿。
+ 原生 GPUI 应用，不是网页；引擎地址来自 desktop.toml 的 host（一个地址 + Bearer token）。
 CONTROL
 
 DEBFILE="$DIST/nousdesk_${VERSION}_${ARCH_DEB}.deb"
