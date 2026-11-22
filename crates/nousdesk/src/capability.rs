@@ -32,7 +32,7 @@ impl Feature {
             Self::Presets => ("GET", "v1/presets/{section}"),
             Self::Archive => ("GET", "v1/archive"),
             Self::Combos => ("GET", "v1/combos/{section}"),
-            Self::Triggers => ("GET", "v1/triggers"),
+            Self::Triggers => ("GET", "v1/trigger-projects"),
             Self::Skills => ("GET", "v1/skills"),
             Self::Prompts => ("GET", "v1/prompts"),
             Self::Selection => ("GET", "v1/selection"),
