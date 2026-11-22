@@ -451,6 +451,15 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
     filter_ext_row(out, cat, q)
 }
 
+/// 这一条还能不能走**文件面**（`/v1/{kind}/{file,file,publish,create}`）。
+///
+/// 文件面认的是源码根里的目录名。已归档的住在 `.archive/`，旧 JS 插件虽然还在根里
+/// 但连清单都不合法 —— 两档都不该挂「编辑 / 发布 / 复制」：点下去只会 404，
+/// 而 404 长得像「没有这个扩展」，查起来最费劲。
+pub(crate) fn file_backed(kind: Option<ExtKind>) -> bool {
+    !matches!(kind, Some(ExtKind::Archived) | Some(ExtKind::Legacy))
+}
+
 /// 列表的筛选：状态桶（`@on` / `@bad` / …）+ 类别 + 搜索词。
 ///
 /// 从 `ext_rows` 拆出来：两种数据形状（`items[]` 与老的五份）走同一条筛选，
@@ -885,20 +894,48 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             )
             .child(
                 div()
-                    .id("res-new")
                     .flex()
                     .items_center()
-                    .h(t().d(24.))
-                    .px(t().d(9.))
-                    .rounded(t().r(6.))
-                    .bg(rgb(t().p.accent))
-                    .text_size(t().fs(11.))
-                    .text_color(rgb(t().p.on_accent))
-                    .hover(|el| el.bg(rgb(t().p.accent_hover)))
-                    .child("+ 新建")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.resource_new(new_kind, window, cx);
-                    })),
+                    .gap(t().d(6.))
+                    // 「重载」只在扩展段：技能 / 提示词没有进程，改完文件即生效。
+                    // 扩展是盘上目录 + 运行中的进程，手工放了文件之后要喊一次才对得上。
+                    .when(r.section == Section::Extensions, |el| {
+                        el.child(
+                            div()
+                                .id("res-ext-reload")
+                                .flex()
+                                .items_center()
+                                .h(t().d(24.))
+                                .px(t().d(9.))
+                                .rounded(t().r(6.))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.line))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.text_2))
+                                .hover(|el| el.bg(rgb(t().p.hover)))
+                                .child("重载")
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.resource_ext_reload(window, cx);
+                                })),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id("res-new")
+                            .flex()
+                            .items_center()
+                            .h(t().d(24.))
+                            .px(t().d(9.))
+                            .rounded(t().r(6.))
+                            .bg(rgb(t().p.accent))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.on_accent))
+                            .hover(|el| el.bg(rgb(t().p.accent_hover)))
+                            .child("+ 新建")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.resource_new(new_kind, window, cx);
+                            })),
+                    ),
             ),
     );
 
@@ -1223,8 +1260,22 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 ),
         );
 
+    // 扩展的五类各有各的动作：已归档给「恢复 / 真删」，在册的给「卸载 / 安装」+「归档」。
+    // 「编辑」和「发布」走的是**文件面**（`/v1/{kind}/file`），只对源码根里真有的目录成立 ——
+    // 已归档（在 `.archive/`）和旧 JS 插件点进去只会 404，所以先算档位再决定挂不挂。
+    let ext_kind = if kind == Kind::Ext {
+        r.ext_view()
+            .and_then(|v| ext_rows(v, None, "").into_iter().find(|x| x.name == name))
+            .map(|x| x.kind)
+    } else {
+        None
+    };
+    // `None` = 不是扩展段，照旧全给（技能 / 提示词没有这些档位）。
+    let file_backed = file_backed(ext_kind);
+
     let mut acts = div().flex().items_center().gap(t().d(6.));
-    acts = acts.child(
+    if file_backed {
+        acts = acts.child(
         div()
             .id("res-act-edit")
             .flex()
@@ -1241,15 +1292,8 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.resource_open_edit(window, cx);
             })),
-    );
-    // 扩展的五类各有各的动作：已归档给「恢复 / 真删」，在册的给「卸载 / 安装」+「归档」。
-    let ext_kind = if kind == Kind::Ext {
-        r.ext_view()
-            .and_then(|v| ext_rows(v, None, "").into_iter().find(|x| x.name == name))
-            .map(|x| x.kind)
-    } else {
-        None
-    };
+        );
+    }
     if ext_kind == Some(ExtKind::Archived) {
         acts = acts.child(
             div()
@@ -1334,6 +1378,28 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             })),
         );
     }
+    if kind == Kind::Ext && file_backed {
+        acts = acts.child(
+            div()
+                .id("res-act-duplicate")
+                .flex()
+                .items_center()
+                .justify_center()
+                .h(t().d(28.))
+                .px(t().d(10.))
+                .rounded(t().r(7.))
+                .border(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.text_2))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child("复制")
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.resource_ext_duplicate(window, cx);
+                })),
+        );
+    }
+    if file_backed {
     acts = acts.child(
         div()
             .id("res-act-publish")
@@ -1353,6 +1419,7 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 this.resource_open_publish(cx);
             })),
     );
+    }
     head = head.child(acts);
     body = body.child(head);
 

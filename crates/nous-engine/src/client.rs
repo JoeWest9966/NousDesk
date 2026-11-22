@@ -203,6 +203,21 @@ impl EngineClient {
         self.json(resp).await
     }
 
+    /// 复制一份扩展（`POST /v1/extensions/duplicate`，Nous #84）。
+    ///
+    /// 复制的是**源码根里的目录**（`name` → `to`），不是「安装」。所以归档区里的、
+    /// 清单不合法的那两种都复制不了 —— 引擎会回 NotFound，原话照登。
+    pub async fn ext_duplicate(&self, name: &str, to: &str) -> Result<serde_json::Value, EngineError> {
+        let body = serde_json::json!({ "name": name, "to": to });
+        let resp = self
+            .http
+            .post(self.url("v1/extensions/duplicate")?)
+            .json(&body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
     /// 按盘上现状重装注册表（`POST /v1/extensions/reload`）。装 / 卸之后喊一次，
     /// 不用靠「再拉一遍清单」猜装载结果。
     pub async fn ext_reload(&self) -> Result<serde_json::Value, EngineError> {
@@ -1043,6 +1058,7 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("GET", "v1/extensions"),
     ("GET", "v1/extensions/categories"),
     ("POST", "v1/extensions/reload"),
+    ("POST", "v1/extensions/duplicate"),
     ("GET", "v1/repos/extend/variants"),
     ("GET", "v1/repos/extend/archive"),
     ("POST", "v1/repos/skills/archive"),

@@ -151,6 +151,7 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     // （写面 archive/restore/purge 一直在，缺读 → 「归档了就再也看不见」）。
     ("GET", "v1/extensions/categories"),
     ("POST", "v1/extensions/reload"),
+    ("POST", "v1/extensions/duplicate"),
     ("GET", "v1/repos/extend/variants"),
     ("GET", "v1/repos/extend/archive"),
     // 仓级生命周期：三个内容仓共用一套路由，仓名写在路径里而不是 `{repo}` 模板 ——
