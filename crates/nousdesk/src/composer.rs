@@ -194,10 +194,9 @@ pub fn render(
                                 .gap(t().d(2.))
                                 .when(dimmed, |el| el.opacity(0.4))
                                 .child(first_tool)
-                                .child(tool_icon(IconName::Hexagon))
-                                .child(tool_icon(IconName::Folder))
-                                .child(tool_icon_with_caret(IconName::Scissors))
-                                .child(tool_icon(IconName::Mic)),
+                                // 这四颗图标由 `ToolIcon` 一处登记，render 不再手写
+                                // 第二份图标名 / id / 禁用理由。
+                                .children(ToolIcon::TOOLBAR.iter().copied().map(tool_icon_button)),
                         )
                         // 人话理由填在工具行**原有留白**里：不加行、不改高度/栏宽/图标位置，
                         // 只是把这块原本空着的弹性区间写成一句淡灰提示（窄窗时截掉）。
@@ -215,7 +214,7 @@ pub fn render(
                         .child(
                             div()
                                 .when(dimmed, |el| el.opacity(0.4))
-                                .child(voice_button()),
+                                .child(tool_icon_button(ToolIcon::Voice)),
                         )
                         .child(if state.streaming {
                             action_button(
@@ -286,30 +285,66 @@ fn hint_layer(shown: bool, hovered: bool, can_send: bool) -> AnyElement {
         .into_any_element()
 }
 
-/// 工具行的图标登记表。最左边那颗「对话设置」是调用方递进来的真按钮，不在这里。
-/// 引擎还没有这些功能：五颗图标（六项，含右侧声纹）一律灰、不挂 `on_click`、
+/// 工具行的图标登记表（**生产代码**：render 从这里派生，测试也遍历它）。
+/// 最左边那颗「对话设置」是调用方递进来的真按钮，不在这里。
+/// 引擎还没有这些功能：五颗图标（四颗在工具组 + 右侧声纹）一律灰、不挂 `on_click`、
 /// 不画可点光标；「永远不可用 + 理由」由 `icon_disabled_reason()` 一处表达。
 /// 有 handler 的入口只有发送 / 停止 / 设置，分别是 `action_button` / 调用方。
-#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolIcon {
-    Emoji,
+    /// 工具组第一颗（沿用 demo 的六边形）。
     More,
     File,
     Screenshot,
-    Voice,
-    /// 右侧声纹。跟上面几颗同属禁用态，尺寸是 28×26（demo 里不是蓝圆）。
+    /// 工具组最后一颗（麦克风）。
     Mic,
+    /// 右侧声纹（28×26，不是蓝圆）。
+    Voice,
 }
 
-#[cfg(test)]
+impl ToolIcon {
+    /// 工具组里的四颗；`Voice` 单独摆在右侧，尺寸不同。
+    pub(crate) const TOOLBAR: &'static [ToolIcon] = &[
+        ToolIcon::More, ToolIcon::File, ToolIcon::Screenshot, ToolIcon::Mic,
+    ];
+    /// 全表：render 与测试共用这一份，新增变体必须同时给出理由。
+    /// 非 test 构建里只由测试消费，故显式标注，免得给 clippy 基线添一条。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) const ALL: &'static [ToolIcon] = &[
+        ToolIcon::More, ToolIcon::File, ToolIcon::Screenshot, ToolIcon::Mic, ToolIcon::Voice,
+    ];
+
+    fn glyph(self) -> IconName {
+        match self {
+            ToolIcon::More => IconName::Hexagon,
+            ToolIcon::File => IconName::Folder,
+            ToolIcon::Screenshot => IconName::Scissors,
+            ToolIcon::Mic => IconName::Mic,
+            ToolIcon::Voice => IconName::AudioLines,
+        }
+    }
+
+    fn with_caret(self) -> bool {
+        matches!(self, ToolIcon::Screenshot)
+    }
+
+    fn element_id(self) -> ElementId {
+        let id = if matches!(self, ToolIcon::Voice) {
+            "tool-voice".to_string()
+        } else {
+            format!("tool-{:?}", self.glyph())
+        };
+        ElementId::Name(id.into())
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn icon_disabled_reason(icon: ToolIcon) -> &'static str {
     match icon {
-        ToolIcon::Emoji => "表情：引擎没有这个功能",
         ToolIcon::More => "更多：引擎没有这个功能",
         ToolIcon::File => "文件：引擎没有这个功能",
         ToolIcon::Screenshot => "截图：引擎没有这个功能",
-        ToolIcon::Voice | ToolIcon::Mic => "语音输入：引擎没有这个功能",
+        ToolIcon::Mic | ToolIcon::Voice => "语音输入：引擎没有这个功能",
     }
 }
 
@@ -321,51 +356,30 @@ pub(crate) fn disabled_reason_line() -> &'static str {
 
 /// 颜色和尺寸必须自己给：直接 `.child(IconName::X)` 时用的是**窗口默认文字样式**
 /// （本项目里是白字），压在浅色卡片上就完全看不见 —— 第一次画就是这么踩的。
-fn tool_icon(icon: IconName) -> impl IntoElement {
+///
+/// 这个函数是**禁用图标唯一的渲染入口**：不接 handler、不画可点光标，
+/// 所以永远不可能出现「表里说禁用、render 里却偷偷挂了 on_click」的图标。
+fn tool_icon_button(icon: ToolIcon) -> impl IntoElement {
+    let glyph = icon.glyph();
     div()
         .flex()
         .items_center()
         .justify_center()
-        .size(t().d(28.))
-        .id(ElementId::Name(format!("tool-{icon:?}").into()))
+        .when(icon.with_caret(), |el| el.w(t().d(34.)))
+        .when(!icon.with_caret(), |el| el.w(t().d(28.)))
+        .h(if matches!(icon, ToolIcon::Voice) { t().d(26.) } else { t().d(28.) })
+        .when(matches!(icon, ToolIcon::Voice), |el| el.mr(t().d(6.)))
+        .id(icon.element_id())
         .opacity(0.55)
-        .child(Icon::new(icon).text_color(rgb(t().p.disabled)).size(t().d(18.)))
-}
-
-/// 剪刀那颗：demo 里它比别的图标宽（34px），剪刀右边跟着一个小 ⌄。
-fn tool_icon_with_caret(icon: IconName) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .w(t().d(34.))
-        .h(t().d(28.))
-        .id(ElementId::Name(format!("tool-{icon:?}").into()))
-        .opacity(0.55)
-        .child(Icon::new(icon).text_color(rgb(t().p.disabled)).size(t().d(18.)))
-        .child(
-            Icon::new(IconName::ChevronDown)
-                .text_color(rgb(t().p.disabled))
-                .size(t().d(10.)),
-        )
-}
-
-/// 右侧那颗声纹（语音输入）。跟其余图标一样**灰色、禁用** —— demo 里它不是蓝圆。
-fn voice_button() -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .w(t().d(28.))
-        .h(t().d(26.))
-        .mr(t().d(6.))
-        .id(ElementId::Name("tool-voice".into()))
-        .opacity(0.55)
-        .child(
-            Icon::new(IconName::AudioLines)
-                .text_color(rgb(t().p.disabled))
-                .size(t().d(18.)),
-        )
+        .child(Icon::new(glyph).text_color(rgb(t().p.disabled)).size(t().d(18.)))
+        // 剪刀那颗：demo 里它比别的图标宽（34px），剪刀右边跟着一个小 ⌄。
+        .when(icon.with_caret(), |el| {
+            el.child(
+                Icon::new(IconName::ChevronDown)
+                    .text_color(rgb(t().p.disabled))
+                    .size(t().d(10.)),
+            )
+        })
 }
 /// 底行按钮。用 `div` 手搓而不是 `Button`：这里的尺寸/圆角/四态色值都是
 /// 微信的，套组件反而要一层层覆盖样式。`pad_x` 是左右内边距（发送 14、停止 12，
@@ -400,17 +414,15 @@ mod tests {
     // 不 `use super::*`：gpui 的重导出宏在测试 mod 里再展开一层会撞递归上限。
     use super::{ToolIcon, icon_disabled_reason};
 
-    /// 判据 1：这五颗图标（六项，含右侧声纹）**永远不可用**，每一颗都必须
-    /// 由 `icon_disabled_reason()` 给出明确理由。删掉 `enabled()` 后这里直接
-    /// 钉住「禁用 + 理由」两件事，行为不变、也不留只为测试存在的假开关。
+    /// #15 判据 1/5：这张表是**生产代码里的表**，render 从它派生。
+    /// 每一颗禁用图标都必须有非空理由且没有 handler；可点的只有发送 / 停止 / 设置。
+    /// 往表里加一颗却忘了理由 → 红；把 render 改成手写新图标 → 绑定检查红；
+    /// 删掉发送 / 停止的 on_click → 绑定检查红。
     #[test]
-    fn every_tool_icon_is_explicitly_disabled_with_a_reason() {
-        const ICONS: &[ToolIcon] = &[
-            ToolIcon::Emoji, ToolIcon::More, ToolIcon::File,
-            ToolIcon::Screenshot, ToolIcon::Voice, ToolIcon::Mic,
-        ];
-        assert_eq!(ICONS.len(), 6);
-        for icon in ICONS {
+    fn every_rendered_tool_icon_is_disabled_with_a_reason() {
+        assert_eq!(ToolIcon::ALL.len(), 5);
+        assert_eq!(ToolIcon::TOOLBAR.len(), 4);
+        for icon in ToolIcon::ALL {
             let reason = icon_disabled_reason(*icon);
             assert!(
                 reason.contains("引擎没有这个功能"),
@@ -422,5 +434,39 @@ mod tests {
             "语音输入：引擎没有这个功能"
         );
         assert!(icon_disabled_reason(ToolIcon::Screenshot).contains("截图"));
+
+        // 绑定：render 必须遍历这张表，且唯一入口 `tool_icon_button` 不接 handler。
+        // GPUI 元素树没有 headless 测试缝，这里钉住源码里的调用关系（和 #12 归档门同法）。
+        let src = include_str!("composer.rs");
+        assert!(
+            src.contains("ToolIcon::TOOLBAR.iter().copied().map(tool_icon_button)"),
+            "render 不再从 ToolIcon 派生图标"
+        );
+        assert!(
+            src.contains("tool_icon_button(ToolIcon::Voice)"),
+            "右侧声纹不再从 ToolIcon 派生"
+        );
+        let helper = src
+            .split("fn tool_icon_button(icon: ToolIcon)")
+            .nth(1)
+            .expect("禁用图标有唯一渲染入口")
+            .split("\n}")
+            .next()
+            .expect("函数体闭合");
+        assert!(!helper.contains("on_click"), "禁用图标挂了 on_click");
+        assert!(!helper.contains("cursor_pointer"), "禁用图标画了可点光标");
+
+        // 可点的只有发送 / 停止（这里）和设置（调用方递进来的 first_tool）。
+        // `action_button` 唯一接 handler 的入口就是这个参数；把它换成空闭包 = 删 handler。
+        // 断言字符串自己拆开拼，免得和源码里的调用点互相命中（哨兵自指坑）。
+        let send_needle = ["on_", "send,"].concat();
+        let stop_needle = ["on_", "stop,"].concat();
+        assert!(src.contains(&send_needle), "发送按钮没有 handler");
+        assert!(src.contains(&stop_needle), "停止按钮没有 handler");
+        assert!(src.contains(".child(first_tool)"), "设置按钮没接到调用方 handler");
+        assert_eq!(
+            super::disabled_reason_line(),
+            "表情 / 更多 / 文件 / 截图 / 语音：引擎暂不支持，按钮已禁用"
+        );
     }
 }

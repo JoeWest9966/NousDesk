@@ -103,6 +103,14 @@ pub struct DbReport {
     pub extra: BTreeMap<String, Value>,
 }
 
+/// 探针判据：`totals` key 必须在原始回包里，且 `totalTokens` 是数字。
+/// `StatsUsage` 全字段 default，类型化之后就分不清「服务端没给」和「给了 0」。
+pub fn usage_totals_present(raw: &Value) -> bool {
+    raw.get("totals")
+        .and_then(|t| t.get("totalTokens"))
+        .is_some_and(|v| v.is_number())
+}
+
 // ── StatsClient ───────────────────────────────────────────────────────
 
 /// `/v1/stats/*` 的哑客户端。**必须 `with_token`**：自建 client 一律走 `crate::auth`
@@ -162,6 +170,22 @@ impl StatsClient {
             message: format!("JSON 不像话：{e}"),
             body: Some(text),
         })
+    }
+
+    /// `GET /v1/stats/usage?group_by=…` 的**原始回包**。
+    ///
+    /// `StatsUsage` 全字段 `#[serde(default)]`，回包缺 `totals` 时反序列化照样成功，
+    /// 于是「totals 存在」这种断言不能建立在类型化结构上。验收探针走这里看原始 key。
+    pub async fn usage_raw(&self, group_by: &str) -> Result<Value, EngineError> {
+        if !matches!(group_by, "day" | "model" | "conversation") {
+            return Err(EngineError::Engine {
+                status: 400,
+                message: format!("group_by 只能是 day|model|conversation，收到 {group_by:?}"),
+                body: None,
+            });
+        }
+        self.get_json(&format!("v1/stats/usage?group_by={group_by}"))
+            .await
     }
 
     /// `GET /v1/stats/usage?group_by=…`。`group_by` 是闭集合，别把用户输入直接拼进去。
@@ -546,3 +570,25 @@ pub type HealthDocs = StatsHealthDocs;
 pub type KindCount = StatsKind;
 pub type FreeList = StatsFreeList;
 pub type Maintenance = StatsMaintenance;
+
+#[cfg(test)]
+mod tests {
+    use super::usage_totals_present;
+    use serde_json::json;
+
+    /// #12 判据 4 哨兵：typed 结构全 default，只有原始 JSON 能区分
+    ///「服务端没给 totals」和「给了 0」。删 key / 改非数字必须 False。
+    #[test]
+    fn usage_totals_must_exist_in_raw_json() {
+        assert!(usage_totals_present(&json!({
+            "groupBy": "day", "totals": {"totalTokens": 0, "costTotal": 0.0}
+        })));
+        assert!(!usage_totals_present(&json!({"groupBy": "day"})), "没有 totals 不能过");
+        assert!(!usage_totals_present(&json!({
+            "totals": {"costTotal": 0.0}
+        })), "没有 totalTokens 不能过");
+        assert!(!usage_totals_present(&json!({
+            "totals": {"totalTokens": "0"}
+        })), "totalTokens 非数字不能过");
+    }
+}

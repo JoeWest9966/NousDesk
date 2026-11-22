@@ -539,17 +539,29 @@ mod source_literal_audit {
         }
     }
 
+    /// #13 判据 1 的等价物哨兵：nousdesk 侧必须**递归**扫 `src/`，
+    /// 子目录（如 `src/app/scrollbar.rs`）里的 v1 字面量不能漏账。
+    #[test]
+    fn source_literal_audit_scans_nousdesk_subdirectories() {
+        // 不引用自己的函数名做 split 锚点，免得哨兵命中自己。
+        let src = include_str!("dead_paths.rs");
+        assert!(
+            src.contains("source_files(&manifest.join(\"src\"), &mut files)"),
+            "nousdesk 侧没有递归扫 src/ 子目录"
+        );
+        let skip_needle = ["if path.is_dir()", " { continue; }"].concat();
+        assert!(!src.contains(&skip_needle), "nousdesk 侧还在跳过子目录");
+    }
+
     #[test]
     fn every_v1_literal_in_source_is_accounted_for() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut files = Vec::new();
         source_files(&manifest.join("../nous-engine/src"), &mut files);
-        for entry in std::fs::read_dir(manifest.join("src")).expect("源码目录可读") {
-            let entry = entry.expect("目录项可读");
-            let path = entry.path();
-            if path.is_dir() { continue; } // 测试模块与账本自身不算调用点
-            if path.extension().and_then(|e| e.to_str()) == Some("rs") { files.push(path); }
-        }
+        // #13：nousdesk 侧同样递归扫 src/**（原来是 read_dir 顶层，
+        // `src/app/scrollbar.rs` 这类子目录里的字面量会漏账）。
+        // 测试模块与账本自身在下面的循环里单独排除。
+        source_files(&manifest.join("src"), &mut files);
 
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../nous-engine/tests/fixtures/routes.json"

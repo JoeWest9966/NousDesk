@@ -328,11 +328,17 @@ async fn main() {
     // ── #12 判据 4：stats 可用性 + archive 契约（#67 之后：200 + gens 数组） ──
     let stats = StatsClient::with_token(&host, Duration::from_secs(10), Some(&token))
         .expect("stats 客户端建得起来（必须带 token）");
-    let usage = stats.usage("day").await.expect("GET /v1/stats/usage 200");
+    let usage_raw = stats.usage_raw("day").await.expect("GET /v1/stats/usage 200");
+    let totals_ok = nous_engine::console::usage_totals_present(&usage_raw);
     assert_line(
-        !usage.extra.is_empty() || usage.totals.total_tokens >= 0,
+        totals_ok,
         "stats.usage.200.totals",
-        format!("groupBy={} totalTokens={}", usage.group_by, usage.totals.total_tokens),
+        format!(
+            "totals key={} totalTokens={}",
+            usage_raw.get("totals").is_some(),
+            usage_raw.get("totals").and_then(|t| t.get("totalTokens"))
+                .and_then(|v| v.as_number()).map(|n| n.to_string()).unwrap_or_else(|| "缺失或非数字".into())
+        ),
     );
     // archive 现在真有了（Nous#67）：走客户端而不是裸 HTTP ——
     // 裸 HTTP 成功只说明「路由在」，客户端成功才说明「token 注入那条路没漏」。
