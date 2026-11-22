@@ -459,6 +459,7 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 数据监控室前五屏原来走旧面板的四五个只读接口，那个客户端和随附快照夹具已整文件删除。
 现在这些屏按 capabilities 灰掉并给理由；`Desk#12` 已接上 `/v1/stats/*`，数据原样取、不在客户端重算。
 归档屏仍走 `GET /v1/archive`（未实现，灰 + 理由）。
+2026-11-21 起 Nous#67 已实现，归档屏反向为真拉；见 `decisions.md` 的相关条目。
 
 ## documents 一族（12 条，Desk#16 甲案）
 

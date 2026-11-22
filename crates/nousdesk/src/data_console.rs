@@ -993,6 +993,18 @@ pub(crate) fn assemble_health(tasks: &StatsTasks, device: &nous_engine::types::D
     }
 }
 
+/// 归档屏**是否发 `GET /v1/archive`** 的唯一判定（#12 判据 5 哨兵缝）。
+///
+/// 能力关 / 没连引擎 → 不发；能力开 → 才真拉。渲染层的灰理由仍走
+/// `disabled_reason(Feature::Archive)`，这里只管「要不要产生请求」这件事，
+/// 不许把两者混成一个布尔：那样「灰着但偷偷拉」或「能拉却继续灰」都测不出来。
+pub(crate) fn archive_should_fetch(caps: Option<&nous_engine::Capabilities>) -> bool {
+    caps.is_some_and(|caps| {
+        crate::capability::gate(caps, crate::capability::Feature::Archive)
+            == crate::capability::Gate::Enabled
+    })
+}
+
 /// 拉取 ─────────────────────────────────────────────────────────────
 impl Desktop {
     /// 拉这一页要的一切。
@@ -1008,7 +1020,7 @@ impl Desktop {
         // 归档屏：capabilities 说没有就只给灰理由，一个请求都不发；
         // 说有的时候必须真拉 —— 引擎 `GET /v1/archive` 已经落地（Nous#67），
         // 再挂一句「暂不可用」就是客户端在撒谎。
-        let archive_enabled = self.disabled_reason(crate::capability::Feature::Archive).is_none();
+        let archive_enabled = archive_should_fetch(self.caps.as_ref());
         if !archive_enabled {
             self.console.archive = None;
             self.console.archive_error = None;

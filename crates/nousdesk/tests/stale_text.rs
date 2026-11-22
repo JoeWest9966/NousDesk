@@ -1,12 +1,22 @@
-//! 判据 2 的仓库级哨兵：过期机制描述不许再进源码。
-//! 文档 / demo / 测试夹具里的历史记录不算（它们是记录，不是代码里的说法）。
+//! 判据 2 的仓库级哨兵：过期机制描述不许再进源码 / 文档。
+//! #15 判据 2 的 banned 字面量在 crates/ + docs/ + wire.md 都必须零命中；
+//! 哨兵常量自己拆开写但仍住在源码里，所以要把本文件列入例外，别让它自己命中自己。
+//! demo / 测试夹具里的历史记录不算（它们是记录，不是说法）。
 
 use std::path::Path;
 
 const ROOTS: &[&str] = &[
     concat!(env!("CARGO_MANIFEST_DIR"), "/src"),
     concat!(env!("CARGO_MANIFEST_DIR"), "/../nous-engine/src"),
+    // #15 判据 2：文档也是「说法」，已删的机制不许留在复核命令里。
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../../wire.md"),
 ];
+
+/// 哨兵自己不算命中：BANNED / banned 字面量按定义必须出现在本文件里。
+fn is_sentinel_file(path: &Path) -> bool {
+    path.file_name().and_then(|n| n.to_str()) == Some("stale_text.rs")
+}
 
 fn source_files() -> Vec<std::path::PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
@@ -15,14 +25,19 @@ fn source_files() -> Vec<std::path::PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 walk(&path, out);
-            } else if path.extension().is_some_and(|e| e == "rs") {
+            } else if path.extension().is_some_and(|e| e == "rs" || e == "md") {
                 out.push(path);
             }
         }
     }
     let mut out = Vec::new();
     for root in ROOTS {
-        walk(Path::new(root), &mut out);
+        let root = Path::new(root);
+        if root.is_file() {
+            out.push(root.to_path_buf());
+        } else {
+            walk(root, &mut out);
+        }
     }
     out
 }
@@ -33,6 +48,7 @@ fn no_stale_paths_in_source() {
     const BANNED: &[&str] = &["%APPDATA%", "__nous/resolve", "d6s4v1", concat!("/", "api/")];
     let mut hits = Vec::new();
     for path in source_files() {
+        if is_sentinel_file(&path) { continue; }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         for (i, line) in text.lines().enumerate() {
             for needle in BANNED {
@@ -64,6 +80,7 @@ fn no_filler_state_words_in_code() {
     ];
     let mut hits = Vec::new();
     for path in source_files() {
+        if is_sentinel_file(&path) { continue; }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         for (i, line) in text.lines().enumerate() {
             let trimmed = line.trim_start();
