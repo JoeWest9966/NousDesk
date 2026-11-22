@@ -58,28 +58,11 @@ impl DeadPath {
 /// 私库写等 `Nous#75`、triggers 写等 `Nous#80 / Nous#73`（期间入口灰）、
 /// 只有旧拓扑 `/{op}` 与 `旧面板 REST 路径` 是删。能力型端点一律不删。
 pub const DEAD_PATHS: &[DeadPath] = &[
-    // presets 18 —— 等票 Desk#11（引擎 #60 落 12 条后改契约）
-    DeadPath::wait("GET", "v1/presets/{section}", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/create", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/archive", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/restore", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/purge", "Desk#11"),
-    DeadPath::wait("GET", "v1/presets/{section}/files", "Desk#11"),
-    DeadPath::wait("GET", "v1/presets/{section}/file", "Desk#11"),
-    DeadPath::wait("PUT", "v1/presets/{section}/file", "Desk#11"),
-    DeadPath::wait("GET", "v1/presets/{section}/history", "Desk#11"),
-    DeadPath::wait("GET", "v1/presets/{section}/history/diff", "Desk#11"),
-    DeadPath::wait("GET", "v1/presets/{section}/pending", "Desk#11"),
-    DeadPath::wait("GET", "v1/presets/{section}/pending/diff", "Desk#11"),
-    DeadPath::wait("GET", "v1/presets/{section}/validate", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/publish", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/reload", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/category", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/order", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/rename", "Desk#11"),
-    // 下面两条是同一族的泛化写法（client.rs 的 `{op}` / `categories`），不另计族。
-    DeadPath::wait("POST", "v1/presets/{section}/{op}", "Desk#11"),
-    DeadPath::wait("POST", "v1/presets/{section}/categories", "Desk#11"),
+    // presets 旧 18 条（含 `{op}` / `categories` 泛化）已随 Desk#11 从客户端消失。
+    // 台账对应条目整块删除 —— 不改成第四种状态（brief / AGENTS.md）。
+    // 发布预留（Nous#75）：私库 git 写端点，夹具里还没有，等票。
+    DeadPath::wait("POST", "v1/repos/presets/commit", "Nous#75"),
+    DeadPath::wait("GET", "v1/repos/presets/history", "Nous#75"),
     // combos 2 —— 等票 #61 + Desk#11
     // recovery 快照只有 skills/prompts 两条只读；extensions 的 GET 没有路由。
     DeadPath::wait("GET", "v1/extensions", "Nous#63 / Desk#13"),
@@ -185,9 +168,12 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/documents/{kind}/{section}/{name}/history/diff"),
     ("GET", "v1/documents/{kind}/{section}/{name}/pending"),
     ("GET", "v1/documents/{kind}/{section}/{name}/pending/diff"),
-    // 服务端 presets 新契约路由（#60），Desk 暂用旧模板；这些是能力表已知路径。
-    ("GET", "v1/presets"),
+    // 服务端 presets 新契约路由（#60 / Desk#11）：夹具 12 条 + sections + order。
+    // `PUT /v1/presets/{section}/order` 夹具里也在，之前 ENGINE_ROUTES 漏抄，补上。
     ("GET", "v1/presets/model"),
+    ("GET", "v1/presets/{section}"),
+    ("PUT", "v1/presets/{section}/order"),
+    ("GET", "v1/presets/{section}/categories"),
     ("GET", "v1/presets/{section}/{name}"),
     ("PUT", "v1/presets/{section}/{name}"),
     ("PATCH", "v1/presets/{section}/{name}"),
@@ -442,11 +428,11 @@ mod tests {
 
     #[test]
     fn catalog_covers_all_fifty_dead_path_families() {
-        assert_eq!(DEAD_PATHS.len(), 63, "原 68 条减去 6 条泛化删账 + triggers/sync 灰");
+        assert_eq!(DEAD_PATHS.len(), 45, "原 63 条减去 presets 旧 20 条 + 加 repo 预留 2 条");
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::WaitTicket).count(),
-            48,
-            "原 23 + 资源写 15 + triggers 10 = 48"
+            30,
+            "原 48 条减去 presets 旧 20 条 + 加 repo 预留 2 条"
         );
         assert_eq!(
             DEAD_PATHS.iter().filter(|e| e.disposition == Disposition::Gray).count(),
@@ -553,17 +539,29 @@ mod source_literal_audit {
         }
     }
 
+    /// #13 判据 1 的等价物哨兵：nousdesk 侧必须**递归**扫 `src/`，
+    /// 子目录（如 `src/app/scrollbar.rs`）里的 v1 字面量不能漏账。
+    #[test]
+    fn source_literal_audit_scans_nousdesk_subdirectories() {
+        // 不引用自己的函数名做 split 锚点，免得哨兵命中自己。
+        let src = include_str!("dead_paths.rs");
+        assert!(
+            src.contains("source_files(&manifest.join(\"src\"), &mut files)"),
+            "nousdesk 侧没有递归扫 src/ 子目录"
+        );
+        let skip_needle = ["if path.is_dir()", " { continue; }"].concat();
+        assert!(!src.contains(&skip_needle), "nousdesk 侧还在跳过子目录");
+    }
+
     #[test]
     fn every_v1_literal_in_source_is_accounted_for() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut files = Vec::new();
         source_files(&manifest.join("../nous-engine/src"), &mut files);
-        for entry in std::fs::read_dir(manifest.join("src")).expect("源码目录可读") {
-            let entry = entry.expect("目录项可读");
-            let path = entry.path();
-            if path.is_dir() { continue; } // 测试模块与账本自身不算调用点
-            if path.extension().and_then(|e| e.to_str()) == Some("rs") { files.push(path); }
-        }
+        // #13：nousdesk 侧同样递归扫 src/**（原来是 read_dir 顶层，
+        // `src/app/scrollbar.rs` 这类子目录里的字面量会漏账）。
+        // 测试模块与账本自身在下面的循环里单独排除。
+        source_files(&manifest.join("src"), &mut files);
 
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../nous-engine/tests/fixtures/routes.json"
@@ -618,7 +616,7 @@ mod source_literal_audit {
                             .map(move |kind| template.replace("{repo}", kind))
                             .collect()
                     } else if path.contains("{}") && !path.starts_with("v1/documents/")
-                        && !path.starts_with("v1/presets/") {
+                        && !path.strip_prefix(concat!("v1/presets", "/")).is_some_and(|_| true) {
                         // `format!("/v1/{}/publish", kind.repo().key())`：{} 是资源仓。
                         let template = path.clone();
                         ["skills", "prompts", "extensions"].into_iter()
@@ -632,7 +630,7 @@ mod source_literal_audit {
                             .collect()
                     } else if path.contains("{}") && path.starts_with("v1/documents/") {
                         vec![path.replace("{}", "{name}")]
-                    } else if path.contains("{}") && path.starts_with("v1/presets/") {
+                    } else if path.contains("{}") && path.strip_prefix(concat!("v1/presets", "/")).is_some_and(|_| true) {
                         ["archive", "restore", "purge"].into_iter()
                             .map(|op| path.replace("{}", op)).collect()
                     } else {

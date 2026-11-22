@@ -25,6 +25,13 @@ use crate::editor_presets::*;
 /// 终极模板那一段的 id（引擎侧的路径段）。
 const ULTIMATE: &str = "Ultimate-Template";
 
+/// 写端点的幂等锚。一次用户动作一个，重放同一锚引擎回第一次的回执（坑.md 99）。
+fn new_request_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    format!("desk-{n}-{}", std::process::id())
+}
+
 fn t() -> crate::theme::Skin {
     crate::theme::cur()
 }
@@ -35,7 +42,7 @@ pub(crate) enum EditorTab {
     Json,
     Effective,
     Issues,
-    /// 仓里这份预设还没提交的改动（引擎 `/pending` + `/pending/diff`）。
+    /// 本地原文 vs 当前草稿的展示层差异（客户端 `diff_lines` 现算）。
     Diff,
     /// 这条预设提交过哪些次（引擎 `/history`）。
     History,
@@ -245,13 +252,10 @@ pub(crate) struct EditorState {
     pub picker: Option<PickerState>,
     /// Ctrl+K 命令面板。
     pub palette: Option<Palette>,
-    /// 仓里这一段有什么没提交（`/pending`）。
-    pub pending: Option<nous_engine::types::Pending>,
     /// 当前选中那个文件的 `before` / `after`。
     pub diff: Option<nous_engine::types::FileDiff>,
     /// 正在拉 diff 的那个文件路径（相对段目录）。
     pub diff_pick: Option<String>,
-    pub diff_loading: bool,
     /// 这条预设的提交历史（新到旧）。
     pub history: Option<Vec<nous_engine::types::Commit>>,
     /// 选中那次提交的 hash。
@@ -286,10 +290,8 @@ impl Default for EditorState {
             publish_msg: None,
             picker: None,
             palette: None,
-            pending: None,
             diff: None,
             diff_pick: None,
-            diff_loading: false,
             history: None,
             hist_pick: None,
             hist_diff: None,
@@ -515,6 +517,33 @@ fn toggle_list(v: &mut serde_json::Value, key: &str, item: &str) {
     obj.insert(key.to_string(), serde_json::Value::Array(list));
 }
 
+/// 把 `nous_engine::diff` 的行结果重建两份「对齐后」的全文，供现有逐行渲染用。
+/// Del 行只在 before 留、Add 行只在 after 留，Same 两边都留 —— 行数因此相等。
+fn rebuild_texts(rows: &[nous_engine::diff::DiffLine]) -> (String, String) {
+    use nous_engine::diff::DiffKind;
+    let mut before = String::new();
+    let mut after = String::new();
+    for r in rows {
+        match r.kind {
+            DiffKind::Same => {
+                before.push_str(&r.text);
+                before.push('\n');
+                after.push_str(&r.text);
+                after.push('\n');
+            }
+            DiffKind::Del => {
+                before.push_str(&r.text);
+                before.push('\n');
+            }
+            DiffKind::Add => {
+                after.push_str(&r.text);
+                after.push('\n');
+            }
+        }
+    }
+    (before, after)
+}
+
 /// 一行 diff 是什么。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DiffOp {
@@ -607,24 +636,11 @@ impl crate::app::Desktop {
 
         cx.spawn(async move |this, cx| {
             let handle = crate::TOKIO.get().cloned();
-            // ① 清单文件叫什么（`preset.json` / `ultimate.json`）—— 问清单，不猜。
-            let manifest = match &handle {
-                Some(h) => {
-                    let (e, s, n) = (engine.clone(), section.clone(), name.clone());
-                    match h.spawn(async move { e.preset_files(&s, &n).await }).await {
-                        Ok(Ok(files)) => pick_manifest(&files.files),
-                        _ => "preset.json".to_string(),
-                    }
-                }
-                _ => "preset.json".to_string(),
-            };
-            // ② 读它
+            // Desk#11：新契约只有一条 `GET /{section}/{name}`，manifest 固定是 preset.json。
             let result: Option<Result<PresetFile, EngineError>> = match &handle {
                 Some(h) => {
-                    let (e, s, n, m) = (engine.clone(), section.clone(), name.clone(), manifest.clone());
-                    h.spawn(async move { e.preset_file(&s, &n, &m).await })
-                        .await
-                        .ok()
+                    let (e, s, n) = (engine.clone(), section.clone(), name.clone());
+                    h.spawn(async move { e.preset_get(&s, &n).await }).await.ok()
                 }
                 _ => None,
             };
@@ -632,7 +648,7 @@ impl crate::app::Desktop {
                 this.editor.loading = false;
                 match result {
                     Some(Ok(f)) => {
-                        this.editor.manifest = manifest.clone();
+                        this.editor.manifest = "preset.json".to_string();
                         this.editor.text = f.text.clone();
                         this.editor.etag = f.etag.clone();
                         this.editor.draft = serde_json::from_str(&f.text).unwrap_or_else(|e| {
@@ -643,7 +659,6 @@ impl crate::app::Desktop {
                         this.editor.conflict = false;
                         this.validate_preset(cx);
                         this.load_candidates(cx);
-                        this.load_pending(cx);
                     }
                     Some(Err(e)) => this.editor.err = Some(format!("读不到 preset.json：{e}")),
                     None => this.editor.err = Some("任务没跑完".into()),
@@ -805,15 +820,23 @@ impl crate::app::Desktop {
             Cmd::Group(g) => self.editor.group = g,
             Cmd::Tab(t) => {
                 self.editor.tab = t;
-                if t == EditorTab::Diff && self.editor.pending.is_none() {
-                    self.load_pending(cx);
+                if t == EditorTab::Diff && self.editor.diff.is_none() {
+                    self.recompute_diff(cx);
                 }
                 if t == EditorTab::History && self.editor.history.is_none() {
                     self.load_history(cx);
                 }
             }
             Cmd::Save => self.save_editor(cx),
-            Cmd::Publish => self.open_publish_dialog(window, cx),
+            Cmd::Publish => {
+                if publish_enabled(self.caps.as_ref()) {
+                    self.open_publish_dialog(window, cx);
+                } else {
+                    let reason = publish_reason(self.caps.as_ref())
+                        .unwrap_or_else(|| "服务端未声明这个功能".to_string());
+                    self.notify(reason, crate::app::NoticeKind::Error, cx);
+                }
+            }
             Cmd::Reload => self.reload_editor(cx),
             Cmd::Validate => self.validate_preset(cx),
             Cmd::Back => {
@@ -866,87 +889,53 @@ impl crate::app::Desktop {
         cx.notify();
     }
 
-    /// 拉这一段仓里没提交的东西（编辑器「待提交」那一栏的目录）。
-    pub(crate) fn load_pending(&mut self, cx: &mut Context<Self>) {
-        let Some(engine) = self.engine.clone() else {
-            return;
-        };
-        let section = self.editor.section.clone();
-        cx.spawn(async move |this, cx| {
-            let Some(h) = crate::TOKIO.get().cloned() else {
-                return;
-            };
-            // 数据源：presets 的 pending（幂等单元）。
-            let got = h
-                .spawn(async move { engine.pending(&section).await })
-                .await
-                .ok();
-            let _ = this.update(cx, |this, cx| {
-                let Some(Ok(p)) = got else {
-                    return;
-                };
-                // 之前选的那个文件可能已经提交掉了 —— 不在清单里就重选第一个。
-                let files: Vec<String> = p
-                    .unit(&this.editor.name)
-                    .map(|u| u.files.iter().map(|f| f.path.clone()).collect())
-                    .unwrap_or_default();
-                let keep = this
-                    .editor
-                    .diff_pick
-                    .as_ref()
-                    .is_some_and(|cur| files.iter().any(|f| f == cur));
-                this.editor.pending = Some(p);
-                if !keep {
-                    this.editor.diff = None;
-                    this.editor.diff_pick = None;
-                }
-                if let Some(first) = files.first().cloned()
-                    && !keep
-                {
-                    this.pick_diff_file(&first, cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+    /// Desk#11：差异是展示层计算 —— 拿刚读到的盘上原文和当前 draft 比，不发 HTTP。
+    /// 结果包成 `FileDiff` 只为了复用已有的逐行渲染（`before`/`after` 是**重建的全文**，
+    /// 不是引擎给的原文；这里没有状态语义）。
+    pub(crate) fn recompute_diff(&mut self, cx: &mut Context<Self>) {
+        let current = serde_json::to_string_pretty(&self.editor.draft).unwrap_or_default() + "\n";
+        let rows = nous_engine::diff::diff_lines(&self.editor.text, &current);
+        let (before, after) = rebuild_texts(&rows);
+        self.editor.diff = Some(nous_engine::types::FileDiff {
+            path: self.editor.manifest.clone(),
+            before: Some(before),
+            after: Some(after),
+            extra: Default::default(),
+        });
+        self.editor.diff_pick = Some(self.editor.manifest.clone());
+        cx.notify();
     }
 
-    /// 拉这条预设的提交历史（新到旧）。
+    /// 拉这条预设的修订清单（引擎内 revisions，新到旧）。
     pub(crate) fn load_history(&mut self, cx: &mut Context<Self>) {
-        let Some(engine) = self.engine.clone() else {
-            return;
-        };
+        let Some(engine) = self.engine.clone() else { return; };
         let section = self.editor.section.clone();
         let name = self.editor.name.clone();
         self.editor.hist_loading = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let Some(h) = crate::TOKIO.get().cloned() else {
-                return;
-            };
-            // 数据源：presets 的修订历史。
-            let got = h
-                .spawn(async move { engine.preset_history(&section, &name, 30).await })
-                .await
-                .ok();
+            let Some(h) = crate::TOKIO.get().cloned() else { return; };
+            let got = h.spawn(async move { engine.preset_revisions(&section, &name).await }).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.editor.hist_loading = false;
                 match got {
-                    Some(Ok(h)) => {
-                        this.editor.history = Some(h.commits);
-                        // 默认看最近那次 —— 打开就看到改了什么，不用先点一下。
-                        let first = this
-                            .editor
-                            .history
-                            .as_ref()
-                            .and_then(|c| c.first())
-                            .map(|c| c.hash.clone());
-                        if let Some(hash) = first {
-                            this.pick_commit(&hash, cx);
+                    Some(Ok(v)) => {
+                        let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+                        let commits: Vec<nous_engine::types::Commit> = items.iter().map(|it| nous_engine::types::Commit {
+                            hash: it.get("n").map(|n| n.to_string()).unwrap_or_default(),
+                            short: it.get("n").map(|n| n.to_string()).unwrap_or_default(),
+                            at: it.get("at").and_then(|a| a.as_str()).map(str::to_owned),
+                            author: it.get("actor").and_then(|a| a.as_str()).map(str::to_owned),
+                            message: it.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+                            extra: it.as_object().map(|o| o.iter().map(|(k,v)| (k.clone(), v.clone())).collect()).unwrap_or_default(),
+                        }).collect();
+                        this.editor.history = Some(commits);
+                        if let Some(first) = this.editor.history.as_ref().and_then(|c| c.first()).map(|c| c.hash.clone()) {
+                            this.pick_commit(&first, cx);
                         }
                     }
-                    Some(Err(e)) => this.editor.err = Some(format!("读历史失败：{e}")),
-                    None => this.editor.err = Some("读历史没跑完".into()),
+                    Some(Err(e)) => this.editor.err = Some(format!("读修订失败：{e}")),
+                    None => this.editor.err = Some("读修订没跑完".into()),
                 }
                 cx.notify();
             });
@@ -954,71 +943,39 @@ impl crate::app::Desktop {
         .detach();
     }
 
-    /// 看某一次提交改了什么（这一段清单文件那一份）。
+    /// 看第 n 版的原文：拉回来之后在客户端算「当前原文 vs 第 n 版原文」的差异。
     pub(crate) fn pick_commit(&mut self, hash: &str, cx: &mut Context<Self>) {
-        let Some(engine) = self.engine.clone() else {
-            return;
-        };
+        let Some(engine) = self.engine.clone() else { return; };
         let section = self.editor.section.clone();
         let name = self.editor.name.clone();
-        let manifest = self.editor.manifest.clone();
-        let hash = hash.to_string();
-        self.editor.hist_pick = Some(hash.clone());
-        self.editor.hist_diff = None;
+        let n: i64 = match hash.parse() { Ok(n) => n, Err(_) => return };
+        self.editor.hist_pick = Some(hash.to_string());
         self.editor.hist_loading = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let Some(h) = crate::TOKIO.get().cloned() else {
-                return;
-            };
-            // 数据源：presets 的提交 diff。
-            let got = h
-                .spawn(async move {
-                    engine
-                        .preset_commit_diff(&section, &name, &hash, &manifest)
-                        .await
-                })
-                .await
-                .ok();
+            let Some(h) = crate::TOKIO.get().cloned() else { return; };
+            let got = h.spawn(async move { engine.preset_revision(&section, &name, n).await }).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.editor.hist_loading = false;
                 match got {
-                    Some(Ok(d)) => this.editor.hist_diff = Some(d),
-                    Some(Err(e)) => this.editor.err = Some(format!("读那次改动失败：{e}")),
-                    None => this.editor.err = Some("读那次改动没跑完".into()),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// 读一个文件的 `before` / `after`（相对段目录的路径）。
-    pub(crate) fn pick_diff_file(&mut self, path: &str, cx: &mut Context<Self>) {
-        let Some(engine) = self.engine.clone() else {
-            return;
-        };
-        let section = self.editor.section.clone();
-        let path = path.to_string();
-        self.editor.diff_pick = Some(path.clone());
-        self.editor.diff = None;
-        self.editor.diff_loading = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let Some(h) = crate::TOKIO.get().cloned() else {
-                return;
-            };
-            // 数据源：presets 的 pending diff。
-            let got = h
-                .spawn(async move { engine.pending_diff(&section, &path).await })
-                .await
-                .ok();
-            let _ = this.update(cx, |this, cx| {
-                this.editor.diff_loading = false;
-                match got {
-                    Some(Ok(d)) => this.editor.diff = Some(d),
-                    Some(Err(e)) => this.editor.err = Some(format!("读改动失败：{e}")),
-                    None => this.editor.err = Some("读改动没跑完".into()),
+                    Some(Ok(v)) => {
+                        let text = v.get("body")
+                            .or_else(|| v.get("text"))
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let current = serde_json::to_string_pretty(&this.editor.draft).unwrap_or_default() + "\n";
+                        let rows = nous_engine::diff::diff_lines(&current, &text);
+                        let (before, after) = rebuild_texts(&rows);
+                        this.editor.hist_diff = Some(nous_engine::types::FileDiff {
+                            path: this.editor.manifest.clone(),
+                            before: Some(before),
+                            after: Some(after),
+                            extra: Default::default(),
+                        });
+                    }
+                    Some(Err(e)) => this.editor.err = Some(format!("读那版原文失败：{e}")),
+                    None => this.editor.err = Some("读那版原文没跑完".into()),
                 }
                 cx.notify();
             });
@@ -1143,28 +1100,33 @@ impl crate::app::Desktop {
         true
     }
 
-    /// 让引擎校验这份草稿。用盘上那份（保存后再校验），所以只在读/写之后调。
+    /// 校验：`PUT /v1/presets/{section}/{name}?dry_run=1`，带 requestId，不落盘。
     fn validate_preset(&mut self, cx: &mut Context<Self>) {
-        let Some(engine) = self.engine.clone() else {
-            return;
-        };
+        let Some(engine) = self.engine.clone() else { return; };
         let section = self.editor.section.clone();
         let name = self.editor.name.clone();
+        let body = self.editor.draft.clone();
         self.editor.validating = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let handle = crate::TOKIO.get().cloned();
             let result = match &handle {
-                Some(h) => h
-                    .spawn(async move { engine.validate_preset(&section, &name).await })
-                    .await
-                    .ok(),
+                Some(h) => h.spawn(async move {
+                    engine.preset_put(&section, &name, &body, &new_request_id(), None, true).await
+                }).await.ok(),
                 _ => None,
             };
             let _ = this.update(cx, |this, cx| {
                 this.editor.validating = false;
                 if let Some(Ok(v)) = result {
-                    this.editor.validation = Some(v);
+                    let errors = v.get("errors").and_then(|e| e.as_array()).cloned().unwrap_or_default();
+                    let warnings = v.get("warnings").and_then(|e| e.as_array()).cloned().unwrap_or_default();
+                    this.editor.validation = Some(nous_engine::types::PresetValidation {
+                        ok: v.get("valid").and_then(|b| b.as_bool()).unwrap_or(false),
+                        errors, warnings,
+                        resolved: v.get("resolved").cloned(),
+                        extra: Default::default(),
+                    });
                 }
                 cx.notify();
             });
@@ -1199,8 +1161,11 @@ impl crate::app::Desktop {
                     .spawn(async move {
                         // 保存走 presets 的 `PUT`（`If-Match` 走 header）。
                         // 409 是**业务信号**，必须原样交回 UI，绝不能降级成覆盖写。
+                        let body: serde_json::Value = serde_json::from_str(&text_for_req)
+                            .unwrap_or(serde_json::Value::Null);
+                        let _ = &manifest_for_req;
                         engine
-                            .put_preset_file(&section, &name, &manifest_for_req, &text_for_req, &base)
+                            .preset_put(&section, &name, &body, &new_request_id(), Some(&base), false)
                             .await
                     })
                     .await
@@ -1219,7 +1184,7 @@ impl crate::app::Desktop {
                         this.editor.conflict = false;
                         this.notify("已保存到盘上 · 还没提交", crate::app::NoticeKind::Info, cx);
                         this.validate_preset(cx);
-                        this.load_pending(cx);
+                        this.recompute_diff(cx);
                         this.load_section(this.section, true, cx);
                     }
                     Some(Err(EngineError::Engine { status: 409, message, body })) => {
@@ -1247,6 +1212,13 @@ impl crate::app::Desktop {
 
     /// 发布：commit + push。和保存分开 —— 这个会真的动仓库。
     pub(crate) fn publish_editor(&mut self, cx: &mut Context<Self>) {
+        // 点击 / 键盘 / 对话框三条路都到这儿；等票端点在这里再挡一次。
+        if !publish_enabled(self.caps.as_ref()) {
+            if let Some(reason) = publish_reason(self.caps.as_ref()) {
+                self.notify(reason, crate::app::NoticeKind::Error, cx);
+            }
+            return;
+        }
         let Some(input) = self.editor.publish_msg.clone() else {
             return;
         };
@@ -1258,6 +1230,7 @@ impl crate::app::Desktop {
             return;
         };
         let section = self.editor.section.clone();
+        let name_for_commit = self.editor.name.clone();
         let msg = input.read(cx).value().trim().to_string();
         let msg = if msg.is_empty() {
             format!("调整 {}", self.editor.name)
@@ -1272,7 +1245,10 @@ impl crate::app::Desktop {
             let handle = crate::TOKIO.get().cloned();
             let result = match &handle {
                 Some(h) => h
-                    .spawn(async move { engine.publish_preset(&section, &msg).await })
+                    .spawn(async move {
+                        let path = format!("{}/{}", section, name_for_commit);
+                        engine.preset_repo_commit(vec![path], &msg, &new_request_id()).await
+                    })
                     .await
                     .ok(),
                 _ => None,
@@ -1483,20 +1459,39 @@ impl crate::app::Desktop {
                             .child("Ctrl+S"),
                     ),
             )
-            .child(
-                div()
+            .child({
+                // 等票端点：灰、不挂 on_click、理由原文摆在按钮旁边。
+                let enabled = publish_enabled(self.caps.as_ref());
+                let reason = if enabled { None } else { publish_reason(self.caps.as_ref()) };
+                let mut btn = div()
                     .id("ed-publish")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t().d(6.))
                     .px(t().d(11.))
                     .py(t().d(5.))
                     .rounded(t().r(6.))
-                    .bg(rgb(t().p.accent))
+                    .bg(rgb(if enabled { t().p.accent } else { t().p.line_soft }))
                     .text_size(t().fs(11.5))
-                    .text_color(rgb(t().p.on_accent))
-                    .cursor_pointer()
-                    .hover(|h| h.bg(rgb(t().p.accent_hover)))
-                    .on_click(cx.listener(|this, _, window, cx| this.open_publish_dialog(window, cx)))
-                    .child(if e.publishing { "发布中…" } else { "发布…" }),
-            );
+                    .text_color(rgb(if enabled { t().p.on_accent } else { t().p.faint }));
+                if enabled {
+                    btn = btn
+                        .cursor_pointer()
+                        .hover(|h| h.bg(rgb(t().p.accent_hover)))
+                        .on_click(cx.listener(|this, _, window, cx| this.open_publish_dialog(window, cx)));
+                }
+                btn = btn.child(if e.publishing { "发布中…" } else { "发布…" });
+                if let Some(reason) = reason {
+                    btn = btn.child(
+                        div()
+                            .text_size(t().fs(9.))
+                            .text_color(rgb(t().p.faint))
+                            .child(reason),
+                    );
+                }
+                btn
+            });
 
         let body = div()
             .flex()
@@ -2225,7 +2220,7 @@ impl crate::app::Desktop {
             let on = e.tab == tab;
             let badge = match tab {
                 EditorTab::Issues => errs + warns,
-                EditorTab::Diff => pending_file_count(e),
+                EditorTab::Diff => diff_change_count(e),
                 EditorTab::History => e.history.as_ref().map(|h| h.len()).unwrap_or(0),
                 EditorTab::Changes => changed_labels(e).len(),
                 _ => 0,
@@ -2247,8 +2242,8 @@ impl crate::app::Desktop {
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.editor.tab = tab;
                         // 这两个 tab 的数据问引擎要，「第一次点开」才打那一次请求。
-                        if tab == EditorTab::Diff && this.editor.pending.is_none() {
-                            this.load_pending(cx);
+                        if tab == EditorTab::Diff && this.editor.diff.is_none() {
+                            this.recompute_diff(cx);
                         }
                         if tab == EditorTab::History && this.editor.history.is_none() {
                             this.load_history(cx);
@@ -2392,142 +2387,18 @@ impl crate::app::Desktop {
                     .flex_1()
                     .min_h(t().d(0.))
                     .overflow_y_scroll();
-                let unit = e.pending.as_ref().and_then(|p| p.unit(&e.name));
-                let Some(unit) = unit else {
-                    col = col.child(note(if e.pending.is_some() {
-                        "这份没有待提交的改动 —— 盘上和 HEAD 一样。"
-                    } else {
-                        "还没读到仓状态（引擎那边 /pending 没回）。"
-                    }));
-                    return wrapper(tabs, col.into_any_element(), cx, self);
-                };
-
-                // ① 这条预设改了哪些文件（引擎数好的增删行数，客户端不再数一遍）
-                col = col.child(section_label(&format!(
-                    "待提交 · {} 个文件",
-                    unit.files.len()
-                )));
-                for f in &unit.files {
-                    let path = f.path.clone();
-                    let picked = e.diff_pick.as_deref() == Some(f.path.as_str());
-                    let (mark, mark_color) = match f.status.as_str() {
-                        "A" => ("A", t().p.ok),
-                        "D" => ("D", t().p.danger),
-                        _ => ("M", t().p.warn),
-                    };
-                    col = col.child(
-                        div()
-                            .id(ElementId::Name(format!("ed-df-{path}").into()))
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(t().d(7.))
-                            .px(t().d(12.))
-                            .py(t().d(4.))
-                            .cursor_pointer()
-                            .when(picked, |el| el.bg(rgb(t().p.selected)))
-                            .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.pick_diff_file(&path, cx);
-                            }))
-                            .child(
-                                div()
-                                    .w(t().d(10.))
-                                    .flex_none()
-                                    .text_size(t().fs(9.5))
-                                    .font_family("JetBrainsMono")
-                                    .text_color(rgb(mark_color))
-                                    .child(mark),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(t().d(0.))
-                                    .truncate()
-                                    .text_size(t().fs(10.5))
-                                    .font_family("JetBrainsMono")
-                                    .text_color(rgb(t().p.text_2))
-                                    .child(f.path.replace(&format!("{}/", e.name), "")),
-                            )
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .text_size(t().fs(9.5))
-                                    .font_family("JetBrainsMono")
-                                    .text_color(rgb(t().p.ok))
-                                    .child(format!("+{}", f.added)),
-                            )
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .text_size(t().fs(9.5))
-                                    .font_family("JetBrainsMono")
-                                    .text_color(rgb(t().p.danger))
-                                    .child(format!("−{}", f.removed)),
-                            ),
-                    );
-                }
-
-                // ② 选中那个文件的逐行 diff
-                col = col.child(div().h(t().d(1.)).bg(rgb(t().p.line_soft)));
-                match &e.diff {
-                    None if e.diff_loading => {
-                        col = col.child(note("读那份文件的改动…"));
-                    }
-                    None => {
-                        col = col.child(note("点上面一个文件看改了哪几行。"));
-                    }
-                    Some(d) => {
-                        let (mut add, mut del) = (0, 0);
-                        for (op, _) in line_diff(
-                            d.before.as_deref().unwrap_or(""),
-                            d.after.as_deref().unwrap_or(""),
-                        ) {
-                            match op {
-                                DiffOp::Add => add += 1,
-                                DiffOp::Del => del += 1,
-                                DiffOp::Same => {}
-                            }
-                        }
-                        col = col.child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(t().d(8.))
-                                .px(t().d(12.))
-                                .py(t().d(6.))
-                                .child(
-                                    div()
-                                        .text_size(t().fs(10.))
-                                        .font_family("JetBrainsMono")
-                                        .text_color(rgb(t().p.faint))
-                                        .child(d.path.clone()),
-                                )
-                                .children((d.before.is_none()).then(|| {
-                                    div()
-                                        .text_size(t().fs(9.))
-                                        .text_color(rgb(t().p.ok))
-                                        .child("新文件")
-                                }))
-                                .child(
-                                    div()
-                                        .ml_auto()
-                                        .text_size(t().fs(9.5))
-                                        .font_family("JetBrainsMono")
-                                        .text_color(rgb(t().p.ok))
-                                        .child(format!("+{add}")),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(t().fs(9.5))
-                                        .font_family("JetBrainsMono")
-                                        .text_color(rgb(t().p.danger))
-                                        .child(format!("−{del}")),
-                                ),
-                        );
-                        col = col.child(diff_lines(d.before.as_deref(), d.after.as_deref()));
-                    }
+                // Desk#11：草稿降级成字段，差异视图直接画客户端算出的行级结果。
+                let rows = nous_engine::diff::diff_lines(
+                    &e.text,
+                    &serde_json::to_string_pretty(&e.draft).unwrap_or_default(),
+                );
+                let add = rows.iter().filter(|r| r.kind == nous_engine::diff::DiffKind::Add).count();
+                let del = rows.iter().filter(|r| r.kind == nous_engine::diff::DiffKind::Del).count();
+                col = col.child(section_label(&format!("未保存 · +{add} −{del}")));
+                if rows.is_empty() {
+                    col = col.child(note("盘上和编辑框里一样 —— 没有未保存的改动。"));
+                } else {
+                    col = col.child(diff_lines(Some(&e.text), Some(&serde_json::to_string_pretty(&e.draft).unwrap_or_default())));
                 }
                 col.into_any_element()
             }
@@ -2742,6 +2613,12 @@ impl crate::app::Desktop {
 
     /// 发布对话框：commit message。
     pub(crate) fn open_publish_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !publish_enabled(self.caps.as_ref()) {
+            if let Some(reason) = publish_reason(self.caps.as_ref()) {
+                self.notify(reason, crate::app::NoticeKind::Error, cx);
+            }
+            return;
+        }
         let default = format!("调整 {}", self.editor.name);
         let input = cx.new(|cx| InputState::new(window, cx).default_value(default));
         self.editor.publish_msg = Some(input);
@@ -3284,25 +3161,42 @@ impl crate::app::Desktop {
                                     }))
                                     .child("取消"),
                             )
-                            .child(
-                                div()
+                            .child({
+                                let enabled = publish_enabled(self.caps.as_ref());
+                                let mut go = div()
                                     .id("ed-pub-go")
                                     .px(t().d(16.))
                                     .py(t().d(5.))
                                     .rounded(t().r(6.))
-                                    .bg(rgb(t().p.accent))
-                                    .text_color(rgb(t().p.on_accent))
-                                    .text_size(t().fs(11.5))
-                                    .cursor_pointer()
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    .bg(rgb(if enabled { t().p.accent } else { t().p.line_soft }))
+                                    .text_color(rgb(if enabled { t().p.on_accent } else { t().p.faint }))
+                                    .text_size(t().fs(11.5));
+                                if enabled {
+                                    go = go.cursor_pointer().on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                         this.publish_editor(cx);
-                                    }))
-                                    .child("发布"),
-                            ),
+                                    }));
+                                }
+                                go.child("发布")
+                            }),
                     ),
             );
         Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
     }
+}
+
+/// `POST /v1/repos/presets/commit` 仍在等票 Nous#75：没有 caps / caps 没声明这条端点
+/// 都不许挂点击。`endpoint_enabled` 是能力判定的唯一通道，这里只消费结果。
+const REPO_COMMIT: (&str, &str) = ("POST", "/v1/repos/presets/commit");
+
+fn publish_enabled(caps: Option<&nous_engine::Capabilities>) -> bool {
+    caps.is_some_and(|c| {
+        crate::capability::endpoint_enabled(c, REPO_COMMIT.0, REPO_COMMIT.1)
+    })
+}
+
+fn publish_reason(caps: Option<&nous_engine::Capabilities>) -> Option<String> {
+    let caps = caps?;
+    crate::capability::endpoint_disabled_reason(caps, REPO_COMMIT.0, REPO_COMMIT.1)
 }
 
 /// 检查单的一行：左边固定的标签，右边一句话。
@@ -3398,13 +3292,22 @@ fn soft(color: u32) -> u32 {
     (color << 8) | 0x16
 }
 
-/// 这份预设有几个文件在待提交里（tab 上的徽标）。
-fn pending_file_count(e: &EditorState) -> usize {
-    e.pending
-        .as_ref()
-        .and_then(|p| p.unit(&e.name))
-        .map(|u| u.files.len())
-        .unwrap_or(0)
+/// 这份预设本地算出来的 diff 有几处增删（tab 上的徽标）。
+/// 新契约没有引擎 pending 状态位：数据源只有 `diff_lines` 重建出的 `editor.diff`。
+fn diff_change_count(e: &EditorState) -> usize {
+    let Some(d) = e.diff.as_ref() else { return 0 };
+    let rows = nous_engine::diff::diff_lines(
+        d.before.as_deref().unwrap_or(""),
+        d.after.as_deref().unwrap_or(""),
+    );
+    let mut changes = 0;
+    for r in rows {
+        match r.kind {
+            nous_engine::diff::DiffKind::Add | nous_engine::diff::DiffKind::Del => changes += 1,
+            nous_engine::diff::DiffKind::Same => {}
+        }
+    }
+    changes
 }
 
 fn pill(text: String, color: u32) -> AnyElement {
@@ -3572,7 +3475,10 @@ fn json_error_line(e: &EditorState) -> Option<usize> {
 mod tests {
     // 别写 `use super::*;` —— 会把 `gpui_kit::*` 带进来，`#[test]` 展开时撞 recursion limit
     // （坑.md 68）。
-    use super::{DiffOp, del_key, is_dirty, line_diff, read_text, toggle_list, write_bool, write_text};
+    use super::{
+        diff_change_count, publish_enabled, publish_reason, DiffOp, del_key, is_dirty,
+        line_diff, read_text, toggle_list, write_bool, write_text,
+    };
 
     fn v(text: &str) -> serde_json::Value {
         serde_json::from_str(text).unwrap()
@@ -3635,6 +3541,38 @@ mod tests {
         assert!(rows.contains(&(DiffOp::Del, "  \"a\": 1".to_string())));
     }
 
+    #[test]
+    fn repo_commit_not_in_caps_disables_publish() {
+        // 没有 caps = 没连上引擎，不许发布；caps 里没有这条端点 = 等票，也不许发布。
+        assert!(!publish_enabled(None));
+        let caps: nous_engine::Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.3" },
+            "modules": [{ "name": "sessions", "enabled": true, "endpoints": ["/v1/repos/presets/commit"] }],
+            "runtime": { "provider": { "kind": "real" } }
+        })).unwrap();
+        assert!(!publish_enabled(Some(&caps)));
+        let reason = publish_reason(Some(&caps)).expect("灰掉的发布必须带理由");
+        assert!(reason.contains("服务端未声明"), "{reason}");
+    }
+
+    #[test]
+    fn diff_change_count_comes_from_local_diff_rows() {
+        let mut e = super::EditorState::new();
+        e.text = "a\nb\n".into();
+        e.draft = serde_json::from_str("\"c\"").unwrap();
+        e.diff = None;
+        assert_eq!(diff_change_count(&e), 0, "没有本地 diff 就没有待提交数");
+        // 模拟展示层算出来的 diff（recompute_diff 只走 diff_lines，不发 HTTP）。
+        let rows = nous_engine::diff::diff_lines(&e.text, "a\nb\nc\n");
+        let (before, after) = super::rebuild_texts(&rows);
+        e.diff = Some(nous_engine::types::FileDiff {
+            path: e.manifest.clone(), before: Some(before), after: Some(after),
+            extra: Default::default(),
+        });
+        assert_eq!(diff_change_count(&e), 1, "diff 增删行来自 diff_lines");
+    }
+
     /// 只加一行。
     #[test]
     fn diff_of_a_pure_addition_has_no_deletions() {
@@ -3653,13 +3591,7 @@ mod tests {
 
 
     /// 参数按触发器声明的类型落盘：`epoch` 写成字符串引擎不认。
-    fn meta(path: &str) -> nous_engine::types::PresetFileMeta {
-        nous_engine::types::PresetFileMeta {
-            path: path.to_string(),
-            size: 1,
-            extra: Default::default(),
-        }
-    }
+
 
 
 

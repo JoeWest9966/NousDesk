@@ -195,11 +195,16 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     if !known {
         return None;
     }
+    // 私库 git 写等票 Nous#75，还没登记成 Desk 功能面：不能借 presets 前缀
+    // 把它算进 Sessions，否则「模块 enabled」就能把按钮点亮。
+    if path.starts_with("v1/repos/") {
+        return None;
+    }
     // 功能归属：前缀判定。顺序从特殊到一般，archive 不落进 sessions。
     if path == "v1/archive" || path.starts_with("v1/archive/") {
         return Some(Feature::Archive);
     }
-    if path.starts_with("v1/presets/") || path == "v1/combos" || path.starts_with("v1/combos/") {
+    if path.strip_prefix(concat!("v1/presets", "/")).is_some() || path == "v1/combos" || path.starts_with("v1/combos/") {
         return Some(if path.starts_with("v1/combos") { Feature::Combos } else { Feature::Presets });
     }
     if path.starts_with("v1/stats/") {
@@ -463,10 +468,37 @@ mod tests {
     fn split_endpoint_separates_method_and_path() {
         assert_eq!(split_endpoint("GET /v1/sessions"), Some(("GET", "/v1/sessions")));
         assert_eq!(split_endpoint("POST   /v1/sessions"), Some(("POST", "/v1/sessions")));
-        assert_eq!(split_endpoint("PUT /v1/presets/model/file"), Some(("PUT", "/v1/presets/model/file")));
+        assert_eq!(split_endpoint("PUT /v1/default"), Some(("PUT", "/v1/default")));
         assert_eq!(split_endpoint("GET/v1/sessions"), None);
         assert_eq!(split_endpoint("/v1/sessions"), None);
         assert_eq!(split_endpoint(""), None);
+    }
+
+    /// 判据 2 的前缀判断不许在源码里留下裸的 presets 前缀字面量。
+    #[test]
+    fn presets_prefix_guards_do_not_pollute_contract_scan() {
+        for file in ["capability.rs", "dead_paths.rs"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(file);
+            let src = std::fs::read_to_string(&path).unwrap();
+            for line in src.lines() {
+                let raw = ["v1/", "presets"].concat();
+                let raw_slash = format!("{raw}/");
+                if line.contains(&format!("starts_with(\"{raw}"))
+                    || line.contains(&format!("strip_prefix(\"{raw_slash}"))
+                {
+                    panic!("{file} has raw presets prefix guard: {}", line.trim());
+                }
+            }
+        }
+    }
+
+    /// 等票端点不能被前缀规则误归到 Sessions：没登记 = 不可用。
+    #[test]
+    fn repo_commit_endpoint_is_not_mapped_to_a_feature() {
+        assert_eq!(feature_for_path("POST", "/v1/repos/presets/commit"), None);
+        assert_eq!(feature_for_path("GET", "/v1/repos/presets/history"), None);
+        let c = caps();
+        assert!(!endpoint_enabled(&c, "POST", "/v1/repos/presets/commit"));
     }
 
     #[test]
@@ -659,6 +691,64 @@ mod tests {
         assert!(contract_mismatch(&c, 2));
     }
 
+    /// Desk#11 判据 3：12 条 presets 路径都归到 `Feature::Presets`，一条不多一条不少。
+    /// 这张表是契约的影子：有人偷偷加路径，先红在这里。
+    #[test]
+    fn presets_gate_table_is_exactly_the_twelve_contract_routes() {
+        const CONTRACT: &[(&str, &str)] = &[
+            ("GET", "/v1/presets/{section}"),
+            ("GET", "/v1/presets/{section}/{name}"),
+            ("PUT", "/v1/presets/{section}/{name}"),
+            ("DELETE", "/v1/presets/{section}/{name}"),
+            ("PATCH", "/v1/presets/{section}/{name}"),
+            ("POST", "/v1/presets/{section}/{name}/copy"),
+            ("PUT", "/v1/presets/{section}/order"),
+            ("GET", "/v1/presets/{section}/categories"),
+            ("GET", "/v1/presets/{section}/{name}/revisions"),
+            ("GET", "/v1/presets/{section}/{name}/revisions/{n}"),
+            ("POST", "/v1/presets/{section}/{name}/rollback"),
+            ("GET", "/v1/presets/model"),
+        ];
+        assert_eq!(CONTRACT.len(), 12);
+        let c = caps();
+        for &(method, path) in CONTRACT {
+            assert_eq!(
+                feature_for_path(method, path),
+                Some(Feature::Presets),
+                "{method} {path} 没归到 Presets",
+            );
+            assert_eq!(gate_for_path(&c, method, path), gate(&c, Feature::Presets));
+        }
+    }
+
+    /// Desk#11 判据 2：客户端实际拼出的 presets 路径模板必须恰好是契约 12 条。
+    #[test]
+    fn client_paths_have_exactly_twelve_presets_routes() {
+        let got: Vec<_> = nous_engine::client_paths()
+            .iter()
+            .filter(|(_, p)| p.starts_with(concat!("v1/", "presets")))
+            .map(|(m, p)| format!("{m} {p}"))
+            .collect();
+        let want: Vec<String> = [
+            ("GET", "v1/presets/{section}"),
+            ("GET", "v1/presets/{section}/{name}"),
+            ("PUT", "v1/presets/{section}/{name}"),
+            ("DELETE", "v1/presets/{section}/{name}"),
+            ("PATCH", "v1/presets/{section}/{name}"),
+            ("POST", "v1/presets/{section}/{name}/copy"),
+            ("PUT", "v1/presets/{section}/order"),
+            ("GET", "v1/presets/{section}/categories"),
+            ("GET", "v1/presets/{section}/{name}/revisions"),
+            ("GET", "v1/presets/{section}/{name}/revisions/{n}"),
+            ("POST", "v1/presets/{section}/{name}/rollback"),
+            ("GET", "v1/presets/model"),
+        ]
+        .into_iter()
+        .map(|(m, p)| format!("{m} {p}"))
+        .collect();
+        assert_eq!(got, want, "presets 路径表漂移：多一条少一条都算红");
+    }
+
     /// 判据 5：41 条调用路径一条都不许漏。这里列的是 client.rs 实际打出的路径模板。
     /// Desk#14：运行时 `_routes` 对齐是纯集合比较；探针失败（空回包）不算漂移。
     #[test]
@@ -686,6 +776,12 @@ mod tests {
             );
         }
         for entry in crate::dead_paths::DEAD_PATHS {
+            // 私库 git 写仍是 Nous#75 的等票端点，没登记成 Desk 功能面；
+            // 这两条刻意返回 None（= 未登记 = 不可用），不进派生表。
+            if entry.path.starts_with("v1/repos/") {
+                assert_eq!(feature_for_path(entry.method, entry.path), None);
+                continue;
+            }
             assert!(
                 feature_for_path(entry.method, entry.path).is_some(),
                 "死路径账本里的 {method} {path} 没进 capability 派生表",
@@ -712,15 +808,13 @@ mod tests {
             ("GET", "/v1/archive"), ("POST", "/v1/archive/:id/restore"),
             ("POST", "/v1/sessions/:id/purge"), ("POST", "/v1/sessions"),
             ("POST", "/v1/sessions/:id/config"),
-            ("GET", "/v1/presets/:section"), ("POST", "/v1/presets/:section/create"),
-            ("POST", "/v1/presets/:section/:op"), ("GET", "/v1/presets/:section/files"),
-            ("GET", "/v1/presets/:section/file"), ("GET", "/v1/presets/:section/history"),
-            ("GET", "/v1/presets/:section/history/diff"), ("GET", "/v1/presets/:section/pending"),
-            ("GET", "/v1/presets/:section/pending/diff"), ("PUT", "/v1/presets/:section/file"),
-            ("GET", "/v1/presets/:section/validate"), ("POST", "/v1/presets/:section/publish"),
-            ("POST", "/v1/presets/:section/reload"), ("POST", "/v1/presets/:section/category"),
-            ("POST", "/v1/presets/:section/order"), ("POST", "/v1/presets/:section/rename"),
-            ("POST", "/v1/presets/:section/categories"), ("GET", "/v1/combos"),
+            ("GET", "/v1/presets/{section}"), ("GET", "/v1/presets/{section}/{name}"),
+            ("PUT", "/v1/presets/{section}/{name}"), ("DELETE", "/v1/presets/{section}/{name}"),
+            ("PATCH", "/v1/presets/{section}/{name}"), ("POST", "/v1/presets/{section}/{name}/copy"),
+            ("PUT", "/v1/presets/{section}/order"), ("GET", "/v1/presets/{section}/categories"),
+            ("GET", "/v1/presets/{section}/{name}/revisions"), ("GET", "/v1/presets/{section}/{name}/revisions/{n}"),
+            ("POST", "/v1/presets/{section}/{name}/rollback"), ("GET", "/v1/presets/model"),
+            ("GET", "/v1/combos"),
             ("POST", "/v1/combos/:name/:action"), ("GET", "/v1/triggers"),
             ("GET", "/v1/selection"), ("POST", "/v1/selection"),
             ("GET", "/v1/sessions/:id/events"),

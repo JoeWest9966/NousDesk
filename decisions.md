@@ -1301,3 +1301,13 @@ Nous `#47`（7 端点 + `capabilities`）→ Nous `#44`（会话轮次，消息�
 **为什么走客户端**：裸 HTTP 200 只证明路由在；客户端 200 才证明 token 注入那条路没漏（`坑.md` 98/100 都是漏 token 反复咬人的记录）。
 
 **反悔点**：若哪天归档库改成「按需分页」或迁移到别的库，这条判据跟着变成「200 + 至少一个字段」，但**不要退回 404 那种写法**。归档屏如果真的与整页归档库重复（同一个动作两个入口），删这一屏而不是让两处各长各的 —— 目前保留是因为它只读、且是「每个插件对自己那一半的交代」里 archive 的那一半。
+
+## 2026-11-22 · #11 presets 12 条新契约：草稿降级成字段、发布走私库、diff 客户端算
+
+**选了**：Desk 丢弃旧 18 条 presets 端点，改打 Nous#60 的 12 条资源化端点；写端点统一 `requestId` + `If-Match`（ETag=version）；roster 的 `problem` 非空 = 不出现在选模板列表，`pending_*` 状态位整体删除（4 态→2 态）。发布不是 `POST /publish`：保存后走 Nous#75 的 `POST /v1/repos/presets/commit`，私库 git history 与引擎内 revisions 分开。差异视图改为客户端纯函数 `nous_engine::diff::diff_lines` 对「当前原文 vs 第 n 版原文」算行级 diff。
+
+**为什么**：引擎把 presets 收敛成 12 条，旧路径已下线，继续打就是 404；`changed` 那种客户端自造的并发语义与引擎 ETag 冲突（坑.md 99）。diff 是展示层计算不是状态计算，放协议层纯函数既满足「UI 一行 HTTP 不许碰」又能单测钉死增/删/改三例。
+
+**已经协商的偏差**：新契约没有 `GET /files`、`/validate`、`/reload`、类别写端点，也没有 `PRESET.md` 第二份文件 —— 复制/导出只带单条 `preset.json`；`validate` 用 `PUT ?dry_run=1`；`reload` 就是重拉（roster 每次现扫盘）；类别写操作不发 HTTP（词表由预设的 `category` 字段收敛），UI 入口保留但给一句人话。`Purge` 与 `Archive` 同形（都是软删 `archived=true`），不可逆的“彻底删”在新契约里不存在。
+
+**反悔点**：引擎若补上类别写端点或真正的 purge，把对应调用点从「提示」改回真请求（仍只在 `crates/nous-engine`）；若私库 commit 端点正式进 fixtures，把 repo 两条从死路径账本 `等票` 移到 `ENGINE_ROUTES`。

@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// `GET /v1/sessions` 返回的整棵树。
 #[derive(Debug, Clone, Deserialize)]
@@ -254,27 +254,39 @@ pub struct Device {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// `GET /v1/presets/:section` 的一条模板。
+/// `GET /v1/presets/{section}` 的一条模板。
+///
+/// Desk#11：引擎 roster 的条目是 `{name, summary, description, category, spec, order,
+/// archived, problem, version, sha}`。旧字段 `specError` / `tracked` / `dir` 没了，
+/// 用 `#[serde(default)]` 兜底，未知字段照旧原样收在 `extra`。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Preset {
     pub name: String,
+    /// 引擎 roster 给 `null` = 没写；按空串收，UI 本来就是按 String 画的。
+    #[serde(default, deserialize_with = "null_as_empty_string")]
     pub summary: String,
+    #[serde(default, deserialize_with = "null_as_empty_string")]
     pub description: String,
+    #[serde(default)]
     pub category: Vec<String>,
     pub spec: Option<serde_json::Value>,
     /// `Some(..)` = 这条自己写坏了（JSON / 形状）。
+    #[serde(default)]
     pub spec_error: Option<String>,
     /// `false` = 盘上有、仓里没。
+    #[serde(default = "default_true")]
     pub tracked: bool,
+    #[serde(default)]
     pub dir: String,
     /// 引用校验结果。`resolved.*.state == "invalid"` = 现在开不了。
+    #[serde(default)]
     pub resolved: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// `GET /v1/presets/:section` 的 `repo` 块 —— **这一段的**仓状态。
+/// `GET /v1/presets/{section}` 的 `repo` 块 —— **这一段的**仓状态。
 /// `dirty` 按段算（另一段没写完不该让这一段变脏），`ahead` / `behind` 是整仓的。
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -293,7 +305,10 @@ pub struct PresetsRepo {
 #[serde(rename_all = "camelCase")]
 pub struct Presets {
     pub section: String,
+    #[serde(default)]
     pub title: Option<String>,
+    /// Desk#11：引擎 roster 的字段名是 `items`；老引擎给 `presets`。两边都收。
+    #[serde(default, alias = "items")]
     pub presets: Vec<Preset>,
     /// 这一段**全部**类别路径（词表 ∪ 预设挂着的），引擎已排好序：父在子前、逐段 `localeCompare('zh-CN')`。
     /// 里面包含零计数的类别 —— 建了就得看得见，客户端不许滤掉。
@@ -1124,6 +1139,12 @@ pub struct Combo {
 }
 
 fn default_true() -> bool { true }
+
+/// 引擎 roster 的 `summary` / `description` 没写时给 `null`；UI 一直按 String 画，
+/// 这里把 null 归零成空串，避免整条预设因为一个可选字段解析失败。
+fn null_as_empty_string<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Option::<String>::deserialize(d).map(|v| v.unwrap_or_default())
+}
 
 /// `GET /v1/combos` 的整包。调度器节拍也在里面（引擎给的，客户端只显示）。
 #[derive(Debug, Clone, Deserialize)]

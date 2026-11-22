@@ -8,14 +8,38 @@ use nous_engine::console::{Conversations, Cost, Health, Overview};
 use nous_engine::types::ArchiveGens;
 
 
-    /// `Desk#13`：删掉 `旧面板 REST 路径` 取数后，那五屏只能按 capabilities 灰掉，
-    /// 不许再画一行「等面板给数据」的红字。`Stats` 是 #12 的活路，本票不接。
+    /// `Desk#12` 判据 5 的负向哨兵：归档取数门必须是纯函数，能力关时**不发**
+    /// `archive_list`。把 `archive` 从灰色改成「直接拉」，这条立刻红。
     #[test]
-    fn removed_data_screens_are_gated() {
-        // Desk#12：六屏统一从 /v1 取数；归档没有数据通道，只按 capabilities 灰掉。
-        // 源码里不再有 screen_has_live_data 这类「旧通道还有没有」的判定。
+    fn archive_fetch_is_gated_by_capabilities() {
+        let caps_off: nous_engine::Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1, "server": {"name": "nous", "version": "0.1.3"},
+            "modules": [
+                {"name": "archive", "enabled": false,
+                 "reason": {"code": "not_implemented", "message": "归档模块尚未落地"},
+                 "endpoints": []}
+            ],
+            "runtime": {"provider": {"kind": "faux"}}
+        })).expect("caps off");
+        let caps_on: nous_engine::Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1, "server": {"name": "nous", "version": "0.1.3"},
+            "modules": [
+                {"name": "archive", "enabled": true, "endpoints": []}
+            ],
+            "runtime": {"provider": {"kind": "faux"}}
+        })).expect("caps on");
+
+        assert!(!archive_should_fetch(Some(&caps_off)), "能力关：不发 archive_list");
+        assert!(archive_should_fetch(Some(&caps_on)), "能力开：真拉 archive_list");
+        assert!(!archive_should_fetch(None), "没连引擎：不发 archive_list");
+
+        // 调用点绑定：只测纯函数不够 —— 有人把 `load_console` 改成「直接拉」
+        // 而把函数留在那里当摆设，行为就变了却没人发现。这里钉住唯一的取数门。
         let src = include_str!("data_console.rs");
-        assert!(!src.contains("screen_has_live_data"));
+        assert!(
+            src.contains("archive_should_fetch(self.caps.as_ref())"),
+            "归档取数没走纯函数门（可能被改成了直接拉）"
+        );
         assert!(Screen::ALL.contains(&Screen::Archive));
     }
 

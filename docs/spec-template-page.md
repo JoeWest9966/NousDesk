@@ -155,12 +155,10 @@ Template 页现在只能「看 + 开一条会话」；目标是把两个面板�
 ## 8. 怎么复核这份 spec
 
 ```bash
-ENG=$(curl -s http://192.168.1.7:4790/p/new1/h58ga5/__nous/resolve/qrd3wh | python3 -c 'import sys,json;print(json.load(sys.stdin)["url"])')
-curl -s "$ENG/v1/presets" | head -c 400
-curl -s "$ENG/v1/presets/Session-Template" | head -c 400
-# 面板页：
-#   http://192.168.1.7:4790/p/new1/3699b9/   （Session-Template）
-#   http://192.168.1.7:4790/p/new1/jtjzw5/   （Ultimate-Template）
-# 引擎源码（j1900）：
-#   /opt/Nous/content/new1/map/qrd3wh/presets-api.js:487-747
+# 地址只有一个来源：~/.config/nousdesk/desktop.toml 的 `host`。
+# 把读到的值填进下面的占位（不要写死 IP）；token 走 NOUS_DESK_TOKEN。
+# 旧面板的 resolve 机制已随旧面板一起删除，不要再拿它取引擎地址。
+ENG="<从 desktop.toml 读到的 host>"
+curl -s -H "Authorization: Bearer $NOUS_DESK_TOKEN" "$ENG/v1/presets" | head -c 400
+curl -s -H "Authorization: Bearer $NOUS_DESK_TOKEN" "$ENG/v1/presets/Session-Template" | head -c 400
 ```

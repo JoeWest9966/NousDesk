@@ -1516,17 +1516,17 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             loop {
                 Timer::after(Duration::from_secs(3)).await;
-                let go = this
+                let targets = this
                     .update(cx, |this, _| {
-                        selection_poll_allowed(
+                        poll_targets(
                             this.focused,
                             this.streaming,
                             this.input_focused,
                             this.engine.is_some() && this.feature_enabled(crate::capability::Feature::Selection),
                         )
                     })
-                    .unwrap_or(false);
-                if !go {
+                    .unwrap_or(PollTargets { sessions: false, unread: false, selection: false });
+                if !targets.sessions && !targets.unread && !targets.selection {
                     continue;
                 }
                 let (engine, selected, recent) =
@@ -1543,15 +1543,17 @@ impl Desktop {
                 // 会话和未读一起拉：两个都是小 JSON，分两次反而多一次 RTT。
                 let got = h
                     .spawn(async move {
-                        let sessions = engine.sessions().await;
-                        let unread = engine.unread().await;
-                        let selection = engine.selection().await;
+                        let sessions = if targets.sessions { Some(engine.sessions().await) } else { None };
+                        let unread = if targets.unread { Some(engine.unread().await) } else { None };
+                        // 失焦 / 编辑 / 流式时这一项根本不发起：不是拉回来再丢掉。
+                        let selection = if targets.selection { Some(engine.selection().await) } else { None };
                         (sessions, unread, selection)
                     })
                     .await;
                 let Ok((sessions, unread, selection)) = got else {
                     continue;
                 };
+                let Some(sessions) = sessions else { continue };
                 let Ok(list) = sessions else {
                     // 断一下就等下一轮，不打断 UI。
                     continue;
@@ -1567,7 +1569,7 @@ impl Desktop {
                         before != after
                     });
                     // 未读变了也要重画（红点上不上、消不消）。
-                    if let Ok(u) = unread
+                    if let Some(Ok(u)) = unread
                         && this.unread != u
                     {
                         this.unread = u;
@@ -1595,7 +1597,7 @@ impl Desktop {
                     // 另一个窗口切了会话 → 这边跟着换（3 秒一轮）。
                     // 远端 id 从 `{"id":...}` 里读；故障/空值不当「清空本地」。
                     let remote_id = selection
-                        .ok()
+                        .and_then(|r| r.ok())
                         .and_then(|v| v.get("id").and_then(|id| id.as_i64()));
                     if should_adopt_remote_selection(
                         this.selected,
@@ -5272,6 +5274,28 @@ pub(crate) fn selection_poll_allowed(
     focused && !streaming && !editing && has_engine
 }
 
+/// 一轮轮询**实际会产生哪些 GET**（#17 判据 2 的计数缝）。
+///
+/// `start_poll` 从这一个对象派生请求：失焦 / 编辑 / 流式 / 没连引擎时三个都不发；
+/// 聚焦轮才发 sessions + unread + selection。测试数 `selection` 这一项，
+/// 不必启真定时器也能证明「失焦不发 `GET /v1/selection`」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PollTargets {
+    pub sessions: bool,
+    pub unread: bool,
+    pub selection: bool,
+}
+
+pub(crate) fn poll_targets(
+    focused: bool,
+    streaming: bool,
+    editing: bool,
+    has_engine: bool,
+) -> PollTargets {
+    let go = selection_poll_allowed(focused, streaming, editing, has_engine);
+    PollTargets { sessions: go, unread: go, selection: go }
+}
+
 pub(crate) fn should_adopt_remote_selection(
     local: Option<i64>,
     remote: Option<i64>,
@@ -5858,6 +5882,43 @@ mod tests {
         assert!(!should_adopt_remote_selection(Some(1), Some(2), true, false));
         assert!(!should_adopt_remote_selection(Some(1), Some(1), false, false));
         assert!(!should_adopt_remote_selection(Some(1), None, false, false), "远端清空不抢焦点");
+    }
+
+    /// #17 判据 2 的**计数型**哨兵：失焦那一轮不许产生 `GET /v1/selection`。
+    /// 不启真定时器：把一轮轮询要打的端点做成结构，数一数 selection 是不是 0 次。
+    #[test]
+    fn unfocused_poll_sends_no_selection_request() {
+        use super::poll_targets;
+        fn selection_request_count(targets: &super::PollTargets) -> usize {
+            [("GET /v1/sessions", targets.sessions),
+             ("GET /v1/unread", targets.unread),
+             ("GET /v1/selection", targets.selection)]
+                .into_iter()
+                .filter(|(_, on)| *on)
+                .count()
+        }
+
+        let focused = poll_targets(true, false, false, true);
+        assert!(focused.sessions && focused.unread && focused.selection);
+        assert_eq!(selection_request_count(&focused), 3);
+
+        let blurred = poll_targets(false, false, false, true);
+        assert!(!blurred.selection, "失焦还去拉 selection = 每 3 秒白打一次 GET /v1/selection");
+        assert!(!blurred.sessions && !blurred.unread, "当前实现失焦整轮跳过");
+        assert_eq!(selection_request_count(&blurred), 0, "失焦轮一条请求都不发");
+
+        let no_engine = poll_targets(true, false, false, false);
+        assert!(!no_engine.selection && !no_engine.sessions && !no_engine.unread);
+
+        // 调用点绑定：`start_poll` 必须拿这个结构决定是否发请求，不能只是摆设。
+        let src = include_str!("app.rs");
+        let poll = src.split("fn start_poll(").nth(1).expect("start_poll 在")
+            .split("\n    /// ").next().expect("函数体闭合");
+        assert!(poll.contains("let targets = this"), "start_poll 没消费 poll_targets");
+        assert!(
+            poll.contains("if targets.selection { Some(engine.selection().await) }"),
+            "selection 请求没受 poll_targets 控制"
+        );
     }
 
     /// 造一张未读表：`&[(会话 id, 未读数)]`。
