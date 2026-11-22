@@ -201,6 +201,8 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("PUT", "v1/presets/{section}/order"),
     ("GET", "v1/presets/{section}/categories"),
     ("POST", "v1/presets/{section}/create"),
+    // 编辑器校验：草稿发 `{spec}`，回 `{ok, errors, warnings, resolved}`（0.1.15 恢复）。
+    ("POST", "v1/presets/{section}/validate"),
     ("GET", "v1/presets/{section}/{name}"),
     ("PUT", "v1/presets/{section}/{name}"),
     ("PATCH", "v1/presets/{section}/{name}"),

@@ -1100,33 +1100,32 @@ impl crate::app::Desktop {
         true
     }
 
-    /// 校验：`PUT /v1/presets/{section}/{name}?dry_run=1`，带 requestId，不落盘。
+    /// 校验：`POST /v1/presets/{section}/validate`，体是**草稿**，只读不落盘。
+    ///
+    /// 以前拿 `PUT ?dry_run=1` 顶，但那个只回 `{valid, wrote}`，没有 `resolved` ——
+    /// 「生效值」那页永远是「引擎没回 resolved」。校验和解析本来就是同一次判定，一条端点够。
     fn validate_preset(&mut self, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else { return; };
         let section = self.editor.section.clone();
-        let name = self.editor.name.clone();
         let body = self.editor.draft.clone();
         self.editor.validating = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let handle = crate::TOKIO.get().cloned();
             let result = match &handle {
-                Some(h) => h.spawn(async move {
-                    engine.preset_put(&section, &name, &body, &new_request_id(), None, true).await
-                }).await.ok(),
+                Some(h) => h
+                    .spawn(async move { engine.preset_validate(&section, &body).await })
+                    .await
+                    .ok(),
                 _ => None,
             };
             let _ = this.update(cx, |this, cx| {
                 this.editor.validating = false;
-                if let Some(Ok(v)) = result {
-                    let errors = v.get("errors").and_then(|e| e.as_array()).cloned().unwrap_or_default();
-                    let warnings = v.get("warnings").and_then(|e| e.as_array()).cloned().unwrap_or_default();
-                    this.editor.validation = Some(nous_engine::types::PresetValidation {
-                        ok: v.get("valid").and_then(|b| b.as_bool()).unwrap_or(false),
-                        errors, warnings,
-                        resolved: v.get("resolved").cloned(),
-                        extra: Default::default(),
-                    });
+                match result {
+                    Some(Ok(v)) => this.editor.validation = Some(v),
+                    // 校验失败也要说话：静默留着上一次的结果，看起来像「没问题」。
+                    Some(Err(e)) => this.editor.err = Some(format!("校验没跑完：{e}")),
+                    None => this.editor.err = Some("校验没跑完".into()),
                 }
                 cx.notify();
             });

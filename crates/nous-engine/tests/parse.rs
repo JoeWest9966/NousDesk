@@ -449,3 +449,38 @@ fn parse_repo_variants_archive_and_ext_categories() {
     let empty: nous_engine::types::RepoArchive = serde_json::from_str("{}").unwrap();
     assert!(empty.items.is_empty());
 }
+
+/// `/validate` 回包：新内核给 `ok`，老内核给 `valid`；`resolved` 为 null 时当没有。
+/// 编辑器「生效值」那页就靠这一份 —— 两个键都收，换内核那一下不炸。
+#[test]
+fn parse_preset_validation_accepts_both_ok_and_valid() {
+    let new = r#"{
+      "ok": true,
+      "errors": [],
+      "warnings": [{"path":"template","message":"模板不在候选里，先按原文用"}],
+      "spec": {"name":"deep-dive","v":1},
+      "resolved": {"model":{"state":"ok","value":"volc-ark/x"}}
+    }"#;
+    let v: serde_json::Value = serde_json::from_str(new).unwrap();
+    let val = nous_engine::client::validation_from(&v);
+    assert!(val.ok);
+    assert!(val.errors.is_empty());
+    assert_eq!(val.warnings.len(), 1);
+    assert_eq!(
+        val.resolved.as_ref().unwrap()["model"]["state"], "ok",
+        "resolved 要原样带出来，界面不做第二遍判定"
+    );
+
+    // 老内核 / 旧端点：`valid` 而不是 `ok`，且没有 resolved。
+    let old = r#"{"valid":false,"errors":["model 不能空"],"warnings":[]}"#;
+    let v: serde_json::Value = serde_json::from_str(old).unwrap();
+    let val = nous_engine::client::validation_from(&v);
+    assert!(!val.ok);
+    assert_eq!(val.errors.len(), 1);
+    assert!(val.resolved.is_none(), "null / 缺失都算没有 resolved");
+
+    // 形状闸失败时内核回 resolved:null —— 别把它当 Some(Null) 画一堆空行。
+    let bad = r#"{"ok":false,"errors":["v 得是 1"],"warnings":[],"resolved":null}"#;
+    let v: serde_json::Value = serde_json::from_str(bad).unwrap();
+    assert!(nous_engine::client::validation_from(&v).resolved.is_none());
+}

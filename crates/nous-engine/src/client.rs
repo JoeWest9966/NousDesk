@@ -13,8 +13,8 @@ use crate::sse::{SseError, SseEvent};
 use crate::types::{
     ArchiveGens, CategoriesResult, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
     DefaultSet, Dirs, Entries, ExtCategories, Extensions, Forked, Machines, Models, ModelRef,
-    NewPreset, PresetFile, Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset, RepoArchive,
-    RepoVariants,
+    NewPreset, PresetFile, PresetValidation, Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset,
+    RepoArchive, RepoVariants,
     SessionConfig, Sessions, Skills, Submission, Triggers, Unread,
 };
 
@@ -548,6 +548,25 @@ impl EngineClient {
             .send()
             .await?;
         self.json(resp).await
+    }
+
+    /// `POST /v1/presets/{section}/validate`：只读校验，回形状闸 + 引用闸 + `resolved`。
+    ///
+    /// 体是 `{spec}` —— 编辑器校验的是**还没保存的草稿**，所以不能拿 `?name=` 去读盘上旧值。
+    /// 引擎的 `ok` / 老内核的 `valid` 两个键都收（同一个意思，换内核那一下不炸）。
+    pub async fn preset_validate(
+        &self,
+        section: &str,
+        spec: &serde_json::Value,
+    ) -> Result<PresetValidation, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/validate"))?)
+            .json(&serde_json::json!({ "spec": spec }))
+            .send()
+            .await?;
+        let v: serde_json::Value = self.json(resp).await?;
+        Ok(validation_from(&v))
     }
 
     /// `PUT /v1/presets/{section}/{name}`：建或覆盖。`body` 是**整份预设**（不含 requestId，
@@ -1114,6 +1133,7 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("PUT", "v1/presets/{section}/order"),
     ("GET", "v1/presets/{section}/categories"),
     ("POST", "v1/presets/{section}/create"),
+    ("POST", "v1/presets/{section}/validate"),
     ("GET", "v1/presets/{section}/{name}/revisions"),
     ("GET", "v1/presets/{section}/{name}/revisions/{n}"),
     ("POST", "v1/presets/{section}/{name}/rollback"),
@@ -1141,4 +1161,25 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
 /// `EngineClient::client_paths_manifest` 的自由函数别名（静态清单用）。
 pub fn client_paths() -> &'static [(&'static str, &'static str)] {
     CLIENT_PATHS
+}
+
+/// `/validate` / `/resolve` 回包 → `PresetValidation`。`ok` 与老内核的 `valid` 同义。
+pub fn validation_from(v: &serde_json::Value) -> PresetValidation {
+    let arr = |key: &str| {
+        v.get(key)
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    PresetValidation {
+        ok: v
+            .get("ok")
+            .and_then(|b| b.as_bool())
+            .or_else(|| v.get("valid").and_then(|b| b.as_bool()))
+            .unwrap_or(false),
+        errors: arr("errors"),
+        warnings: arr("warnings"),
+        resolved: v.get("resolved").cloned().filter(|r| !r.is_null()),
+        extra: Default::default(),
+    }
 }
