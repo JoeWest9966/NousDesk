@@ -105,3 +105,18 @@ fn no_filler_state_words_in_code() {
         hits.join("\n")
     );
 }
+
+/// #15 gap：复核命令里的地址只有一个来源 —— desktop.toml 的 host。
+/// 不许写死 IP，也不许拿不存在的环境变量冒充配置来源。
+#[test]
+fn spec_review_command_uses_only_desktop_toml_host() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/spec-template-page.md");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let section = text.split("## 8.").nth(1).unwrap_or(&text);
+    for line in section.lines() {
+        assert!(!line.contains("NOUS_DESKTOP_HOST"), "假环境变量还在：{line}");
+        assert!(!line.contains("192.168.1.7"), "写死的引擎 IP 还在：{line}");
+    }
+    assert!(text.contains("desktop.toml"), "没说清 host 的唯一来源");
+    assert!(text.contains("$NOUS_DESK_TOKEN"), "没用真实存在的 token 环境变量");
+}
