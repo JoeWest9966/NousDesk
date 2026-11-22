@@ -257,9 +257,12 @@ pub fn route_drift(
     if engine_routes.is_empty() {
         return (0, Vec::new());
     }
-    let engine: std::collections::BTreeSet<String> = engine_routes
+    // 引擎报的是路由**模板**（`/v1/repos/:repo/archive`），客户端打的是具体地址
+    // （`/v1/repos/extend/archive`）。只比字符串相等，所有带路径参数的端点都会被报成
+    // 「引擎没有」—— 一条每天都在喊的假警报，喊久了真漂移就没人看了。
+    let engine: Vec<(&str, String)> = engine_routes
         .iter()
-        .map(|(m, p)| format!("{} {}", m, normalize_path(p)))
+        .map(|(m, p)| (*m, normalize_path(p)))
         .collect();
     let known_dead: std::collections::BTreeSet<String> = crate::dead_paths::DEAD_PATHS
         .iter()
@@ -272,16 +275,21 @@ pub fn route_drift(
             let mut parts = p.splitn(2, ' ');
             let method = parts.next().unwrap_or_default();
             let path = parts.next().unwrap_or_default();
-            let key = format!("{} {}", method, normalize_path(path));
-            !engine.contains(&key) && !known_dead.contains(&key)
+            let wanted = normalize_path(path);
+            let key = format!("{method} {wanted}");
+            let declared = engine
+                .iter()
+                .any(|(m, template)| *m == method && same_route(template, &wanted));
+            !declared && !known_dead.contains(&key)
         })
         .collect();
+    let engine_count = engine.len();
     let drift = if missing.is_empty() {
         Vec::new()
     } else {
         vec![format!("客户端认得但引擎没有：{}", missing.join(", "))]
     };
-    (engine.len(), drift)
+    (engine_count, drift)
 }
 
 impl crate::app::Desktop {
@@ -803,6 +811,26 @@ mod tests {
     /// 判据 5：41 条调用路径一条都不许漏。这里列的是 client.rs 实际打出的路径模板。
     /// Desk#14：运行时 `_routes` 对齐是纯集合比较；探针失败（空回包）不算漂移。
     #[test]
+    /// 引擎的路径参数模板要能匹配客户端的具体地址，否则每次连上都报一串假漂移。
+    #[test]
+    fn route_drift_understands_path_parameters() {
+        let (count, drift) = route_drift(
+            &["POST /v1/repos/extend/archive", "GET /v1/repos/extend/variants"],
+            &[
+                ("POST", "/v1/repos/:repo/archive"),
+                ("GET", "/v1/repos/:repo/variants"),
+            ],
+        );
+        assert_eq!(count, 2);
+        assert!(drift.is_empty(), "带路径参数的路由不该报漂移：{drift:?}");
+
+        let (_, drift) = route_drift(
+            &["POST /v1/repos/extend/purge"],
+            &[("POST", "/v1/repos/:repo/archive")],
+        );
+        assert_eq!(drift.len(), 1, "真没有的端点还得报");
+    }
+
     fn route_drift_reports_missing_and_extra() {
         let client = ["GET /v1/sessions", "POST /v1/sessions/:id/pin"];
         let engine = [("GET", "/v1/sessions"), ("GET", "/v1/origins")];
