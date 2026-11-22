@@ -78,7 +78,7 @@ async fn list_carries_bearer_token() {
         .await
         .unwrap();
     let req = rx.await.unwrap();
-    assert_eq!(req.path, "/v1/triggers");
+    assert_eq!(req.path, "/v1/trigger-projects");
     assert_eq!(req.auth.as_deref(), Some("Bearer t0ken"));
 }
 
@@ -98,5 +98,5 @@ async fn unauthorized_is_an_error_not_an_empty_list() {
         }
         other => panic!("401 应该报 Engine，得到 {other:?}"),
     }
-    assert_eq!(rx.await.unwrap().path, "/v1/triggers");
+    assert_eq!(rx.await.unwrap().path, "/v1/trigger-projects");
 }

@@ -1,4 +1,4 @@
-//! 触发器管理面的哑客户端（同一个引擎地址上的 `/v1/triggers`）。
+//! 触发器管理面的哑客户端（同一个引擎地址上的 `/v1/trigger-projects`）。
 //!
 //! **为什么是另一个 client**：触发器的清单 / 文件 / 发布 / 归档形状跟会话面不同，
 //! 但地址只有一个（`cfg.host`），不从别处解析第二地址。
@@ -105,7 +105,7 @@ pub struct ArchivedTrigger {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// `GET /v1/triggers`。`triggers` 和 `catalog` 是同一个东西（n8qkkj 为兼容留了两份）。
+/// `GET /v1/trigger-projects`。`triggers` 和 `catalog` 是同一个东西（n8qkkj 为兼容留了两份）。
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TriggerList {
@@ -299,7 +299,7 @@ impl TriggerClient {
     }
 
     pub async fn list(&self) -> Result<TriggerList, EngineError> {
-        let resp = self.http.get(self.url("v1/triggers")?).send().await?;
+        let resp = self.http.get(self.url("v1/trigger-projects")?).send().await?;
         self.json(resp).await
     }
 
@@ -307,7 +307,7 @@ impl TriggerClient {
         let resp = self
             .http
             .get(self.url(&format!(
-                "v1/triggers/files?name={}",
+                "v1/trigger-projects/files?name={}",
                 urlencoding(name)
             ))?)
             .send()
@@ -319,7 +319,7 @@ impl TriggerClient {
         let resp = self
             .http
             .get(self.url(&format!(
-                "v1/triggers/file?name={}&path={}",
+                "v1/trigger-projects/file?name={}&path={}",
                 urlencoding(name),
                 urlencoding(path)
             ))?)
@@ -337,7 +337,7 @@ impl TriggerClient {
     ) -> Result<serde_json::Value, EngineError> {
         let resp = self
             .http
-            .put(self.url("v1/triggers/file")?)
+            .put(self.url("v1/trigger-projects/file")?)
             .json(&SaveBody { name, path, text, base })
             .send()
             .await?;
@@ -347,7 +347,7 @@ impl TriggerClient {
     pub async fn create(&self, body: &NewTrigger) -> Result<serde_json::Value, EngineError> {
         let resp = self
             .http
-            .post(self.url("v1/triggers/create")?)
+            .post(self.url("v1/trigger-projects/create")?)
             .json(body)
             .send()
             .await?;
@@ -357,7 +357,7 @@ impl TriggerClient {
     pub async fn publish(&self, name: &str) -> Result<TriggerPublish, EngineError> {
         let resp = self
             .http
-            .post(self.url("v1/triggers/publish")?)
+            .post(self.url("v1/trigger-projects/publish")?)
             .json(&NameBody { name })
             .send()
             .await?;
@@ -367,7 +367,7 @@ impl TriggerClient {
     pub async fn archive(&self, name: &str) -> Result<TriggerMutation, EngineError> {
         let resp = self
             .http
-            .post(self.url("v1/triggers/archive")?)
+            .post(self.url("v1/trigger-projects/archive")?)
             .json(&NameBody { name })
             .send()
             .await?;
@@ -377,7 +377,7 @@ impl TriggerClient {
     pub async fn restore(&self, name: &str) -> Result<TriggerMutation, EngineError> {
         let resp = self
             .http
-            .post(self.url("v1/triggers/restore")?)
+            .post(self.url("v1/trigger-projects/restore")?)
             .json(&NameBody { name })
             .send()
             .await?;
@@ -387,7 +387,7 @@ impl TriggerClient {
     pub async fn purge(&self, name: &str) -> Result<TriggerMutation, EngineError> {
         let resp = self
             .http
-            .post(self.url("v1/triggers/purge")?)
+            .post(self.url("v1/trigger-projects/purge")?)
             .json(&NameBody { name })
             .send()
             .await?;
@@ -402,7 +402,7 @@ impl TriggerClient {
     ) -> Result<TriggerCatalog, EngineError> {
         let resp = self
             .http
-            .post(self.url("v1/triggers/category")?)
+            .post(self.url("v1/trigger-projects/category")?)
             .json(&serde_json::json!({ "name": name, "category": category }))
             .send()
             .await?;
@@ -421,7 +421,7 @@ impl TriggerClient {
     ) -> Result<TriggerCatalog, EngineError> {
         let resp = self
             .http
-            .post(self.url("v1/triggers/categories")?)
+            .post(self.url("v1/trigger-projects/categories")?)
             .json(&serde_json::json!({ "op": op, "name": name, "to": to }))
             .send()
             .await?;
@@ -432,7 +432,7 @@ impl TriggerClient {
     pub async fn sync(&self) -> Result<TriggerMutation, EngineError> {
         let resp = self
             .http
-            .post(self.url("v1/triggers/sync")?)
+            .post(self.url("v1/trigger-projects/sync")?)
             .json(&serde_json::json!({}))
             .send()
             .await?;

@@ -576,12 +576,20 @@ diff 由 Desk 对「当前原文 vs 第 n 版原文」做文本计算（`crates/
 （body `{message?}`），以及三仓 `/{op}` 旧拓扑化石（不可再调用）。
 UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 
-### 触发器写回（10；等票 Nous#80 / Nous#73）
+### 触发器工程面（13；Nous#95）
 
-`GET /v1/triggers/{files,file}`、`PUT .../file`、`POST .../create|publish|archive|restore|purge|category|categories`。
-请求/回包类型在 `triggers.rs`；`sync` 是同族的历史方法，当前 UI 不调用。
-客户端另有一个 `POST /v1/triggers/sync`（`TriggerClient::sync`，`dead_paths.rs` 标灰）：
-引擎未声明前入口不发请求，灰理由走 `capability.rs` 原文。
+`GET /v1/trigger-projects`、`GET .../{files,file}`、`PUT .../file`、
+`POST .../create|publish|archive|restore|purge|category|categories|sync`。
+请求/回包类型在 `triggers.rs`（`TriggerClient`），页面在 `triggers.rs`。
+
+- 数据根是引擎那台机器的 `NOUS_TRIGGERS`（默认 `/opt/Nous-Trigger`），**不是**客户端路径；
+  一个触发器 = 一个 cargo 项目目录，磁盘上的 `nous.json` / `Cargo.toml` / `src/main.rs` 是事实源。
+- **保存 ≠ 发布**：`PUT file` 只落盘；`POST publish` 是同步长请求
+  （`cargo check → cargo build → index.json → commit → push`），中途没有进度帧。
+  失败回 **422 + `stage`**（`check|build|index|commit`），后面的步骤不跑、不提交。
+- `base` 是保存的并发闸：它等于上次读到的 `etag`，不符 → **409**，盘上不动。
+- `sync` 只提交词表 / 清单（`categories.json`、`index.json`、各 `nous.json`），不碰 `.rs`。
+- 与 `GET /v1/triggers`（定义 + 调度 + 点火账）是**两层**：那边是库里的行，这边是盘上的项目。
 
 ### 统计 / 默认 / 选择 / 文档（客户端在用，字段合同在正文或协议层）
 
@@ -591,7 +599,7 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 | `PUT` | `/v1/default` | `client.rs` + `settings.rs`；端点级 `capability::endpoint_enabled` 门控 |
 | `POST` | `/v1/selection` | `client.rs` + `app.rs`；远端同步不回环 |
 | `GET` / `PUT` / `POST` | `/v1/documents/{kind}[/{section}/{name}]` 及其 rename/publish/reload/validate/history/pending | `documents.rs` 的 `DocumentClient`，12 条详见上文「documents 一族」 |
-| `POST` | `/v1/triggers` 写族 | 见上一节；`sync` 也在此列 |
+| `POST` | `/v1/trigger-projects` 写族 | 见上一节；`sync` 也在此列 |
 
 这些端点在 `dead_paths.rs` / `ENGINE_ROUTES` 里逐个登记；`GET /v1/_routes` 的夹具是唯一外部证据。
 
@@ -602,7 +610,7 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 | `GET` | `/v1/combos/{section}` | 组合清单。**段只有一个值：`Ultimate-Template`**（`Session-Template` 的条目是「开一条会话用什么」，不是组合；传它会 `400`）。回 `{ combos: [{ name, trigger, params, session, enabled, problem, version }] }`；`enabled` / `problem` 由引擎算，`version` 是下面 `PATCH` 的 `If-Match` 料 |
 | `PATCH` | `/v1/combos/{section}/{name}` | 只翻 `{enabled}`，必带 `If-Match` + `requestId`；回包是**平铺的一条**（不是 `{combo:{…}}`），带新 `version` |
 | `GET` | `/v1/extensions` | **不是空清单**（0.1.9 起 `#81` 已解冻）。回 `{ items: [{name, version, kind, category, summary, loaded, pid, state, error}] }`；`kind` 是装载形态（`native` / `legacy-js` / `invalid`），**不是分类**。旧形状（`catalog` / `builtin` / `variants` / `archived`）新引擎不再回，客户端只在 `items` 为空时兜底 |
-| `GET` | `/v1/triggers` | 触发器目前只有 trait，没有实现 |
+| `GET` | `/v1/triggers` | 定义面的观测清单（`code` / `nextFireAt` / `lastFire` / `counts`）+ 点火账；盘上项目面见上一节 |
 | `POST` | `/v1/selection` | 写当前选择（板 / 机器 / 模型） |
 | `GET` | `/v1/fs/dirs` | 列的是 **引擎那台机器**的目录，不是客户端的 |
 

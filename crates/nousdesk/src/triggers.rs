@@ -1,6 +1,6 @@
 //! 触发器工作台（视图 1）：清单 / 详情 / 代码 / 新建向导。
 //!
-//! 数据在同一个引擎地址的 `/v1/triggers`，不从别处解析第二地址。
+//! 数据在同一个引擎地址的 `/v1/trigger-projects`，不从别处解析第二地址。
 //! 三层是一个页面的三种深度：
 //!
 //! - 主界面：类别树 + 状态筛选 + 卡片网格
@@ -406,7 +406,7 @@ impl Desktop {
     // ── 代码层 ─────────────────────────────────────────────
 
     fn open_code(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("GET", "/v1/triggers/files") {
+        if let Some(reason) = self.trigger_write_gate("GET", "/v1/trigger-projects/files") {
             self.notice(reason, true, cx);
             return;
         }
@@ -457,7 +457,7 @@ impl Desktop {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(reason) = self.trigger_write_gate("GET", "/v1/triggers/file") {
+        if let Some(reason) = self.trigger_write_gate("GET", "/v1/trigger-projects/file") {
             self.notice(reason, true, cx);
             return;
         }
@@ -505,7 +505,7 @@ impl Desktop {
     }
 
     fn save_trigger_file(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("PUT", "/v1/triggers/file") {
+        if let Some(reason) = self.trigger_write_gate("PUT", "/v1/trigger-projects/file") {
             self.notice(reason, true, cx);
             return;
         }
@@ -567,7 +567,7 @@ impl Desktop {
     }
 
     fn publish_trigger(&mut self, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/publish") {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/publish") {
             self.notice(reason, true, cx);
             return;
         }
@@ -1039,7 +1039,7 @@ impl Desktop {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/categories") {
             self.notice(reason, true, cx);
             return;
         }
@@ -1088,9 +1088,9 @@ impl Desktop {
         .detach();
     }
 
-    /// 把攒下的类别改动提交并推送（`POST /v1/triggers/sync`）。
+    /// 把攒下的类别改动提交并推送（`POST /v1/trigger-projects/sync`）。
     fn cat_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/categories") {
             self.notice(reason, true, cx);
             return;
         }
@@ -1594,7 +1594,7 @@ impl Desktop {
     }
 
     fn confirm_archive(&mut self, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/archive") {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/archive") {
             self.notice(reason, true, cx);
             return;
         }
@@ -1633,7 +1633,7 @@ impl Desktop {
     }
 
     fn restore_trigger(&mut self, name: &str, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/restore") {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/restore") {
             self.notice(reason, true, cx);
             return;
         }
@@ -1667,7 +1667,7 @@ impl Desktop {
     }
 
     fn purge_trigger(&mut self, name: &str, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/purge") {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/purge") {
             self.notice(reason, true, cx);
             return;
         }
@@ -1701,7 +1701,7 @@ impl Desktop {
     }
 
     fn sync_triggers(&mut self, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/categories") {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/categories") {
             self.notice(reason, true, cx);
             return;
         }
@@ -1798,7 +1798,7 @@ impl Desktop {
     }
 
     fn create_trigger(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(reason) = self.trigger_write_gate("POST", "/v1/triggers/create") {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/create") {
             self.notice(reason, true, cx);
             return;
         }
@@ -2006,7 +2006,7 @@ impl Desktop {
             .child(self.trigger_top(cx))
             .child(self.trigger_body(cx));
         // Desk#13 返工：写端点等票期间保持可见但不可用，理由逐字来自 capabilities。
-        if let Some(reason) = self.endpoint_disabled_reason("POST", "/v1/triggers/create") {
+        if let Some(reason) = self.endpoint_disabled_reason("POST", "/v1/trigger-projects/create") {
             root = root.child(
                 div()
                     .px(t().d(14.))
