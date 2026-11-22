@@ -1,0 +1,390 @@
+{
+  "totals": {
+    "entries": 91,
+    "tokens": 586890,
+    "input": 118413,
+    "output": 25414,
+    "cacheRead": 443063,
+    "cacheWrite": 0,
+    "reasoning": 12771,
+    "cost": 0.0
+  },
+  "byDay": [
+    {
+      "label": "10-28",
+      "tokens": 540593,
+      "cost": 0.0,
+      "calls": 63,
+      "input": 101683,
+      "output": 14974,
+      "cacheRead": 423936
+    },
+    {
+      "label": "10-30",
+      "tokens": 1375,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 1372,
+      "output": 3,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-02",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 3,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-05",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-06",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-08",
+      "tokens": 9001,
+      "cost": 0.0,
+      "calls": 4,
+      "input": 3054,
+      "output": 133,
+      "cacheRead": 5814
+    },
+    {
+      "label": "11-09",
+      "tokens": 35921,
+      "cost": 0.0,
+      "calls": 16,
+      "input": 12304,
+      "output": 10304,
+      "cacheRead": 13313
+    },
+    {
+      "label": "11-16",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    }
+  ],
+  "byHour": [
+    {
+      "label": "10-28 03h",
+      "tokens": 3366,
+      "cost": 0.0,
+      "calls": 3,
+      "input": 2987,
+      "output": 379,
+      "cacheRead": 0
+    },
+    {
+      "label": "10-28 04h",
+      "tokens": 2186,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 2086,
+      "output": 100,
+      "cacheRead": 0
+    },
+    {
+      "label": "10-28 07h",
+      "tokens": 2968,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 2857,
+      "output": 111,
+      "cacheRead": 0
+    },
+    {
+      "label": "10-28 08h",
+      "tokens": 36982,
+      "cost": 0.0,
+      "calls": 10,
+      "input": 15706,
+      "output": 2844,
+      "cacheRead": 18432
+    },
+    {
+      "label": "10-28 09h",
+      "tokens": 9560,
+      "cost": 0.0,
+      "calls": 4,
+      "input": 5364,
+      "output": 100,
+      "cacheRead": 4096
+    },
+    {
+      "label": "10-28 10h",
+      "tokens": 484165,
+      "cost": 0.0,
+      "calls": 41,
+      "input": 71344,
+      "output": 11413,
+      "cacheRead": 401408
+    },
+    {
+      "label": "10-28 11h",
+      "tokens": 1366,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 1339,
+      "output": 27,
+      "cacheRead": 0
+    },
+    {
+      "label": "10-30 07h",
+      "tokens": 1375,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 1372,
+      "output": 3,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-02 03h",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-02 07h",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-05 02h",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-06 14h",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-08 10h",
+      "tokens": 9001,
+      "cost": 0.0,
+      "calls": 4,
+      "input": 3054,
+      "output": 133,
+      "cacheRead": 5814
+    },
+    {
+      "label": "11-09 09h",
+      "tokens": 5907,
+      "cost": 0.0,
+      "calls": 5,
+      "input": 5794,
+      "output": 113,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-09 10h",
+      "tokens": 30014,
+      "cost": 0.0,
+      "calls": 8,
+      "input": 6510,
+      "output": 10191,
+      "cacheRead": 13313
+    },
+    {
+      "label": "11-09 11h",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 3,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "11-16 08h",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    }
+  ],
+  "byModel": [
+    {
+      "label": "volc-ark/deepseek-v4-flash-260425",
+      "tokens": 541968,
+      "cost": 0.0,
+      "calls": 72,
+      "input": 103055,
+      "output": 14977,
+      "cacheRead": 423936
+    },
+    {
+      "label": "Qoder/DeepSeek-Flash",
+      "tokens": 33032,
+      "cost": 0.0,
+      "calls": 12,
+      "input": 6582,
+      "output": 10219,
+      "cacheRead": 16231
+    },
+    {
+      "label": "Qoder/GLM-5.3-Flash",
+      "tokens": 11890,
+      "cost": 0.0,
+      "calls": 7,
+      "input": 8776,
+      "output": 218,
+      "cacheRead": 2896
+    }
+  ],
+  "byConv": [
+    {
+      "label": "#2",
+      "tokens": 514241,
+      "cost": 0.0,
+      "calls": 44,
+      "input": 76432,
+      "output": 13873,
+      "cacheRead": 423936
+    },
+    {
+      "label": "#621",
+      "tokens": 24031,
+      "cost": 0.0,
+      "calls": 9,
+      "input": 3528,
+      "output": 10086,
+      "cacheRead": 10417
+    },
+    {
+      "label": "#25",
+      "tokens": 18716,
+      "cost": 0.0,
+      "calls": 16,
+      "input": 18426,
+      "output": 290,
+      "cacheRead": 0
+    },
+    {
+      "label": "#465",
+      "tokens": 9001,
+      "cost": 0.0,
+      "calls": 3,
+      "input": 3054,
+      "output": 133,
+      "cacheRead": 5814
+    },
+    {
+      "label": "#14",
+      "tokens": 6043,
+      "cost": 0.0,
+      "calls": 5,
+      "input": 5340,
+      "output": 703,
+      "cacheRead": 0
+    },
+    {
+      "label": "#659",
+      "tokens": 5983,
+      "cost": 0.0,
+      "calls": 3,
+      "input": 2982,
+      "output": 105,
+      "cacheRead": 2896
+    },
+    {
+      "label": "#44",
+      "tokens": 2968,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 2857,
+      "output": 111,
+      "cacheRead": 0
+    },
+    {
+      "label": "#545",
+      "tokens": 2954,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 2892,
+      "output": 62,
+      "cacheRead": 0
+    },
+    {
+      "label": "#560",
+      "tokens": 2953,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 2902,
+      "output": 51,
+      "cacheRead": 0
+    },
+    {
+      "label": "#316",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 2,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "#343",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "#354",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    },
+    {
+      "label": "#525",
+      "tokens": 0,
+      "cost": 0.0,
+      "calls": 1,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0
+    }
+  ],
+  "note": "cost 为 0 不代表免费：provider 没回 price 的时候 pi-durable 记 0，tokens 才是真数。"
+}

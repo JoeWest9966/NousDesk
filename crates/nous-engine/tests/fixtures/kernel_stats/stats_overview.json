@@ -1,0 +1,230 @@
+{
+  "target": {
+    "id": "agent.small.sqlite",
+    "path": "fixtures/agent.small.sqlite"
+  },
+  "file": {
+    "db": 630784,
+    "wal": 0,
+    "shm": 0,
+    "mtime": 1795363558584.9536,
+    "walMtime": 0.0
+  },
+  "pragmas": {
+    "pageSize": 4096,
+    "pageCount": 154,
+    "freelist": 0,
+    "journalMode": "delete",
+    "schemaVersion": 2
+  },
+  "bytes": {
+    "db": 630784,
+    "wal": 0,
+    "shm": 0,
+    "free": 0,
+    "used": 630784,
+    "onDisk": 630784
+  },
+  "counts": {
+    "conversations": 120,
+    "document_revisions": 607,
+    "documents": 600,
+    "durable_metadata": 1,
+    "durable_schema": 1,
+    "entries": 194,
+    "record_ids": 492,
+    "submissions": 53,
+    "tasks": 125
+  },
+  "tables": [
+    {
+      "name": "entries",
+      "bytes": 192512,
+      "pages": 47,
+      "rows": 194
+    },
+    {
+      "name": "documents",
+      "bytes": 122880,
+      "pages": 30,
+      "rows": 600
+    },
+    {
+      "name": "tasks",
+      "bytes": 53248,
+      "pages": 13,
+      "rows": 125
+    },
+    {
+      "name": "document_revisions",
+      "bytes": 49152,
+      "pages": 12,
+      "rows": 607
+    },
+    {
+      "name": "submissions",
+      "bytes": 16384,
+      "pages": 4,
+      "rows": 53
+    },
+    {
+      "name": "record_ids",
+      "bytes": 12288,
+      "pages": 3,
+      "rows": 492
+    },
+    {
+      "name": "conversations",
+      "bytes": 4096,
+      "pages": 1,
+      "rows": 120
+    },
+    {
+      "name": "durable_metadata",
+      "bytes": 4096,
+      "pages": 1,
+      "rows": 1
+    },
+    {
+      "name": "durable_schema",
+      "bytes": 4096,
+      "pages": 1,
+      "rows": 1
+    }
+  ],
+  "indexes": [
+    {
+      "name": "conversations_by_owner_conversation",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "conversations"
+    },
+    {
+      "name": "conversations_by_owner_task",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "conversations"
+    },
+    {
+      "name": "document_revisions_by_kind",
+      "bytes": 16384,
+      "pages": 4,
+      "table": "document_revisions"
+    },
+    {
+      "name": "documents_by_address",
+      "bytes": 32768,
+      "pages": 8,
+      "table": "documents"
+    },
+    {
+      "name": "documents_by_scope",
+      "bytes": 20480,
+      "pages": 5,
+      "table": "documents"
+    },
+    {
+      "name": "documents_by_scope_kind",
+      "bytes": 28672,
+      "pages": 7,
+      "table": "documents"
+    },
+    {
+      "name": "entries_by_conversation",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "entries"
+    },
+    {
+      "name": "entry_heads_by_conversation",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "entries"
+    },
+    {
+      "name": "sqlite_autoindex_document_revisions_1",
+      "bytes": 12288,
+      "pages": 3,
+      "table": "document_revisions"
+    },
+    {
+      "name": "submissions_by_conversation",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "submissions"
+    },
+    {
+      "name": "submissions_by_request",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "submissions"
+    },
+    {
+      "name": "submissions_by_status",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "submissions"
+    },
+    {
+      "name": "tasks_by_abort_requested",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "tasks"
+    },
+    {
+      "name": "tasks_by_background",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "tasks"
+    },
+    {
+      "name": "tasks_by_conversation",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "tasks"
+    },
+    {
+      "name": "tasks_by_kind",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "tasks"
+    },
+    {
+      "name": "tasks_by_status",
+      "bytes": 4096,
+      "pages": 1,
+      "table": "tasks"
+    }
+  ],
+  "entriesByKind": [
+    {
+      "kind": "pi.assistant",
+      "count": 91,
+      "bytes": 85579
+    },
+    {
+      "kind": "pi.system",
+      "count": 14,
+      "bytes": 37010
+    },
+    {
+      "kind": "pi.tool-result",
+      "count": 36,
+      "bytes": 18583
+    },
+    {
+      "kind": "pi.user",
+      "count": 53,
+      "bytes": 8236
+    }
+  ],
+  "integrity": {
+    "checked": true,
+    "ok": true,
+    "messages": [
+      "ok"
+    ]
+  },
+  "dbstatOk": true,
+  "attention": []
+}
