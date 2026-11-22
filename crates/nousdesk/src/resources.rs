@@ -1617,8 +1617,8 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 } else if e.kind == ExtKind::Variant {
                     body = body.child(note_line(
                         "变体是另一棵工作树（`/v1/repos/extend/variants`）：路径与分支看上面的摘要。\
-                         上面三个按钮是「发布 / 解绑 / 清理」；改名（换分支）要填新分支名，\
-                         这一刀还没接入口，先在仓库里操作。",
+                         上面四个按钮是「改分支 / 发布变体 / 解绑 / 清理」：\
+                         改分支要填新分支名（表单），其余三条是一句话确认。",
                     ));
                 } else if e.legacy && e.kind == ExtKind::Builtin {
                     body = body

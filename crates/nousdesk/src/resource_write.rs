@@ -576,7 +576,8 @@ impl Desktop {
                 }
                 cx.notify();
             });
-        });
+        })
+        .detach();
     }
 
     pub(crate) fn resource_cancel_new(&mut self, cx: &mut Context<Self>) {
@@ -1278,7 +1279,18 @@ pub(crate) fn render_variant(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyEl
     let busy = form.busy;
     let name = form.name.clone();
     let id = form.id.read(cx).value().to_string();
-    let branch = form.branch.read(cx).value().to_string();
+    // 「现在在哪条分支上」要读**绑定表里的那条**，不是输入框里的值 ——
+    // 输入框默认被填成现有分支，两者长得一样，但人一改就分不清谁是谁了。
+    let current = desk
+        .resources
+        .ext_view()
+        .and_then(|v| v.variants)
+        .and_then(|vs| {
+            vs.family("extend")
+                .find(|(vid, _)| *vid == &name)
+                .map(|(_, b)| b.branch.clone())
+        })
+        .unwrap_or_default();
 
     let (title, sub, submit) = match mode {
         VariantMode::Bind => (
@@ -1339,7 +1351,7 @@ pub(crate) fn render_variant(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyEl
                 .font_family("JetBrainsMono")
                 .text_size(t().fs(11.5))
                 .text_color(rgb(t().p.text_2))
-                .child(if branch.is_empty() { "—".to_string() } else { branch.clone() })
+                .child(if current.is_empty() { "—（绑定表里没有这一条）".to_string() } else { current.clone() })
                 .into_any_element(),
         ));
     }
