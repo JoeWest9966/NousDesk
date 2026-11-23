@@ -927,10 +927,8 @@ fn cat_row(label: &str, on: bool, depth: usize, key: &str, cx: &mut Context<Desk
 fn trash_row(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
     let n = r.ext_trash.as_ref().map(|t| t.items.len()).unwrap_or(0);
     let on = r.view == crate::resource_write::View::Trash;
-    if n == 0 && !on {
-        // 空的垃圾站不占一行：谁也没卸载过东西时，它只是噪音。
-        return div().into_any_element();
-    }
+    // **空着也显示**：它是「另一页」的入口，不是筛选。藏起来的时候人只会觉得
+    // 「这版本没做垃圾站」——2026-11-23 在真机上就被这么问过。
     div()
         .id("res-trash")
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
