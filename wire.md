@@ -648,6 +648,22 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
   不喊就是「页面说装着、会话里没有」。
 - **类别词表**：`GET /v1/extensions/categories` → `{categories:[…]}`。类别树用它，
   不要从 `items[].category` 凑 —— 一个类别下暂时没条目时，凑出来的树会把它弄丢。
+- **词表写面**（0.1.18 起客户端在用）：`POST /v1/extensions/categories`，body
+  `{op:"add"|"rename"|"remove", name, to?}` → `{categories, affected}`。
+  `rename` / `remove` **会连带改写**所有挂着它的扩展的 `nous.json.category`
+  （`affected` 就是被改写的那几个名字），所以删词条是不可逆的宽操作，界面要过确认层。
+  `add` 幂等（重复加不会长两条）；`rename` 没有 `to`、名字不在词表里都回 400。
+  与 `POST /v1/extensions/category`（`{name, category}`，改**一条**扩展挂哪个类别）
+  不是一回事，别混。
+- **垃圾站**（0.1.18 起客户端在用）：`uninstall` 只是把源码目录 `rename` 进
+  `<data>/extend-trash/<name>-<epochms>/`，**目录还在**。所以有两件事要做：
+  - `GET /v1/extensions/trash` → `{items:[{name, entry, trashed_at, has_manifest, dir}]}`，
+    `entry` 是目录名（`name` 由引擎从它切好），新的在前。**不列出来，「卸载」和「扔掉」
+    在界面上就是同一个按钮。**
+  - `POST /v1/extensions/trash/purge`，body `{entry}` → `{entry, removed}`，不可逆。
+    按 `entry` 删而不是按 `name`：同一扩展卸载过几次就有几份，按名字删会一次铲光。
+  - 删除名单（私库根的 `deleted-extensions.json`）**不因为 purge 改变**：
+    purge 之后想装回来只能从 HEAD 来（垃圾站那份没了），装不回来时引擎回 400。
 - **变体 / 归档在私库面上**（`/v1/repos/extend/*`，与技能同一套）：
   `GET variants` → `{v, variants:{extend:{<id>:{root,branch}}}}` —— **族名就是私库名**
   （`skills` / `extend`）。Nous 0.1.12 之前这里是 `skill` / `extension`，客户端照路径名

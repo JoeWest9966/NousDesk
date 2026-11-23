@@ -29,7 +29,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use nous_engine::types::{
-    ExtCategories, Extensions, Prompt, Prompts, RepoArchive, RepoVariants, Skill, Skills,
+    ExtCategories, Extensions, Prompt, Prompts, RepoArchive, RepoVariants, Skill, Skills, TrashList,
 };
 
 use crate::app::Desktop;
@@ -162,6 +162,9 @@ pub(crate) struct ResourceState {
     pub(crate) ext_archive: Option<RepoArchive>,
     /// 类别词表（`GET /v1/extensions/categories`）。
     pub(crate) ext_cats: Option<ExtCategories>,
+    /// 垃圾站（`GET /v1/extensions/trash`）：卸载过、还没真删的源码目录。
+    /// 没有它，「卸载」和「扔掉」在界面上是同一个按钮 —— 点了就再也找不回来。
+    pub(crate) ext_trash: Option<TrashList>,
     /// 三个 tab 各自的类别筛选，切来切去能回到原来那一行。
     cat: [Option<String>; 3],
     /// 三段各自的搜索框。**各存一份**，切段时词还在（跟 `cat` 同款语义）。
@@ -181,6 +184,8 @@ pub(crate) struct ResourceState {
     pub(crate) variant: Option<crate::resource_write::VariantForm>,
     /// 改类别表单。
     pub(crate) category: Option<crate::resource_write::CategoryForm>,
+    /// 类别词表管理（增 / 改名 / 删）。
+    pub(crate) cats: Option<crate::resource_write::CategoriesForm>,
     pub(crate) edit: Option<crate::resource_write::EditSession>,
     pub(crate) publish: crate::resource_write::PublishState,
     /// 归档 / 真删 / 丢掉改动 的确认层。不可逆的动作必须先过这一步。
@@ -209,6 +214,7 @@ impl ResourceState {
             ext_variants: None,
             ext_archive: None,
             ext_cats: None,
+            ext_trash: None,
             cat: [None, None, None],
             search: [
                 box_for("搜技能：名字 / 描述"),
@@ -222,6 +228,7 @@ impl ResourceState {
             form: None,
             variant: None,
             category: None,
+            cats: None,
             edit: None,
             publish: Default::default(),
             confirm: None,
@@ -585,13 +592,14 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             // 六份并发：一份 500 不该把另两份一起拖成白屏。扩展那三份同理 ——
             // 变体 / 归档端点旧引擎没有（404），不能因此把扩展清单本身也画成空。
-            let (skills, prompts, exts, variants, archive, cats) = tokio::join!(
+            let (skills, prompts, exts, variants, archive, cats, trash) = tokio::join!(
                 engine.skills(),
                 engine.prompts(),
                 engine.extensions(),
                 engine.ext_variants(),
                 engine.ext_archive(),
                 engine.ext_categories(),
+                engine.ext_trash(),
             );
             let _ = this.update(cx, |this, cx| {
                 this.resources.loading = false;
@@ -613,6 +621,7 @@ impl Desktop {
                 this.resources.ext_variants = variants.ok();
                 this.resources.ext_archive = archive.ok();
                 this.resources.ext_cats = cats.ok();
+                this.resources.ext_trash = trash.ok();
                 if !errs.is_empty() {
                     this.resources.error = Some(errs.join(" · "));
                 }
@@ -675,6 +684,8 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         View::Publish => crate::resource_write::render_publish(desk, cx),
         View::Variant => crate::resource_write::render_variant(desk, cx),
         View::Category => crate::resource_write::render_category(desk, cx),
+        View::Categories => crate::resource_write::render_categories(desk, cx),
+        View::Trash => crate::resource_write::render_trash(desk, cx),
         View::Browse => {
             let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
             if !narrow {
@@ -849,6 +860,11 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
             cx,
         ));
     }
+    // 垃圾站单独一行：它不是一个筛选，是另一页（卸载过的东西不在清单里，
+    // 混进类别树会被当成「另一个类别」）。
+    if r.section == Section::Extensions {
+        tree = tree.child(trash_row(r, cx));
+    }
 
     div()
         .w(t().d(crate::app::PRESET_TREE_W))
@@ -904,6 +920,32 @@ fn cat_row(label: &str, on: bool, depth: usize, key: &str, cx: &mut Context<Desk
         .when(on, |el| el.bg(rgb(t().p.accent_soft)))
         .hover(|el| el.bg(rgb(t().p.row_hover)))
         .child(label.to_string())
+        .into_any_element()
+}
+
+/// 垃圾站那一行。数字是「有几份」——同一扩展卸载过两次就是两份，别拿扩展数糊弄。
+fn trash_row(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
+    let n = r.ext_trash.as_ref().map(|t| t.items.len()).unwrap_or(0);
+    let on = r.view == crate::resource_write::View::Trash;
+    if n == 0 && !on {
+        // 空的垃圾站不占一行：谁也没卸载过东西时，它只是噪音。
+        return div().into_any_element();
+    }
+    div()
+        .id("res-trash")
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.resource_open_trash(window, cx);
+        }))
+        .flex()
+        .px(t().d(10.))
+        .py(t().d(5.))
+        .mt(t().d(6.))
+        .rounded(t().r(5.))
+        .text_size(t().fs(12.))
+        .text_color(rgb(if on { t().p.accent_fg } else { muted() }))
+        .when(on, |el| el.bg(rgb(t().p.accent_soft)))
+        .hover(|el| el.bg(rgb(t().p.row_hover)))
+        .child(format!("垃圾站  {n}"))
         .into_any_element()
 }
 
@@ -969,6 +1011,27 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                                 .child("重载")
                                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                     this.resource_ext_reload(window, cx);
+                                })),
+                        )
+                    })
+                    // 词表管理：改的是「有哪些类别」，不是某条扩展挂哪个类别。
+                    .when(r.section == Section::Extensions, |el| {
+                        el.child(
+                            div()
+                                .id("res-ext-cats")
+                                .flex()
+                                .items_center()
+                                .h(t().d(24.))
+                                .px(t().d(9.))
+                                .rounded(t().r(6.))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.line))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.text_2))
+                                .hover(|el| el.bg(rgb(t().p.hover)))
+                                .child("类别")
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.resource_open_categories(window, cx);
                                 })),
                         )
                     })

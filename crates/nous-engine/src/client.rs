@@ -282,6 +282,51 @@ impl EngineClient {
         self.json(resp).await
     }
 
+    /// 类别**词表**的增 / 改名 / 删：`POST /v1/extensions/categories`。
+    ///
+    /// 与 `ext_category`（给一条扩展挂类别）不是一件事：那个改 `<name>/nous.json
+    /// 的 category`，这个动词表 `categories.json`，`rename` / `remove` 会连带
+    /// 改写所有挂着它的清单 —— 所以删词表那一步是不可逆的宽操作。
+    pub async fn ext_categories_op(
+        &self,
+        op: &str,
+        name: &str,
+        to: Option<&str>,
+    ) -> Result<serde_json::Value, EngineError> {
+        if !matches!(op, "add" | "rename" | "remove") {
+            return Err(EngineError::Engine {
+                status: 400,
+                message: format!("未知词表操作：{op}"),
+                body: None,
+            });
+        }
+        if op == "rename" && to.map(str::trim).filter(|t| !t.is_empty()).is_none() {
+            return Err(EngineError::Engine {
+                status: 400,
+                message: "改名要写新名字".into(),
+                body: None,
+            });
+        }
+        let url = self.url("v1/extensions/categories")?;
+        let body = serde_json::json!({ "op": op, "name": name, "to": to });
+        let resp = self.http.post(url).json(&body).send().await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/extensions/trash`：卸载过、还没真删的那些源码目录。
+    pub async fn ext_trash(&self) -> Result<crate::types::TrashList, EngineError> {
+        let resp = self.http.get(self.url("v1/extensions/trash")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `POST /v1/extensions/trash/purge`：真删垃圾站里的**一份**（按条目，不按名字）。
+    pub async fn ext_trash_purge(&self, entry: &str) -> Result<serde_json::Value, EngineError> {
+        let url = self.url("v1/extensions/trash/purge")?;
+        let body = serde_json::json!({ "entry": entry });
+        let resp = self.http.post(url).json(&body).send().await?;
+        self.json(resp).await
+    }
+
     /// 私库的**仓级**动作：`/v1/repos/{repo}/{op}`（归档 / 恢复 / 真删）。
     ///
     /// 与 `resource_op`（文件面 `/v1/{kind}/{op}`）是两条路：仓级动作用仓库名
@@ -1151,6 +1196,9 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/extensions/publish"),
     ("GET", "v1/extensions"),
     ("GET", "v1/extensions/categories"),
+    ("POST", "v1/extensions/categories"),
+    ("GET", "v1/extensions/trash"),
+    ("POST", "v1/extensions/trash/purge"),
     ("POST", "v1/extensions/reload"),
     ("POST", "v1/extensions/duplicate"),
     ("POST", "v1/extensions/category"),

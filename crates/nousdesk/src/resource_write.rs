@@ -96,6 +96,12 @@ pub(crate) enum View {
     Variant,
     /// 改一条扩展的类别（`POST /v1/extensions/category`）。
     Category,
+    /// 类别**词表**管理（`POST /v1/extensions/categories` 的 add / rename / remove）。
+    /// 与 `Category` 分开：那个改一条扩展挂哪个类别，这个改词表本身（且改名 / 删会
+    /// 连带改写所有挂着它的清单）。
+    Categories,
+    /// 垃圾站：卸载过、还没真删的源码目录（`GET /v1/extensions/trash`）。
+    Trash,
 }
 
 /// 新建表单。三个仓的字段集不一样，所以「那个必填的长文本」共用 `text` 一个输入框，
@@ -124,6 +130,15 @@ pub(crate) enum VariantMode {
 pub(crate) struct CategoryForm {
     pub(crate) name: String,
     pub(crate) input: Entity<InputState>,
+    pub(crate) busy: bool,
+    pub(crate) err: Option<String>,
+}
+
+/// 类别词表管理：一个「新增」框 + 一条「正在改名」的内联输入。
+pub(crate) struct CategoriesForm {
+    pub(crate) new: Entity<InputState>,
+    /// 正在改名的那一条（原名字, 输入框）。同一时刻只改一条：词表是一屏能看完的东西。
+    pub(crate) editing: Option<(String, Entity<InputState>)>,
     pub(crate) busy: bool,
     pub(crate) err: Option<String>,
 }
@@ -197,11 +212,18 @@ pub(crate) enum ConfirmAct {
     PublishVariant,
     Unbind,
     Prune,
+    /// 删一个类别词条（会连带把挂着它的扩展的 `category` 清掉）。
+    CategoryRemove,
+    /// 彻底删垃圾站里的一份（按条目，不按名字）。
+    TrashPurge,
 }
 
 pub(crate) struct Confirm {
     pub(crate) kind: Kind,
     pub(crate) name: String,
+    /// 垃圾站条目名 `<name>-<epochms>`。只有 `TrashPurge` 用得到 —— 真删是按条目来的，
+    /// 按名字删会把同一个扩展的每一份卸载记录一起铲掉。
+    pub(crate) entry: Option<String>,
     pub(crate) act: ConfirmAct,
     pub(crate) busy: bool,
     pub(crate) err: Option<String>,
@@ -217,6 +239,8 @@ impl Confirm {
             ConfirmAct::PublishVariant => format!("发布变体 {}？", self.name),
             ConfirmAct::Unbind => format!("解绑变体 {}？", self.name),
             ConfirmAct::Prune => format!("清理变体 {}？", self.name),
+            ConfirmAct::CategoryRemove => format!("删掉类别 {}？", self.name),
+            ConfirmAct::TrashPurge => format!("彻底删除 {} 的这份副本？", self.name),
         }
     }
 
@@ -236,6 +260,13 @@ impl Confirm {
                 "删掉变体的工作树与分支。有没合的提交时引擎会拒（带 unmerged 列表），\
                  这条不替你强推。".into()
             }
+            ConfirmAct::CategoryRemove => {
+                "词表里划掉这一条，挂着它的扩展的 category 也一并清成未分类。\
+                 扩展本身不动，随时能重新挂上。".into()
+            }
+            ConfirmAct::TrashPurge => {
+                "只删垃圾站里的这一份，源码根和删除名单都不动。不可逆 —— 删完只能从 HEAD 装回。".into()
+            }
         }
     }
 
@@ -248,13 +279,19 @@ impl Confirm {
             ConfirmAct::PublishVariant => "发布",
             ConfirmAct::Unbind => "解绑",
             ConfirmAct::Prune => "清理",
+            ConfirmAct::CategoryRemove => "删类别",
+            ConfirmAct::TrashPurge => "彻底删除",
         }
     }
 
     pub(crate) fn danger(&self) -> bool {
         matches!(
             self.act,
-            ConfirmAct::Purge | ConfirmAct::DiscardEdit | ConfirmAct::Prune
+            ConfirmAct::Purge
+                | ConfirmAct::DiscardEdit
+                | ConfirmAct::Prune
+                | ConfirmAct::CategoryRemove
+                | ConfirmAct::TrashPurge
         )
     }
 }
@@ -587,6 +624,246 @@ impl Desktop {
             });
         })
         .detach();
+    }
+
+    // ── 类别词表（增 / 改名 / 删）──────────────────────────────────
+
+    pub(crate) fn resource_open_categories(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let new = cx.new(|cx| InputState::new(window, cx).placeholder("新类别名"));
+        let sub = cx.subscribe_in(&new, window, |_, _, ev: &InputEvent, _, cx| {
+            if matches!(ev, InputEvent::Change) {
+                cx.notify();
+            }
+        });
+        self.resources.write_subs.push(sub);
+        self.resources.cats = Some(CategoriesForm {
+            new,
+            editing: None,
+            busy: false,
+            err: None,
+        });
+        self.resources.view = View::Categories;
+        cx.notify();
+    }
+
+    pub(crate) fn resource_cancel_categories(&mut self, cx: &mut Context<Self>) {
+        self.resources.cats = None;
+        self.resources.view = View::Browse;
+        // 改名 / 删除会连带改写扩展的清单 —— 回来时那份缓存已经过时了。
+        self.load_resources(true, cx);
+        cx.notify();
+    }
+
+    /// 词表的三个动作共用一条路：乐观地 `busy`、失败把引擎原话摆在表单上。
+    fn resource_cat_op(
+        &mut self,
+        op: &'static str,
+        name: String,
+        to: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        if let Some(reason) = self.resource_write_gate("POST", "/v1/extensions/categories") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
+        if let Some(f) = self.resources.cats.as_mut() {
+            f.busy = true;
+            f.err = None;
+        }
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, shown) = (name.clone(), to.clone());
+            let res = handle
+                .spawn(async move { engine.ext_categories_op(op, &n, shown.as_deref()).await })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let Some(f) = this.resources.cats.as_mut() else { return };
+                f.busy = false;
+                match res {
+                    Ok(Ok(v)) => {
+                        f.editing = None;
+                        f.err = None;
+                        // 新增成功后清空输入框：不清就是「刚加的那个还挂着」，
+                        // 下一次点「加进词表」会撞上一个已存在的名字。
+                        if op == "add" {
+                            let input = f.new.clone();
+                            input.update(cx, |state, cx| {
+                                state.set_value("", window, cx);
+                            });
+                        }
+                        let affected = v
+                            .get("affected")
+                            .and_then(|a| a.as_array())
+                            .map(|a| a.len())
+                            .unwrap_or(0);
+                        this.notify(
+                            match (op, to.as_deref()) {
+                                ("add", _) => format!("类别加进词表：{name}"),
+                                ("rename", Some(to)) => {
+                                    if affected > 0 {
+                                        format!("类别 {name} 改成 {to}，{affected} 条扩展跟着改")
+                                    } else {
+                                        format!("类别 {name} 改成 {to}")
+                                    }
+                                }
+                                ("remove", _) => {
+                                    if affected > 0 {
+                                        format!("类别 {name} 删了，{affected} 条扩展清成未分类")
+                                    } else {
+                                        format!("类别 {name} 删了")
+                                    }
+                                }
+                                _ => format!("词表更新了（{op}）"),
+                            },
+                            NoticeKind::Info,
+                            cx,
+                        );
+                        this.load_resources(true, cx);
+                    }
+                    Ok(Err(e)) => f.err = Some(format!("{e}")),
+                    Err(e) => f.err = Some(format!("任务挂了：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn resource_cat_add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(f) = self.resources.cats.as_ref() else { return };
+        let name = f.new.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            if let Some(f) = self.resources.cats.as_mut() {
+                f.err = Some("先写个类别名".into());
+            }
+            cx.notify();
+            return;
+        }
+        // 词表里已经有：不发请求，直接说清楚（引擎是幂等的，但「没变化」也得让人知道）。
+        let known = self
+            .resources
+            .ext_cats
+            .as_ref()
+            .map(|c| c.categories.iter().any(|x| x == &name))
+            .unwrap_or(false);
+        if known {
+            if let Some(f) = self.resources.cats.as_mut() {
+                f.err = Some(format!("词表里已经有 {name} 了"));
+            }
+            cx.notify();
+            return;
+        }
+        self.resource_cat_op("add", name, None, window, cx);
+    }
+
+    pub(crate) fn resource_cat_start_rename(
+        &mut self,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let value = name.clone();
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("新名字")
+                .default_value(value)
+        });
+        let sub = cx.subscribe_in(&input, window, |_, _, ev: &InputEvent, _, cx| {
+            if matches!(ev, InputEvent::Change) {
+                cx.notify();
+            }
+        });
+        self.resources.write_subs.push(sub);
+        if let Some(f) = self.resources.cats.as_mut() {
+            f.editing = Some((name, input));
+            f.err = None;
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn resource_cat_cancel_rename(&mut self, cx: &mut Context<Self>) {
+        if let Some(f) = self.resources.cats.as_mut() {
+            f.editing = None;
+            f.err = None;
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn resource_cat_submit_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(f) = self.resources.cats.as_ref() else { return };
+        let Some((from, input)) = f.editing.clone() else { return };
+        let to = input.read(cx).value().trim().to_string();
+        if to.is_empty() {
+            if let Some(f) = self.resources.cats.as_mut() {
+                f.err = Some("新名字不能空".into());
+            }
+            cx.notify();
+            return;
+        }
+        if to == from {
+            self.resource_cat_cancel_rename(cx);
+            return;
+        }
+        self.resource_cat_op("rename", from, Some(to), window, cx);
+    }
+
+    /// 删类别不可逆（挂着它的扩展会被清成未分类），先过确认层。
+    pub(crate) fn resource_cat_ask_remove(&mut self, name: String, cx: &mut Context<Self>) {
+        self.resources.confirm = Some(Confirm {
+            kind: Kind::Ext,
+            name,
+            entry: None,
+            act: ConfirmAct::CategoryRemove,
+            busy: false,
+            err: None,
+        });
+        cx.notify();
+    }
+
+    // ── 垃圾站 ────────────────────────────────────────────────────
+
+    pub(crate) fn resource_open_trash(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 打开就重拉：这一页的价值全在「刚卸载的那份在不在」，拿旧缓存等于骗人。
+        self.resources.view = View::Trash;
+        self.load_resources(true, cx);
+        let _ = window;
+        cx.notify();
+    }
+
+    pub(crate) fn resource_close_trash(&mut self, cx: &mut Context<Self>) {
+        self.resources.view = View::Browse;
+        // 回来时重拉一次：垃圾站里装回来的那条要出现在清单上、卸载掉的要从清单上消失。
+        // 不拉就是两张图：左边写着「启用中」，右边引擎里其实是「本机没装」。
+        self.load_resources(true, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn resource_trash_install(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.resource_ext_apply(name, true, window, cx);
+    }
+
+    pub(crate) fn resource_trash_ask_purge(
+        &mut self,
+        name: String,
+        entry: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.resources.confirm = Some(Confirm {
+            kind: Kind::Ext,
+            name,
+            entry: Some(entry),
+            act: ConfirmAct::TrashPurge,
+            busy: false,
+            err: None,
+        });
+        cx.notify();
     }
 
     pub(crate) fn resource_cancel_variant(&mut self, cx: &mut Context<Self>) {
@@ -1025,6 +1302,7 @@ impl Desktop {
             self.resources.confirm = Some(Confirm {
                 kind,
                 name,
+                entry: None,
                 act: ConfirmAct::DiscardEdit,
                 busy: false,
                 err: None,
@@ -1108,12 +1386,24 @@ impl Desktop {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(sel) = self.resources.selected.clone() else { return };
+        let name = sel.name_of().to_string();
+        self.resource_ext_apply(name, install, window, cx);
+    }
+
+    /// 装 / 卸某个**指定**扩展。垃圾站里的「装回来」也要走这条路 ——
+    /// 那一页没有 `selected`（垃圾站条目不是清单里的扩展），不能靠选中态传名字。
+    pub(crate) fn resource_ext_apply(
+        &mut self,
+        name: String,
+        install: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(engine) = self.engine.clone() else {
             self.notify("还没连上引擎", NoticeKind::Error, cx);
             return;
         };
-        let Some(sel) = self.resources.selected.clone() else { return };
-        let name = sel.name_of().to_string();
         let op = if install { "install" } else { "uninstall" };
         let body = serde_json::json!({ "name": name });
 
@@ -1241,6 +1531,7 @@ impl Desktop {
         self.resources.confirm = Some(Confirm {
             kind: sel.kind_of(),
             name: sel.name_of().to_string(),
+            entry: None,
             act,
             busy: false,
             err: None,
@@ -1265,6 +1556,8 @@ impl Desktop {
             Some(ConfirmAct::PublishVariant) => "/v1/repos/extend/variants/publish",
             Some(ConfirmAct::Unbind) => "/v1/repos/extend/variants/unbind",
             Some(ConfirmAct::Prune) => "/v1/repos/extend/variants/prune",
+            Some(ConfirmAct::CategoryRemove) => "/v1/extensions/categories",
+            Some(ConfirmAct::TrashPurge) => "/v1/extensions/trash/purge",
             _ => match kind {
                 Some(Kind::Skill) => "/v1/repos/skills/archive",
                 Some(Kind::Prompt) => "/v1/repos/prompts/archive",
@@ -1277,7 +1570,7 @@ impl Desktop {
         }
         let Some(engine) = self.engine.clone() else { return };
         let Some(c) = self.resources.confirm.as_mut() else { return };
-        let (kind, name, act) = (c.kind, c.name.clone(), c.act);
+        let (kind, name, act, entry) = (c.kind, c.name.clone(), c.act, c.entry.clone());
         if act == ConfirmAct::DiscardEdit {
             self.resources.confirm = None;
             self.resources.edit = None;
@@ -1299,6 +1592,10 @@ impl Desktop {
                 ConfirmAct::PublishVariant => "publish",
                 ConfirmAct::Unbind => "unbind",
                 ConfirmAct::Prune => "prune",
+                // 这两条不走仓级 `repo_op`（各自的路径在下面按动作分派），
+                // 这里给的只是给日志 / 闸门用的占位动词。
+                ConfirmAct::CategoryRemove => "remove-category",
+                ConfirmAct::TrashPurge => "purge-trash",
             };
             // 变体只在扩展私库上（`extend`）；它的 body 用 `id`，仓级归档用 `name`。
             let variant_act = matches!(
@@ -1318,14 +1615,31 @@ impl Desktop {
             } else {
                 (name.clone(), serde_json::json!({ "name": name }))
             };
-            let res = if variant_act {
-                handle
-                    .spawn(async move { engine.variant_op("extend", op, &body).await })
-                    .await
-            } else {
-                handle
-                    .spawn(async move { engine.repo_op(repo, op, &body).await })
-                    .await
+            // 三个前缀各不相同（仓级 / 变体 / 词表 / 垃圾站），按动作分派而不是硬塞进
+            // `repo_op` —— 把 `/v1/extensions/trash/purge` 塞进仓级模板就是再造一条假路径。
+            let res = match act {
+                ConfirmAct::CategoryRemove => {
+                    let word = n.clone();
+                    handle
+                        .spawn(async move { engine.ext_categories_op("remove", &word, None).await })
+                        .await
+                }
+                ConfirmAct::TrashPurge => {
+                    let entry = entry.unwrap_or_default();
+                    handle
+                        .spawn(async move { engine.ext_trash_purge(&entry).await })
+                        .await
+                }
+                _ if variant_act => {
+                    handle
+                        .spawn(async move { engine.variant_op("extend", op, &body).await })
+                        .await
+                }
+                _ => {
+                    handle
+                        .spawn(async move { engine.repo_op(repo, op, &body).await })
+                        .await
+                }
             };
 
             let _ = this.update_in(cx, |this, window, cx| {
@@ -1340,10 +1654,16 @@ impl Desktop {
                             ConfirmAct::PublishVariant => "变体分支推出去了",
                             ConfirmAct::Unbind => "解绑了（工作树还在，重新绑才回来）",
                             ConfirmAct::Prune => "清理了（工作树与分支都删了）",
+                            ConfirmAct::CategoryRemove => "类别删了（挂着它的扩展清成未分类）",
+                            ConfirmAct::TrashPurge => "垃圾站那份真删了",
                             ConfirmAct::DiscardEdit => unreachable!(),
                         };
                         this.resources.confirm = None;
-                        this.resources.selected = None;
+                        // 词表 / 垃圾站不是「选中某条扩展」的动作，别把选中清掉 ——
+                        // 清掉就等于人刚看完的那一页跳空了。
+                        if !matches!(act, ConfirmAct::CategoryRemove | ConfirmAct::TrashPurge) {
+                            this.resources.selected = None;
+                        }
                         this.load_resources(true, cx);
                         this.notify(format!("{n} {what}"), NoticeKind::Info, cx);
                         let _ = window;
@@ -1614,6 +1934,353 @@ pub(crate) fn render_category(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyE
         )
         .child(foot)
         .into_any_element()
+}
+
+/// 类别词表管理：一屏能看完的清单 + 一个新增框。
+///
+/// 这一页的重点不是「增删」而是**影响面**：改名 / 删会连带改写所有挂着它的扩展的
+/// `nous.json`，所以每行都写着「挂着几条」，删那一列还要过确认层。
+pub(crate) fn render_categories(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+    let Some(form) = desk.resources.cats.as_ref() else {
+        return div().into_any_element();
+    };
+    let busy = form.busy;
+    let words: Vec<String> = desk
+        .resources
+        .ext_cats
+        .as_ref()
+        .map(|c| c.categories.clone())
+        .unwrap_or_default();
+    // 每条类别挂着几条扩展：跟类别树同一份数据，不另数一遍。
+    let used: Vec<(String, usize)> = words
+        .iter()
+        .map(|w| {
+            let n = desk
+                .resources
+                .exts
+                .as_ref()
+                .map(|e| {
+                    e.items
+                        .iter()
+                        .filter(|i| i.category.as_deref() == Some(w.as_str()))
+                        .count()
+                })
+                .unwrap_or(0);
+            (w.clone(), n)
+        })
+        .collect();
+
+    let mut body = div().flex().flex_col().w_full();
+
+    // 新增一行永远在顶上：加类别是最常做的那件事。
+    body = body.child(
+        div()
+            .flex()
+            .items_center()
+            .gap(t().d(8.))
+            .pb(t().d(10.))
+            .child(
+                div()
+                    .flex_1()
+                    .h(t().d(31.))
+                    .child(Input::new(&form.new).appearance(true)),
+            )
+            .child(btn("res-catadd", "加进词表", true).on_click(cx.listener(
+                |this, _: &ClickEvent, window, cx| {
+                    this.resource_cat_add(window, cx);
+                },
+            ))),
+    );
+
+    if used.is_empty() {
+        body = body.child(
+            div()
+                .py(t().d(14.))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(muted()))
+                .child("词表是空的。加进来的类别会出现在左边那棵树上，哪怕暂时没有扩展用它。"),
+        );
+    }
+
+    for (word, n) in used {
+        let editing = form.editing.as_ref().filter(|(w, _)| w == &word);
+        let mut row = div()
+            .flex()
+            .items_center()
+            .gap(t().d(8.))
+            .px(t().d(10.))
+            .py(t().d(7.))
+            .rounded(t().r(6.))
+            .hover(|el| el.bg(rgb(t().p.hover)));
+
+        match editing {
+            Some((_, input)) => {
+                let w = word.clone();
+                row = row
+                    .child(
+                        div()
+                            .flex_1()
+                            .h(t().d(28.))
+                            .child(Input::new(input).appearance(true)),
+                    )
+                    .child(ghost_btn("res-cat-rename-cancel", "取消").on_click(cx.listener(
+                        |this, _: &ClickEvent, _, cx| this.resource_cat_cancel_rename(cx),
+                    )))
+                    .child(btn("res-cat-rename-yes", "改名", true).on_click(cx.listener(
+                        move |this, _: &ClickEvent, window, cx| {
+                            this.resource_cat_submit_rename(window, cx);
+                        },
+                    )));
+                let _ = w;
+            }
+            None => {
+                let w1 = word.clone();
+                let w2 = word.clone();
+                // id 必须带名字：整页一帧里重复的 ElementId 会让点击落到第一行上
+                // （三行都叫 `res-cat-rename` 时，点第三行的「改名」改的是第一行）。
+                let id_rename = format!("res-cat-rename-{word}");
+                let id_remove = format!("res-cat-remove-{word}");
+                row = row
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(t().fs(12.5))
+                            .text_color(rgb(text_color()))
+                            .child(word.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(muted()))
+                            .child(if n == 0 {
+                                "没扩展用它".to_string()
+                            } else {
+                                format!("{n} 条挂着")
+                            }),
+                    )
+                    .child(ghost_btn(&id_rename, "改名").on_click(cx.listener(
+                        move |this, _: &ClickEvent, window, cx| {
+                            this.resource_cat_start_rename(w1.clone(), window, cx);
+                        },
+                    )))
+                    .child(
+                        ghost_btn(&id_remove, "删除")
+                            .text_color(rgb(t().p.danger_fg))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.resource_cat_ask_remove(w2.clone(), cx);
+                            })),
+                    );
+            }
+        }
+        body = body.child(row);
+    }
+
+    if let Some(err) = form.err.as_ref() {
+        body = body.child(
+            div()
+                .mt(t().d(8.))
+                .px(t().d(10.))
+                .py(t().d(8.))
+                .rounded(t().r(6.))
+                .bg(rgb(t().p.danger_soft))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(t().p.danger_fg))
+                .child(err.clone()),
+        );
+    }
+
+    let foot = div()
+        .flex()
+        .items_center()
+        .gap(t().d(10.))
+        .px(t().d(22.))
+        .py(t().d(11.))
+        .border_t(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
+        .child(
+            div()
+                .flex_1()
+                .text_size(t().fs(11.5))
+                .text_color(rgb(muted()))
+                .child(if busy {
+                    "正在问引擎…".to_string()
+                } else {
+                    format!("词表 {} 条 · 改名 / 删除会连带改写挂着它的扩展", words.len())
+                }),
+        )
+        .child(ghost_btn("res-cats-back", "返回").on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| this.resource_cancel_categories(cx),
+        )));
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .h_full()
+        .min_w(t().d(0.))
+        .bg(rgb(t().p.panel))
+        .child(page_head(
+            "类别词表",
+            "类别在私库根的 categories.json 里（随发布进历史）。改名 / 删除会连带改写挂着它的扩展的清单。",
+        ))
+        .child(
+            div()
+                .id("res-cats-body")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(t().d(0.))
+                .overflow_y_scroll()
+                .px(t().d(22.))
+                .py(t().d(18.))
+                .child(body),
+        )
+        .child(foot)
+        .into_any_element()
+}
+
+/// 垃圾站：卸载过、还没真删的源码目录。
+///
+/// 这一页存在的理由：卸载只是把目录 `rename` 进 `data/extend-trash/`。看不见它，
+/// 「卸载」和「扔掉」在界面上就是同一个按钮。
+pub(crate) fn render_trash(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+    let items = desk
+        .resources
+        .ext_trash
+        .as_ref()
+        .map(|t| t.items.clone())
+        .unwrap_or_default();
+
+    let n_items = items.len();
+    let mut body = div().flex().flex_col().w_full();
+    if items.is_empty() {
+        body = body.child(
+            div()
+                .py(t().d(16.))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(muted()))
+                .child("垃圾站是空的。卸载过的扩展会先落到这里，装回来最快就是从这儿拿。"),
+        );
+    }
+    for item in items {
+        let name = item.name.clone();
+        let entry = item.entry.clone();
+        let install_name = name.clone();
+        let purge_name = name.clone();
+        // 一行一个 id：卸载过两份同名扩展时，两颗「装回来」不能共用一个 ElementId。
+        let id_install = format!("res-trash-install-{entry}");
+        let id_purge = format!("res-trash-purge-{entry}");
+        body = body.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(t().d(10.))
+                .px(t().d(10.))
+                .py(t().d(8.))
+                .rounded(t().r(6.))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap(t().d(2.))
+                        .child(
+                            div()
+                                .text_size(t().fs(12.5))
+                                .text_color(rgb(text_color()))
+                                .child(name.clone()),
+                        )
+                        .child(
+                            div()
+                                .font_family("JetBrainsMono")
+                                .text_size(t().fs(10.5))
+                                .text_color(rgb(muted()))
+                                .child(format!(
+                                    "{} · {}{}",
+                                    item.entry,
+                                    stamp_label(item.trashed_at),
+                                    if item.has_manifest { "" } else { " · 清单没了" }
+                                )),
+                        ),
+                )
+                .child(btn(&id_install, "装回来", true).on_click(cx.listener(
+                    move |this, _: &ClickEvent, window, cx| {
+                        this.resource_trash_install(install_name.clone(), window, cx);
+                    },
+                )))
+                .child(
+                    ghost_btn(&id_purge, "彻底删除")
+                        .text_color(rgb(t().p.danger_fg))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.resource_trash_ask_purge(purge_name.clone(), entry.clone(), cx);
+                        })),
+                ),
+        );
+    }
+
+    let foot = div()
+        .flex()
+        .items_center()
+        .gap(t().d(10.))
+        .px(t().d(22.))
+        .py(t().d(11.))
+        .border_t(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
+        .child(
+            div()
+                .flex_1()
+                .text_size(t().fs(11.5))
+                .text_color(rgb(muted()))
+                .child(format!("{n_items} 份 · 装回来优先拿最近那份")),
+        )
+        .child(ghost_btn("res-trash-back", "返回").on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| this.resource_close_trash(cx),
+        )));
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .h_full()
+        .min_w(t().d(0.))
+        .bg(rgb(t().p.panel))
+        .child(page_head(
+            "垃圾站",
+            "卸载只是把源码目录搬进 data/extend-trash/ —— 这里是那些目录，装回来最快，彻底删除不可逆。",
+        ))
+        .child(
+            div()
+                .id("res-trash-body")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(t().d(0.))
+                .overflow_y_scroll()
+                .px(t().d(22.))
+                .py(t().d(18.))
+                .child(body),
+        )
+        .child(foot)
+        .into_any_element()
+}
+
+/// 卸载时间的口径：只说「多久以前」，没人需要毫秒。
+pub(crate) fn stamp_label(ms: u64) -> String {
+    if ms == 0 {
+        return "时间不详".into();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(ms);
+    let mins = now.saturating_sub(ms) / 60_000;
+    match mins {
+        0 => "刚刚".into(),
+        m if m < 60 => format!("{m} 分钟前"),
+        m if m < 60 * 24 => format!("{} 小时前", m / 60),
+        m => format!("{} 天前", m / (60 * 24)),
+    }
 }
 
 fn btn(id: &str, label: &str, primary: bool) -> Stateful<Div> {

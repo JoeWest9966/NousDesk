@@ -942,6 +942,30 @@ pub struct Extension {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// `GET /v1/extensions/trash`：卸载过、还没真删的源码目录（在 `<data>/extend-trash/`）。
+/// 目录名就是 `<name>-<epochms>`，`name` 由引擎切好给我们 —— 客户端不自己拆。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TrashList {
+    #[serde(default)]
+    pub items: Vec<TrashItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrashItem {
+    pub name: String,
+    /// 垃圾站里的目录名 `<name>-<epochms>`；彻底删按它来（同一扩展可能有好几份）。
+    pub entry: String,
+    #[serde(default)]
+    pub trashed_at: u64,
+    /// 清单还在不在：不在的那份装回去也没用。
+    #[serde(default)]
+    pub has_manifest: bool,
+    #[serde(default)]
+    pub dir: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchivedExtension {

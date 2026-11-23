@@ -150,6 +150,11 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("POST", "v1/repos/extend/restore"),
     ("POST", "v1/repos/extend/purge"),
     ("POST", "v1/extensions/category"),
+    // 词表写面（Nous 0.1.18 起）与垃圾站读面 / 真删面：
+    // 卸载之后源码目录只是搬进 `data/extend-trash/`，不列出来 = 卸载按钮等于删除。
+    ("POST", "v1/extensions/categories"),
+    ("GET", "v1/extensions/trash"),
+    ("POST", "v1/extensions/trash/purge"),
     ("POST", "v1/repos/extend/variants/bind"),
     ("POST", "v1/repos/extend/variants/branch"),
     ("POST", "v1/repos/extend/variants/unbind"),
@@ -377,8 +382,8 @@ mod tests {
         assert!(!version.is_empty(), "夹具缺 _engine_version");
         assert_eq!(
             fixture["routes"].as_array().unwrap().len(),
-            152,
-            "0.1.15 整份重抓 139 + 触发器工程面 13 条（Nous#95）"
+            154,
+            "0.1.15 整份重抓 139 + 触发器工程面 13 条（Nous#95）+ 垃圾站两条（0.1.16）"
         );
         assert!(fixture["_provenance"].get("commit").is_some());
     }

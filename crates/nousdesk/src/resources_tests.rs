@@ -439,3 +439,43 @@ mod write_tests {
         assert!(is_dirty("a\n", "a \n"));
     }
 }
+
+/// 垃圾站的条目名是引擎切的 `<name>-<epochms>`，客户端只管显示；
+/// 时间口径只说「多久以前」——毫秒对人没有意义，但「刚刚 / 3 天前」有意义。
+#[test]
+fn 垃圾站时间口径() {
+    use crate::resource_write::stamp_label;
+    assert_eq!(stamp_label(0), "时间不详");
+    let now = std::time::SystemTime::now();
+    let ms = |back: u64| {
+        now.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 - back
+    };
+    assert_eq!(stamp_label(ms(30_000)), "刚刚");
+    assert_eq!(stamp_label(ms(5 * 60_000)), "5 分钟前");
+    assert_eq!(stamp_label(ms(3 * 3_600_000)), "3 小时前");
+    assert_eq!(stamp_label(ms(2 * 86_400_000)), "2 天前");
+}
+
+/// `GET /v1/extensions/trash` 的回包形状（抄 j1900 真机那条）：
+/// `name` 从目录名切好、`has_manifest` 决定「装回来」有没有意义。
+#[test]
+fn 垃圾站回包形状() {
+    let raw = serde_json::json!({
+        "items": [{
+            "name": "123",
+            "entry": "123-1795392796720",
+            "trashed_at": 1795392796720u64,
+            "has_manifest": true,
+            "dir": "data/extend-trash/123-1795392796720"
+        }]
+    });
+    let list: nous_engine::types::TrashList = serde_json::from_value(raw).unwrap();
+    assert_eq!(list.items.len(), 1);
+    assert_eq!(list.items[0].name, "123");
+    assert_eq!(list.items[0].entry, "123-1795392796720");
+    assert!(list.items[0].has_manifest);
+    // 引擎将来多回字段不许炸（哑协议：未知字段原样收着）。
+    let extra: nous_engine::types::TrashList =
+        serde_json::from_value(serde_json::json!({"items": [], "next": 1})).unwrap();
+    assert!(extra.items.is_empty());
+}
