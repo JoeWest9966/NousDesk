@@ -284,6 +284,33 @@ impl EngineClient {
         self.json(resp).await
     }
 
+    /// `POST /v1/elements/{kind}/{id}/lock`：上锁 / 解锁。
+    ///
+    /// 它是**唯一**能改 `locked` 的入口（`PUT` 反向回写 `locked` 会被 400 拒）；
+    /// 锁着的时候 `element_put` / `element_delete` 回 423 —— 界面把按钮灰掉只是好看，
+    /// 真正拦住的是这一步。
+    pub async fn element_lock(
+        &self,
+        kind: ElementKind,
+        id: &str,
+        locked: bool,
+        base: Option<&str>,
+        request_id: Option<&str>,
+    ) -> Result<ElementReceipt, EngineError> {
+        let body = json!({
+            "locked": locked,
+            "base": base.filter(|b| !b.is_empty()),
+            "requestId": request_id.filter(|r| !r.trim().is_empty()),
+        });
+        let resp = self
+            .http
+            .post(self.url(&format!("{}/lock", element_url(kind, id)))?)
+            .json(&body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
     /// 扩展的类别词表（`GET /v1/extensions/categories`）。
     ///
     /// 类别树要的是「这个仓定义了哪几个类别」，不是从条目里 `category` 凑出来的集合 ——
@@ -1323,6 +1350,7 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("PUT", "v1/elements/{kind}/{id}"),
     ("POST", "v1/elements/{kind}"),
     ("DELETE", "v1/elements/{kind}/{id}"),
+    ("POST", "v1/elements/{kind}/{id}/lock"),
     ("POST", "v1/elements/push"),
     ("GET", "v1/extensions/categories"),
     ("POST", "v1/extensions/categories"),

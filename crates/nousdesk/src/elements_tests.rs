@@ -146,4 +146,26 @@ mod tests {
         let s = commit(None, None, true).summary("已保存");
         assert!(s.contains("没有重复写"), "{s}");
     }
+
+    #[test]
+    fn 锁是盘上那个键_不是客户端自己记的() {
+        // 引擎写进 JSON 的 `locked: true` → 这一条就是锁着的。
+        assert!(element("a", json!({ "id": "a", "name": "A", "locked": true })).locked());
+        // 没有这个键 → 没锁（老数据不该因为少一个键就画成锁住）。
+        assert!(!element("b", json!({ "id": "b", "name": "B" })).locked());
+        // 类型不对就当没锁：不猜 `"true"` 这种写法（引擎只写布尔）。
+        assert!(!element("c", json!({ "id": "c", "name": "C", "locked": "true" })).locked());
+        assert!(!element("d", json!({ "id": "d", "name": "D", "locked": null })).locked());
+    }
+
+    #[test]
+    fn 锁标不影响别的字段判定() {
+        let locked = element(
+            "g",
+            json!({ "id": "g", "name": "前端", "packages": ["react-rules"], "locked": true }),
+        );
+        assert!(locked.locked());
+        assert_eq!(locked.name(), "前端");
+        assert_eq!(locked.packages(), vec!["react-rules"], "读锁不该把引用读没");
+    }
 }

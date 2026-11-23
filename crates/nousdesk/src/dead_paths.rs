@@ -138,6 +138,7 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("PUT", "v1/elements/{kind}/{id}"),
     ("POST", "v1/elements/{kind}"),
     ("DELETE", "v1/elements/{kind}/{id}"),
+    ("POST", "v1/elements/{kind}/{id}/lock"),
     ("POST", "v1/elements/push"),
     ("GET", "v1/extensions/files"),
     ("GET", "v1/extensions/file"),

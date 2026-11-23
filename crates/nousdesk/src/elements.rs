@@ -76,6 +76,8 @@ pub(crate) struct Detail {
     pub detail: Option<String>,
     pub broken: bool,
     pub creating: bool,
+    /// 盘上那份锁没锁。**只读** —— 改它只能走 `/lock`（`toggle_lock`）。
+    pub locked: bool,
 }
 
 /// 右栏画什么。两个视图看的是同一份 `draft`。
@@ -133,6 +135,8 @@ pub(crate) struct ElementState {
     /// 半成品文件（用户没保存就退出 = 私库里多了个空组）。草稿只在内存里，
     /// 第一次「保存并提交」才 POST。
     pub creating: bool,
+    /// 锁请求在路上（防连点两下：一个上锁一个解锁）。
+    pub locking: bool,
 
     pub search: Entity<InputState>,
     /// 新建草稿的 id（它是文件名，只在**还没落盘**时可改；落过盘就是只读的）。
@@ -162,6 +166,7 @@ impl ElementState {
             saving: false,
             confirm_delete: false,
             creating: false,
+            locking: false,
             search: cx.new(|cx| InputState::new(window, cx).placeholder("搜 id / 名字 / 正文")),
             form_id: cx.new(|cx| InputState::new(window, cx).placeholder("frontend")),
             form_name: cx.new(|cx| InputState::new(window, cx)),
@@ -200,6 +205,7 @@ impl ElementState {
                 detail: None,
                 broken: false,
                 creating: true,
+                locked: false,
             });
         }
         let element = self.data.as_ref()?.find(*kind, id)?;
@@ -212,6 +218,7 @@ impl ElementState {
             detail: element.detail.clone(),
             broken: element.broken(),
             creating: false,
+            locked: element.locked(),
         })
     }
 
@@ -356,6 +363,16 @@ impl Desktop {
         if self.elements_state.saving {
             return;
         }
+        // 锁着的元素不发请求：引擎会回 423，但让人填完一屏再被拒不是体验。
+        // （真正的拦截仍在引擎 —— 这里只是不白跑一趟。）
+        if self.elements_state.detail().is_some_and(|d| d.locked) {
+            self.notify(
+                "已锁定：先点顶栏的「解锁」再改",
+                crate::app::NoticeKind::Error,
+                cx,
+            );
+            return;
+        }
         let Some((kind, id)) = self.elements_state.selected.clone() else {
             return;
         };
@@ -463,6 +480,15 @@ impl Desktop {
         let Some((kind, id)) = self.elements_state.selected.clone() else {
             return;
         };
+        if self.elements_state.detail().is_some_and(|d| d.locked) {
+            self.notify(
+                "已锁定：删不掉，先点顶栏的「解锁」",
+                crate::app::NoticeKind::Error,
+                cx,
+            );
+            self.elements_state.confirm_delete = false;
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
             return;
@@ -493,6 +519,76 @@ impl Desktop {
                             this.elements_state.base = None;
                         }
                         this.load_elements(true, cx);
+                    }
+                    Err(e) => this.notify_error(&e, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 上锁 / 解锁。
+    ///
+    /// 锁在**引擎**（`locked` 写进那份 JSON 并提交），这里只发一个请求；
+    /// 成功后把本地 `draft` 的 `locked` 也改掉 —— 不然重新拉取回来之前
+    /// 一保存就会把旧值回写，引擎会以 `400` 拒掉（“锁只能由 /lock 改”）。
+    pub(crate) fn toggle_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.elements_state.locking {
+            return;
+        }
+        let Some((kind, id)) = self.elements_state.selected.clone() else {
+            return;
+        };
+        if self.elements_state.creating {
+            return;
+        }
+        // 目标状态从盘上那份推出来，不在本地存一份「现在是开是关」。
+        let Some(locked_now) = self
+            .elements_state
+            .selected_element()
+            .map(nous_engine::Element::locked)
+        else {
+            return;
+        };
+        let target = !locked_now;
+        let base = self.elements_state.base.clone();
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
+            return;
+        };
+        let request_id = new_request_id();
+        self.elements_state.locking = true;
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let result = engine
+                .element_lock(kind, &id, target, base.as_deref(), Some(&request_id))
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.elements_state.locking = false;
+                match result {
+                    Ok(receipt) => {
+                        if let Some(draft) = this.elements_state.draft.as_mut() {
+                            if let Some(map) = draft.as_object_mut() {
+                                map.insert(
+                                    "locked".into(),
+                                    serde_json::Value::Bool(target),
+                                );
+                            }
+                        }
+                        this.notify(
+                            match receipt.commit.as_deref() {
+                                Some(_) if target => "已锁定 · 现在改不了也删不掉",
+                                Some(_) => "已解锁",
+                                None => "锁定状态没变",
+                            },
+                            crate::app::NoticeKind::Info,
+                            cx,
+                        );
+                        // 重新拉一次：拿到新的 etag（`base`）与别人的可能改动。
+                        this.load_elements(true, cx);
+                        this.sync_forms_windowed(window, cx);
                     }
                     Err(e) => this.notify_error(&e, cx),
                 }
@@ -933,6 +1029,16 @@ fn element_row(
                 .text_color(rgb(name_color))
                 .child(e.name().to_string()),
         )
+        // 锁标：一眼看出哪几条动不了（不看详情也能知道）。
+        .when(e.locked(), |el| {
+            el.child(
+                div()
+                    .flex_none()
+                    .text_size(t().fs(9.5))
+                    .text_color(rgb(t().p.warn))
+                    .child("锁"),
+            )
+        })
         .child(
             div()
                 .flex_none()
@@ -1049,6 +1155,9 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
 
 fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>) -> AnyElement {
     let st = &desk.elements_state;
+    // 锁状态从盘上那份推出来（草稿永远没锁）。不在本地存一个「switch」——
+    // 两份状态一定会分叉，而锁分叉的后果是“界面说开了、引擎说锁着”。
+    let locked = !st.creating && st.selected_element().is_some_and(Element::locked);
     let mode_btn = |mode: Mode, cx: &mut Context<Desktop>| {
         let on = st.mode == mode;
         div()
@@ -1101,6 +1210,34 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
             .child(mode_btn(Mode::Json, cx));
     }
 
+    // 锁开关：盘上锁着的元素，保存 / 删除都变灰，只有这一个口子能解开。
+    // （真拦住的是引擎：锁着时 PUT / DELETE 回 423，过界面也删不掉。）
+    if has_selection && !st.creating {
+        let locking = st.locking;
+        bar = bar.child(
+            div()
+                .id("el-lock")
+                .px(t().d(9.))
+                .py(t().d(6.))
+                .rounded(t().r(6.))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(if locked { t().p.warn } else { muted() }))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .when(!locking, |el| {
+                    el.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.toggle_lock(window, cx);
+                    }))
+                })
+                .child(if locking {
+                    "…".to_string()
+                } else if locked {
+                    "解锁".to_string()
+                } else {
+                    "锁定".to_string()
+                }),
+        );
+    }
+
     bar = bar.child(
         div()
             .id("el-new")
@@ -1123,6 +1260,7 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
     // 第一次写这里时把两个按钮放在同一个 `if` 里，于是草稿没有保存按钮，
     // 人只能看着一份填好的表单没法提交（真踩过）。
     if has_selection && !st.creating {
+        let deletable = !locked && !st.saving;
         bar = bar.child(
             div()
                 .id("el-delete")
@@ -1130,19 +1268,22 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
                 .py(t().d(6.))
                 .rounded(t().r(6.))
                 .text_size(t().fs(11.5))
-                .text_color(rgb(t().p.danger))
-                .hover(|el| el.bg(rgb(t().p.danger_soft)))
-                .child("删除")
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.elements_state.confirm_delete = true;
-                    cx.notify();
-                })),
+                .text_color(rgb(if deletable { t().p.danger } else { t().p.disabled }))
+                .when(deletable, |el| {
+                    el.hover(|el| el.bg(rgb(t().p.danger_soft)))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.elements_state.confirm_delete = true;
+                            cx.notify();
+                        }))
+                })
+                .child("删除"),
         );
     }
 
-    // 保存：盘上的和草稿都有（草稿第一次保存是 POST）。
+    // 保存：盘上的和草稿都有（草稿第一次保存是 POST）。锁着就是个死按钮 ——
+    // 不挂点击，并在文案里说清楚为什么。
     if has_selection {
-        let saving = st.saving;
+        let saving = st.saving || locked;
         let creating_now = st.creating;
         bar = bar.child(
             div()
@@ -1160,10 +1301,11 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
                             this.save_element(window, cx);
                         }))
                 })
-                .child(match (saving, creating_now) {
-                    (true, _) => "保存中…",
-                    (false, true) => "建好并提交",
-                    (false, false) => "保存并提交",
+                .child(match (saving, locked, creating_now) {
+                    (_, true, _) => "已锁定",
+                    (true, _, _) => "保存中…",
+                    (false, false, true) => "建好并提交",
+                    (false, false, false) => "保存并提交",
                 }),
         );
     }
@@ -1178,6 +1320,7 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
 fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
     let st = &desk.elements_state;
     let kind = detail.kind;
+    let locked = detail.locked;
     let path = format!("{}/{}.json", kind.dir(), detail.id);
     let (fingerprint, fp_color) = match (detail.creating, detail.etag.as_deref()) {
         (true, _) => ("还没提交（草稿）".to_string(), t().p.warn),
@@ -1253,6 +1396,29 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
         );
     }
 
+    // 锁着：字段全是灰的，上面一行说清楚去哪个口子解开。
+    if detail.locked {
+        doc = doc.child(
+            div()
+                .mt(t().d(14.))
+                .max_w(t().d(640.))
+                .flex()
+                .items_center()
+                .gap(t().d(8.))
+                .p(t().d(10.))
+                .rounded(t().r(7.))
+                .bg(rgb(t().p.selected))
+                .text_size(t().fs(11.))
+                .text_color(rgb(t().p.text_2))
+                .child(div().child("已锁定"))
+                .child(
+                    div()
+                        .text_color(rgb(muted()))
+                        .child("改不了也删不掉 —— 点顶栏「解锁」再改"),
+                ),
+        );
+    }
+
     doc = doc.child(div().h(t().d(1.)).mt(t().d(30.)).mb(t().d(26.)).bg(rgb(line_color())));
 
     // 字段：ID 只读（它就是文件名，改名 = 新建 + 删旧的），别的都能改。
@@ -1280,10 +1446,10 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
     };
 
     doc = doc.child(div().mt(t().d(22.)).child(field_label("NAME")));
-    doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_name).small()));
+    doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_name).small().disabled(locked)));
 
     doc = doc.child(div().mt(t().d(22.)).child(field_label("DESC")));
-    doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_desc).small()));
+    doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_desc).small().disabled(locked)));
 
     match kind {
         ElementKind::Groups => {
@@ -1296,7 +1462,7 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
                 div()
                     .mt(t().d(6.))
                     .max_w(t().d(620.))
-                    .child(Input::new(&st.form_refs).small()),
+                    .child(Input::new(&st.form_refs).small().disabled(locked)),
             );
             // 断链点名（只显示引擎算出来的，不自己比对）。
             if let Some(data) = st.data.as_ref() {
@@ -1333,7 +1499,8 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
                     .child(
                         Textarea::new(&st.form_body)
                             .size_full()
-                            .font_family(mono()),
+                            .font_family(mono())
+                            .disabled(locked),
                     ),
             );
             doc = doc.child(div().mt(t().d(22.)).child(field_label("TAGS · 逗号分隔")));
@@ -1341,7 +1508,7 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
                 div()
                     .mt(t().d(6.))
                     .max_w(t().d(620.))
-                    .child(Input::new(&st.form_tags).small()),
+                    .child(Input::new(&st.form_tags).small().disabled(locked)),
             );
             // 属于哪些组：引用是「组 → 包」单向的，这里只是把它反过来画一眼。
             if let Some(data) = st.data.as_ref() {
@@ -1390,6 +1557,7 @@ fn short_hash(etag: &str) -> String {
 /// 没有——这里就用等宽 + 主题色，选中复制靠 `Textarea` 自己的选区）。
 fn render_json(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     let st = &desk.elements_state;
+    let locked = st.detail().is_some_and(|d| d.locked);
     let err = st.json_error.clone();
     let lines = st
         .json
@@ -1428,7 +1596,8 @@ fn render_json(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 .child(
                     Textarea::new(&st.json)
                         .size_full()
-                        .font_family(mono()),
+                        .font_family(mono())
+                        .disabled(locked),
                 ),
         )
         .child(
@@ -1446,11 +1615,13 @@ fn render_json(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     None => div().text_color(rgb(t().p.ok)).child("JSON 能解析"),
                 })
                 .child(div().flex_1())
-                .child(
-                    div()
-                        .text_color(rgb(muted()))
-                        .child("保存会提交一条 · push 尽力而为"),
-                ),
+                .child(div().text_color(rgb(if locked { t().p.warn } else { muted() })).child(
+                    if locked {
+                        "已锁定 · 先解锁才能存"
+                    } else {
+                        "保存会提交一条 · push 尽力而为"
+                    },
+                )),
         )
         .into_any_element()
 }
