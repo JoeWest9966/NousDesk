@@ -140,6 +140,16 @@ impl Element {
             .map(|a| a.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default()
     }
+
+    /// 锁没锁（`locked: true`）。**判定只在引擎**（`/lock` 端点），这边只读 ——
+    /// 界面拿它决定“看起来能不能改”，真正的拦截在服务端 423。
+    pub fn locked(&self) -> bool {
+        self.fields
+            .as_ref()
+            .and_then(|f| f.get("locked"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
 }
 
 /// 私库那一块：根路径 + 在不在 + git 三态。
@@ -259,7 +269,7 @@ pub struct ElementFile {
     pub extra: HashMap<String, Value>,
 }
 
-/// 写回执（PUT / POST / DELETE 共用一个形状，删除少了 `created` / `etag`）。
+/// 写回执（PUT / POST / DELETE / lock 共用一个形状，删除少了 `created` / `etag`）。
 ///
 /// `commit: None` = 内容与盘上一致，没有制造空提交（不是错误）。
 /// `replay: true` = 同一个 `requestId` 的重放，`commit` 也是 `None`，一个字节都没写。
@@ -282,6 +292,11 @@ pub struct ElementReceipt {
     pub refs: Vec<String>,
     #[serde(default)]
     pub replay: bool,
+    /// 只 `POST …/lock` 会给：操作之后的状态与“这次真的改了没”。
+    #[serde(default)]
+    pub locked: Option<bool>,
+    #[serde(default)]
+    pub changed: Option<bool>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
