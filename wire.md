@@ -496,6 +496,30 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 
 > 这 12 条**不在**「合同外调用」名单里：本节就是它们的字段合同。
 
+## 元素库（`/v1/elements*`，2026-11-23 起）
+
+一个元素 = 私库根（`NOUS_ELEMENTS`）下一个 JSON 文件：`groups/<id>.json` / `packages/<id>.json`。
+
+| 端点 | 我们读的字段 |
+|---|---|
+| `GET /v1/elements` | `repo{root,present,head,branch,dirty,ahead,behind}`、`groups[]`、`packages[]`（每条 `id` / `fields` / `etag` / `state` / `detail`）、`resolved{groups,missing[]}` |
+| `GET /v1/elements/{kind}` | `items[]`（同一条的形状） |
+| `GET /v1/elements/{kind}/{id}` | `fields`、`etag` |
+| `PUT /v1/elements/{kind}/{id}` | body `{fields, base?, requestId?}`；回 `{commit, etag, pushed, refs, replay}` |
+| `POST /v1/elements/{kind}` | 同 PUT，`id` 取 `fields.id`，201 |
+| `DELETE /v1/elements/{kind}/{id}` | `?base=&requestId=`；回 `{commit, pushed, refs, replay}`（**没有 `etag`**） |
+| `POST /v1/elements/push` | `{pushed, repo}` |
+
+四条会咬人的语义（2026-11-24 实测，`scripts/check-desk.sh` 的 `elements.*` 钉住）：
+
+- **`base` 就是 `If-Match`**：不符 → **409，盘上一个字节都不动**。所以客户端只能
+  「409 → 重读 `etag` → 让人再点一次」。`base` 不给 = 不带这个头（照删、照写）。
+- **不存在 / 已经被删了 → 404**，不是 200。
+- **DELETE 的 `requestId` 重放回 404，不是 `replay: true`**：`nous_elements::remove` 先
+  `read_file` 就 NotFound，幂等检查在更后面。重放**不会**写第二次，但别指望那句 `replay`
+  （PUT 的重放才是 `replay:true` + `commit:null`）。
+- `state:"problem"`（坏 JSON）时 `fields` / `etag` 都是 `null`：标红这一条，`base` 也发不出去。
+
 ## 合同外调用（客户端在用，本文件没写）
 
 **27 条 + 资源/触发器写回族**。来源是**真引擎的行为**，不是某份文档 —— 它们整包转发
