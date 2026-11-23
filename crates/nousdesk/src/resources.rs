@@ -1,14 +1,16 @@
-//! 「资源」页：方案 03 —— 一个图标，两段（内容 / 扩展）。
+//! 「资源」页：方案 03 —— 一个图标，三段并列（技能 / 提示词 / 扩展）。
 //!
 //! 外观稿见 `demo/resource-pages/preview.html` 的 03 号。这一刀是**只读**：
 //! 拉 / 切 / 筛 / 搜 / 看详情，写操作（发布 / 归档 / 文件编辑）留第二刀。
 //!
-//! ## 为什么两段
+//! ## 为什么三段并列
 //!
-//! 内容是「技能 + 提示词」：同一个模子（引擎里两个 api 文件互相点名），共用一套
-//! 树 / 列表 / 详情。扩展不是列表 —— 有 `catalog` / `builtin` / `variants` /
-//! `archived` / `installed` 五类东西，装 / 卸 / 归档是三件不同的事（核心三条 403）。
-//! 硬塞成一个列表等于把五种东西涂成同一种颜色，见 `decisions.md` 2026-11-16 那条。
+//! 技能和提示词同一个模子（两个私库、两套端点，但都是「纯文字 + 类别 + 可发布」），
+//! 共用一套树 / 列表 / 详情。以前它们裹在「内容」段里再挂一个子开关：那一层不装
+//! 任何东西、只多一次点击（2026-11-24 用户判断「内容这个没用」）—— 删掉，三个平铺。
+//! 扩展不是列表 —— 有 `catalog` / `builtin` / `variants` / `archived` / `installed`
+//! 五类东西，装 / 卸 / 归档是三件不同的事（核心三条 403）。硬塞成一个列表等于把
+//! 五种东西涂成同一种颜色，见 `decisions.md` 2026-11-16 那条。
 //!
 //! ## 数据来源
 //!
@@ -39,36 +41,34 @@ fn t() -> crate::theme::Skin {
     crate::theme::cur()
 }
 
-/// 大段：内容 / 扩展。
+/// 三个段，平铺：技能 / 提示词 / 扩展。
+///
+/// 以前是「内容（技能 · 提示词）/ 扩展」两段 + 一层内容类型子开关。`内容` 那层
+/// 既不装东西也不做事，只让人多点一次 —— 2026-11-24 删掉，三个并列。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Section {
     #[default]
-    Content,
-    Extensions,
-}
-
-/// 内容段里的小类：技能 / 提示词。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum Content {
-    #[default]
     Skills,
     Prompts,
+    Extensions,
 }
 
 impl Section {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Content => "内容",
+            Self::Skills => "技能",
+            Self::Prompts => "提示词",
             Self::Extensions => "扩展",
         }
     }
-}
 
-impl Content {
-    pub fn label(self) -> &'static str {
+    /// 三个段各自那份状态（类别筛选 / 搜索框）用的槽位。**只在这里排下标**，
+    /// 别处一律用 `slot()`，省得再加一段时有人漏改一处。
+    pub(crate) fn slot(self) -> usize {
         match self {
-            Self::Skills => "技能",
-            Self::Prompts => "提示词",
+            Self::Skills => 0,
+            Self::Prompts => 1,
+            Self::Extensions => 2,
         }
     }
 }
@@ -169,7 +169,6 @@ impl ResCol {
 /// 这一页的全部状态。**只有这一页持有**，不塞进 `Desktop`。
 pub(crate) struct ResourceState {
     pub(crate) section: Section,
-    pub(crate) content: Content,
     pub(crate) skills: Option<Skills>,
     pub(crate) prompts: Option<Prompts>,
     pub(crate) exts: Option<Extensions>,
@@ -228,7 +227,6 @@ impl ResourceState {
         };
         Self {
             section: Section::default(),
-            content: Content::default(),
             skills: None,
             prompts: None,
             exts: None,
@@ -260,13 +258,7 @@ impl ResourceState {
 
 
     fn slot(&self) -> usize {
-        match self.section {
-            Section::Extensions => 2,
-            Section::Content => match self.content {
-                Content::Skills => 0,
-                Content::Prompts => 1,
-            },
-        }
+        self.section.slot()
     }
 
     fn hydrated(&self) -> bool {
@@ -663,15 +655,6 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn resource_content(&mut self, content: Content, cx: &mut Context<Self>) {
-        if self.resources.content == content {
-            return;
-        }
-        self.resources.content = content;
-        self.resources.selected = None;
-        cx.notify();
-    }
-
     pub(crate) fn resource_cat(&mut self, cat: Option<String>, cx: &mut Context<Self>) {
         let slot = self.resources.slot();
         if self.resources.cat[slot] == cat {
@@ -749,63 +732,30 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> An
         r.ext_view(),
     );
 
-    // 段的子开关：内容段里再切「技能 / 提示词」。
-    let sub = if r.section == Section::Content {
-        let btn = |label: &'static str, n: usize, on: bool, skill: bool| {
-            div()
-                .id(ElementId::Name(format!("res-sub-{}", if skill { "skills" } else { "prompts" }).into()))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.resource_content(if skill { Content::Skills } else { Content::Prompts }, cx);
-                    // 窄窗：跟段切换同一规矩 —— 选了就是去看条目，退回列表那一层。
-                    this.resources.narrow_col = ResCol::Items;
-                    cx.notify();
-                }))
-                .flex_1()
-                .py(t().d(6.))
-                    .text_size(t().fs(11.5))
-                .text_color(rgb(if on { text_color() } else { muted() }))
-                .when(on, |el| el.bg(rgb(t().p.hover)))
-                .child(format!("{label}  {n}"))
-        };
-        Some(
-            div()
-                .flex()
-                .px(t().d(10.))
-                .pt(t().d(6.))
-                .gap(t().d(4.))
-                .child(btn("技能", n_skills, r.content == Content::Skills, true))
-                .child(btn("提示词", n_prompts, r.content == Content::Prompts, false)),
-        )
-    } else {
-        None
-    };
-
     // 类别树：复用 category.rs 的纯函数，不第三次写 count + sort。
     let (cat_nodes, special): (Vec<CatNode>, Vec<(&str, String)>) = match r.section {
-        Section::Content => match r.content {
-            Content::Skills => {
-                let skills = r.skills.as_ref().map(|s| s.skills.as_slice()).unwrap_or(&[]);
-                let cats = r.skills.as_ref().map(|s| s.categories.as_slice()).unwrap_or(&[]);
-                (
-                    build_tree(cats, skills.iter().map(|s| s.category.as_slice())),
-                    r.skills.as_ref().map(|s| vec![
-                        ("∅", format!("未分类  {}", s.skills.iter().filter(|x| x.category.is_empty() && !x.hidden).count())),
-                        ("@hidden", format!("隐藏（模型看不见）  {}", hidden_skills(s).len())),
-                    ]).unwrap_or_default(),
-                )
-            }
-            Content::Prompts => {
-                let prompts = r.prompts.as_ref().map(|p| p.prompts.as_slice()).unwrap_or(&[]);
-                let cats = r.prompts.as_ref().map(|p| p.categories.as_slice()).unwrap_or(&[]);
-                (
-                    build_tree(cats, prompts.iter().map(|p| p.category.as_slice())),
-                    r.prompts.as_ref().map(|p| vec![
-                        ("∅", format!("未分类  {}", p.prompts.iter().filter(|x| x.category.is_empty()).count())),
-                        ("@default", format!("默认  {}", p.default.as_deref().unwrap_or("—"))),
-                    ]).unwrap_or_default(),
-                )
-            }
-        },
+        Section::Skills => {
+            let skills = r.skills.as_ref().map(|s| s.skills.as_slice()).unwrap_or(&[]);
+            let cats = r.skills.as_ref().map(|s| s.categories.as_slice()).unwrap_or(&[]);
+            (
+                build_tree(cats, skills.iter().map(|s| s.category.as_slice())),
+                r.skills.as_ref().map(|s| vec![
+                    ("∅", format!("未分类  {}", s.skills.iter().filter(|x| x.category.is_empty() && !x.hidden).count())),
+                    ("@hidden", format!("隐藏（模型看不见）  {}", hidden_skills(s).len())),
+                ]).unwrap_or_default(),
+            )
+        }
+        Section::Prompts => {
+            let prompts = r.prompts.as_ref().map(|p| p.prompts.as_slice()).unwrap_or(&[]);
+            let cats = r.prompts.as_ref().map(|p| p.categories.as_slice()).unwrap_or(&[]);
+            (
+                build_tree(cats, prompts.iter().map(|p| p.category.as_slice())),
+                r.prompts.as_ref().map(|p| vec![
+                    ("∅", format!("未分类  {}", p.prompts.iter().filter(|x| x.category.is_empty()).count())),
+                    ("@default", format!("默认  {}", p.default.as_deref().unwrap_or("—"))),
+                ]).unwrap_or_default(),
+            )
+        }
         Section::Extensions => {
             let exts = r.exts.as_ref();
             // 类别树要的是「这个仓定义了哪几个类别」：优先取词表
@@ -848,25 +798,20 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> An
         }
     };
 
-    let seg_btn = |label: &'static str, n: usize, on: bool, act: &'static str, cx: &mut Context<Desktop>| {
+    // 段按钮：三个段平铺，点谁换谁的列表。**不动 `narrow_col`** —— 筛选器不是导航。
+    let seg_btn = |section: Section, n: usize, id: &'static str, cx: &mut Context<Desktop>| {
+        let on = r.section == section;
         div()
-            .id(ElementId::Name(act.into()))
+            .id(ElementId::Name(id.into()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if act == "res-seg-ext" {
-                    this.resource_section(Section::Extensions, cx);
-                } else {
-                    this.resource_section(Section::Content, cx);
-                    this.resource_content(Content::Skills, cx);
-                }
-                // 切段只换列表里的内容，不动「树 / 列表」哪一层 —— 筛选器不是导航。
-                cx.notify();
+                this.resource_section(section, cx);
             }))
             .flex_1()
             .py(t().d(7.))
             .text_size(t().fs(12.))
             .text_color(rgb(if on { t().p.accent_fg } else { muted() }))
             .bg(rgb(if on { t().p.accent_soft } else { t().p.panel }))
-            .child(format!("{label}  {n}"))
+            .child(format!("{}  {n}", section.label()))
     };
 
     let slot = r.slot();
@@ -960,30 +905,24 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> An
                     .gap(t().d(3.))
                     .rounded(t().r(7.))
                     .bg(rgb(t().p.hover))
-                    .child(seg_btn("内容", n_skills + n_prompts, r.section == Section::Content, "res-seg-content", cx))
-                    .child(seg_btn("扩展", n_ext, r.section == Section::Extensions, "res-seg-ext", cx)),
+                    .child(seg_btn(Section::Skills, n_skills, "res-seg-skills", cx))
+                    .child(seg_btn(Section::Prompts, n_prompts, "res-seg-prompts", cx))
+                    .child(seg_btn(Section::Extensions, n_ext, "res-seg-ext", cx)),
             )
-            .children(sub)
         })
         .child(tree)
         .into_any_element()
 }
 
-/// 筛选器要做的事：切段、或切内容类型。
+/// 筛选器要做的事：切段。
 ///
 /// **筛选器不动 `narrow_col`**：它只决定「列表里是哪一批」，不决定「现在看到哪一层」。
 /// 上一版把段按钮搬进窄窗的树里，点一下就把中间列换掉 —— 那是把筛选器当成了导航。
-#[derive(Clone, Copy)]
-enum FilterAct {
-    Section(Section),
-    Content(Content),
-}
-
 fn filter_pill(
     label: String,
     on: bool,
     id: &'static str,
-    act: FilterAct,
+    section: Section,
     cx: &mut Context<Desktop>,
 ) -> AnyElement {
     div()
@@ -1001,11 +940,7 @@ fn filter_pill(
         })
         .child(label)
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            match act {
-                FilterAct::Section(s) => this.resource_section(s, cx),
-                FilterAct::Content(c) => this.resource_content(c, cx),
-            }
-            cx.notify();
+            this.resource_section(section, cx);
         }))
         .into_any_element()
 }
@@ -1109,11 +1044,11 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
         .border_color(rgb(line_color()))
         .bg(rgb(t().p.panel));
 
-    // 「+ 新建」跟着当前段走：在技能段建技能、在扩展段建扩展。
-    let new_kind = match (r.section, r.content) {
-        (Section::Extensions, _) => crate::resource_write::Kind::Ext,
-        (Section::Content, Content::Skills) => crate::resource_write::Kind::Skill,
-        (Section::Content, Content::Prompts) => crate::resource_write::Kind::Prompt,
+    // 「+ 新建」跟着当前段走：在技能段建技能、提示词段建提示词、扩展段建扩展。
+    let new_kind = match r.section {
+        Section::Skills => crate::resource_write::Kind::Skill,
+        Section::Prompts => crate::resource_write::Kind::Prompt,
+        Section::Extensions => crate::resource_write::Kind::Ext,
     };
     // 筛选器上的数字跟树里那几行**同一口径** —— 一处算（`counts`），不许两处各数一遍。
     let (n_skills, n_prompts, n_ext) = counts(r.skills.as_ref(), r.prompts.as_ref(), r.ext_view());
@@ -1160,8 +1095,9 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
     };
 
     list = list.child(if narrow {
-        // 窄窗：筛选器就待在列表头顶（两行），**不搬进树** —— 搬进树它们就变成层级，
+        // 窄窗：段筛选器就待在列表头顶，**不搬进树** —— 搬进树它们就变成层级，
         // 点一下等于把这一列换掉（2026-11-23 被指出的错）。树上只有类别。
+        // 三个段一行排开（技能 / 提示词 / 扩展）；第二行左边新建、右边该段的工具。
         div()
             .flex()
             .flex_col()
@@ -1195,43 +1131,33 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
                             })),
                     )
                     .child(filter_pill(
-                        format!("内容  {}", n_skills + n_prompts),
-                        r.section == Section::Content,
-                        "res-seg-content",
-                        FilterAct::Section(Section::Content),
+                        format!("技能  {n_skills}"),
+                        r.section == Section::Skills,
+                        "res-seg-skills",
+                        Section::Skills,
                         cx,
                     ))
                     .child(filter_pill(
-                        format!("扩展  {}", n_ext),
-                        r.section == Section::Extensions,
-                        "res-seg-ext",
-                        FilterAct::Section(Section::Extensions),
+                        format!("提示词  {n_prompts}"),
+                        r.section == Section::Prompts,
+                        "res-seg-prompts",
+                        Section::Prompts,
                         cx,
                     ))
-                    .child(div().flex_1())
-                    .child(new_btn(cx)),
+                    .child(filter_pill(
+                        format!("扩展  {n_ext}"),
+                        r.section == Section::Extensions,
+                        "res-seg-ext",
+                        Section::Extensions,
+                        cx,
+                    )),
             )
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(t().d(4.))
-                    .when(r.section == Section::Content, |el| {
-                        el.child(filter_pill(
-                            format!("技能  {n_skills}"),
-                            r.content == Content::Skills,
-                            "res-sub-skills",
-                            FilterAct::Content(Content::Skills),
-                            cx,
-                        ))
-                        .child(filter_pill(
-                            format!("提示词  {n_prompts}"),
-                            r.content == Content::Prompts,
-                            "res-sub-prompts",
-                            FilterAct::Content(Content::Prompts),
-                            cx,
-                        ))
-                    })
+                    .child(new_btn(cx))
                     .child(div().flex_1())
                     .child(tools(cx)),
             )
@@ -1248,10 +1174,7 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
                 div()
                     .text_size(t().fs(12.))
                     .text_color(rgb(text_color()))
-                    .child(match r.section {
-                        Section::Content => r.content.label(),
-                        Section::Extensions => "扩展",
-                    }),
+                    .child(r.section.label()),
             )
             .child(
                 div()
@@ -1267,11 +1190,14 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
     // 搜索框：三段各一份，切段时词还在。suffix 写命中数（空词写总数），
     // 跟左栏会话搜索同一个样式 —— 一行省下来就是列表的 20px。
     let total = match r.section {
-        Section::Content => match r.content {
-            Content::Skills => r.skills.as_ref().map(|s| s.skills.iter().filter(|x| !x.hidden).count()).unwrap_or(0),
-            Content::Prompts => r.prompts.as_ref().map(|p| p.prompts.len()).unwrap_or(0),
+        Section::Skills => r.skills.as_ref().map(|s| s.skills.iter().filter(|x| !x.hidden).count()).unwrap_or(0),
+        Section::Prompts => r.prompts.as_ref().map(|p| p.prompts.len()).unwrap_or(0),
+        // 老形状（没有 `items`）只有 `catalog`；新形状按段按钮同一口径数。
+        Section::Extensions => match r.ext_view() {
+            Some(view) if view.exts.items.is_empty() => view.exts.catalog.len(),
+            Some(view) => view.exts.items.len() + view.variant_count() + view.archived_count(),
+            None => 0,
         },
-        Section::Extensions => r.exts.as_ref().map(|e| e.catalog.len()).unwrap_or(0),
     };
     list = list.child(
         div()
@@ -1311,70 +1237,70 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
     let mut body = div().flex().flex_col().flex_1();
 
     match r.section {
-        Section::Content => match r.content {
-            Content::Skills => {
-                if let Some(skills) = r.skills.as_ref() {
-                    if cat == Some("@hidden") {
-                        for s in hidden_skills(skills) {
-                            body = body.child(row_btn(
-                                &s.name,
-                                s.description.as_deref().unwrap_or(""),
-                                "隐藏",
-                                false,
-                                t().p.muted,
-                                Selected::Skill(s.name.clone()),
-                                &r.selected,
-                                cx,
-                            ));
-                        }
-                    } else {
-                        for s in visible_skills(skills, cat, &q) {
-                            let bad = !s.loadable();
-                            // `tracked` 三态：`None` = 引擎不查 git，不挂 chip（不撒谎）。
-                            let chip = if bad {
-                                "加载失败"
-                            } else if s.tracked == Some(false) {
-                                "未提交"
-                            } else {
-                                ""
-                            };
-                            body = body.child(row_btn(
-                                &s.name,
-                                s.description.as_deref().unwrap_or(""),
-                                chip,
-                                bad,
-                                if bad { t().p.danger } else { muted() },
-                                Selected::Skill(s.name.clone()),
-                                &r.selected,
-                                cx,
-                            ));
-                        }
-                    }
-                } else {
-                    body = body.child(placeholder(r, RowKind::Prompts, &q, cat, cx));
-                }
-            }
-            Content::Prompts => {
-                if let Some(prompts) = r.prompts.as_ref() {
-                    for p in visible_prompts(prompts, cat, &q) {
-                        let is_default = prompts.default.as_deref() == Some(p.name.as_str());
-                        let chip = if is_default { "默认" } else if p.loadable() { "" } else { "加载失败" };
+        Section::Skills => {
+            if let Some(skills) = r.skills.as_ref() {
+                if cat == Some("@hidden") {
+                    for s in hidden_skills(skills) {
                         body = body.child(row_btn(
-                            &p.name,
-                            p.summary.as_deref().or(p.description.as_deref()).unwrap_or(""),
-                            chip,
-                            is_default,
-                            if is_default { t().p.accent } else { muted() },
-                            Selected::Prompt(p.name.clone()),
+                            &s.name,
+                            s.description.as_deref().unwrap_or(""),
+                            "隐藏",
+                            false,
+                            t().p.muted,
+                            Selected::Skill(s.name.clone()),
                             &r.selected,
                             cx,
                         ));
                     }
                 } else {
-                    body = body.child(placeholder(r, RowKind::Skills, &q, cat, cx));
+                    for s in visible_skills(skills, cat, &q) {
+                        let bad = !s.loadable();
+                        // `tracked` 三态：`None` = 引擎不查 git，不挂 chip（不撒谎）。
+                        let chip = if bad {
+                            "加载失败"
+                        } else if s.tracked == Some(false) {
+                            "未提交"
+                        } else {
+                            ""
+                        };
+                        body = body.child(row_btn(
+                            &s.name,
+                            s.description.as_deref().unwrap_or(""),
+                            chip,
+                            bad,
+                            if bad { t().p.danger } else { muted() },
+                            Selected::Skill(s.name.clone()),
+                            &r.selected,
+                            cx,
+                        ));
+                    }
                 }
+            } else {
+                // 等的是技能清单 —— 以前这里误写成 `RowKind::Prompts`，
+                // 于是「技能没拉到」会告诉用户「正在等提示词清单」。
+                body = body.child(placeholder(r, RowKind::Skills, &q, cat, cx));
             }
-        },
+        }
+        Section::Prompts => {
+            if let Some(prompts) = r.prompts.as_ref() {
+                for p in visible_prompts(prompts, cat, &q) {
+                    let is_default = prompts.default.as_deref() == Some(p.name.as_str());
+                    let chip = if is_default { "默认" } else if p.loadable() { "" } else { "加载失败" };
+                    body = body.child(row_btn(
+                        &p.name,
+                        p.summary.as_deref().or(p.description.as_deref()).unwrap_or(""),
+                        chip,
+                        is_default,
+                        if is_default { t().p.accent } else { muted() },
+                        Selected::Prompt(p.name.clone()),
+                        &r.selected,
+                        cx,
+                    ));
+                }
+            } else {
+                body = body.child(placeholder(r, RowKind::Prompts, &q, cat, cx));
+            }
+        }
         Section::Extensions => {
             if let Some(view) = r.ext_view() {
                 for row in ext_rows(view, cat, &q) {
