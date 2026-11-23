@@ -30,7 +30,7 @@ use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
-use nous_engine::{Element, ElementKind, ElementReceipt, Elements};
+use nous_engine::{Element, ElementKind, ElementReceipt, Elements, EngineError};
 
 use crate::app::Desktop;
 
@@ -95,6 +95,19 @@ impl Mode {
             Self::Json => "JSON",
         }
     }
+}
+
+/// 回包落地时，`draft` 跟不跟着盘上的内容走。
+///
+/// 「换一行」必须跟着换（否则左边看 A、右边改 B）；「同一行的刷新」（写完回来、
+/// 409 之后重读）**不能**跟着换 —— 一次后台刷新就会把用户没保存的字吃掉，
+/// 而保存成功后用旧快照回填会让刚存进去的字当场退回旧值（2026-11-24 真机踩过）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum DraftPolicy {
+    /// 换一条：`draft` = 盘上那一份。
+    Reset,
+    /// 还是那条：`draft` 一个字不动，只把 `base`（内容指纹）对齐到盘上。
+    Keep,
 }
 
 /// 写动作的幂等锚。一次用户动作一个；重放同一个值引擎回第一次的回执（`坑.md` 99）。
@@ -224,8 +237,34 @@ impl ElementState {
 // ── 拉取 ───────────────────────────────────────────────────────────────
 
 impl Desktop {
-    /// 切进元素库页 / 手动刷新：一份 GET 拉两段（引擎一次给全）。
+    /// 切进元素库页：一份 GET 拉两段（引擎一次给全）。
+    ///
+    /// `force = true` 是「同一条的刷新」（写完 / 手动点刷新 / 写失败后重读）：
+    /// 一定拉，且**不碰** `draft`（见 `DraftPolicy`）。
     pub(crate) fn load_elements(&mut self, force: bool, cx: &mut Context<Self>) {
+        let policy = if force { DraftPolicy::Keep } else { DraftPolicy::Reset };
+        self.fetch_elements(force, policy, cx);
+    }
+
+    /// 页头「刷新」：用户手动重读盘上那一份。
+    ///
+    /// 没有这个入口，盘上被别人改过之后删除会一直 409（`base` 停在旧快照上），
+    /// 只能重启 App —— 2026-11-24 真机踩过。
+    pub(crate) fn refresh_elements(&mut self, cx: &mut Context<Self>) {
+        self.fetch_elements(true, DraftPolicy::Keep, cx);
+    }
+
+    /// 写失败（409 撞车 / 404 已经没了）之后：盘上那份和手上的 `base` 对不上了，
+    /// 重读一次 **只对齐指纹**，用户手上的字一个不动。随后再点一次就按最新那份来 ——
+    /// 不重读就只能重启 App。
+    fn resync_after_write_error(&mut self, cx: &mut Context<Self>) {
+        self.fetch_elements(true, DraftPolicy::Keep, cx);
+    }
+
+    fn fetch_elements(&mut self, force: bool, policy: DraftPolicy, cx: &mut Context<Self>) {
+        // 正在拉就不开第二份：两份 `GET` 的回包谁后到谁覆盖，后到的也可能是旧的。
+        // 要写失败重读碰上这一条（极少：几十毫秒的窗口），那一次回包同样是
+        // `DraftPolicy::Keep`，落地时照样会把 `base` 对齐 —— 最差是多点一次。
         if self.elements_state.loading {
             return;
         }
@@ -260,7 +299,7 @@ impl Desktop {
                             this.elements_state.base = None;
                         }
                         this.elements_state.data = Some(data);
-                        this.sync_forms(cx);
+                        this.sync_forms(policy, cx);
                     }
                     Err(e) => this.elements_state.error = Some(format!("元素库：{e}")),
                 }
@@ -284,14 +323,14 @@ impl Desktop {
         self.elements_state.creating = false;
         self.elements_state.selected = Some((kind, id));
         self.elements_state.mode = Mode::Form;
-        self.sync_forms_windowed(window, cx);
+        self.sync_forms_windowed(DraftPolicy::Reset, window, cx);
         cx.notify();
     }
 
     /// 从当前选中项刷新 `draft` + 两个视图。选中项没了就清空。
-    fn sync_forms(&mut self, cx: &mut Context<Self>) {
-        // 没有 window 的路径（后台刷新回来）只对齐 draft；文本框由 render 前的
-        // `sync_forms_windowed` 补。少一次 set_value 不会丢数据 —— 它只是视图。
+    fn sync_forms(&mut self, policy: DraftPolicy, cx: &mut Context<Self>) {
+        // 没有 window 的路径（后台刷新回来）只对齐 draft；文本框由 `sync_forms_windowed` 补。
+        // 少一次 set_value 不会丢数据 —— 它只是视图。
         // 草稿（`creating`）的 draft 是用户正在编辑的那一份，**不许**被「刷新选中项」
         // 覆盖成 None —— 那会让右栏瞬间退回空状态（新建时踩过）。
         if self.elements_state.creating {
@@ -300,13 +339,20 @@ impl Desktop {
         }
         let element = self.elements_state.selected_element().cloned();
         let state = &mut self.elements_state;
-        state.draft = element.as_ref().and_then(|e| e.fields.clone());
         state.base = element.as_ref().and_then(|e| e.etag.clone());
+        if policy == DraftPolicy::Reset {
+            state.draft = element.as_ref().and_then(|e| e.fields.clone());
+        }
         cx.notify();
     }
 
-    fn sync_forms_windowed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.sync_forms(cx);
+    fn sync_forms_windowed(
+        &mut self,
+        policy: DraftPolicy,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_forms(policy, cx);
         let id_value = self
             .elements_state
             .selected
@@ -403,16 +449,42 @@ impl Desktop {
                 match result {
                     Ok(receipt) => {
                         this.elements_state.creating = false;
-                        this.elements_state.selected = Some((kind, receipt.id.clone()));
+                        let id = receipt.id.clone();
+                        this.elements_state.selected = Some((kind, id.clone()));
+                        // 回执就是真相：就地并进清单（新 etag + 刚发出去的内容），
+                        // 然后才异步重拉。等 GET 回来再对齐的话，`load_elements` 还没落地，
+                        // 下面那次回填读到的还是旧快照 —— 刚存进去的字当场退回旧值，
+                        // 再敲一个字就把上一次的保存静默吃掉（2026-11-24 真机踩过）。
+                        if let Some(data) = this.elements_state.data.as_mut() {
+                            apply_written(data, kind, &id, &fields, receipt.etag.as_deref());
+                        }
+                        this.elements_state.base = receipt.etag.clone();
+                        this.elements_state.draft = Some(fields);
                         this.notice_element(
                             &receipt,
                             if creating { "已新建" } else { "已保存" },
                             cx,
                         );
+                        // 刷 `resolved` / 仓状态（写完之后断链可能变了），draft 一个字不动。
                         this.load_elements(true, cx);
-                        this.sync_forms_windowed(window, cx);
+                        // 表单重新按 draft 回填：JSON 视图里改完再切回来时，输入框不能是旧的。
+                        this.sync_forms_windowed(DraftPolicy::Keep, window, cx);
                     }
-                    Err(e) => this.notify_error(&e, cx),
+                    Err(e) => {
+                        // 409 = 盘上那一版和手上的 `base` 对不上（别人改过）。
+                        // 只有一个解：**重读盘上的指纹**，再把引擎原话加一句「接下来怎么办」。
+                        // 不重读就永远 409，只能重启 App（2026-11-24 真机踩过）。
+                        if engine_status(&e) == Some(409) {
+                            this.resync_after_write_error(cx);
+                            this.notify(
+                                conflict_hint(&e, "保存并提交"),
+                                crate::app::NoticeKind::Error,
+                                cx,
+                            );
+                        } else {
+                            this.notify_error(&e, cx);
+                        }
+                    }
                 }
                 cx.notify();
             });
@@ -454,15 +526,25 @@ impl Desktop {
         st.mode = Mode::Form;
         st.json_error = None;
         st.confirm_delete = false;
-        self.sync_forms_windowed(window, cx);
+        self.sync_forms_windowed(DraftPolicy::Reset, window, cx);
         cx.notify();
     }
 
     /// 删除（二次确认之后）。不可逆：走 DELETE，`base` 一起带上防误删别人的新版。
+    ///
+    /// 两种失败不是「报错就完了」：
+    /// - **409**（盘上那份被改过）= 重读指纹，再点一次就删的是最新那份；
+    /// - **404**（已经没了）= 清单重拉，那一行自己消失。
+    ///
+    /// 不重读就只能重启 App（`base` 停在旧快照上，删几次都是 409）—— 2026-11-24 真机踩过。
     pub(crate) fn delete_element(&mut self, cx: &mut Context<Self>) {
         let Some((kind, id)) = self.elements_state.selected.clone() else {
             return;
         };
+        // 草稿还没落盘：盘上没有这一份，删就是 404（按钮本来也不挂，这里再拦一道）。
+        if self.elements_state.creating {
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
             return;
@@ -481,7 +563,15 @@ impl Desktop {
                 this.elements_state.saving = false;
                 match result {
                     Ok(receipt) => {
-                        this.notice_element(&receipt, "已删除", cx);
+                        this.notify(
+                            receipt.summary_deleted(),
+                            crate::app::NoticeKind::Info,
+                            cx,
+                        );
+                        // 就地摘掉：不等 GET，左清单当场就不该再有这一行。
+                        if let Some(data) = this.elements_state.data.as_mut() {
+                            remove_written(data, kind, &id);
+                        }
                         if this
                             .elements_state
                             .selected
@@ -492,9 +582,22 @@ impl Desktop {
                             this.elements_state.draft = None;
                             this.elements_state.base = None;
                         }
+                        // 刷 `resolved` / 仓状态（删掉一个包，引用它的组就多一条断链）。
                         this.load_elements(true, cx);
                     }
-                    Err(e) => this.notify_error(&e, cx),
+                    Err(e) => {
+                        match engine_status(&e) {
+                            Some(409) | Some(404) => {
+                                this.resync_after_write_error(cx);
+                                this.notify(
+                                    conflict_hint(&e, "删除"),
+                                    crate::app::NoticeKind::Error,
+                                    cx,
+                                );
+                            }
+                            _ => this.notify_error(&e, cx),
+                        }
+                    }
                 }
                 cx.notify();
             });
@@ -533,6 +636,80 @@ impl Desktop {
     fn notice_element(&mut self, receipt: &ElementReceipt, verb: &str, cx: &mut Context<Self>) {
         self.notify(receipt.summary(verb), crate::app::NoticeKind::Info, cx);
     }
+}
+
+// ── 回执并进清单 ─────────────────────────────────────────────
+
+/// 引擎错误里的 HTTP 状态码。网络层错误（reqwest）没有码，返 `None` ——
+/// 那种失败不可能是「盘上被改过」，不该走冲突分支。
+pub(crate) fn engine_status(err: &EngineError) -> Option<u16> {
+    match err {
+        EngineError::Engine { status, .. } => Some(*status),
+        _ => None,
+    }
+}
+
+/// 冲突时给用户的那句话：引擎原话只说清「为什么」，后面补一句「接下来怎么办」。
+///
+/// 分两行而不是接在括号里：引擎那句（「先重新打开这个文件，再存一次」）说的是
+/// **保存**的路子，而删除时它读起来跟后半句打架。原话照引，另起一行说我们做了什么。
+/// 重读已由 `resync_after_write_error` 做了 —— 「再点一次」是真的能成，不是安慰话
+/// （唯一个例外：那一瞬间正好已经在拉清单，那一次回包会替我们对齐，见 `fetch_elements`）。
+pub(crate) fn conflict_hint(err: &EngineError, action: &str) -> String {
+    match engine_status(err) {
+        Some(404) => format!("{err}\n（已经重新读取清单，这一行不在了）"),
+        _ => format!(
+            "{err}\n（已重新读取盘上最新版本 —— 再点一次「{action}」就按最新那份来）"
+        ),
+    }
+}
+
+/// 写成功之后把回执**就地**并进清单：那条元素换成刚发出去的内容 + 回执给的指纹。
+///
+/// 为什么不等 `GET`：`load_elements` 是异步的，它落地之前页面上还是旧快照，
+/// 而回填表单读的是 `draft` / `data` —— 拿旧快照回填，刚存进去的字当场退回旧值，
+/// 再敲一个字就成了「旧值 + 新字」，把上一次的保存静默吃掉（2026-11-24 真机踩过）。
+///
+/// `etag` 为 `None`（引擎没给）时保留旧指纹以外的东西：指纹留空，下一次写就是
+/// 「不带 `base` 的写」，宁可多一次冲突，也不编一个假指纹。
+pub(crate) fn apply_written(
+    data: &mut Elements,
+    kind: ElementKind,
+    id: &str,
+    fields: &serde_json::Value,
+    etag: Option<&str>,
+) {
+    let item = Element {
+        kind: kind.dir().to_string(),
+        id: id.to_string(),
+        fields: Some(fields.clone()),
+        etag: etag.map(str::to_string),
+        state: "ok".to_string(),
+        detail: None,
+        path: None,
+        extra: Default::default(),
+    };
+    let section = match kind {
+        ElementKind::Groups => &mut data.groups,
+        ElementKind::Packages => &mut data.packages,
+    };
+    match section.iter_mut().find(|e| e.id == id) {
+        Some(slot) => *slot = item,
+        None => {
+            section.push(item);
+            // 引擎按 id 排序给（`scan_items`）；新建插进来也跟上，否则下次刷新行会跳。
+            section.sort_by(|a, b| a.id.cmp(&b.id));
+        }
+    }
+}
+
+/// 删成功之后立刻从清单里摘掉（不等刷新）。
+pub(crate) fn remove_written(data: &mut Elements, kind: ElementKind, id: &str) {
+    let section = match kind {
+        ElementKind::Groups => &mut data.groups,
+        ElementKind::Packages => &mut data.packages,
+    };
+    section.retain(|e| e.id != id);
 }
 
 // ── draft 的小工具 ─────────────────────────────────────────────────────
@@ -1100,6 +1277,23 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
             .child(mode_btn(Mode::Form, cx))
             .child(mode_btn(Mode::Json, cx));
     }
+
+    bar = bar.child(
+        div()
+            .id("el-refresh")
+            .px(t().d(9.))
+            .py(t().d(5.))
+            .rounded(t().r(6.))
+            .text_size(t().fs(11.5))
+            .text_color(rgb(if st.loading { muted() } else { t().p.text_2 }))
+            .when(!st.loading, |el| {
+                el.hover(|el| el.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.refresh_elements(cx);
+                    }))
+            })
+            .child(if st.loading { "刷新中…" } else { "刷新" }),
+    );
 
     bar = bar.child(
         div()
