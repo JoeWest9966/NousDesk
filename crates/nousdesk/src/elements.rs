@@ -290,6 +290,12 @@ impl Desktop {
     fn sync_forms(&mut self, cx: &mut Context<Self>) {
         // 没有 window 的路径（后台刷新回来）只对齐 draft；文本框由 render 前的
         // `sync_forms_windowed` 补。少一次 set_value 不会丢数据 —— 它只是视图。
+        // 草稿（`creating`）的 draft 是用户正在编辑的那一份，**不许**被「刷新选中项」
+        // 覆盖成 None —— 那会让右栏瞬间退回空状态（新建时踩过）。
+        if self.elements_state.creating {
+            cx.notify();
+            return;
+        }
         let element = self.elements_state.selected_element().cloned();
         let state = &mut self.elements_state;
         state.draft = element.as_ref().and_then(|e| e.fields.clone());
