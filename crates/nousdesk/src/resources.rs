@@ -709,24 +709,18 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         View::Categories => crate::resource_write::render_categories(desk, cx),
         View::Trash => crate::resource_write::render_trash(desk, cx),
         View::Browse => {
-            // 窄窗的第二层：左树占满中间那一列，点一个类别就回到列表。
-            if narrow && desk.resources.narrow_col == ResCol::Tree {
-                return div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .h_full()
-                    .min_w(t().d(0.))
-                    .child(render_tree(&desk.resources, cx, true))
-                    .into_any_element();
-            }
             let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
             if !narrow {
                 root = root.child(render_tree(&desk.resources, cx, false));
             }
-            root.child(render_list(desk, cx, narrow))
-                .child(render_detail(desk, cx))
-                .into_any_element()
+            // 窄窗的第二层：树**只换掉中间那一列**（列表的位置），右边的详情列照旧 ——
+            // 树铺满整块的话详情列会被吃掉，看类别时反而没法对照条目（2026-11-23 反馈）。
+            root = if narrow && desk.resources.narrow_col == ResCol::Tree {
+                root.child(render_tree(&desk.resources, cx, true))
+            } else {
+                root.child(render_list(desk, cx, narrow))
+            };
+            root.child(render_detail(desk, cx)).into_any_element()
         }
     };
 
@@ -762,6 +756,9 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> An
                 .id(ElementId::Name(format!("res-sub-{}", if skill { "skills" } else { "prompts" }).into()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.resource_content(if skill { Content::Skills } else { Content::Prompts }, cx);
+                    // 窄窗：跟段切换同一规矩 —— 选了就是去看条目，退回列表那一层。
+                    this.resources.narrow_col = ResCol::Items;
+                    cx.notify();
                 }))
                 .flex_1()
                 .py(t().d(6.))
@@ -903,8 +900,8 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> An
     }
 
     div()
-        // 宽窗是固定 244 的左栏；窄窗它就是中间那一列，得铺满（不然右边空一截）。
-        .when(narrow, |el| el.w_full())
+        // 宽窗是固定 248 的左栏；窄窗它顶替列表那一列，宽度就跟列表一样（不铺满）。
+        .when(narrow, |el| el.w(t().d(crate::app::TEMPLATE_LIST_W)))
         .when(!narrow, |el| el.w(t().d(crate::app::PRESET_TREE_W)))
         .h_full()
         .flex()
