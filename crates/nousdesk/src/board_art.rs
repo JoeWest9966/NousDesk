@@ -671,6 +671,6 @@ mod tests {
         let narrow = m(980., 1168.);
         let pn = pop_rect(&narrow, Some(Slot::Model), PopKind::Model);
         assert!((pn.x + pn.w / 2. - narrow.w / 2.).abs() < 1., "窄档应水平居中");
-        assert_eq!(pw.w <= wide.w, true);
+        assert!(pw.w <= wide.w);
     }
 }
