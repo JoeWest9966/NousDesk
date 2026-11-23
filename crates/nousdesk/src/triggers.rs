@@ -3053,6 +3053,8 @@ impl Desktop {
             .right_0()
             .bottom_0()
             .w(t().d(392.))
+            // 浮层要挡住下层：面板里的空白没 hitbox，否则点击会穿到卡片（坑.md 59）。
+            .block_mouse_except_scroll()
             .flex()
             .flex_col()
             .bg(rgb(t().p.panel_alt))
@@ -3279,6 +3281,8 @@ impl Desktop {
             .left(t().d(214.))
             .right_0()
             .bottom_0()
+            // 浮层要挡住下层：面板里的空白没 hitbox，否则点击会穿到卡片（坑.md 59）。
+            .block_mouse_except_scroll()
             .flex()
             .items_center()
             .justify_center()
@@ -3407,6 +3411,10 @@ impl Desktop {
             .right_0()
             .bottom_0()
             .w(t().d(464.))
+            // 面板里的空白没有 hitbox，不加这行点击会穿到下面的卡片（坑.md 59）：
+            // 点「代码 ›」时卡片的 on_click 也命中，`select_trigger` 把 layer 按回 Detail，
+            // 于是代码层刚打开就被盖掉 —— 看着就像按钮没反应。
+            .block_mouse_except_scroll()
             .flex()
             .flex_col()
             .bg(rgb(t().p.panel))
@@ -3967,6 +3975,8 @@ impl Desktop {
             .left_0()
             .right_0()
             .bottom_0()
+            // 同上：整块代码层也要挡，否则层里的按钮点下去还会落到下面的卡片/详情。
+            .block_mouse_except_scroll()
             .flex()
             .flex_col()
             .bg(rgb(t().p.panel))
@@ -4997,6 +5007,8 @@ impl Desktop {
             .left_0()
             .right_0()
             .bottom_0()
+            // 浮层要挡住下层：面板里的空白没 hitbox，否则点击会穿到卡片（坑.md 59）。
+            .block_mouse_except_scroll()
             .flex()
             .flex_col()
             .bg(rgb(t().p.panel))
@@ -5570,6 +5582,8 @@ impl Desktop {
             .left_0()
             .right_0()
             .bottom_0()
+            // 浮层要挡住下层：面板里的空白没 hitbox，否则点击会穿到卡片（坑.md 59）。
+            .block_mouse_except_scroll()
             .flex()
             .items_center()
             .justify_center()

@@ -479,3 +479,13 @@ fn 垃圾站回包形状() {
         serde_json::from_value(serde_json::json!({"items": [], "next": 1})).unwrap();
     assert!(extra.items.is_empty());
 }
+
+/// 窄窗下钻的两层：默认在条目列表，点「分类」上树，点类别回列表。
+/// `pop()` 是「退一层」的唯一入口（Esc / 返回按钮共用），到头不许来回抖。
+#[test]
+fn 窄窗下钻只有两层() {
+    use crate::resources::ResCol;
+    assert_eq!(ResCol::default(), ResCol::Items, "默认是条目列表");
+    assert_eq!(ResCol::Tree.pop(), ResCol::Items);
+    assert_eq!(ResCol::Items.pop(), ResCol::Items, "在列表上再退还是列表");
+}
