@@ -94,6 +94,8 @@ pub(crate) enum View {
     /// 变体表单：开变体（bind）或改分支（branch）。两个都只有一个输入框，
     /// 但**落的是两个不同端点**，所以用 mode 分而不是拆两个视图。
     Variant,
+    /// 改一条扩展的类别（`POST /v1/extensions/category`）。
+    Category,
 }
 
 /// 新建表单。三个仓的字段集不一样，所以「那个必填的长文本」共用 `text` 一个输入框，
@@ -116,6 +118,14 @@ pub(crate) enum VariantMode {
     Bind,
     /// 换分支：`POST /v1/repos/extend/variants/branch {id, branch}`。
     Branch,
+}
+
+/// 改类别：一个输入框。空 = 清空类别（引擎把 `null` 当清空写进清单）。
+pub(crate) struct CategoryForm {
+    pub(crate) name: String,
+    pub(crate) input: Entity<InputState>,
+    pub(crate) busy: bool,
+    pub(crate) err: Option<String>,
 }
 
 pub(crate) struct VariantForm {
@@ -487,6 +497,96 @@ impl Desktop {
         });
         self.resources.view = View::Variant;
         cx.notify();
+    }
+
+    pub(crate) fn resource_open_category(
+        &mut self,
+        name: String,
+        current: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("类别，空着就是清空")
+                .default_value(current.unwrap_or_default())
+        });
+        let sub = cx.subscribe_in(&input, window, |_, _, ev: &InputEvent, _, cx| {
+            if matches!(ev, InputEvent::Change) {
+                cx.notify();
+            }
+        });
+        self.resources.write_subs.push(sub);
+        self.resources.category = Some(CategoryForm {
+            name,
+            input,
+            busy: false,
+            err: None,
+        });
+        self.resources.view = View::Category;
+        cx.notify();
+    }
+
+    pub(crate) fn resource_cancel_category(&mut self, cx: &mut Context<Self>) {
+        self.resources.category = None;
+        self.resources.view = View::Browse;
+        cx.notify();
+    }
+
+    pub(crate) fn resource_submit_category(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", NoticeKind::Error, cx);
+            return;
+        };
+        if let Some(reason) = self.resource_write_gate("POST", "/v1/extensions/category") {
+            self.notify(reason, NoticeKind::Error, cx);
+            return;
+        }
+        let Some(form) = self.resources.category.as_ref() else { return };
+        let name = form.name.clone();
+        let raw = form.input.read(cx).value().trim().to_string();
+        // 空串 = 清空；非空就原样交给引擎（它的词表会自己补父类别）。
+        let category = if raw.is_empty() { None } else { Some(raw) };
+        if let Some(f) = self.resources.category.as_mut() {
+            f.busy = true;
+            f.err = None;
+        }
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let shown = category.clone();
+            let res = handle
+                .spawn(async move {
+                    let cat = category.as_deref();
+                    engine.ext_category(&name, cat).await
+                })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let Some(f) = this.resources.category.as_mut() else { return };
+                f.busy = false;
+                match res {
+                    Ok(Ok(_)) => {
+                        this.resources.category = None;
+                        this.resources.view = View::Browse;
+                        this.load_resources(true, cx);
+                        this.notify(
+                            match shown.as_deref() {
+                                Some(c) => format!("类别改成 {c}"),
+                                None => "类别清空了".to_string(),
+                            },
+                            NoticeKind::Info,
+                            cx,
+                        );
+                        let _ = window;
+                    }
+                    Ok(Err(e)) => f.err = Some(format!("{e}")),
+                    Err(e) => f.err = Some(format!("任务挂了：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub(crate) fn resource_cancel_variant(&mut self, cx: &mut Context<Self>) {
@@ -1407,6 +1507,104 @@ pub(crate) fn render_variant(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyEl
         .child(
             div()
                 .id("res-var-body")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(t().d(0.))
+                .overflow_y_scroll()
+                .child(left),
+        )
+        .child(foot)
+        .into_any_element()
+}
+
+/// 改类别：一个输入框 + 一句「空着就是清空」。
+pub(crate) fn render_category(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+    let Some(form) = desk.resources.category.as_ref() else {
+        return div().into_any_element();
+    };
+    let busy = form.busy;
+    let name = form.name.clone();
+    let value = form.input.read(cx).value().to_string();
+
+    let mut left = div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .gap(t().d(15.))
+        .px(t().d(22.))
+        .py(t().d(18.))
+        .child(field(
+            "类别",
+            false,
+            "写进 nous.json 的 category。空着提交 = 清空类别（不是「不改」）。\n             父类别不存在时引擎会自己补进词表；类别树那一栏读的就是这份词表。",
+            div()
+                .w_full()
+                .h(t().d(31.))
+                .child(Input::new(&form.input).appearance(true))
+                .into_any_element(),
+        ));
+
+    if let Some(err) = form.err.as_ref() {
+        left = left.child(
+            div()
+                .px(t().d(10.))
+                .py(t().d(8.))
+                .rounded(t().r(6.))
+                .bg(rgb(t().p.danger_soft))
+                .text_size(t().fs(11.5))
+                .line_height(t().d(17.))
+                .text_color(rgb(t().p.danger_fg))
+                .child(err.clone()),
+        );
+    }
+
+    let foot = div()
+        .flex()
+        .items_center()
+        .gap(t().d(10.))
+        .px(t().d(22.))
+        .py(t().d(11.))
+        .border_t(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
+        .child(
+            div()
+                .flex_1()
+                .text_size(t().fs(11.5))
+                .text_color(rgb(muted()))
+                .child(if busy {
+                    "正在问引擎…".to_string()
+                } else if value.trim().is_empty() {
+                    format!("{name}：清空类别")
+                } else {
+                    format!("{name} → {}", value.trim())
+                }),
+        )
+        .child(ghost_btn("res-cat-cancel", "取消").on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| {
+                this.resource_cancel_category(cx);
+            },
+        )))
+        .child(btn("res-cat-submit", "改类别", true).on_click(cx.listener(
+            |this, _: &ClickEvent, window, cx| {
+                this.resource_submit_category(window, cx);
+            },
+        )));
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .h_full()
+        .min_w(t().d(0.))
+        .bg(rgb(t().p.panel))
+        .child(page_head(
+            &format!("{name} 的类别"),
+            "类别是给人分组的，不影响装载；空的类别照样跑。",
+        ))
+        .child(
+            div()
+                .id("res-cat-body")
                 .flex()
                 .flex_col()
                 .flex_1()

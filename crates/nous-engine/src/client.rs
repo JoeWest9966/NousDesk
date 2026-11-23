@@ -267,6 +267,21 @@ impl EngineClient {
         self.json(resp).await
     }
 
+    /// 改一条扩展的类别（`POST /v1/extensions/category`，`{name, category}`）。
+    ///
+    /// 传 `None` 是**清空**类别，不是「别动」—— 引擎把 `null` 当清空写进清单。
+    /// 类别词表的增删改名是另一个端点（`POST /v1/extensions/categories`），这一刀没接。
+    pub async fn ext_category(
+        &self,
+        name: &str,
+        category: Option<&str>,
+    ) -> Result<serde_json::Value, EngineError> {
+        let url = self.url("v1/extensions/category")?;
+        let body = serde_json::json!({ "name": name, "category": category });
+        let resp = self.http.post(url).json(&body).send().await?;
+        self.json(resp).await
+    }
+
     /// 私库的**仓级**动作：`/v1/repos/{repo}/{op}`（归档 / 恢复 / 真删）。
     ///
     /// 与 `resource_op`（文件面 `/v1/{kind}/{op}`）是两条路：仓级动作用仓库名
@@ -1138,6 +1153,7 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("GET", "v1/extensions/categories"),
     ("POST", "v1/extensions/reload"),
     ("POST", "v1/extensions/duplicate"),
+    ("POST", "v1/extensions/category"),
     ("GET", "v1/repos/extend/variants"),
     ("GET", "v1/repos/extend/archive"),
     ("POST", "v1/repos/skills/archive"),

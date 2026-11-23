@@ -609,7 +609,7 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 |---|---|---|
 | `GET` | `/v1/combos/{section}` | 组合清单。**段只有一个值：`Ultimate-Template`**（`Session-Template` 的条目是「开一条会话用什么」，不是组合；传它会 `400`）。回 `{ combos: [{ name, trigger, params, session, enabled, problem, version }] }`；`enabled` / `problem` 由引擎算，`version` 是下面 `PATCH` 的 `If-Match` 料 |
 | `PATCH` | `/v1/combos/{section}/{name}` | 只翻 `{enabled}`，必带 `If-Match` + `requestId`；回包是**平铺的一条**（不是 `{combo:{…}}`），带新 `version` |
-| `GET` | `/v1/extensions` | **不是空清单**（0.1.9 起 `#81` 已解冻）。回 `{ items: [{name, version, kind, category, summary, loaded, pid, state, error}] }`；`kind` 是装载形态（`native` / `legacy-js` / `invalid`），**不是分类**。旧形状（`catalog` / `builtin` / `variants` / `archived`）新引擎不再回，客户端只在 `items` 为空时兜底 |
+| `GET` | `/v1/extensions` | **不是空清单**（0.1.9 起 `#81` 已解冻）。回 `{ items: [{name, version, kind, category, summary, loaded, pid, state, error}] }`；`kind` 是装载形态（`native` / `legacy-js` / `invalid` / `absent`），**不是分类**（`absent` = 装过又卸了，目录在 `<data>/extend-trash`，这条只为了让「安装」有个入口）。旧形状（`catalog` / `builtin` / `variants` / `archived`）新引擎不再回，客户端只在 `items` 为空时兜底 |
 | `GET` | `/v1/triggers` | 定义面的观测清单（`code` / `nextFireAt` / `lastFire` / `counts`）+ 点火账；盘上项目面见上一节 |
 | `POST` | `/v1/selection` | 写当前选择（板 / 机器 / 模型） |
 | `GET` | `/v1/fs/dirs` | 列的是 **引擎那台机器**的目录，不是客户端的 |
