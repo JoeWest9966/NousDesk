@@ -48,6 +48,19 @@ fn line_color() -> u32 {
     t().p.line
 }
 
+/// 等宽族名：皮的 `mono` 空着时用随包注册的那个真名。
+///
+/// 写死 `"JetBrainsMono"` 在默认皮上会 `failed to load font`（族名带空格），
+/// 字回退成系统默认 —— 看着像「等宽没生效」，其实是名字错了。
+fn mono() -> &'static str {
+    let skin = t();
+    if skin.mono.is_empty() {
+        "JetBrains Mono"
+    } else {
+        skin.mono
+    }
+}
+
 /// 右栏画什么。两个视图看的是同一份 `draft`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Mode {
@@ -1084,7 +1097,7 @@ fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyEleme
         div()
             .mt(t().d(5.))
             .text_size(t().fs(12.))
-            .font_family("JetBrainsMono")
+            .font_family(mono())
             .text_color(rgb(t().p.text_2))
             .child(element.id.clone()),
     );
@@ -1143,7 +1156,7 @@ fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyEleme
                     .child(
                         Textarea::new(&st.form_body)
                             .size_full()
-                            .font_family("JetBrainsMono"),
+                            .font_family(mono()),
                     ),
             );
             doc = doc.child(div().mt(t().d(22.)).child(field_label("TAGS · 逗号分隔")));
@@ -1238,7 +1251,7 @@ fn render_json(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 .child(
                     Textarea::new(&st.json)
                         .size_full()
-                        .font_family("JetBrainsMono"),
+                        .font_family(mono()),
                 ),
         )
         .child(
