@@ -480,6 +480,27 @@ fn 垃圾站回包形状() {
     assert!(extra.items.is_empty());
 }
 
+/// 段是三个平铺的筛选器，各占一个槽位（类别筛选 / 搜索词按槽位各存一份）。
+///
+/// 2026-11-24 删掉「内容」那层：它只把技能和提示词裹在一起、多一次点击，本身
+/// 不装任何东西。判据钉两件事 —— 默认落在技能段，三段槽位互不相同（相同就会
+/// 出现「切段时搜索词 / 类别串到另一段」）。
+#[test]
+fn 三段平铺各占一个槽位() {
+    use crate::resources::Section;
+    assert_eq!(Section::default(), Section::Skills, "默认落在技能段");
+    assert_eq!(Section::Skills.label(), "技能");
+    assert_eq!(Section::Prompts.label(), "提示词");
+    assert_eq!(Section::Extensions.label(), "扩展");
+    let mut slots = [
+        Section::Skills.slot(),
+        Section::Prompts.slot(),
+        Section::Extensions.slot(),
+    ];
+    slots.sort();
+    assert_eq!(slots, [0, 1, 2], "三段槽位必须互不相同");
+}
+
 /// 窄窗下钻的两层：默认在条目列表，点「分类」上树，点类别回列表。
 /// `pop()` 是「退一层」的唯一入口（Esc / 返回按钮共用），到头不许来回抖。
 #[test]

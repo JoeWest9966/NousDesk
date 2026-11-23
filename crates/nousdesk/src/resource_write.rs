@@ -32,7 +32,7 @@ fn t() -> crate::theme::Skin {
     crate::theme::cur()
 }
 
-/// 三种条目。`Section` + `Content` 是**布局**（两段 + 子开关），这个是**数据**（哪个仓）。
+/// 三种条目。`Section` 是**布局**（三个段平铺），这个是**数据**（哪个仓）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
     Skill,
