@@ -274,15 +274,15 @@ impl Desktop {
         // JSON 视图下先以文本框为准（用户可能在那一栏改过，又没切回表单）。
         if self.elements_state.mode == Mode::Json {
             let text = self.elements_state.json.read(cx).value().to_string();
-            match serde_json::from_str::<serde_json::Value>(&text) {
+            match parse_draft(&text) {
                 Ok(v) => {
-                    self.elements_state.draft = Some(normalize_object(v));
+                    self.elements_state.draft = Some(v);
                     self.elements_state.json_error = None;
                 }
                 Err(e) => {
                     // 本地就拦住：一份坏 JSON 发出去，引擎只会回 400，
                     // 而 400 的那句话远不如编辑器里这行字好懂。
-                    self.elements_state.json_error = Some(format!("JSON 解析失败：{e}"));
+                    self.elements_state.json_error = Some(e);
                     cx.notify();
                     return;
                 }
@@ -455,58 +455,58 @@ impl Desktop {
 
 /// 表单里改了一个标量键（`name` / `desc` / `body`）。
 pub(crate) fn on_scalar(desk: &mut Desktop, key: &str, value: String) {
-    write_scalar(desk, key, value);
+    if let Some(draft) = desk.elements_state.draft.as_mut() {
+        set_scalar(draft, key, value);
+    }
 }
 
 /// 表单里改了一个数组（`packages` / `tags`，逗号分隔一行）。
 pub(crate) fn on_list(desk: &mut Desktop, key: &str, value: String) {
-    write_list(desk, key, value);
+    if let Some(draft) = desk.elements_state.draft.as_mut() {
+        set_list(draft, key, value);
+    }
 }
 
 /// JSON 编辑框改了：解析成功就换 `draft`，失败只记一句（保存时才拦）。
 ///
 /// 不在这里每帧拦 —— 输入到一半一定不合法，红了只会让人以为已经出错。
 pub(crate) fn on_json(desk: &mut Desktop, text: &str) {
-    match serde_json::from_str::<serde_json::Value>(text) {
+    match parse_draft(text) {
         Ok(v) => {
-            desk.elements_state.draft = Some(normalize_object(v));
+            desk.elements_state.draft = Some(v);
             desk.elements_state.json_error = None;
         }
-        Err(e) => {
-            desk.elements_state.json_error = Some(format!("JSON 解析失败：{e}"));
-        }
+        Err(e) => desk.elements_state.json_error = Some(e),
     }
 }
 
 /// 只覆盖一个标量键：`draft` 里别的键（包括引擎新加的未知键）一个不动。
 ///
 /// 空串**不删键**：`desc: ""` 与「没有 desc」是两件事，删不删由用户决定
-/// （AGENTS：服务端一个键都不删，客户端也别替它删）。
-fn write_scalar(desk: &mut Desktop, key: &str, value: String) {
-    let Some(fields) = desk.elements_state.draft.as_mut() else {
-        return;
-    };
-    let Some(map) = fields.as_object_mut() else {
-        return;
-    };
-    map.insert(key.to_string(), serde_json::Value::String(value));
+/// （AGENTS：服务端一个键都不删，客户端也别替它删）。非对象就原样不动 ——
+/// 那不是合法的元素，保存时引擎会给准确的那句话。
+pub(crate) fn set_scalar(fields: &mut serde_json::Value, key: &str, value: String) {
+    if let Some(map) = fields.as_object_mut() {
+        map.insert(key.to_string(), serde_json::Value::String(value));
+    }
 }
 
 /// 逗号分隔的一行 → 数组。中文逗号也认（输入法就在中文状态）。
-fn write_list(desk: &mut Desktop, key: &str, value: String) {
-    let Some(fields) = desk.elements_state.draft.as_mut() else {
-        return;
-    };
-    let Some(map) = fields.as_object_mut() else {
-        return;
-    };
-    let items: Vec<serde_json::Value> = value
-        .split([',', '，'])
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| serde_json::Value::String(s.to_string()))
-        .collect();
-    map.insert(key.to_string(), serde_json::Value::Array(items));
+pub(crate) fn set_list(fields: &mut serde_json::Value, key: &str, value: String) {
+    if let Some(map) = fields.as_object_mut() {
+        let items: Vec<serde_json::Value> = value
+            .split([',', '，'])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| serde_json::Value::String(s.to_string()))
+            .collect();
+        map.insert(key.to_string(), serde_json::Value::Array(items));
+    }
+}
+
+/// JSON 原文 → `draft`。失败的那句话带行号（serde 自己给），不改写成自造文案。
+pub(crate) fn parse_draft(text: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str::<serde_json::Value>(text).map_err(|e| format!("JSON 解析失败：{e}"))
 }
 
 fn str_field(fields: &serde_json::Value, key: &str) -> String {
@@ -530,15 +530,11 @@ fn list_field(fields: &serde_json::Value, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// JSON 视图里写了数组 / 标量也要能存：整份不是对象就包一层 `{"value": …}`？
-/// 不行 —— 元素本来就是一个对象。这里只做一件事：非对象原样返回，保存时引擎会 400，
-/// 那句话比客户端自造的更准。
-fn normalize_object(v: serde_json::Value) -> serde_json::Value {
-    v
-}
+/// JSON 视图里写成数组 / 标量也照发：元素本来就是一个对象，非对象由引擎回 400，
+/// 那句话比客户端自造的更准。客户端不预先「修」用户的输入。
 
 /// 新建时先占一个没人用的 id：`new-group` / `new-group-2` …
-fn unused_id(kind: ElementKind, data: Option<&Elements>) -> String {
+pub(crate) fn unused_id(kind: ElementKind, data: Option<&Elements>) -> String {
     let base = match kind {
         ElementKind::Groups => "new-group",
         ElementKind::Packages => "new-package",

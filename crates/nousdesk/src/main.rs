@@ -28,6 +28,8 @@ mod data_console_tests;
 mod editor;
 mod editor_presets;
 mod elements;
+#[cfg(test)]
+mod elements_tests;
 mod fonts;
 mod live;
 mod md;
