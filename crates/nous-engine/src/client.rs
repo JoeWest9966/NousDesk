@@ -788,6 +788,27 @@ impl EngineClient {
         self.json(resp).await
     }
 
+    /// `POST /v1/presets/{section}/categories`：段内类别**词表**的增 / 改名 / 删。
+    ///
+    /// 与 `PATCH /v1/presets/{section}/{name}` 的 `category` 位不是一件事：那个给一条预设
+    /// 挂类别，这个动词表 `categories.json`；`rename` / `remove` 会连带改写所有挂着它的
+    /// 预设，所以是宽操作。桌面端现在只接 `add`（新建类别）。
+    pub async fn preset_categories_op(
+        &self,
+        section: &str,
+        op: &str,
+        name: &str,
+        to: Option<&str>,
+    ) -> Result<CategoriesResult, EngineError> {
+        let resp = self
+            .http
+            .post(self.url(&format!("v1/presets/{section}/categories"))?)
+            .json(&serde_json::json!({ "op": op, "name": name, "to": to }))
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
     /// `GET /v1/presets/{section}/{name}/revisions`：引擎内修订清单。
     pub async fn preset_revisions(
         &self,
@@ -1242,6 +1263,7 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/presets/{section}/{name}/copy"),
     ("PUT", "v1/presets/{section}/order"),
     ("GET", "v1/presets/{section}/categories"),
+    ("POST", "v1/presets/{section}/categories"),
     ("POST", "v1/presets/{section}/create"),
     ("POST", "v1/presets/{section}/validate"),
     ("GET", "v1/presets/{section}/{name}/revisions"),

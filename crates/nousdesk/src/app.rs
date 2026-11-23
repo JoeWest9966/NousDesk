@@ -411,6 +411,9 @@ pub struct Desktop {
     pub(crate) editor: crate::editor::EditorState,
     /// 启动时（`NOUS_DESKTOP_OPEN=editor`）等列表回来就自动开编辑器，只为验界面。
     pub(crate) auto_editor: bool,
+    /// 启动时（`NOUS_DESKTOP_OPEN=newcat` / `=newcat2`）把「新建类别」两步弹层直接拉起来：
+    /// 1 / 2 是要停在哪一步，0 = 不拉。只为验界面（headless 点不动鼠标）。
+    pub(crate) auto_newcat: u8,
     /// Template 页：正在跑的生命周期动作（归档 / 还原 / 彻底删）的一句话。
     ///
     /// 引擎那边要 commit + push，实测**几分钟**量级；这期间列表上必须常驻一行
@@ -943,7 +946,12 @@ impl Desktop {
                                 return true;
                             }
                             if this.new_cat.input.is_some() {
-                                this.close_new_category(cx);
+                                // 两步弹层：Esc 先退回第一步（别一键把两步都收了）。
+                                if this.new_cat.step == 2 {
+                                    this.new_cat_set_step(1, window, cx);
+                                } else {
+                                    this.close_new_category(cx);
+                                }
                                 return true;
                             }
                             // 搜索词比「选中」更强：Esc 先把搜索框清掉，别一键把整页都收了。
@@ -1049,6 +1057,11 @@ impl Desktop {
             settings_open: open_at_start == "settings",
             // `NOUS_DESKTOP_OPEN=editor`：列表一拉回来就打开第一条的编辑器（验编辑器用）。
             auto_editor: open_at_start == "editor",
+            auto_newcat: match open_at_start.as_str() {
+                "newcat" => 1,
+                "newcat2" => 2,
+                _ => 0,
+            },
             settings_tab: crate::settings::SettingsTab::Connection,
             about_tab: crate::settings::AboutTab::Overview,
             about_selected: None,
@@ -1107,7 +1120,7 @@ impl Desktop {
             default_models: None,
             cfg: crate::config_panel::Panel::default(),
             // `=templates` 直接落在 Template 页：验右键菜单 / 生命周期时省一次点击。
-            tab: if open_at_start == "templates" {
+            tab: if matches!(open_at_start.as_str(), "templates" | "newcat" | "newcat2") {
                 Tab::Templates
             } else if open_at_start == "triggers" {
                 Tab::Triggers
@@ -5547,6 +5560,28 @@ impl Render for Desktop {
                 s.p.code_bg, s.p.line, s.p.text, s.p.text_2, s.p.panel,
                 s.type_scale, s.dark,
             );
+        }
+
+        // `NOUS_DESKTOP_OPEN=newcat`：数据一到就把两步弹层拉起来（只为验界面）。
+        if self.auto_newcat > 0 && self.new_cat.input.is_none() {
+            let ready = self.sections[self.section]
+                .data
+                .as_ref()
+                .is_some_and(|d| !d.presets.is_empty() || !d.categories.is_empty());
+            if ready {
+                let step = self.auto_newcat;
+                self.auto_newcat = 0;
+                self.open_new_category(window, cx);
+                if step == 2 {
+                    // 第二步要有父级才看得出面包屑：挑第一个真类别。
+                    let first = self.sections[self.section]
+                        .data
+                        .as_ref()
+                        .and_then(|d| d.categories.first().cloned());
+                    self.new_cat.parent = first;
+                    self.new_cat_set_step(2, window, cx);
+                }
+            }
         }
 
         // 面板的过滤快照只在 render 里算一次：键盘 ↵ 和鼠标点都认这一份，

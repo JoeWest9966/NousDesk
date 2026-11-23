@@ -24,7 +24,7 @@ fn new_request_id() -> String {
 
 fn t() -> crate::theme::Skin { crate::theme::cur() }
 
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::component::{Icon, Sizable as _, Size};
 // 完整的 lucide 目录在 assets 里（component 的 IconName 只是一小撮兼容子集）。
@@ -141,9 +141,9 @@ impl Section {
     }
 }
 
-/// 新契约没有类别写端点时的统一文案。
+/// 类别写端点里**还没接**的那几个动作（新建已接 `POST /categories`，改名 / 删除还没接）。
 const CATEGORY_WRITE_UNAVAILABLE: &str =
-    "类别由预设的 category 字段决定，服务端没有独立的类别写端点";
+    "类别的新建走 POST /v1/presets/{section}/categories；改名 / 删除桌面端还没接";
 
 /// 类别树那一行在 `category.rs` —— 触发器和模板共用一个，别再各写一份。
 /// **顺序就是引擎给的顺序**（父在子前），客户端不重排。
@@ -163,15 +163,64 @@ pub(crate) struct NewPresetDraft {
     pub err: Option<String>,
 }
 
-/// 「新建类别」弹层。`input` 是 `Some` = 开着。
+/// 「新建类别」两步弹层。`input` 是 `Some` = 开着。
 ///
 /// 类别是这一段的**词表**（`categories.json`），不是一个字段值 —— 所以要单独一条
 /// 端点，不能混进「新建预设」的表单里。
+///
+/// **两步**（`decisions.md` 2026-11-23）：① 选位置（父级）→ ② 写名字。类别本质是
+/// 路径（`写作/周报`），一格里写斜杠语法全靠猜：父级看不见、重名靠运气。现在位置是
+/// 点出来的（还能筛），名字只写最后一段，最终路径在第二步顶上实时拼给你看。
 #[derive(Default)]
 pub(crate) struct NewCatDraft {
+    /// 1 = 选位置，2 = 写名字。
+    pub step: u8,
+    /// 父级路径；`None` = 顶层。
+    pub parent: Option<String>,
+    /// 第一步的筛选框。
+    pub filter: Option<Entity<InputState>>,
+    /// 第二步的名字。
     pub input: Option<Entity<InputState>>,
+    /// 第一步键盘回车选中的那一行（筛过的列表下标，0 = 顶层）。
+    pub pick: usize,
     pub busy: bool,
     pub err: Option<String>,
+    /// 两个输入框的 Enter / Change 订阅，掉了就收不到回车（所以必须留字段）。
+    _subs: Vec<Subscription>,
+}
+
+/// 「父级 + 名字」拼成最终路径，顺手挡掉明显不对的输入。
+///
+/// 纯函数：两步弹层里最容易错的就是这条路径（父级为空 / 名字里又带斜杠 / 尾随空格），
+/// 单测盯着它，不靠点界面。
+pub(crate) fn new_cat_path(parent: Option<&str>, name: &str) -> Result<String, &'static str> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("类别名不能空");
+    }
+    if name.contains('/') {
+        return Err("名字里不要带 / —— 位置在上面选");
+    }
+    Ok(match parent.map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => format!("{p}/{name}"),
+        None => name.to_string(),
+    })
+}
+
+/// 第二步能不能按下去：名字合法 + 这个路径还不在树里。
+///
+/// 重名在本地挡是有理由的：引擎的 `add` 是**幂等**的（已经有了就什么都不做、照样 200），
+/// 放过去的话用户看到的是「点完了、树里没变化」，像坏了。
+pub(crate) fn new_cat_ready(
+    tree: &[CatNode],
+    parent: Option<&str>,
+    name: &str,
+) -> Result<String, String> {
+    let path = new_cat_path(parent, name).map_err(str::to_string)?;
+    if tree.iter().any(|n| n.path == path) {
+        return Err(format!("已经有「{path}」了"));
+    }
+    Ok(path)
 }
 
 /// 类别这一层的弹层：改名（输入框）或删除（确认）。
@@ -807,10 +856,7 @@ impl Desktop {
             let handle = crate::TOKIO.get().cloned();
             let result: Option<Result<serde_json::Value, EngineError>> = match &handle {
                 Some(h) => h
-                    .spawn(async move {
-                        let name = body.name.clone();
-                        engine.preset_create(section_id, &body).await
-                    })
+                    .spawn(async move { engine.preset_create(section_id, &body).await })
                     .await
                     .ok(),
                 _ => None,
@@ -849,23 +895,108 @@ impl Desktop {
         if self.new_cat.input.is_some() {
             return;
         }
-        let input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("写作/周报 —— 写斜杠就是分层")
-        });
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛父级…"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("类别名"));
+        // 弹层里的输入框必须走组件自己的 focus（坑.md 72）。
+        filter.update(cx, |st, cx| st.focus(window, cx));
+        // 第一步的回车要在输入框把键吃掉之前拿到：订阅 `PressEnter`，别挂在祖先的
+        // `on_key_down` 上 —— 那层已经被输入框的 key binding 抢过了。
+        let subs = vec![
+            cx.subscribe_in(&filter, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                // 敲字就重筛：高亮回第一行，回车才是「我筛出来的那个」。
+                InputEvent::Change => {
+                    this.new_cat.pick = 0;
+                    cx.notify();
+                }
+                InputEvent::PressEnter { .. } => this.new_cat_pick_parent(window, cx),
+                _ => {}
+            }),
+            cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, _, cx| match ev {
+                InputEvent::Change => cx.notify(),
+                InputEvent::PressEnter { .. } => this.submit_new_category(cx),
+                _ => {}
+            }),
+        ];
         self.new_cat = NewCatDraft {
+            step: 1,
+            parent: None,
+            filter: Some(filter),
             input: Some(input),
+            pick: 0,
             busy: false,
             err: None,
+            _subs: subs,
         };
         cx.notify();
     }
 
     pub(crate) fn close_new_category(&mut self, cx: &mut Context<Self>) {
         if self.new_cat.input.take().is_some() {
-            self.new_cat.busy = false;
-            self.new_cat.err = None;
+            self.new_cat = NewCatDraft::default();
             cx.notify();
         }
+    }
+
+    /// 第一步的父级候选：`(路径, 标签, 计数, 层级)`，第 0 行永远是「顶层」。
+    ///
+    /// 顺序就是类别树的顺序（引擎给词表、父在子前），这里不重排。筛选只匹配路径，
+    /// 敲 `写` 就能把 `写作` / `写作/周报` 一起捞出来。
+    fn new_cat_picks(&self, cx: &Context<Self>) -> Vec<(Option<String>, String, usize, usize)> {
+        let sec = &self.sections[self.section];
+        let tree = sec
+            .data
+            .as_ref()
+            .map(|d| facet_tree(&d.categories, &d.presets))
+            .unwrap_or_default();
+        let total = sec.data.as_ref().map_or(0, |d| d.presets.len());
+        let q = self
+            .new_cat
+            .filter
+            .as_ref()
+            .map(|f| f.read(cx).value().trim().to_lowercase())
+            .unwrap_or_default();
+        let mut out = vec![(None, "顶层".to_string(), total, 0usize)];
+        for n in &tree {
+            if !q.is_empty() && !n.path.to_lowercase().contains(&q) {
+                continue;
+            }
+            out.push((Some(n.path.clone()), n.label.clone(), n.count, n.depth + 1));
+        }
+        out
+    }
+
+    /// 换一步（1 ↔ 2），焦点跟着走 —— 不然第二步得先点一下输入框才能打字。
+    pub(crate) fn new_cat_set_step(
+        &mut self,
+        step: u8,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.new_cat.input.is_none() {
+            return;
+        }
+        self.new_cat.step = step;
+        self.new_cat.err = None;
+        let target = if step == 1 {
+            self.new_cat.filter.clone()
+        } else {
+            self.new_cat.input.clone()
+        };
+        if let Some(t) = target {
+            t.update(cx, |st, cx| st.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    /// 第一步 → 第二步：把选中的父级记下来（回车 / 点行都走这里）。
+    pub(crate) fn new_cat_pick_parent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let picks = self.new_cat_picks(cx);
+        if picks.is_empty() {
+            return;
+        }
+        let i = self.new_cat.pick.min(picks.len() - 1);
+        self.new_cat.parent = picks[i].0.clone();
+        self.new_cat_set_step(2, window, cx);
     }
 
     /// 打开「复制成新的」：只记源模板名，原文**点确定才读**。
@@ -1010,11 +1141,19 @@ impl Desktop {
             return;
         }
         let name = input.read(cx).value().trim().to_string();
-        if name.is_empty() {
-            self.new_cat.err = Some("类别名不能空".into());
-            cx.notify();
-            return;
-        }
+        let tree = self.sections[self.section]
+            .data
+            .as_ref()
+            .map(|d| facet_tree(&d.categories, &d.presets))
+            .unwrap_or_default();
+        let path = match new_cat_ready(&tree, self.new_cat.parent.as_deref(), &name) {
+            Ok(p) => p,
+            Err(e) => {
+                self.new_cat.err = Some(e);
+                cx.notify();
+                return;
+            }
+        };
         let Some(engine) = self.engine.clone() else {
             self.new_cat.err = Some("还没连上引擎".into());
             cx.notify();
@@ -1025,18 +1164,23 @@ impl Desktop {
         self.new_cat.err = None;
         cx.notify();
 
+        // 请求里要用一次、建完还要拿它当「停在哪」，所以先复制一份给异步块。
+        let asked = path.clone();
         cx.spawn(async move |this, cx| {
-            let body = nous_engine::types::CategoryOp {
-                op: "add".into(),
-                name: name.clone(),
-                to: None,
-            };
-            let _ = &engine;
-            let _ = &body;
-            // 新契约只有 `GET /categories`（词表由预设的 category 字段收敛），
-            // 没有独立的类别写端点 —— 这里不再发 HTTP，直接给一句人话。
-            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> = None;
-            let _ = this.update(cx, |this, cx| {
+            let section_id = SECTIONS[sec_idx].0;
+            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> =
+                match crate::TOKIO.get().cloned() {
+                    Some(h) => h
+                        .spawn(async move {
+                            engine
+                                .preset_categories_op(section_id, "add", &asked, None)
+                                .await
+                        })
+                        .await
+                        .ok(),
+                    None => None,
+                };
+            let _ = this.update(cx, move |this, cx| {
                 match result {
                     Some(Ok(r)) => {
                         this.new_cat = NewCatDraft::default();
@@ -1047,7 +1191,7 @@ impl Desktop {
                         }
                         this.preset_closed.clear();
                         // 建完就停在那个类别上：看不见刚建的类别等于没建。
-                        this.preset_cat = Some(name);
+                        this.preset_cat = Some(path);
                         this.load_section(sec_idx, true, cx);
                     }
                     Some(Err(e)) => {
@@ -1056,7 +1200,7 @@ impl Desktop {
                     }
                     None => {
                         this.new_cat.busy = false;
-                        this.new_cat.err = Some(CATEGORY_WRITE_UNAVAILABLE.into());
+                        this.new_cat.err = Some("没连上后台线程".into());
                     }
                 }
                 cx.notify();
@@ -1992,11 +2136,34 @@ impl Desktop {
     }
 
     /// 弹层本体。罩子点掉 = 关闭；弹窗吃掉点击。
+    /// 「新建类别」两步弹层：① 选位置 → ② 写名字。
+    ///
+    /// 第二步顶上那条面包屑是**实时拼出来的**（父级 + 你正在打的名字），重名当场变琥珀
+    /// 并把主按钮灰掉 —— 不让用户建完才发现「已存在」。
     pub(crate) fn new_cat_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let input = self.new_cat.input.clone()?;
-        let busy = self.new_cat.busy;
-        let err = self.new_cat.err.clone();
+        let draft = &self.new_cat;
+        let input = draft.input.clone()?;
+        let filter = draft.filter.clone()?;
+        let step = draft.step;
+        let busy = draft.busy;
+        let err = draft.err.clone();
+        let parent = draft.parent.clone();
         let sec = SECTIONS[self.section].1;
+
+        let picks = self.new_cat_picks(cx);
+        let pick = draft.pick.min(picks.len().saturating_sub(1));
+        let name = input.read(cx).value().trim().to_string();
+        let full = new_cat_path(parent.as_deref(), &name).ok().filter(|_| step == 2);
+        let tree = self.sections[self.section]
+            .data
+            .as_ref()
+            .map(|d| facet_tree(&d.categories, &d.presets))
+            .unwrap_or_default();
+        let dup = full
+            .as_ref()
+            .is_some_and(|f| tree.iter().any(|n| &n.path == f));
+        let depth = full.as_ref().map_or(0, |f| f.split('/').count());
+        let can_go = step == 1 || (!name.is_empty() && !dup && !busy);
 
         let scrim = div()
             .id("newcat-scrim")
@@ -2004,6 +2171,290 @@ impl Desktop {
             .inset_0()
             .bg(rgba(t().p.scrim))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_new_category(cx)));
+
+        // 步骤指示：① 位置 —— ② 名字。做完的那一步不画对勾，只把当前这步点亮。
+        let badge = |n: &'static str, label: &'static str, on: bool| {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(t().d(5.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .w(t().d(15.))
+                        .h(t().d(15.))
+                        .rounded(t().r(15.))
+                        .text_size(t().fs(9.))
+                        .when(on, |el| {
+                            el.bg(rgb(t().p.accent)).text_color(rgb(t().p.on_accent))
+                        })
+                        .when(!on, |el| {
+                            el.border(t().d(1.))
+                                .border_color(rgb(t().p.line_strong))
+                                .text_color(rgb(t().p.faint))
+                        })
+                        .child(n),
+                )
+                .child(
+                    div()
+                        .text_size(t().fs(10.5))
+                        .text_color(rgb(if on { t().p.text } else { t().p.faint }))
+                        .child(label),
+                )
+        };
+
+        let head = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(t().d(8.))
+            .px(t().d(20.))
+            .pt(t().d(16.))
+            .child(
+                div()
+                    .text_size(t().fs(14.))
+                    .text_color(rgb(t().p.text))
+                    .child(if step == 1 { "建在哪里？" } else { "叫什么名字？" }),
+            )
+            .child(div().flex_1())
+            .child(badge("1", "位置", step == 1))
+            .child(div().w(t().d(14.)).h(px(1.)).bg(rgb(t().p.line_strong)))
+            .child(badge("2", "名字", step == 2));
+
+        let sub = div()
+            .px(t().d(20.))
+            .pt(t().d(3.))
+            .text_size(t().fs(11.))
+            .text_color(rgb(t().p.muted))
+            .child(if step == 1 {
+                format!("{sec} 的类别树 —— 选中谁，新类别就建在谁下面。")
+            } else {
+                "路径已经拼好了，你只写最后一段。".to_string()
+            });
+
+        let body: AnyElement = if step == 1 {
+            div()
+                .px(t().d(20.))
+                .pt(t().d(12.))
+                .child(Input::new(&filter))
+                .child(
+                    div()
+                        .id("newcat-picks")
+                        .mt(t().d(10.))
+                        .max_h(t().d(200.))
+                        .overflow_y_scroll()
+                        .rounded(t().r(6.))
+                        .border(t().d(1.))
+                        .border_color(rgb(t().p.line))
+                        .children(picks.iter().enumerate().map(|(i, (_path, label, count, depth))| {
+                            let on = i == pick;
+                            let leaf = label.clone();
+                            let d = *depth;
+                            div()
+                                .id(ElementId::Name(format!("newcat-pick-{i}").into()))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(t().d(6.))
+                                .h(t().d(28.))
+                                .pl(t().d(10. + (d as f32) * 14.))
+                                .pr(t().d(10.))
+                                .text_size(t().fs(12.))
+                                .cursor_pointer()
+                                .when(on, |el| {
+                                    el.bg(rgb(t().p.selected)).text_color(rgb(t().p.text))
+                                })
+                                .when(!on, |el| {
+                                    el.text_color(rgb(t().p.text_2))
+                                        .hover(|h| h.bg(rgb(t().p.hover)))
+                                })
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    this.new_cat.pick = i;
+                                    this.new_cat_pick_parent(window, cx);
+                                }))
+                                .child(
+                                    div()
+                                        .w(t().d(12.))
+                                        .text_size(t().fs(10.))
+                                        .text_color(rgb(t().p.faint))
+                                        .child(if d == 0 {
+                                            "⌂".to_string()
+                                        } else {
+                                            "›".repeat(d)
+                                        }),
+                                )
+                                .child(div().flex_1().child(leaf))
+                                .child(
+                                    div()
+                                        .text_size(t().fs(10.5))
+                                        .text_color(rgb(t().p.faint))
+                                        .child(count.to_string()),
+                                )
+                                .into_any_element()
+                        })),
+                )
+                .into_any_element()
+        } else {
+            // 面包屑：父级逐段 + 你正在打的那一段（琥珀）。空名字画一个占位省略号。
+            let mut crumbs: Vec<AnyElement> = Vec::new();
+            if let Some(p) = parent.as_deref().filter(|p| !p.is_empty()) {
+                for (i, seg) in p.split('/').enumerate() {
+                    if i > 0 {
+                        crumbs.push(
+                            div()
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.faint))
+                                .child("›")
+                                .into_any_element(),
+                        );
+                    }
+                    crumbs.push(
+                        div()
+                            .text_size(t().fs(12.))
+                            .text_color(rgb(t().p.text_2))
+                            .child(seg.to_string())
+                            .into_any_element(),
+                    );
+                }
+                crumbs.push(
+                    div()
+                        .text_size(t().fs(10.))
+                        .text_color(rgb(t().p.faint))
+                        .child("›")
+                        .into_any_element(),
+                );
+            }
+            crumbs.push(
+                div()
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(if name.is_empty() { t().p.faint } else { t().p.accent }))
+                    .child(if name.is_empty() { "…".to_string() } else { name.clone() })
+                    .into_any_element(),
+            );
+
+            div()
+                .px(t().d(20.))
+                .pt(t().d(12.))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(t().d(6.))
+                        .p(t().d(8.))
+                        .rounded(t().r(6.))
+                        .bg(rgb(if dup { t().p.accent_soft } else { t().p.panel_alt }))
+                        .when(dup, |el| {
+                            el.border(t().d(1.)).border_color(rgb(t().p.accent_tint))
+                        })
+                        .children(crumbs)
+                        .child(div().flex_1())
+                        .child(
+                            div()
+                                .text_size(t().fs(10.5))
+                                .text_color(rgb(if dup { t().p.accent } else { t().p.faint }))
+                                .child(if dup {
+                                    "已存在".to_string()
+                                } else if name.is_empty() {
+                                    "还没写名字".to_string()
+                                } else {
+                                    format!("第 {depth} 层")
+                                }),
+                        ),
+                )
+                .child(div().mt(t().d(10.)).child(Input::new(&input)))
+                .children(err.map(|e| {
+                    div()
+                        .mt(t().d(8.))
+                        .text_size(t().fs(11.))
+                        .text_color(rgb(t().p.danger_fg))
+                        .child(e)
+                }))
+                .into_any_element()
+        };
+
+        let foot = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(t().d(8.))
+            .px(t().d(20.))
+            .py(t().d(14.))
+            .child(
+                div()
+                    .text_size(t().fs(10.5))
+                    .text_color(rgb(t().p.faint))
+                    .child(if step == 1 {
+                        "↵ 下一步 · Esc 取消"
+                    } else {
+                        "↵ 建 · Esc 上一步"
+                    }),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .id("newcat-cancel")
+                    .flex()
+                    .items_center()
+                    .h(t().d(28.))
+                    .px(t().d(12.))
+                    .rounded(t().r(6.))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(t().p.text_2))
+                    .cursor_pointer()
+                    .hover(|h| h.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_new_category(cx)))
+                    .child("取消"),
+            )
+            .children((step == 2).then(|| {
+                div()
+                    .id("newcat-back")
+                    .flex()
+                    .items_center()
+                    .h(t().d(28.))
+                    .px(t().d(12.))
+                    .rounded(t().r(6.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(t().p.text_2))
+                    .cursor_pointer()
+                    .hover(|h| h.bg(rgb(t().p.hover)))
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.new_cat_set_step(1, window, cx)
+                    }))
+                    .child("‹ 上一步")
+            }))
+            .child(
+                div()
+                    .id("newcat-ok")
+                    .flex()
+                    .items_center()
+                    .h(t().d(28.))
+                    .px(t().d(14.))
+                    .rounded(t().r(6.))
+                    .bg(rgb(if !can_go { t().p.disabled } else { t().p.accent }))
+                    .text_size(t().fs(12.))
+                    .text_color(rgb(t().p.on_accent))
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        if this.new_cat.step == 1 {
+                            this.new_cat_pick_parent(window, cx);
+                        } else {
+                            this.submit_new_category(cx);
+                        }
+                    }))
+                    .child(if step == 1 {
+                        "下一步"
+                    } else if busy {
+                        "建…"
+                    } else {
+                        "建类别"
+                    }),
+            );
 
         let dialog = div()
             .id("newcat-dialog")
@@ -2019,84 +2470,17 @@ impl Desktop {
                 div()
                     .flex()
                     .flex_col()
-                    .w(t().d(380.))
+                    .w(t().d(460.))
                     .rounded(t().r(10.))
                     .bg(rgb(t().p.panel))
                     .border(t().d(1.))
                     .border_color(rgb(t().p.line))
                     .shadow_lg()
                     .overflow_hidden()
-                    .child(
-                        div()
-                            .px(t().d(20.))
-                            .pt(t().d(18.))
-                            .text_size(t().fs(14.))
-                            .text_color(rgb(t().p.text))
-                            .child("新建类别"),
-                    )
-                    .child(
-                        div()
-                            .px(t().d(20.))
-                            .pt(t().d(4.))
-                            .pb(t().d(14.))
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.muted))
-                            .child(format!(
-                                "{sec} 的词表。写 写作/周报 就是分层路径。"
-                            )),
-                    )
-                    .child(div().px(t().d(20.)).child(Input::new(&input)))
-                    .children(err.map(|e| {
-                        div()
-                            .px(t().d(20.))
-                            .pt(t().d(8.))
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.danger_fg))
-                            .child(e)
-                    }))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .justify_end()
-                            .gap(t().d(8.))
-                            .px(t().d(20.))
-                            .py(t().d(16.))
-                            .child(
-                                div()
-                                    .id("newcat-cancel")
-                                    .flex()
-                                    .items_center()
-                                    .h(t().d(28.))
-                                    .px(t().d(12.))
-                                    .rounded(t().r(6.))
-                                    .text_size(t().fs(12.))
-                                    .text_color(rgb(t().p.text_2))
-                                    .cursor_pointer()
-                                    .hover(|h| h.bg(rgb(t().p.hover)))
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.close_new_category(cx)
-                                    }))
-                                    .child("取消"),
-                            )
-                            .child(
-                                div()
-                                    .id("newcat-ok")
-                                    .flex()
-                                    .items_center()
-                                    .h(t().d(28.))
-                                    .px(t().d(14.))
-                                    .rounded(t().r(6.))
-                                    .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
-                                    .text_size(t().fs(12.))
-                                    .text_color(rgb(t().p.on_accent))
-                                    .cursor_pointer()
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.submit_new_category(cx)
-                                    }))
-                                    .child(if busy { "建…" } else { "建" }),
-                            ),
-                    ),
+                    .child(head)
+                    .child(sub)
+                    .child(body)
+                    .child(foot),
             );
 
         Some(div().absolute().inset_0().child(scrim).child(dialog).into_any_element())
@@ -4240,17 +4624,56 @@ mod tests {
         has_invalid, launchable,
     };
 
-    /// 新契约没有类别写端点，失败文案必须解释真实原因，不许说在等异步任务。
+    /// 新建类别已接上真端点，改名 / 删除还没接 —— 文案不许再说「没有独立的类别写端点」
+    /// （那是旧事实），也不许说在等异步任务。
     #[test]
-    fn category_write_failure_explains_missing_endpoint() {
+    fn category_write_failure_names_the_real_gap() {
         assert!(
-            CATEGORY_WRITE_UNAVAILABLE.contains("category")
-                && CATEGORY_WRITE_UNAVAILABLE.contains("服务端没有独立的类别写端点"),
+            CATEGORY_WRITE_UNAVAILABLE.contains("POST /v1/presets/{section}/categories"),
             "实际文案：{CATEGORY_WRITE_UNAVAILABLE}"
+        );
+        assert!(
+            CATEGORY_WRITE_UNAVAILABLE.contains("改名") && CATEGORY_WRITE_UNAVAILABLE.contains("删除"),
+            "没接的是改名 / 删除，得说出来：{CATEGORY_WRITE_UNAVAILABLE}"
         );
         let src = include_str!("templates.rs");
         let stale = ["任务", "没跑完"].concat();
         assert!(!src.contains(&stale), "类别写分支还留着假话");
+    }
+
+    /// 重名在本地就挡：引擎的 `add` 是幂等的，放过去只会「点完没变化」。
+    #[test]
+    fn new_cat_ready_blocks_duplicates() {
+        use super::{CatNode, new_cat_ready};
+        let tree = vec![
+            CatNode { path: "工程".into(), label: "工程".into(), depth: 0, count: 3, has_children: false },
+            CatNode { path: "写作".into(), label: "写作".into(), depth: 0, count: 2, has_children: true },
+            CatNode { path: "写作/周报".into(), label: "周报".into(), depth: 1, count: 1, has_children: false },
+        ];
+        assert_eq!(new_cat_ready(&tree, Some("写作"), "周报"), Err("已经有「写作/周报」了".into()));
+        assert_eq!(new_cat_ready(&tree, None, "工程"), Err("已经有「工程」了".into()));
+        assert_eq!(new_cat_ready(&tree, Some("写作/周报"), "2026").unwrap(), "写作/周报/2026");
+        assert_eq!(new_cat_ready(&tree, Some("工程"), "审查").unwrap(), "工程/审查");
+        assert_eq!(new_cat_ready(&tree, None, ""), Err("类别名不能空".into()));
+    }
+
+    /// 两步弹层的路径拼接：父级为空 = 顶层，名字里带斜杠是用户把两步混成一步了。
+    #[test]
+    fn new_cat_path_joins_parent_and_name() {
+        use super::new_cat_path;
+        assert_eq!(new_cat_path(None, "写作").unwrap(), "写作");
+        assert_eq!(new_cat_path(Some("写作"), "周报").unwrap(), "写作/周报");
+        assert_eq!(
+            new_cat_path(Some("写作/周报"), " 2026 ").unwrap(),
+            "写作/周报/2026",
+            "名字两头空格要吃掉"
+        );
+        assert_eq!(new_cat_path(Some(""), "工程").unwrap(), "工程", "空父级当顶层");
+        assert_eq!(new_cat_path(None, "   "), Err("类别名不能空"));
+        assert!(
+            new_cat_path(Some("写作"), "周报/2026").is_err(),
+            "位置在第一步选，名字里不该再出现斜杠"
+        );
     }
 
     /// 开关文案：未知状态就是未知，不拿「关掉」糊弄（引擎还没回 = 事实未知）。

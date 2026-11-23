@@ -758,6 +758,7 @@ mod tests {
             ("POST", "/v1/presets/{section}/{name}/copy"),
             ("PUT", "/v1/presets/{section}/order"),
             ("GET", "/v1/presets/{section}/categories"),
+            ("POST", "/v1/presets/{section}/categories"),
             ("POST", "/v1/presets/{section}/create"),
             ("POST", "/v1/presets/{section}/validate"),
             ("GET", "/v1/presets/{section}/{name}/revisions"),
@@ -765,7 +766,7 @@ mod tests {
             ("POST", "/v1/presets/{section}/{name}/rollback"),
             ("GET", "/v1/presets/model"),
         ];
-        assert_eq!(CONTRACT.len(), 14);
+        assert_eq!(CONTRACT.len(), 15);
         let c = caps();
         for &(method, path) in CONTRACT {
             assert_eq!(
@@ -794,6 +795,7 @@ mod tests {
             ("POST", "v1/presets/{section}/{name}/copy"),
             ("PUT", "v1/presets/{section}/order"),
             ("GET", "v1/presets/{section}/categories"),
+            ("POST", "v1/presets/{section}/categories"),
             ("POST", "v1/presets/{section}/create"),
             ("POST", "v1/presets/{section}/validate"),
             ("GET", "v1/presets/{section}/{name}/revisions"),

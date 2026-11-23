@@ -215,6 +215,9 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/presets/{section}"),
     ("PUT", "v1/presets/{section}/order"),
     ("GET", "v1/presets/{section}/categories"),
+    // 词表**写**面（`{op: add/rename/remove}`）：新建类别走它。夹具里模块名是
+    // `presets-admin`，路由模板和读面同一条 —— 以前只抄了 GET，写面漏了。
+    ("POST", "v1/presets/{section}/categories"),
     ("POST", "v1/presets/{section}/create"),
     // 编辑器校验：草稿发 `{spec}`，回 `{ok, errors, warnings, resolved}`（0.1.15 恢复）。
     ("POST", "v1/presets/{section}/validate"),
