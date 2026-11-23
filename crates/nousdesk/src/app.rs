@@ -160,6 +160,8 @@ pub(crate) enum Tab {
     Data,
     /// 资源：技能 / 提示词 / 扩展（方案 03：内容 / 扩展两段）。
     Resources,
+    /// 元素库：组 / 包（方案 01：两段清单 + 右栏详情）。一份 JSON 一个元素。
+    Elements,
 }
 
 /// 轻提示的性质：成功绿 / 失败红。
@@ -372,6 +374,7 @@ pub struct Desktop {
     pub(crate) contract_banner_open: bool,
     /// 「资源」页（一个图标、内容 / 扩展两段）的全部状态。
     pub(crate) resources: crate::resources::ResourceState,
+    pub(crate) elements_state: crate::elements::ElementState,
     /// 「撕原件」危险确认的状态机（票 #3）。本票只负责把它接到引擎上。
     pub(crate) purge_confirm: crate::archive_confirm::PurgeConfirm,
     /// 「归档并撕原件」确认框的输入框。和 `rename_input` 同一个套路：
@@ -534,6 +537,7 @@ impl Desktop {
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("会话名字"));
         // 资源页三段各自的搜索框（详见 resources.rs）。
         let resources = crate::resources::ResourceState::new(window, cx);
+        let elements_state = crate::elements::ElementState::new(window, cx);
         let purge_input = cx.new(|cx| InputState::new(window, cx).placeholder("输入会话名字"));
 
         // 配置在这里同步读掉：设置页要立刻显示 host，不能等 tokio。
@@ -592,6 +596,66 @@ impl Desktop {
                 move |_, _, event: &InputEvent, _, cx| {
                     // 同上：模板列表的过滤也是纯本地，敲一个字重排一次。
                     if matches!(event, InputEvent::Change) {
+                        cx.notify();
+                    }
+                }
+            }),
+            // 元素库：搜索框只触发重画；表单 / JSON 两个视图都写同一份 `draft`。
+            cx.subscribe_in(&elements_state.search, window, {
+                move |_, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) { cx.notify(); }
+                }
+            }),
+            cx.subscribe_in(&elements_state.form_name, window, {
+                move |this, input, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let v = input.read(cx).value().to_string();
+                        crate::elements::on_scalar(this, "name", v);
+                        cx.notify();
+                    }
+                }
+            }),
+            cx.subscribe_in(&elements_state.form_desc, window, {
+                move |this, input, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let v = input.read(cx).value().to_string();
+                        crate::elements::on_scalar(this, "desc", v);
+                        cx.notify();
+                    }
+                }
+            }),
+            cx.subscribe_in(&elements_state.form_body, window, {
+                move |this, input, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let v = input.read(cx).value().to_string();
+                        crate::elements::on_scalar(this, "body", v);
+                        cx.notify();
+                    }
+                }
+            }),
+            cx.subscribe_in(&elements_state.form_refs, window, {
+                move |this, input, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let v = input.read(cx).value().to_string();
+                        crate::elements::on_list(this, "packages", v);
+                        cx.notify();
+                    }
+                }
+            }),
+            cx.subscribe_in(&elements_state.form_tags, window, {
+                move |this, input, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let v = input.read(cx).value().to_string();
+                        crate::elements::on_list(this, "tags", v);
+                        cx.notify();
+                    }
+                }
+            }),
+            cx.subscribe_in(&elements_state.json, window, {
+                move |this, input, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let v = input.read(cx).value().to_string();
+                        crate::elements::on_json(this, &v);
                         cx.notify();
                     }
                 }
@@ -1229,6 +1293,9 @@ impl Desktop {
                         }
                         if this.tab == Tab::Resources {
                             this.load_resources(false, cx);
+                        }
+                        if this.tab == Tab::Elements {
+                            this.load_elements(false, cx);
                         }
                         // 置顶来自内核，地址就是这一个引擎地址 ——
                         // 手机端停不停都跟置顶无关。
@@ -3237,6 +3304,12 @@ impl Desktop {
                 cx,
             ))
             .child(self.tab_button(IconName::Layers, Tab::Resources, true, cx))
+            .child(self.gated_tab_button(
+                IconName::Box,
+                Tab::Elements,
+                crate::capability::Feature::Elements,
+                cx,
+            ))
             .child(self.tab_button(IconName::Database, Tab::Data, true, cx))
             .child(div().flex_1())
             .child(self.more_button(cx))
@@ -3293,6 +3366,7 @@ impl Desktop {
             Tab::Templates => "tab-templates",
             Tab::Triggers => "tab-triggers",
             Tab::Resources => "tab-resources",
+            Tab::Elements => "tab-elements",
             Tab::Data => "tab-data",
         };
         div()
@@ -5557,6 +5631,8 @@ impl Render for Desktop {
                 Tab::Triggers => self.render_triggers(cx).into_any_element(),
                 // 资源页自带三栏（树 / 列表 / 详情），自己画完全宽。
                 Tab::Resources => crate::resources::render(self, cx, narrow_tree).into_any_element(),
+                // 元素库自带两栏（清单 / 详情），自己画完全宽。
+                Tab::Elements => crate::elements::render(self, cx).into_any_element(),
                 // 数据监控室是三列整页（拉片 / 六屏 / 时间线），自己画完全宽。
                 Tab::Data => self.render_data_console(cx).into_any_element(),
             }

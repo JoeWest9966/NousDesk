@@ -27,6 +27,7 @@ mod dead_paths;
 mod data_console_tests;
 mod editor;
 mod editor_presets;
+mod elements;
 mod fonts;
 mod live;
 mod md;
