@@ -1047,6 +1047,9 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
             .flex()
             .items_center()
             .justify_between()
+            // 窄窗时这一行塞了六颗东西（分类 / 段名 / 重载 / 垃圾站 / 类别 / 新建），
+            // 没有间距会糊成一条。gap 给 6，按钮内边距已经是 9。
+            .gap(t().d(6.))
             .px(t().d(12.))
             .pt(t().d(10.))
             // 窄窗：段切换 / 类别 / 垃圾站都在树那一层，这里给一条钻上去的路。
