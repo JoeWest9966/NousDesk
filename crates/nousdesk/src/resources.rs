@@ -149,6 +149,23 @@ impl ExtKind {
     }
 }
 
+/// 窄窗下中间列的两层。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ResCol {
+    /// 当前段的条目列表（默认）。
+    #[default]
+    Items,
+    /// 左树那一层：段切换 + 类别 + 垃圾站。
+    Tree,
+}
+
+impl ResCol {
+    /// 退一层：树 → 列表。到头就停着（Esc 连按不会退到别处去）。
+    pub(crate) fn pop(self) -> Self {
+        ResCol::Items
+    }
+}
+
 /// 这一页的全部状态。**只有这一页持有**，不塞进 `Desktop`。
 pub(crate) struct ResourceState {
     pub(crate) section: Section,
@@ -172,6 +189,10 @@ pub(crate) struct ResourceState {
     /// 第一屏体验，跟左栏会话搜索同一套组件。
     search: [Entity<InputState>; 3],
     pub(crate) selected: Option<Selected>,
+    /// 窄窗下中间列自己在哪一层（照模板页 `NarrowCol` 那套）：条目列表 ↔ 类别树。
+    /// 980 宽装不下三栏，左树整块不画 —— 不往下钻的话「内容 / 扩展」段切换、
+    /// 类别、垃圾站三个入口就全没了。
+    pub(crate) narrow_col: ResCol,
     loading: bool,
     error: Option<String>,
 
@@ -222,6 +243,7 @@ impl ResourceState {
                 box_for("搜扩展：名字 / 摘要"),
             ],
             selected: None,
+            narrow_col: ResCol::Items,
             loading: false,
             error: None,
             view: crate::resource_write::View::Browse,
