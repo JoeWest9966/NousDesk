@@ -58,10 +58,6 @@ pub(crate) fn solid() -> u32 {
 pub(crate) fn accent() -> u32 {
     cur().p.accent
 }
-/// 连线（虚线）。
-pub(crate) fn wire() -> u32 {
-    cur().p.line
-}
 /// `ready` 那行字。
 pub(crate) fn ok() -> u32 {
     cur().p.ok
@@ -91,9 +87,6 @@ pub(crate) struct M {
     pub layout: Layout,
     /// 设计值 → px 的比例。**全部几何只吃这一个数** —— 页面永远不会变形。
     pub scale: f32,
-    /// 内容框在右格里的居中偏移。
-    pub ox: f32,
-    pub oy: f32,
 }
 
 /// 三档布局。断点按右格**宽**（不是窗口宽）。
@@ -173,14 +166,11 @@ impl M {
             Layout::Stack => (w / bw).clamp(0.85, 1.4),
             _ => (w / bw).min(h / bh).clamp(0.2, 1.6),
         };
-        let (sw, sh) = (bw * scale, bh * scale);
         Self {
             w,
             h,
             layout,
             scale,
-            ox: ((w - sw) / 2.).max(0.),
-            oy: ((h - sh) / 2.).max(0.),
         }
     }
 
@@ -200,33 +190,19 @@ impl M {
         px((cqmin * 7.4).clamp(lo, hi) * self.scale)
             .max(px(9.))
     }
+
+    /// 竖轴清单（方案 D）的设计值 → px。
+    ///
+    /// D 是全流式布局（`flex_1` 平分、没有绝对坐标），所以它不需要 `ox` / `oy`，
+    /// 也不需要 `layout` 那三档断点 —— 只需要**一个比例**：盘面宽 / 644（那份
+    /// demo 的设计基准）。窄到 0.88 就不再缩，免得中文挤成一列；宽到 1.35 封顶，
+    /// 900 宽时字不会跟着摊成一片。
+    pub fn k(&self, design: f32) -> Pixels {
+        px(design * (self.w / 644.).clamp(0.88, 1.35))
+    }
 }
 
 // ── 四张卡 / 中央圆 / dock 的几何 ────────────────────────────────────
-
-/// 相对右格左上角的矩形，单位 px。
-#[derive(Clone, Copy)]
-pub(crate) struct Rect {
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-}
-
-impl Rect {
-    pub fn right(&self) -> f32 {
-        self.x + self.w
-    }
-    pub fn bottom(&self) -> f32 {
-        self.y + self.h
-    }
-    pub fn cx(&self) -> f32 {
-        self.x + self.w / 2.
-    }
-    pub fn cy(&self) -> f32 {
-        self.y + self.h / 2.
-    }
-}
 
 /// 四个角上那张卡。位置和「轨道」demo 一一对应。
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -237,184 +213,12 @@ pub(crate) enum Slot {
     Perms,
 }
 
-/// 四张卡的设计尺寸（相对设计基准，不乘 scale）。宽高比固定 220:92 ≈ 0.42，
-/// 宽变了高跟着变 —— 以前一个按宽一个写死，宽屏上就成了 268×112 的扁条。
-pub(crate) fn node_size(m: &M, slot: Slot) -> (f32, f32) {
-    let (w, h) = match m.layout {
-        Layout::Wide => (220., if slot == Slot::Context { 116. } else { 92. }),
-        Layout::Compact => (322., if slot == Slot::Context { 150. } else { 128. }),
-        Layout::Stack => (240., 64.),
-    };
-    (w * m.scale, h * m.scale)
-}
-
-pub(crate) fn node_rect(m: &M, slot: Slot) -> Rect {
-    let (w, h) = node_size(m, slot);
-    // 设计值（未乘 scale）：四角的位置。
-    let (side, top, bottom) = match m.layout {
-        Layout::Wide => (52., 78., 150.),
-        Layout::Compact => (21., 38., 102.),
-        Layout::Stack => (16., 16., 16.),
-    };
-    let (bx, by) = (side * m.scale, top * m.scale);
-    let (bw, bh) = Layout::base(m.layout);
-    let (sw, sh) = (bw * m.scale, bh * m.scale);
-    let (x, y) = match slot {
-        Slot::Model => (bx, by),
-        Slot::Context => (sw - bx - w, by),
-        Slot::Ext => (bx, sh - bottom * m.scale - h),
-        Slot::Perms => (sw - bx - w, sh - bottom * m.scale - h),
-    };
-    Rect {
-        x: m.ox + x,
-        y: m.oy + y,
-        w,
-        h,
-    }
-}
-
-/// 中央那颗圆：半径 74（设计值）。
-pub(crate) fn core_r(m: &M) -> f32 {
-    let r = match m.layout {
-        Layout::Wide => 74.,
-        Layout::Compact => 48.,
-        Layout::Stack => 46.,
-    };
-    r * m.scale
-}
-
-/// 圆心。Wide 在设计坐标 (470, 320)；Compact 让开上下两排卡，落在中间那段的正中。
-pub(crate) fn core_center(m: &M) -> (f32, f32) {
-    let (cx, cy) = match m.layout {
-        Layout::Wide => (470., 320.),
-        Layout::Compact => (350., 250.),
-        Layout::Stack => (150., 60.),
-    };
-    (m.ox + cx * m.scale, m.oy + cy * m.scale)
-}
-
 // ── 05 环：圆外一圈虚线，三个值挂在环上 ────────────────────────────────
 //
 // 为什么不留在底部那条 dock：一条 720px 横贯盘面的窄条，读起来是「工具栏」，
 // 和上面四张卡不是一个语法。环把名字 / 机器 / 目录收回圆边上 —— 它们是**从圆心
 // 长出来的参数**，所以用同一种画法（节点 + 虚线），也所以三个 pill 的底色
 // 和那颗圆一模一样（见 `solid()`）。
-
-/// 环的半径（设计值）。**正圆**：rx = ry，不再一个吃宽一个吃高（那样越宽越扁）。
-pub(crate) fn ring_r(m: &M) -> f32 {
-    150. * m.scale
-}
-
-/// 环的中心与半径。Compact / Stack 不画环。
-pub(crate) fn ring(m: &M) -> (f32, f32, f32, f32) {
-    let (cx, cy) = core_center(m);
-    let r = ring_r(m);
-    (cx, cy, r, r)
-}
-
-pub(crate) fn has_ring(m: &M) -> bool {
-    m.layout == Layout::Wide
-}
-
-/// 环上的三个值。
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Foot {
-    /// 环底正中：这条对话叫什么。
-    Name,
-    /// 左下：跑在哪台机器。
-    Machine,
-    /// 右下：工作目录。
-    Dir,
-}
-
-fn foot_size(m: &M, f: Foot) -> (f32, f32) {
-    let (w, h): (f32, f32) = match m.layout {
-        Layout::Wide => match f {
-            Foot::Name => (200., 30.),
-            Foot::Machine => (96., 30.),
-            Foot::Dir => (140., 30.),
-        },
-        // 紧凑档：三颗横排，宽度收窄。
-        Layout::Compact => match f {
-            Foot::Name => (200., 28.),
-            Foot::Machine => (66., 28.),
-            Foot::Dir => (86., 28.),
-        },
-        Layout::Stack => match f {
-            Foot::Name => (110., 30.),
-            Foot::Machine => (72., 30.),
-            Foot::Dir => (96., 30.),
-        },
-    };
-    // 窄右格里别让两颗撞上。
-    let w = w.min(m.w / m.scale * 0.34);
-    (w * m.scale, h * m.scale)
-}
-
-pub(crate) fn foot_rect(m: &M, f: Foot) -> Rect {
-    let (w, h) = foot_size(m, f);
-    let (cx, cy) = core_center(m);
-    let (x, y) = match m.layout {
-        Layout::Wide => {
-            let r = ring_r(m);
-            // 140° / 40° / 90°：挂在环的下半圈，左右两颗更靠外。
-            let (kx, ky) = (0.766_044_4, 0.642_787_6);
-            match f {
-                Foot::Machine => (cx - r * kx, cy + r * ky),
-                Foot::Dir => (cx + r * kx, cy + r * ky),
-                Foot::Name => (cx, cy + r),
-            }
-        }
-        _ => {
-            // 圆下方横排一行，三颗一起居中。
-            let gap = 6. * m.scale;
-            let (wm, wn, wd) = (
-                foot_size(m, Foot::Machine).0,
-                foot_size(m, Foot::Name).0,
-                foot_size(m, Foot::Dir).0,
-            );
-            let total = wm + wn + wd + gap * 2.;
-            let left = cx - total / 2.;
-            let y = cy + core_r(m) + 18. * m.scale;
-            let x = match f {
-                Foot::Machine => left + wm / 2.,
-                Foot::Name => left + wm + gap + wn / 2.,
-                Foot::Dir => left + wm + gap + wn + gap + wd / 2.,
-            };
-            (x, y)
-        }
-    };
-    Rect {
-        x: x - w / 2.,
-        y: y - h / 2.,
-        w,
-        h,
-    }
-}
-
-/// 环底下那行状态的位置（`top`）。
-pub(crate) fn status_y(m: &M) -> f32 {
-    let n = foot_rect(m, Foot::Name);
-    n.bottom() + 14. * m.scale
-}
-
-/// 一条连线：从圆心边上出发，指向卡片中心（终点会被卡片盖住，正好停在边上）。
-pub(crate) fn card_wire(m: &M, slot: Slot) -> ((f32, f32), (f32, f32)) {
-    let (cx, cy) = core_center(m);
-    let r = core_r(m) + 10. * m.scale;
-    let n = node_rect(m, slot);
-    let (tx, ty) = (n.cx(), n.cy());
-    ((cx, cy), (tx, ty)).into_wire(cx, cy, r, tx, ty)
-}
-
-/// 圆边 → 环上某个值的一条短线（终点藏在 pill 底下）。
-pub(crate) fn foot_wire(m: &M, f: Foot) -> ((f32, f32), (f32, f32)) {
-    let (cx, cy) = core_center(m);
-    let r = core_r(m) + 4. * m.scale;
-    let t = foot_rect(m, f);
-    let (tx, ty) = (t.cx(), t.cy());
-    ((cx, cy), (tx, ty)).into_wire(cx, cy, r, tx, ty)
-}
 
 /// 把「圆心 → 目标」裁成「圆边 → 目标」。
 trait Wire {
@@ -466,92 +270,87 @@ pub(crate) enum PopKind {
 /// 模型弹层贴在卡片**下方**；技能 / 提示词贴在卡片**左侧**（右上角右边没地方）；
 /// 机器 / 目录贴在 dock **上方**、居中。
 pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
-    let gap = 14.;
-    // 竖排档没有四角卡、也没有环 —— `node_rect` / `foot_rect` 在这里是流式布局，
-    // 拿它们的坐标去贴只会把弹层甩到格子外。这一档统一居中贴顶。
-    if matches!(m.layout, Layout::Stack) {
-        let w = (m.w - 24.).max(180.);
-        return Pop {
-            x: (m.w - w) / 2.,
+    let k = (m.w / 644.).clamp(0.88, 1.35);
+    let w = match kind {
+        PopKind::Skills | PopKind::Ext => (m.w - 56. * k).min(620.),
+        PopKind::Model => (m.w - 56. * k).min(560.),
+        _ => (m.w * 0.76).min(460.),
+    };
+    let x = (m.w - w) / 2.;
+    // 挂行的弹层：从那一行的下沿往下长，看得见自己点的是哪一行。
+    // 没挂行的（会话页 / 目录 / 机器）：贴画面上方，不压住下半截。
+    let (anchor_y, from) = match slot {
+        Some(s) => (axis_center(m, s) + 34. * k, axis_center(m, s)),
+        None => ((m.h * 0.26).max(60.), m.h * 0.26),
+    };
+    if anchor_y + 320. > m.h - 24. {
+        Pop {
+            x,
             w,
-            anchor: Anchor::Top(20.),
-        };
+            anchor: Anchor::Bottom((m.h - from + 34. * k).max(40.)),
+        }
+    } else {
+        Pop {
+            x,
+            w,
+            anchor: Anchor::Top(anchor_y),
+        }
     }
-    match slot {
-        Some(Slot::Model) if kind == PopKind::Model => {
-            let n = node_rect(m, Slot::Model);
-            let w = (m.w - 28.).min(600.);
-            let x = n.x.clamp(14., (m.w - w - 14.).max(14.));
-            let top = n.bottom() + gap;
-            // 底下放不下就翻到卡片上面去。
-            if top + 280. > m.h - 40. {
-                Pop {
-                    x,
-                    w,
-                    anchor: Anchor::Bottom(m.h - n.y + gap),
-                }
-            } else {
-                Pop {
-                    x,
-                    w,
-                    anchor: Anchor::Top(top),
-                }
-            }
-        }
-        Some(slot) => {
-            let n = node_rect(m, slot);
-            let w = match kind {
-                PopKind::Skills | PopKind::Ext => (m.w - 28.).min(620.),
-                _ => 410.,
-            };
-            // 优先放右侧；右边不够（右上角那张卡就是这样）就翻到左边。
-            let x = if n.right() + gap + w <= m.w - 14. {
-                n.right() + gap
-            } else {
-                (n.x - gap - w).max(14.)
-            };
-            // 竖向：先试「从卡片上沿往下长」；下半部分那两张卡（扩展在左下）
-            // 下面根本不够，就翻到卡片上方、向上长。不然只剩 150px 高。
-            let down = n.y;
-            if down + 320. > m.h - 24. && n.y > 300. {
-                Pop {
-                    x,
-                    w,
-                    anchor: Anchor::Bottom(m.h - n.y + gap),
-                }
-            } else {
-                Pop {
-                    x,
-                    w,
-                    anchor: Anchor::Top(down),
-                }
-            }
-        }
-        None if kind == PopKind::Session => {
-            // 会话页没有四角卡可贴：居中偏上，宽 460。
-            let w = (m.w - 28.).min(460.);
-            Pop {
-                x: (m.w - w) / 2.,
-                w,
-                anchor: Anchor::Top((m.h * 0.18).max(20.)),
-            }
-        }
-        None => {
-            // 机器 / 目录：贴着被点的那颗 pill 弹（就地弹出的同一条规矩）。
-            let f = if kind == PopKind::Dir {
-                Foot::Dir
-            } else {
-                Foot::Machine
-            };
-            let t = foot_rect(m, f);
-            // 目录弹层是命令面板（左列表 + 右预览），比机器列表要宽一格。
-            let w = (m.w - 28.).min(if kind == PopKind::Dir { 600. } else { 460. });
-            let x = (t.cx() - w / 2.).clamp(14., (m.w - w - 14.).max(14.));
-            Pop {
-                x,
-                w,
-                anchor: Anchor::Bottom(m.h - t.y + 10.),
-            }
-        }
+}
+
+/// 竖轴清单（D）：某一行的**中心 y**（相对右格顶部，标题栏已扣掉）。
+///
+/// 这组数字和 `board::board_axis` 里的 `pt(30) / 标题 / mt(10)` 与 foot
+/// （`pt(16) + name + chips + status + 54 按钮 + pb(26)`）是同一套。弹层要贴着
+/// 被点的那一行弹出来，两边各算各的就会错位 —— 所以只在这里算一次。
+pub(crate) fn axis_center(m: &M, slot: Slot) -> f32 {
+    let k = (m.w / 644.).clamp(0.88, 1.35);
+    let top = 70. * k;
+    let foot = 216. * k;
+    let axis = (m.h - top - foot).max(160.);
+    let i = match slot {
+        Slot::Model => 0.,
+        Slot::Ext => 1.,
+        Slot::Context => 2.,
+        Slot::Perms => 3.,
+    };
+    top + axis * (i + 0.5) / 4.
+}
+
+
+#[cfg(test)]
+mod tests {
+    // 显式列名，别 `use super::*`：文件顶的 `use gpui_kit::*` 会把 gpui 的
+    // `test` 宏也带进来，`#[test]` 就递归展开（坑.md 记过这条）。
+    use super::{axis_center, Slot, M};
+    use crate::app::Tab;
+    use gpui_kit::{px, Size};
+
+    fn m(win_w: f32, win_h: f32) -> M {
+        M::new(Size::new(px(win_w), px(win_h)), Tab::Chats)
+    }
+
+    #[test]
+    fn 竖轴四行中心从上到下单调() {
+        let m = m(980., 1168.);
+        let ys: Vec<f32> = [Slot::Model, Slot::Ext, Slot::Context, Slot::Perms]
+            .iter()
+            .map(|s| axis_center(&m, *s))
+            .collect();
+        assert!(ys[0] < ys[1] && ys[1] < ys[2] && ys[2] < ys[3], "{ys:?}");
+        // 都落在盘面里面（不是负数、也没出底）。
+        assert!(ys[0] > 40., "{ys:?}");
+        assert!(ys[3] < m.h, "{ys:?}");
+    }
+
+    #[test]
+    fn 竖轴比例夹在_088_到_135_之间() {
+        // 右格 = 窗口 - (rail 56 + list 280) —— 用盘面自己的宽算比例。
+        let narrow = m(900., 1100.);
+        let wide = m(1600., 1000.);
+        let kn = f32::from(narrow.k(100.)) / 100.;
+        let kw = f32::from(wide.k(100.)) / 100.;
+        assert!((kn - 0.88).abs() < 0.001, "kn={kn}");
+        assert!((kw - 1.35).abs() < 0.001, "kw={kw}");
     }
 }
