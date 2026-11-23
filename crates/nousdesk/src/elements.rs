@@ -1117,6 +1117,9 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
     );
 
     // 草稿还没落盘：没有东西可删，按钮不挂（不然点了是 404）。
+    // **注意**：这一段只管「删除」，别顺手把下面的「保存」也圈进来 ——
+    // 第一次写这里时把两个按钮放在同一个 `if` 里，于是草稿没有保存按钮，
+    // 人只能看着一份填好的表单没法提交（真踩过）。
     if has_selection && !st.creating {
         bar = bar.child(
             div()
@@ -1133,6 +1136,10 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
                     cx.notify();
                 })),
         );
+    }
+
+    // 保存：盘上的和草稿都有（草稿第一次保存是 POST）。
+    if has_selection {
         let saving = st.saving;
         let creating_now = st.creating;
         bar = bar.child(
