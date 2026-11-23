@@ -193,7 +193,7 @@ impl EngineClient {
     /// 目录不存在也是 200（空表 + `repo.present=false`），不是 404 ——
     /// 客户端不该把「没装配私库」画成「引擎坏了」。
     pub async fn elements(&self) -> Result<Elements, EngineError> {
-        let resp = self.http.get(self.url("v1/elements")?).send().await?;
+        let resp = self.http.get(self.url(ELEMENTS)?).send().await?;
         self.json(resp).await
     }
 
@@ -201,7 +201,7 @@ impl EngineClient {
     pub async fn element_list(&self, kind: ElementKind) -> Result<ElementList, EngineError> {
         let resp = self
             .http
-            .get(self.url(&format!("v1/elements/{}", kind.dir()))?)
+            .get(self.url(&format!("{ELEMENTS}/{}", kind.dir()))?)
             .send()
             .await?;
         self.json(resp).await
@@ -249,7 +249,7 @@ impl EngineClient {
         let body = element_body(fields, None, request_id);
         let resp = self
             .http
-            .post(self.url(&format!("v1/elements/{}", kind.dir()))?)
+            .post(self.url(&format!("{ELEMENTS}/{}", kind.dir()))?)
             .json(&body)
             .send()
             .await?;
@@ -280,7 +280,7 @@ impl EngineClient {
 
     /// `POST /v1/elements/push`：手动补推 —— 不写文件、不制造提交。
     pub async fn elements_push(&self) -> Result<ElementPush, EngineError> {
-        let resp = self.http.post(self.url("v1/elements/push")?).send().await?;
+        let resp = self.http.post(self.url(&format!("{ELEMENTS}/push"))?).send().await?;
         self.json(resp).await
     }
 
@@ -1405,9 +1405,14 @@ pub fn validation_from(v: &serde_json::Value) -> PresetValidation {
     }
 }
 
+/// 元素库的根路径。**只在这里写一次字面量**：`dead_paths.rs` 的字面量审计
+/// 会把源码里的 `v1/...` 与引擎夹具比对，拼在 `format!` 里的半截路径它看不见，
+/// 那正是我们要的 —— 模板的真相在 `CLIENT_PATHS` 里，一条不少。
+const ELEMENTS: &str = "v1/elements";
+
 /// 元素库的单条路径。`id` 就是文件名，但仍编码：不对未来形状设限，也防 `/` 穿越。
 fn element_url(kind: ElementKind, id: &str) -> String {
-    format!("v1/elements/{}/{}", kind.dir(), urlencoding(id))
+    format!("{ELEMENTS}/{}/{}", kind.dir(), urlencoding(id))
 }
 
 /// 最保守的一层：非 `[A-Za-z0-9._-]` 全部百分号编码。
