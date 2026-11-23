@@ -549,7 +549,8 @@ impl Desktop {
                 .default_value(conn.host.clone())
         });
         // 调试用：启动就直接打开某个浮层，省得每次手点。
-        // `NOUS_DESKTOP_OPEN=menu` / `=settings` / `=templates`，别的值（包括不设）就是正常启动。
+        // `NOUS_DESKTOP_OPEN=menu` / `=settings` / `=templates` / `=resources` / `=elements`，
+        // 别的值（包括不设）就是正常启动。
         let open_at_start = std::env::var("NOUS_DESKTOP_OPEN").unwrap_or_default();
         // `/` 面板的 ↑↓ / ↵ / Esc 要在**输入框组件之前**拿到。
         // 用 interceptor（`observe_keystrokes` 太晚，`on_key_down` 挂在祖先节点上也会被
@@ -1155,6 +1156,8 @@ impl Desktop {
                 Tab::Data
             } else if open_at_start == "resources" {
                 Tab::Resources
+            } else if open_at_start == "elements" {
+                Tab::Elements
             } else {
                 Tab::Chats
             },
@@ -5707,9 +5710,10 @@ impl Render for Desktop {
             // **空的也别占位**：它带着 `flex_1`，会把主栏挤到一半宽 —— 640 宽时
             // 模板列表 240 之后只剩 52px，右栏的图/空状态全被压成一条（见 坑.md 64）。
             .children(
-                // **资源页也有自己的第三栏**，跟模板页同理：这一格必须空着不挂，
-                // 否则那个空 `flex_1` 会把主栏挤成一半宽（坑.md 64；资源页就是漏了这一条）。
-                (!matches!(self.tab, Tab::Templates | Tab::Resources) || page_open).then(|| {
+                // **资源页 / 元素库也有自己的栏目**，跟模板页同理：这一格必须空着不挂，
+                // 否则那个空 `flex_1` 会把主栏挤成一半宽（坑.md 64；资源页漏过一次，
+                // 元素库第一次也漏了 —— 症状是右半屏一片灰，页面只剩 614px）。
+                (!matches!(self.tab, Tab::Templates | Tab::Resources | Tab::Elements) || page_open).then(|| {
                     div()
                         .flex_1()
                         .min_w(t().d(0.))

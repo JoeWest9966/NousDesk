@@ -153,6 +153,7 @@ impl ElementState {
 impl Desktop {
     /// 切进元素库页 / 手动刷新：一份 GET 拉两段（引擎一次给全）。
     pub(crate) fn load_elements(&mut self, force: bool, cx: &mut Context<Self>) {
+        log::info!("DBG load_elements force={force} engine={} hydrated={} loading={}", self.engine.is_some(), self.elements_state.hydrated(), self.elements_state.loading);
         if self.elements_state.loading {
             return;
         }
@@ -174,6 +175,7 @@ impl Desktop {
                 this.elements_state.loading = false;
                 match result {
                     Ok(data) => {
+                        log::info!("DBG elements loaded: {} groups {} packages", data.groups.len(), data.packages.len());
                         this.elements_state.error = None;
                         // 选中项跨刷新保住：id 还在就留着，没了就清空（不猜「大概指哪条」）。
                         let keep = this
