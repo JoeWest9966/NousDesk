@@ -709,11 +709,22 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         View::Categories => crate::resource_write::render_categories(desk, cx),
         View::Trash => crate::resource_write::render_trash(desk, cx),
         View::Browse => {
+            // 窄窗的第二层：左树占满中间那一列，点一个类别就回到列表。
+            if narrow && desk.resources.narrow_col == ResCol::Tree {
+                return div()
+                    .flex()
+                    .flex_row()
+                    .flex_1()
+                    .h_full()
+                    .min_w(t().d(0.))
+                    .child(render_tree(&desk.resources, cx, true))
+                    .into_any_element();
+            }
             let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
             if !narrow {
-                root = root.child(render_tree(&desk.resources, cx));
+                root = root.child(render_tree(&desk.resources, cx, false));
             }
-            root.child(render_list(desk, cx))
+            root.child(render_list(desk, cx, narrow))
                 .child(render_detail(desk, cx))
                 .into_any_element()
         }
@@ -737,7 +748,7 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
     body
 }
 
-fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
+fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> AnyElement {
     let (n_skills, n_prompts, n_ext) = counts(
         r.skills.as_ref(),
         r.prompts.as_ref(),
@@ -850,6 +861,9 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
                     this.resource_section(Section::Content, cx);
                     this.resource_content(Content::Skills, cx);
                 }
+                // 窄窗下选了段就是「我要看条目的」，自动退回列表那一层。
+                this.resources.narrow_col = ResCol::Items;
+                cx.notify();
             }))
             .flex_1()
             .py(t().d(7.))
@@ -889,7 +903,9 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
     }
 
     div()
-        .w(t().d(crate::app::PRESET_TREE_W))
+        // 宽窗是固定 244 的左栏；窄窗它就是中间那一列，得铺满（不然右边空一截）。
+        .when(narrow, |el| el.w_full())
+        .when(!narrow, |el| el.w(t().d(crate::app::PRESET_TREE_W)))
         .h_full()
         .flex()
         .flex_col()
@@ -901,9 +917,40 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
                 .px(t().d(12.))
                 .pt(t().d(12.))
                 .pb(t().d(8.))
-                .text_size(t().fs(13.))
-                .text_color(rgb(text_color()))
-                .child("资源"),
+                .flex()
+                .items_center()
+                .gap(t().d(6.))
+                // 窄窗：这一层是「往上钻」出来的，得有回去的路 ——
+                // 跟模板页那颗 `‹ 类别` 同一套（同一个位置、同一个手势）。
+                .when(narrow, |el| {
+                    el.child(
+                        div()
+                            .id("res-back-items")
+                            .flex()
+                            .items_center()
+                            .gap(t().d(3.))
+                            .h(t().d(20.))
+                            .px(t().d(6.))
+                            .rounded(t().r(5.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.line))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.text_2))
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .child(Icon::new(IconName::ChevronLeft).size(t().d(12.)))
+                            .child("条目")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.resources.narrow_col = ResCol::Items;
+                                cx.notify();
+                            })),
+                    )
+                })
+                .child(
+                    div()
+                        .text_size(t().fs(13.))
+                        .text_color(rgb(text_color()))
+                        .child("资源"),
+                ),
         )
         .child(
             div()
@@ -931,6 +978,9 @@ fn cat_row(label: &str, on: bool, depth: usize, key: &str, cx: &mut Context<Desk
                 Some(key.clone())
             };
             this.resource_cat(next, cx);
+            // 窄窗：点类别 = 往下钻到条目。不钻的话点了看不出变化（树还占着这一列）。
+            this.resources.narrow_col = ResCol::Items;
+            cx.notify();
         }))
         .flex()
         .px(t().d(10.))
@@ -954,6 +1004,7 @@ fn trash_row(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
     div()
         .id("res-trash")
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.resources.narrow_col = ResCol::Items;
             this.resource_open_trash(window, cx);
         }))
         .flex()
@@ -969,7 +1020,7 @@ fn trash_row(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
         .into_any_element()
 }
 
-fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyElement {
     let r = &desk.resources;
     let slot = r.slot();
     let cat = r.cat[slot].as_deref();
@@ -998,6 +1049,31 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             .justify_between()
             .px(t().d(12.))
             .pt(t().d(10.))
+            // 窄窗：段切换 / 类别 / 垃圾站都在树那一层，这里给一条钻上去的路。
+            .when(narrow, |el| {
+                el.child(
+                    div()
+                        .id("res-open-tree")
+                        .flex()
+                        .items_center()
+                        .gap(t().d(3.))
+                        .h(t().d(20.))
+                        .px(t().d(6.))
+                        .mr(t().d(4.))
+                        .rounded(t().r(5.))
+                        .border(t().d(1.))
+                        .border_color(rgb(t().p.line))
+                        .text_size(t().fs(11.))
+                        .text_color(rgb(t().p.text_2))
+                        .hover(|h| h.bg(rgb(t().p.hover)))
+                        .child(Icon::new(IconName::Menu).size(t().d(12.)))
+                        .child("分类")
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.resources.narrow_col = ResCol::Tree;
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
                 div()
                     .text_size(t().fs(12.))
