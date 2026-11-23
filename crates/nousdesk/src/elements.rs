@@ -322,12 +322,13 @@ impl Desktop {
 
     /// 新建：在当前段里造一份最小合法 JSON。`id` 先给个占位，用户自己改。
     pub(crate) fn new_element(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(kind) = self.elements_state.selected.as_ref().map(|(k, _)| *k).or_else(|| {
-            // 没选中就按「组优先」—— 左清单第一段就是组。
-            Some(ElementKind::Groups)
-        }) else {
-            return;
-        };
+        // 没选中就按「组优先」—— 左清单第一段就是组。
+        let kind = self
+            .elements_state
+            .selected
+            .as_ref()
+            .map(|(k, _)| *k)
+            .unwrap_or(ElementKind::Groups);
         let id = unused_id(kind, self.elements_state.data.as_ref());
         let fields = match kind {
             ElementKind::Groups => serde_json::json!({
@@ -861,7 +862,7 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
 
     let kind = st.selected.as_ref().map(|(k, _)| *k).unwrap_or(ElementKind::Groups);
     let body = match st.mode {
-        Mode::Form => render_form(desk, element, kind, cx),
+        Mode::Form => render_form(desk, element, kind),
         Mode::Json => render_json(desk, cx),
     };
 
@@ -992,12 +993,7 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
 ///
 /// 字号层级就是层级本身（demo 01）：30px 细细的标题、15px 导语、10px 小标签 ——
 /// 不靠框线和色块堆。
-fn render_form(
-    desk: &Desktop,
-    element: &Element,
-    kind: ElementKind,
-    cx: &mut Context<Desktop>,
-) -> AnyElement {
+fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyElement {
     let st = &desk.elements_state;
     let path = format!(
         "{}/{}.json",
