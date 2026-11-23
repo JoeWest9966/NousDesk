@@ -765,12 +765,23 @@ fn element_row(
         .px(t().d(10.))
         .py(t().d(6.))
         .rounded(t().r(6.))
-        // 选中时左边一条强调色竖线（demo 01）。边框一直占位（transparent），
-        // 否则一选中整行文字会往右跳 2px。
-        .border_l(t().d(2.))
-        .border_color(rgb(if on { t().p.accent } else { t().p.transparent }))
+        .relative()
         .when(on, |el| el.bg(rgb(t().p.selected)))
         .hover(|el| el.bg(rgb(t().p.hover)))
+        // 选中时左边一条强调色竖线（demo 01）。用绝对定位的小块画，
+        // 不画 `border_l` —— 圆角盒子上只画左边框，四条角会拱成「[」的形状。
+        .when(on, |el| {
+            el.child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top(t().d(6.))
+                    .bottom(t().d(6.))
+                    .w(t().d(2.))
+                    .rounded(t().r(2.))
+                    .bg(rgb(t().p.accent)),
+            )
+        })
         .child(
             div()
                 .flex_1()
