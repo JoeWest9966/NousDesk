@@ -628,10 +628,10 @@ fn list_field(fields: &serde_json::Value, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// JSON 视图里写成数组 / 标量也照发：元素本来就是一个对象，非对象由引擎回 400，
-/// 那句话比客户端自造的更准。客户端不预先「修」用户的输入。
-
 /// 新建时先占一个没人用的 id：`new-group` / `new-group-2` …
+///
+/// （JSON 视图里写成数组 / 标量也照发：元素本来就是一个对象，非对象由引擎回 400 ——
+/// 那句话比客户端自造的更准，这里不预先「修」用户的输入。）
 pub(crate) fn unused_id(kind: ElementKind, data: Option<&Elements>) -> String {
     let base = match kind {
         ElementKind::Groups => "new-group",
@@ -1214,7 +1214,7 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
                 .text_size(t().fs(30.))
                 .font_weight(FontWeight::LIGHT)
                 .text_color(rgb(if detail.broken { t().p.danger } else { text_color() }))
-                .child(if detail.name.as_str().is_empty() {
+                .child(if detail.name.is_empty() {
                     "（还没名字）".to_string()
                 } else {
                     detail.name.as_str().to_string()
