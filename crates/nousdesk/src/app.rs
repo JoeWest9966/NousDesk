@@ -1100,6 +1100,7 @@ impl Desktop {
             console: crate::data_console::ConsoleState::new(),
             contract_banner_open: false,
             resources,
+            elements_state,
             purge_confirm: crate::archive_confirm::PurgeConfirm::new(),
             purge_input,
             rename_box: crate::rename_box::RenameBox::new(),
@@ -2751,7 +2752,7 @@ impl Desktop {
     }
 
     /// 引擎报错的提示：`message` 原文逐字，不加前缀、不翻译、不截断。
-    fn notify_error(&mut self, err: &EngineError, cx: &mut Context<Self>) {
+    pub(crate) fn notify_error(&mut self, err: &EngineError, cx: &mut Context<Self>) {
         self.notify(error_notice(err), NoticeKind::Error, cx);
     }
 

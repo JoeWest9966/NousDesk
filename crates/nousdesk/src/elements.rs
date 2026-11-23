@@ -25,8 +25,8 @@
 //! - 没有 rename：`id` 就是文件名，改名 = 新建 + 删旧的（引擎语义）。
 
 use gpui_kit::assets::IconName;
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
-use gpui_kit::component::Icon;
+use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
+use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
@@ -227,19 +227,16 @@ impl Desktop {
 
     fn sync_forms_windowed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync_forms(cx);
-        let (name, desc, body, refs, tags, json) = {
-            let st = &self.elements_state;
-            let Some(fields) = st.draft.as_ref() else {
-                (String::new(), String::new(), String::new(), String::new(), String::new(), "{}".to_string())
-            };
-            (
+        let (name, desc, body, refs, tags, json) = match self.elements_state.draft.as_ref() {
+            None => (String::new(), String::new(), String::new(), String::new(), String::new(), "{}".into()),
+            Some(fields) => (
                 str_field(fields, "name"),
                 str_field(fields, "desc"),
                 str_field(fields, "body"),
                 list_field(fields, "packages"),
                 list_field(fields, "tags"),
                 serde_json::to_string_pretty(fields).unwrap_or_else(|_| "{}".into()),
-            )
+            ),
         };
         let st = &mut self.elements_state;
         st.form_name.update(cx, |s, cx| s.set_value(&name, window, cx));
