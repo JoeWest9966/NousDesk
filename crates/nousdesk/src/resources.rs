@@ -25,7 +25,9 @@
 //! - 第一刀不写盘、不发写请求，一个字节都不写引擎。
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
@@ -945,33 +947,89 @@ fn filter_pill(
         .into_any_element()
 }
 
-#[derive(Clone, Copy)]
-enum ToolAct {
-    ReloadExt,
-    Trash,
-    Cats,
+/// 扩展段 `⋯` 菜单里的一行。纯数据：渲染和判据共用一份，别在渲染里另写一遍顺序。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExtMenu {
+    /// 重扫扩展目录。技能 / 提示词没有进程，改完文件即生效，所以只有这一段有。
+    Reload,
+    /// 类别词表：改的是「有哪些类别」，不是某条扩展挂哪个。
+    Categories,
+    /// 垃圾站里有几份。
+    Trash(usize),
 }
 
-fn tool_btn(id: &'static str, label: String, act: ToolAct, cx: &mut Context<Desktop>) -> AnyElement {
-    div()
-        .id(ElementId::Name(id.into()))
-        .flex()
-        .items_center()
-        .h(t().d(22.))
-        .px(t().d(7.))
-        .rounded(t().r(6.))
-        .border(t().d(1.))
-        .border_color(rgb(t().p.line))
-        .text_size(t().fs(11.))
-        .whitespace_nowrap()
-        .text_color(rgb(t().p.text_2))
-        .hover(|el| el.bg(rgb(t().p.hover)))
-        .child(label)
-        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| match act {
-            ToolAct::ReloadExt => this.resource_ext_reload(window, cx),
-            ToolAct::Trash => this.resource_open_trash(window, cx),
-            ToolAct::Cats => this.resource_open_categories(window, cx),
-        }))
+/// `⋯` 里有哪些项、按什么顺序。
+///
+/// 垃圾站**空着不进菜单**：它在树里有一行、且常显（2026-11-23 的可见性判据），
+/// 空着再给一个菜单项就是同一页两个入口。菜单这一项只在「刚卸载完、想回去看」
+/// 时有用 —— 那时它必然非空。
+pub(crate) fn ext_menu_items(trash_len: usize) -> Vec<ExtMenu> {
+    let mut items = vec![ExtMenu::Reload, ExtMenu::Categories];
+    if trash_len > 0 {
+        items.push(ExtMenu::Trash(trash_len));
+    }
+    items
+}
+
+/// 扩展段的段工具：一颗 `⋯`，动作进浮层菜单。
+///
+/// 0.9.27 及以前是并排三颗（重载 / 垃圾站 / 类别）。它们和段 pill 落在同一条
+/// 视觉带上、又是两个层级，扫一眼像「段按钮被顶掉了」（2026-11-24 用户提的）；
+/// 并排还会把 `+ 新建` 挤到窄窗边上。菜单交给 gpui-kit 的 `DropdownMenu`：
+/// Esc / 点外面 / 翻边都由库管，本文件不另造浮层和开合状态。
+fn more_btn(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
+    // 技能 / 提示词没有进程、词表、垃圾站：不画一颗点了没反应的按钮。
+    if r.section != Section::Extensions {
+        return div().into_any_element();
+    }
+    let trash_len = r.ext_trash.as_ref().map(|t| t.items.len()).unwrap_or(0);
+    let items = ext_menu_items(trash_len);
+    let this = cx.entity().downgrade();
+    Button::new("res-ext-more")
+        .ghost()
+        .small()
+        .compact()
+        .icon(Icon::new(IconName::Ellipsis).size(t().d(15.)))
+        .tooltip("扩展的更多动作")
+        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
+            let mut menu = menu.min_w(t().d(158.));
+            for item in items.clone() {
+                menu = match item {
+                    ExtMenu::Reload => {
+                        let this = this.clone();
+                        menu.item(PopupMenuItem::new("重载").on_click(
+                            move |_: &ClickEvent, window, cx: &mut App| {
+                                let _ = this
+                                    .update(cx, |this, cx| this.resource_ext_reload(window, cx));
+                            },
+                        ))
+                    }
+                    ExtMenu::Categories => {
+                        let this = this.clone();
+                        menu.item(PopupMenuItem::new("类别词表…").on_click(
+                            move |_: &ClickEvent, window, cx: &mut App| {
+                                let _ = this.update(cx, |this, cx| {
+                                    this.resource_open_categories(window, cx)
+                                });
+                            },
+                        ))
+                    }
+                    ExtMenu::Trash(n) => {
+                        let this = this.clone();
+                        menu.item(PopupMenuItem::separator()).item(
+                            PopupMenuItem::new(format!("垃圾站 {n}")).on_click(
+                                move |_: &ClickEvent, window, cx: &mut App| {
+                                    let _ = this.update(cx, |this, cx| {
+                                        this.resource_open_trash(window, cx)
+                                    });
+                                },
+                            ),
+                        )
+                    }
+                };
+            }
+            menu
+        })
         .into_any_element()
 }
 
@@ -1072,27 +1130,9 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
             }))
             .into_any_element()
     };
-    // 段工具（重载 / 垃圾站 / 类别词表）：宽窗在标题栏右边，窄窗在第二行右边。
-    let tools = |cx: &mut Context<Desktop>| {
-        let mut row = div().flex().items_center().gap(t().d(4.));
-        if r.section == Section::Extensions {
-            // 「重载」只在扩展段：技能 / 提示词没有进程，改完文件即生效。
-            row = row
-                .child(tool_btn("res-ext-reload", "重载".to_string(), ToolAct::ReloadExt, cx))
-                .child(tool_btn(
-                    "res-ext-trash",
-                    match r.ext_trash.as_ref().map(|t| t.items.len()).unwrap_or(0) {
-                        0 => "垃圾站".to_string(),
-                        n => format!("垃圾站 {n}"),
-                    },
-                    ToolAct::Trash,
-                    cx,
-                ))
-                // 词表管理：改的是「有哪些类别」，不是某条扩展挂哪个类别。
-                .child(tool_btn("res-ext-cats", "类别".to_string(), ToolAct::Cats, cx));
-        }
-        row.into_any_element()
-    };
+    // 段工具：扩展段才有一颗 `⋯`（宽窗在标题栏右边，窄窗在第二行右边），
+    // 点开是 重载 / 类别词表 / 垃圾站。技能、提示词段没有这一层。
+    let tools = |cx: &mut Context<Desktop>| more_btn(r, cx);
 
     list = list.child(if narrow {
         // 窄窗：段筛选器就待在列表头顶，**不搬进树** —— 搬进树它们就变成层级，
