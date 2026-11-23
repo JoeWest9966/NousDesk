@@ -607,6 +607,15 @@ impl Desktop {
                     if matches!(event, InputEvent::Change) { cx.notify(); }
                 }
             }),
+            cx.subscribe_in(&elements_state.form_id, window, {
+                move |this, input, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let v = input.read(cx).value().to_string();
+                        crate::elements::on_id(this, v);
+                        cx.notify();
+                    }
+                }
+            }),
             cx.subscribe_in(&elements_state.form_name, window, {
                 move |this, input, event: &InputEvent, _, cx| {
                     if matches!(event, InputEvent::Change) {

@@ -61,6 +61,23 @@ fn mono() -> &'static str {
     }
 }
 
+/// 右栏那一份「正在看的东西」：可能来自盘上的一条，也可能是还没落盘的草稿。
+///
+/// 把两种来源收成一副形状，`render_form` 就不用 `if creating` 分叉两次 ——
+/// 分叉两次的下场是两个分支迟早长得不一样（一处改了字号另一处没改）。
+#[derive(Debug, Clone)]
+pub(crate) struct Detail {
+    pub kind: ElementKind,
+    pub id: String,
+    pub name: String,
+    pub desc: String,
+    pub etag: Option<String>,
+    /// 坏 JSON 的原文。
+    pub detail: Option<String>,
+    pub broken: bool,
+    pub creating: bool,
+}
+
 /// 右栏画什么。两个视图看的是同一份 `draft`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Mode {
@@ -109,8 +126,17 @@ pub(crate) struct ElementState {
     pub saving: bool,
     /// 删除的二次确认（不可逆动作要多走一步）。
     pub confirm_delete: bool,
+    /// 这一份是**还没落盘的草稿**（点了「新建」但还没保存）。
+    ///
+    /// 为什么不在点「新建」时就 POST：引擎的内容闸要求 `name` 非空，
+    /// 先发一份 `name: ""` 过去只会换来一句「内容闸未过」，而且盘上会先落一个
+    /// 半成品文件（用户没保存就退出 = 私库里多了个空组）。草稿只在内存里，
+    /// 第一次「保存并提交」才 POST。
+    pub creating: bool,
 
     pub search: Entity<InputState>,
+    /// 新建草稿的 id（它是文件名，只在**还没落盘**时可改；落过盘就是只读的）。
+    pub form_id: Entity<InputState>,
     pub form_name: Entity<InputState>,
     pub form_desc: Entity<InputState>,
     pub form_body: Entity<TextareaState>,
@@ -135,7 +161,9 @@ impl ElementState {
             json_error: None,
             saving: false,
             confirm_delete: false,
+            creating: false,
             search: cx.new(|cx| InputState::new(window, cx).placeholder("搜 id / 名字 / 正文")),
+            form_id: cx.new(|cx| InputState::new(window, cx).placeholder("frontend")),
             form_name: cx.new(|cx| InputState::new(window, cx)),
             form_desc: cx.new(|cx| InputState::new(window, cx)),
             form_body: cx.new(|cx| TextareaState::new(window, cx)),
@@ -151,8 +179,40 @@ impl ElementState {
     }
 
     fn selected_element(&self) -> Option<&Element> {
+        if self.creating {
+            return None;
+        }
         let (kind, id) = self.selected.as_ref()?;
         self.data.as_ref()?.find(*kind, id)
+    }
+
+    /// 右栏要画的那一份：盘上的元素，或者还没落盘的草稿。
+    pub(crate) fn detail(&self) -> Option<Detail> {
+        let (kind, id) = self.selected.as_ref()?;
+        if self.creating {
+            let draft = self.draft.as_ref()?;
+            return Some(Detail {
+                kind: *kind,
+                id: id.clone(),
+                name: str_field(draft, "name"),
+                desc: str_field(draft, "desc"),
+                etag: None,
+                detail: None,
+                broken: false,
+                creating: true,
+            });
+        }
+        let element = self.data.as_ref()?.find(*kind, id)?;
+        Some(Detail {
+            kind: *kind,
+            id: element.id.clone(),
+            name: element.name().to_string(),
+            desc: element.desc().unwrap_or_default().to_string(),
+            etag: element.etag.clone(),
+            detail: element.detail.clone(),
+            broken: element.broken(),
+            creating: false,
+        })
     }
 
     /// 搜索词。唯一真相是这个 `InputState`，不另存一份。
@@ -239,6 +299,12 @@ impl Desktop {
 
     fn sync_forms_windowed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync_forms(cx);
+        let id_value = self
+            .elements_state
+            .selected
+            .as_ref()
+            .map(|(_, id)| id.clone())
+            .unwrap_or_default();
         let (name, desc, body, refs, tags, json) = match self.elements_state.draft.as_ref() {
             None => (String::new(), String::new(), String::new(), String::new(), String::new(), "{}".into()),
             Some(fields) => (
@@ -251,6 +317,7 @@ impl Desktop {
             ),
         };
         let st = &mut self.elements_state;
+        st.form_id.update(cx, |s, cx| s.set_value(&id_value, window, cx));
         st.form_name.update(cx, |s, cx| s.set_value(&name, window, cx));
         st.form_desc.update(cx, |s, cx| s.set_value(&desc, window, cx));
         st.form_body.update(cx, |s, cx| s.set_value(&body, window, cx));
@@ -309,19 +376,31 @@ impl Desktop {
             return;
         };
         let base = self.elements_state.base.clone();
+        let creating = self.elements_state.creating;
         let request_id = new_request_id();
         self.elements_state.saving = true;
         cx.notify();
 
         cx.spawn_in(window, async move |this, cx| {
-            let result = engine
-                .element_put(kind, &id, &fields, base.as_deref(), Some(&request_id))
-                .await;
+            // 草稿 → 新建（201）；落过盘的 → 覆盖写（带 If-Match）。
+            let result = if creating {
+                engine.element_create(kind, &fields, Some(&request_id)).await
+            } else {
+                engine
+                    .element_put(kind, &id, &fields, base.as_deref(), Some(&request_id))
+                    .await
+            };
             let _ = this.update_in(cx, |this, window, cx| {
                 this.elements_state.saving = false;
                 match result {
                     Ok(receipt) => {
-                        this.notice_element(&receipt, "已保存", cx);
+                        this.elements_state.creating = false;
+                        this.elements_state.selected = Some((kind, receipt.id.clone()));
+                        this.notify_element(
+                            &receipt,
+                            if creating { "已新建" } else { "已保存" },
+                            cx,
+                        );
                         this.load_elements(true, cx);
                         this.sync_forms_windowed(window, cx);
                     }
@@ -359,32 +438,16 @@ impl Desktop {
                 "tags": [],
             }),
         };
-        let Some(engine) = self.engine.clone() else {
-            self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
-            return;
-        };
-        let request_id = new_request_id();
-        let kind_for_receipt = kind;
-        cx.spawn_in(window, async move |this, cx| {
-            let result = engine.element_create(kind_for_receipt, &fields, Some(&request_id)).await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                match result {
-                    Ok(receipt) => {
-                        this.notice_element(&receipt, "已新建", cx);
-                        this.elements_state.selected =
-                            Some((kind_for_receipt, receipt.id.clone()));
-                        this.elements_state.mode = Mode::Form;
-                        this.load_elements(true, cx);
-                        this.sync_forms_windowed(window, cx);
-                    }
-                    Err(e) => {
-                        this.notify_error(&e, cx)
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        let st = &mut self.elements_state;
+        st.selected = Some((kind, id));
+        st.draft = Some(fields);
+        st.base = None;
+        st.creating = true;
+        st.mode = Mode::Form;
+        st.json_error = None;
+        st.confirm_delete = false;
+        self.sync_forms_windowed(window, cx);
+        cx.notify();
     }
 
     /// 删除（二次确认之后）。不可逆：走 DELETE，`base` 一起带上防误删别人的新版。
@@ -470,6 +533,20 @@ impl Desktop {
 pub(crate) fn on_scalar(desk: &mut Desktop, key: &str, value: String) {
     if let Some(draft) = desk.elements_state.draft.as_mut() {
         set_scalar(draft, key, value);
+    }
+}
+
+/// 草稿的 `id`（= 文件名）改了：`draft.id` 与选中项一起改，不然保存后选中项指向旧 id。
+pub(crate) fn on_id(desk: &mut Desktop, value: String) {
+    if !desk.elements_state.creating {
+        return;
+    }
+    let id = value.trim().to_string();
+    if let Some(draft) = desk.elements_state.draft.as_mut() {
+        set_scalar(draft, "id", id.clone());
+    }
+    if let Some((kind, _)) = desk.elements_state.selected.clone() {
+        desk.elements_state.selected = Some((kind, id));
     }
 }
 
@@ -655,6 +732,14 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             })
             .unwrap_or_default();
         let total = data.map(|d| d.section(kind).len()).unwrap_or(0);
+        // 还没落盘的草稿不在引擎回包里，但它必须占一行 —— 否则点了「新建」，
+        // 左列看不出发生了什么（选中的高亮也不见了）。
+        if st.creating
+            && st.selected.as_ref().is_some_and(|(k, _)| *k == kind)
+            && q.is_empty()
+        {
+            list = list.child(draft_row(desk, cx));
+        }
         let empty = rows.is_empty();
         list = list.child(section_cap(kind, total, rows.len(), &q));
         for row in rows {
@@ -676,6 +761,56 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     }
 
     col.child(list).child(render_repo_foot(desk, cx)).into_any_element()
+}
+
+/// 草稿那一行：`（草稿）` + 用户正在起的 id。
+fn draft_row(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+    let st = &desk.elements_state;
+    let kind = st.selected.as_ref().map(|(k, _)| *k).unwrap_or(ElementKind::Groups);
+    let id = st.selected.as_ref().map(|(_, id)| id.clone()).unwrap_or_default();
+    div()
+        .id("el-row-draft")
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            let Some((kind, id)) = this.elements_state.selected.clone() else {
+                return;
+            };
+            this.select_element(kind, id, window, cx);
+        }))
+        .when(kind == ElementKind::Packages, |el| el.pl(t().d(20.)))
+        .flex()
+        .items_center()
+        .gap(t().d(8.))
+        .px(t().d(10.))
+        .py(t().d(6.))
+        .rounded(t().r(6.))
+        .relative()
+        .bg(rgb(t().p.selected))
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .top(t().d(6.))
+                .bottom(t().d(6.))
+                .w(t().d(2.))
+                .rounded(t().r(2.))
+                .bg(rgb(t().p.accent)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(t().d(0.))
+                .text_size(t().fs(if kind == ElementKind::Groups { 12.5 } else { 11.5 }))
+                .text_color(rgb(t().p.accent))
+                .child(if id.is_empty() { "（没填 id）".to_string() } else { id }),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_size(t().fs(10.))
+                .text_color(rgb(t().p.warn))
+                .child("草稿"),
+        )
+        .into_any_element()
 }
 
 fn section_cap(kind: ElementKind, total: usize, shown: usize, q: &str) -> AnyElement {
@@ -864,7 +999,7 @@ fn render_repo_foot(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
 /// 右栏：顶条（表单 / JSON + 动作） + 正文。
 fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     let st = &desk.elements_state;
-    let Some(element) = st.selected_element() else {
+    let Some(detail) = st.detail() else {
         return div()
             .flex()
             .flex_col()
@@ -887,9 +1022,8 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             .into_any_element();
     };
 
-    let kind = st.selected.as_ref().map(|(k, _)| *k).unwrap_or(ElementKind::Groups);
     let body = match st.mode {
-        Mode::Form => render_form(desk, element, kind),
+        Mode::Form => render_form(desk, &detail),
         Mode::Json => render_json(desk, cx),
     };
 
@@ -976,7 +1110,8 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
             })),
     );
 
-    if has_selection {
+    // 草稿还没落盘：没有东西可删，按钮不挂（不然点了是 404）。
+    if has_selection && !st.creating {
         bar = bar.child(
             div()
                 .id("el-delete")
@@ -993,6 +1128,7 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
                 })),
         );
         let saving = st.saving;
+        let creating_now = st.creating;
         bar = bar.child(
             div()
                 .id("el-save")
@@ -1009,7 +1145,11 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
                             this.save_element(window, cx);
                         }))
                 })
-                .child(if saving { "保存中…" } else { "保存并提交" }),
+                .child(match (saving, creating_now) {
+                    (true, _) => "保存中…",
+                    (false, true) => "建好并提交",
+                    (false, false) => "保存并提交",
+                }),
         );
     }
 
@@ -1020,18 +1160,16 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
 ///
 /// 字号层级就是层级本身（demo 01）：30px 细细的标题、15px 导语、10px 小标签 ——
 /// 不靠框线和色块堆。
-fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyElement {
+fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
     let st = &desk.elements_state;
-    let path = format!(
-        "{}/{}.json",
-        kind.dir(),
-        element.id
-    );
-    let etag = element.etag.clone().unwrap_or_default();
-    let (fingerprint, fp_color) = if etag.is_empty() {
-        ("读不出来".to_string(), t().p.danger)
-    } else {
-        (format!("内容指纹 {}", short_hash(&etag)), muted())
+    let kind = detail.kind;
+    let path = format!("{}/{}.json", kind.dir(), detail.id);
+    let (fingerprint, fp_color) = match (detail.creating, detail.etag.as_deref()) {
+        (true, _) => ("还没提交（草稿）".to_string(), t().p.warn),
+        (false, Some(etag)) if !etag.is_empty() => {
+            (format!("内容指纹 {}", short_hash(etag)), muted())
+        }
+        _ => ("读不出来".to_string(), t().p.danger),
     };
 
     let mut doc = div()
@@ -1060,11 +1198,11 @@ fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyEleme
                 .mt(t().d(10.))
                 .text_size(t().fs(30.))
                 .font_weight(FontWeight::LIGHT)
-                .text_color(rgb(if element.broken() { t().p.danger } else { text_color() }))
-                .child(if element.name().is_empty() {
+                .text_color(rgb(if detail.broken { t().p.danger } else { text_color() }))
+                .child(if detail.name.as_str().is_empty() {
                     "（还没名字）".to_string()
                 } else {
-                    element.name().to_string()
+                    detail.name.as_str().to_string()
                 }),
         )
         .child(
@@ -1074,7 +1212,7 @@ fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyEleme
                 .text_size(t().fs(15.))
                 .line_height(t().d(26.))
                 .text_color(rgb(t().p.text_2))
-                .child(element.desc().unwrap_or("").to_string()),
+                .child(detail.desc.as_str().to_string()),
         )
         .child(
             div()
@@ -1086,7 +1224,7 @@ fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyEleme
                 .child(div().text_color(rgb(fp_color)).child(fingerprint)),
         );
 
-    if let Some(detail) = element.detail.as_deref() {
+    if let Some(detail) = detail.detail.as_deref() {
         doc = doc.child(
             div()
                 .mt(t().d(14.))
@@ -1103,15 +1241,28 @@ fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyEleme
     doc = doc.child(div().h(t().d(1.)).mt(t().d(30.)).mb(t().d(26.)).bg(rgb(line_color())));
 
     // 字段：ID 只读（它就是文件名，改名 = 新建 + 删旧的），别的都能改。
-    doc = doc.child(field_label("ID · 等于文件名"));
-    doc = doc.child(
-        div()
-            .mt(t().d(5.))
-            .text_size(t().fs(12.))
-            .font_family(mono())
-            .text_color(rgb(t().p.text_2))
-            .child(element.id.clone()),
-    );
+    doc = doc.child(field_label(if detail.creating {
+        "ID · 等于文件名（只能小写字母、数字、连字符）"
+    } else {
+        "ID · 等于文件名"
+    }));
+    doc = if detail.creating {
+        doc.child(
+            div()
+                .mt(t().d(6.))
+                .max_w(t().d(420.))
+                .child(Input::new(&st.form_id).small()),
+        )
+    } else {
+        doc.child(
+            div()
+                .mt(t().d(5.))
+                .text_size(t().fs(12.))
+                .font_family(mono())
+                .text_color(rgb(t().p.text_2))
+                .child(detail.id.clone()),
+        )
+    };
 
     doc = doc.child(div().mt(t().d(22.)).child(field_label("NAME")));
     doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_name).small()));
@@ -1134,7 +1285,7 @@ fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyEleme
             );
             // 断链点名（只显示引擎算出来的，不自己比对）。
             if let Some(data) = st.data.as_ref() {
-                let missing = data.resolved.missing_in(&element.id);
+                let missing = data.resolved.missing_in(&detail.id);
                 if !missing.is_empty() {
                     doc = doc.child(
                         div()
@@ -1182,7 +1333,7 @@ fn render_form(desk: &Desktop, element: &Element, kind: ElementKind) -> AnyEleme
                 let owners: Vec<String> = data
                     .groups
                     .iter()
-                    .filter(|g| g.packages().iter().any(|p| *p == element.id))
+                    .filter(|g| g.packages().iter().any(|p| *p == detail.id))
                     .map(|g| g.name().to_string())
                     .collect();
                 doc = doc.child(div().mt(t().d(22.)).child(field_label("属于")));
