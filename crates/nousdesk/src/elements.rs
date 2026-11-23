@@ -590,7 +590,14 @@ impl Desktop {
                         this.load_elements(true, cx);
                         this.sync_forms_windowed(window, cx);
                     }
-                    Err(e) => this.notify_error(&e, cx),
+                    Err(e) => {
+                        // 失败 ≠ 没发生：请求可能已经在引擎那边提交了，只是回执没回来
+                        // （超时、连接断、引擎重启）。界面这时候最怕「本地替盘上做主」，
+                        // 所以一个键都不改 —— 重新拉一次，让盘上那份说了算。
+                        this.notify_error(&e, cx);
+                        this.load_elements(true, cx);
+                        this.sync_forms_windowed(window, cx);
+                    }
                 }
                 cx.notify();
             });
