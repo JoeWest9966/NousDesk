@@ -2648,7 +2648,6 @@ impl Desktop {
             .id(ElementId::Name("board-pop".into()))
             .absolute()
             .left(px(pop.x))
-            .w(px(pop.w))
             .flex()
             .flex_col()
             // 显式给上限：内容多就滚，别把面板顶出右格、也别压到 dock。
@@ -2658,6 +2657,12 @@ impl Desktop {
             .border_color(rgb(art::border()))
             .rounded(t().r(12.))
             .overflow_hidden();
+        // 窄档带 `right`：宽度用 `left + right` 由父容器决定 —— 即使 `m.w`（窗口宽减去
+        // 图标条和列表）算得比真实右格宽，也只是内容缩窄一像素，不会整块从右边被裁掉。
+        let panel = match pop.right {
+            Some(r) => panel.right(px(r)),
+            None => panel.w(px(pop.w)),
+        };
         let panel = match pop.anchor {
             art::Anchor::Top(y) => panel.top(px(y)),
             art::Anchor::Bottom(y) => panel.bottom(px(y)),
