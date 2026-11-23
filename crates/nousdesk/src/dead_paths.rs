@@ -388,10 +388,11 @@ mod tests {
         println!("routes 夹具 provenance={}", fixture["_provenance"]);
         assert!(!captured.is_empty(), "夹具缺 _captured_at");
         assert!(!version.is_empty(), "夹具缺 _engine_version");
+        // 数字改一次就要问一次「为什么」：这条断言是防「夹具被悄悄裁掉一半」的。
         assert_eq!(
             fixture["routes"].as_array().unwrap().len(),
-            154,
-            "0.1.15 整份重抓 139 + 触发器工程面 13 条（Nous#95）+ 垃圾站两条（0.1.16）"
+            161,
+            "0.1.20 真产物整份重抓：0.1.15 的 139 + 触发器工程面 13 + 垃圾站 2 + 元素库 7"
         );
         assert!(fixture["_provenance"].get("commit").is_some());
     }
