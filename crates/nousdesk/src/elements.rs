@@ -569,13 +569,13 @@ impl Desktop {
                 this.elements_state.locking = false;
                 match result {
                     Ok(receipt) => {
-                        if let Some(draft) = this.elements_state.draft.as_mut() {
-                            if let Some(map) = draft.as_object_mut() {
-                                map.insert(
-                                    "locked".into(),
-                                    serde_json::Value::Bool(target),
-                                );
-                            }
+                        if let Some(map) = this
+                            .elements_state
+                            .draft
+                            .as_mut()
+                            .and_then(|draft| draft.as_object_mut())
+                        {
+                            map.insert("locked".into(), serde_json::Value::Bool(target));
                         }
                         this.notify(
                             match receipt.commit.as_deref() {
