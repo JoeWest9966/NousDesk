@@ -12,7 +12,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use nous_engine::sse::SseEvent;
 use nous_engine::types::{CreateSession, Entries};
-use nous_engine::{EngineClient, EngineError, PinClient, PinError, StatsClient};
+use nous_engine::{ElementKind, EngineClient, EngineError, PinClient, PinError, StatsClient};
 
 fn assert_line(ok: bool, label: &str, detail: impl std::fmt::Display) {
     println!("ASSERT {} {} | {}", if ok { "OK" } else { "FAIL" }, label, detail);
@@ -34,8 +34,122 @@ async fn session_order(client: &EngineClient) -> Vec<i64> {
 }
 
 fn usage() -> ! {
-    eprintln!("用法: desk_probe <host> <token> [--negative]");
+    eprintln!("用法: desk_probe <host> <token> [--negative] [--elements <私库根>]");
     std::process::exit(2);
+}
+
+/// 元素库的删除判据：**盘上那份文件必须真的不见了**。
+///
+/// 锁的是 2026-11-24 真机上那个坑 —— 客户端只拿得到一次快照的 `etag`，盘上被别人改过
+/// 就永远 409。协议层的边界只能在这里钉：过期 `base` = 409 且文件**原地不动**；
+/// 正确 `base` = 真的删掉 + 一条 `chore(...): rm`。
+///
+/// 种子在 `scripts/check-desk.sh`（临时 git 私库：`probe-group` / `probe-pack`）。
+async fn elements_checks(client: &EngineClient, repo: &str) {
+    let group = format!("{repo}/groups/probe-group.json");
+    let pack = format!("{repo}/packages/probe-pack.json");
+
+    let list = client.elements().await.expect("元素库可读");
+    let Some(item) = list.groups.iter().find(|e| e.id == "probe-group").cloned() else {
+        println!("ASSERT FAIL elements.list.seeded | 私库里没有 probe-group（种子没落？）");
+        std::process::exit(1);
+    };
+    assert_line(
+        item.etag.is_some(),
+        "elements.list.etag",
+        item.etag.clone().unwrap_or_default(),
+    );
+
+    // 过期 base：409，且文件一个字不许动（否则「防误删别人的新版」就是句空话，
+    // 而客户端那边的 409 分支也就永远走不到）。
+    let stale = client
+        .element_delete(
+            ElementKind::Groups,
+            "probe-group",
+            Some("stale-base-not-on-disk"),
+            Some("probe-el-stale"),
+        )
+        .await;
+    let stale_status = match &stale {
+        Err(EngineError::Engine { status, .. }) => Some(*status),
+        _ => None,
+    };
+    assert_line(
+        stale_status == Some(409),
+        "elements.stale-base.409",
+        format!("{stale:?}"),
+    );
+    assert_line(
+        std::path::Path::new(&group).exists(),
+        "elements.stale-base.kept",
+        &group,
+    );
+
+    // 正确 base：删掉 + 一条提交（回执里 `commit` 就是提交，没提交就说明没真删）。
+    let receipt = client
+        .element_delete(
+            ElementKind::Groups,
+            "probe-group",
+            item.etag.as_deref(),
+            Some("probe-el-rm"),
+        )
+        .await
+        .expect("带正确 base 的删除要成功");
+    assert_line(
+        receipt.commit.is_some(),
+        "elements.delete.commit",
+        format!("{:?}", receipt.commit),
+    );
+    assert_line(
+        !std::path::Path::new(&group).exists(),
+        "elements.delete.file-gone",
+        &group,
+    );
+
+    let after = client.elements().await.expect("元素库可读");
+    assert_line(
+        after.find(ElementKind::Groups, "probe-group").is_none(),
+        "elements.delete.listed-gone",
+        format!("剩 {} 组", after.groups.len()),
+    );
+
+    // 同一个 requestId 重放：不许产生第二个提交。
+    // 内核现在回 404（`remove` 先 `read_file` 再查幂等锚）；哪天改成 `replay:true`
+    // 也照样过 —— 这里钉的是「不再写一次」，不是某一句话。
+    let replay = client
+        .element_delete(
+            ElementKind::Groups,
+            "probe-group",
+            item.etag.as_deref(),
+            Some("probe-el-rm"),
+        )
+        .await;
+    let replay_ok = matches!(&replay, Err(EngineError::Engine { status: 404, .. }))
+        || matches!(&replay, Ok(r) if r.replay);
+    assert_line(
+        replay_ok,
+        "elements.delete.replay-no-second-write",
+        match &replay {
+            Ok(r) => format!("replay={} commit={:?}", r.replay, r.commit),
+            Err(e) => e.to_string(),
+        },
+    );
+    assert_line(
+        !std::path::Path::new(&group).exists(),
+        "elements.delete.replay-still-gone",
+        &group,
+    );
+
+    // 不带 base 的删除（坏元素 `etag:null`、以及别人已经顺手删了的情形）：也要真删掉。
+    let receipt = client
+        .element_delete(ElementKind::Packages, "probe-pack", None, Some("probe-el-pack"))
+        .await
+        .expect("不带 base 的删除要成功");
+    assert_line(
+        receipt.commit.is_some() && !std::path::Path::new(&pack).exists(),
+        "elements.delete.nobase",
+        &pack,
+    );
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -43,7 +157,16 @@ async fn main() {
     let mut args = std::env::args().skip(1);
     let host = args.next().unwrap_or_else(|| usage());
     let token = args.next().unwrap_or_else(|| usage());
-    let negative = matches!(args.next().as_deref(), Some("--negative"));
+    let mut negative = false;
+    // 私库根：给了就把「删除要真从盘上消失」也钉上（要读盘，所以得知道在哪）。
+    let mut elements_repo: Option<String> = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--negative" => negative = true,
+            "--elements" => elements_repo = args.next(),
+            _ => usage(),
+        }
+    }
 
     let good = EngineClient::with_token(&host, Duration::from_secs(10), Some(&token))
         .expect("客户端建得起来");
@@ -166,7 +289,13 @@ async fn main() {
         .expect("roster 探针可达");
     let roster_status = roster.status();
     let roster_json: serde_json::Value = roster.json().await.unwrap_or(serde_json::Value::Null);
-    let items = roster_json.get("items").and_then(|i| i.as_array());
+    // 字段名 2026-11-23 从 `items` 改成了 `presets`（跟 `Presets` 类型上的
+    // `alias = "items"` 一个口径）。这里两边都认 —— 只认 `items` 的话，
+    // 这条断言从改名那天起就一直是红的（不是端点坏了）。
+    let items = roster_json
+        .get("presets")
+        .or_else(|| roster_json.get("items"))
+        .and_then(|i| i.as_array());
     assert_line(
         roster_status == 200,
         "presets.roster.200",
@@ -496,6 +625,14 @@ async fn main() {
         "ext.variants.200",
         variants.family("extend").count(),
     );
+
+    // ── 元素库：删除必须真的从私库盘上消失 ─────────────────────────
+    match elements_repo.as_deref() {
+        Some(repo) => elements_checks(&good, repo).await,
+        None => println!(
+            "SKIP elements.* | 没给 --elements <私库根>：删除判据要读盘，跳过（不算通过）"
+        ),
+    }
 
     println!("DONE");
 }
