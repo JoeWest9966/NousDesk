@@ -858,9 +858,7 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> An
                     this.resource_section(Section::Content, cx);
                     this.resource_content(Content::Skills, cx);
                 }
-                // 窄窗：分组行只是**切段**，子行换一批（内容 → 技能/提示词，扩展 → 类别）。
-                // 不退回列表 —— 「想看的条目」是下一层的具体类别，越级跳等于把选择权替人做掉。
-                this.resources.narrow_col = ResCol::Tree;
+                // 切段只换列表里的内容，不动「树 / 列表」哪一层 —— 筛选器不是导航。
                 cx.notify();
             }))
             .flex_1()
@@ -947,21 +945,98 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> An
                     div()
                         .text_size(t().fs(13.))
                         .text_color(rgb(text_color()))
-                        .child("资源"),
+                        // 窄窗这一层只剩类别 —— 标题就叫类别，别写「资源」（筛选器不在这儿，
+                        // 写着「资源」会让人以为段切换也在这儿，白白找一圈）。
+                        .child(if narrow { "类别" } else { "资源" }),
                 ),
         )
-        .child(
-            div()
-                .mx(t().d(10.))
-                .flex()
-                .gap(t().d(3.))
-                .rounded(t().r(7.))
-                .bg(rgb(t().p.hover))
-                .child(seg_btn("内容", n_skills + n_prompts, r.section == Section::Content, "res-seg-content", cx))
-                .child(seg_btn("扩展", n_ext, r.section == Section::Extensions, "res-seg-ext", cx)),
-        )
-        .children(sub)
+        // 筛选器（段 + 内容类型）只在宽窗跟着树走 —— 窄窗它们是列表头顶那一行，
+        // 不搬进树：搬进来就变成「树里的层级」，点一下等于换列（2026-11-23 的错）。
+        .when(!narrow, |el| {
+            el.child(
+                div()
+                    .mx(t().d(10.))
+                    .flex()
+                    .gap(t().d(3.))
+                    .rounded(t().r(7.))
+                    .bg(rgb(t().p.hover))
+                    .child(seg_btn("内容", n_skills + n_prompts, r.section == Section::Content, "res-seg-content", cx))
+                    .child(seg_btn("扩展", n_ext, r.section == Section::Extensions, "res-seg-ext", cx)),
+            )
+            .children(sub)
+        })
         .child(tree)
+        .into_any_element()
+}
+
+/// 筛选器要做的事：切段、或切内容类型。
+///
+/// **筛选器不动 `narrow_col`**：它只决定「列表里是哪一批」，不决定「现在看到哪一层」。
+/// 上一版把段按钮搬进窄窗的树里，点一下就把中间列换掉 —— 那是把筛选器当成了导航。
+#[derive(Clone, Copy)]
+enum FilterAct {
+    Section(Section),
+    Content(Content),
+}
+
+fn filter_pill(
+    label: String,
+    on: bool,
+    id: &'static str,
+    act: FilterAct,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
+    div()
+        .id(ElementId::Name(id.into()))
+        .flex()
+        .items_center()
+        .h(t().d(22.))
+        .px(t().d(7.))
+        .rounded(t().r(6.))
+        .text_size(t().fs(11.))
+        .whitespace_nowrap()
+        .when(on, |el| el.bg(rgb(t().p.accent_soft)).text_color(rgb(t().p.accent_fg)))
+        .when(!on, |el| {
+            el.text_color(rgb(t().p.text_2)).hover(|h| h.bg(rgb(t().p.hover)))
+        })
+        .child(label)
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            match act {
+                FilterAct::Section(s) => this.resource_section(s, cx),
+                FilterAct::Content(c) => this.resource_content(c, cx),
+            }
+            cx.notify();
+        }))
+        .into_any_element()
+}
+
+#[derive(Clone, Copy)]
+enum ToolAct {
+    ReloadExt,
+    Trash,
+    Cats,
+}
+
+fn tool_btn(id: &'static str, label: String, act: ToolAct, cx: &mut Context<Desktop>) -> AnyElement {
+    div()
+        .id(ElementId::Name(id.into()))
+        .flex()
+        .items_center()
+        .h(t().d(22.))
+        .px(t().d(7.))
+        .rounded(t().r(6.))
+        .border(t().d(1.))
+        .border_color(rgb(t().p.line))
+        .text_size(t().fs(11.))
+        .whitespace_nowrap()
+        .text_color(rgb(t().p.text_2))
+        .hover(|el| el.bg(rgb(t().p.hover)))
+        .child(label)
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| match act {
+            ToolAct::ReloadExt => this.resource_ext_reload(window, cx),
+            ToolAct::Trash => this.resource_open_trash(window, cx),
+            ToolAct::Cats => this.resource_open_categories(window, cx),
+        }))
         .into_any_element()
 }
 
@@ -1040,41 +1115,135 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
         (Section::Content, Content::Skills) => crate::resource_write::Kind::Skill,
         (Section::Content, Content::Prompts) => crate::resource_write::Kind::Prompt,
     };
-    list = list.child(
+    // 筛选器上的数字跟树里那几行**同一口径** —— 一处算（`counts`），不许两处各数一遍。
+    let (n_skills, n_prompts, n_ext) = counts(r.skills.as_ref(), r.prompts.as_ref(), r.ext_view());
+
+    // 「+ 新建」跟着当前段走：在技能段建技能、在扩展段建扩展。
+    let new_btn = |cx: &mut Context<Desktop>| {
+        div()
+            .id("res-new")
+            .flex()
+            .items_center()
+            .h(t().d(22.))
+            .px(t().d(8.))
+            .rounded(t().r(6.))
+            .bg(rgb(t().p.accent))
+            .text_size(t().fs(11.))
+            .text_color(rgb(t().p.on_accent))
+            .hover(|el| el.bg(rgb(t().p.accent_hover)))
+            .child("+ 新建")
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.resource_new(new_kind, window, cx);
+            }))
+            .into_any_element()
+    };
+    // 段工具（重载 / 垃圾站 / 类别词表）：宽窗在标题栏右边，窄窗在第二行右边。
+    let tools = |cx: &mut Context<Desktop>| {
+        let mut row = div().flex().items_center().gap(t().d(4.));
+        if r.section == Section::Extensions {
+            // 「重载」只在扩展段：技能 / 提示词没有进程，改完文件即生效。
+            row = row
+                .child(tool_btn("res-ext-reload", "重载".to_string(), ToolAct::ReloadExt, cx))
+                .child(tool_btn(
+                    "res-ext-trash",
+                    match r.ext_trash.as_ref().map(|t| t.items.len()).unwrap_or(0) {
+                        0 => "垃圾站".to_string(),
+                        n => format!("垃圾站 {n}"),
+                    },
+                    ToolAct::Trash,
+                    cx,
+                ))
+                // 词表管理：改的是「有哪些类别」，不是某条扩展挂哪个类别。
+                .child(tool_btn("res-ext-cats", "类别".to_string(), ToolAct::Cats, cx));
+        }
+        row.into_any_element()
+    };
+
+    list = list.child(if narrow {
+        // 窄窗：筛选器就待在列表头顶（两行），**不搬进树** —— 搬进树它们就变成层级，
+        // 点一下等于把这一列换掉（2026-11-23 被指出的错）。树上只有类别。
+        div()
+            .flex()
+            .flex_col()
+            .gap(t().d(6.))
+            .px(t().d(10.))
+            .pt(t().d(10.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t().d(4.))
+                    .child(
+                        div()
+                            .id("res-open-tree")
+                            .flex()
+                            .items_center()
+                            .gap(t().d(3.))
+                            .h(t().d(22.))
+                            .px(t().d(7.))
+                            .rounded(t().r(6.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.line))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.text_2))
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .child(Icon::new(IconName::Menu).size(t().d(12.)))
+                            .child("类别")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.resources.narrow_col = ResCol::Tree;
+                                cx.notify();
+                            })),
+                    )
+                    .child(filter_pill(
+                        format!("内容  {}", n_skills + n_prompts),
+                        r.section == Section::Content,
+                        "res-seg-content",
+                        FilterAct::Section(Section::Content),
+                        cx,
+                    ))
+                    .child(filter_pill(
+                        format!("扩展  {}", n_ext),
+                        r.section == Section::Extensions,
+                        "res-seg-ext",
+                        FilterAct::Section(Section::Extensions),
+                        cx,
+                    ))
+                    .child(div().flex_1())
+                    .child(new_btn(cx)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t().d(4.))
+                    .when(r.section == Section::Content, |el| {
+                        el.child(filter_pill(
+                            format!("技能  {n_skills}"),
+                            r.content == Content::Skills,
+                            "res-sub-skills",
+                            FilterAct::Content(Content::Skills),
+                            cx,
+                        ))
+                        .child(filter_pill(
+                            format!("提示词  {n_prompts}"),
+                            r.content == Content::Prompts,
+                            "res-sub-prompts",
+                            FilterAct::Content(Content::Prompts),
+                            cx,
+                        ))
+                    })
+                    .child(div().flex_1())
+                    .child(tools(cx)),
+            )
+            .into_any_element()
+    } else {
         div()
             .flex()
             .items_center()
             .justify_between()
-            // 窄窗时这一行塞了六颗东西（分类 / 段名 / 重载 / 垃圾站 / 类别 / 新建），
-            // 没有间距会糊成一条。gap 给 6，按钮内边距已经是 9。
             .gap(t().d(6.))
             .px(t().d(12.))
             .pt(t().d(10.))
-            // 窄窗：段切换 / 类别 / 垃圾站都在树那一层，这里给一条钻上去的路。
-            .when(narrow, |el| {
-                el.child(
-                    div()
-                        .id("res-open-tree")
-                        .flex()
-                        .items_center()
-                        .gap(t().d(3.))
-                        .h(t().d(20.))
-                        .px(t().d(6.))
-                        .mr(t().d(4.))
-                        .rounded(t().r(5.))
-                        .border(t().d(1.))
-                        .border_color(rgb(t().p.line))
-                        .text_size(t().fs(11.))
-                        .text_color(rgb(t().p.text_2))
-                        .hover(|h| h.bg(rgb(t().p.hover)))
-                        .child(Icon::new(IconName::Menu).size(t().d(12.)))
-                        .child("分类")
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.resources.narrow_col = ResCol::Tree;
-                            cx.notify();
-                        })),
-                )
-            })
             .child(
                 div()
                     .text_size(t().fs(12.))
@@ -1089,92 +1258,11 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
                     .flex()
                     .items_center()
                     .gap(t().d(6.))
-                    // 「重载」只在扩展段：技能 / 提示词没有进程，改完文件即生效。
-                    // 扩展是盘上目录 + 运行中的进程，手工放了文件之后要喊一次才对得上。
-                    .when(r.section == Section::Extensions, |el| {
-                        el.child(
-                            div()
-                                .id("res-ext-reload")
-                                .flex()
-                                .items_center()
-                                .h(t().d(24.))
-                                .px(t().d(9.))
-                                .rounded(t().r(6.))
-                                .border(t().d(1.))
-                                .border_color(rgb(t().p.line))
-                                .text_size(t().fs(11.))
-                                .text_color(rgb(t().p.text_2))
-                                .hover(|el| el.bg(rgb(t().p.hover)))
-                                .child("重载")
-                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                    this.resource_ext_reload(window, cx);
-                                })),
-                        )
-                    })
-                    // 窄窗口下左树整个不画（`narrow` 只留列表 + 详情），「垃圾站」那个入口
-                    // 就跟着没了 —— 所以标题栏也放一个。宽窗口两个入口指向同一页，不算重复：
-                    // 树里那是「导航」，这里是「当前段的工具」。
-                    .when(r.section == Section::Extensions, |el| {
-                        let n = r.ext_trash.as_ref().map(|t| t.items.len()).unwrap_or(0);
-                        el.child(
-                            div()
-                                .id("res-ext-trash")
-                                .flex()
-                                .items_center()
-                                .h(t().d(24.))
-                                .px(t().d(9.))
-                                .rounded(t().r(6.))
-                                .border(t().d(1.))
-                                .border_color(rgb(t().p.line))
-                                .text_size(t().fs(11.))
-                                .text_color(rgb(t().p.text_2))
-                                .hover(|el| el.bg(rgb(t().p.hover)))
-                                .child(if n == 0 { "垃圾站".to_string() } else { format!("垃圾站 {n}") })
-                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                    this.resource_open_trash(window, cx);
-                                })),
-                        )
-                    })
-                    // 词表管理：改的是「有哪些类别」，不是某条扩展挂哪个类别。
-                    .when(r.section == Section::Extensions, |el| {
-                        el.child(
-                            div()
-                                .id("res-ext-cats")
-                                .flex()
-                                .items_center()
-                                .h(t().d(24.))
-                                .px(t().d(9.))
-                                .rounded(t().r(6.))
-                                .border(t().d(1.))
-                                .border_color(rgb(t().p.line))
-                                .text_size(t().fs(11.))
-                                .text_color(rgb(t().p.text_2))
-                                .hover(|el| el.bg(rgb(t().p.hover)))
-                                .child("类别")
-                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                    this.resource_open_categories(window, cx);
-                                })),
-                        )
-                    })
-                    .child(
-                        div()
-                            .id("res-new")
-                            .flex()
-                            .items_center()
-                            .h(t().d(24.))
-                            .px(t().d(9.))
-                            .rounded(t().r(6.))
-                            .bg(rgb(t().p.accent))
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.on_accent))
-                            .hover(|el| el.bg(rgb(t().p.accent_hover)))
-                            .child("+ 新建")
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                this.resource_new(new_kind, window, cx);
-                            })),
-                    ),
-            ),
-    );
+                    .child(tools(cx))
+                    .child(new_btn(cx)),
+            )
+            .into_any_element()
+    });
 
     // 搜索框：三段各一份，切段时词还在。suffix 写命中数（空词写总数），
     // 跟左栏会话搜索同一个样式 —— 一行省下来就是列表的 20px。
