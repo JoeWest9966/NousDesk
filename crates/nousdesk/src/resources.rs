@@ -1012,6 +1012,30 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                                 })),
                         )
                     })
+                    // 窄窗口下左树整个不画（`narrow` 只留列表 + 详情），「垃圾站」那个入口
+                    // 就跟着没了 —— 所以标题栏也放一个。宽窗口两个入口指向同一页，不算重复：
+                    // 树里那是「导航」，这里是「当前段的工具」。
+                    .when(r.section == Section::Extensions, |el| {
+                        let n = r.ext_trash.as_ref().map(|t| t.items.len()).unwrap_or(0);
+                        el.child(
+                            div()
+                                .id("res-ext-trash")
+                                .flex()
+                                .items_center()
+                                .h(t().d(24.))
+                                .px(t().d(9.))
+                                .rounded(t().r(6.))
+                                .border(t().d(1.))
+                                .border_color(rgb(t().p.line))
+                                .text_size(t().fs(11.))
+                                .text_color(rgb(t().p.text_2))
+                                .hover(|el| el.bg(rgb(t().p.hover)))
+                                .child(if n == 0 { "垃圾站".to_string() } else { format!("垃圾站 {n}") })
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.resource_open_trash(window, cx);
+                                })),
+                        )
+                    })
                     // 词表管理：改的是「有哪些类别」，不是某条扩展挂哪个类别。
                     .when(r.section == Section::Extensions, |el| {
                         el.child(
