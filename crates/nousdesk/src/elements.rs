@@ -111,7 +111,6 @@ pub(crate) struct ElementState {
 
 impl ElementState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> Self {
-        let input = |cx: &mut Context<Desktop>| cx.new(|cx| InputState::new(window, cx));
         Self {
             data: None,
             loading: false,
@@ -123,12 +122,12 @@ impl ElementState {
             json_error: None,
             saving: false,
             confirm_delete: false,
-            search: input(cx),
-            form_name: input(cx),
-            form_desc: input(cx),
+            search: cx.new(|cx| InputState::new(window, cx).placeholder("搜 id / 名字 / 正文")),
+            form_name: cx.new(|cx| InputState::new(window, cx)),
+            form_desc: cx.new(|cx| InputState::new(window, cx)),
             form_body: cx.new(|cx| TextareaState::new(window, cx)),
-            form_refs: input(cx),
-            form_tags: input(cx),
+            form_refs: cx.new(|cx| InputState::new(window, cx)),
+            form_tags: cx.new(|cx| InputState::new(window, cx)),
             json: cx.new(|cx| TextareaState::new(window, cx)),
         }
     }
@@ -301,11 +300,11 @@ impl Desktop {
         self.elements_state.saving = true;
         cx.notify();
 
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let result = engine
                 .element_put(kind, &id, &fields, base.as_deref(), Some(&request_id))
                 .await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 this.elements_state.saving = false;
                 match result {
                     Ok(receipt) => {
@@ -352,9 +351,9 @@ impl Desktop {
         };
         let request_id = new_request_id();
         let kind_for_receipt = kind;
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let result = engine.element_create(kind_for_receipt, &fields, Some(&request_id)).await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 match result {
                     Ok(receipt) => {
                         this.notice_element(&receipt, "已新建", cx);
@@ -643,11 +642,12 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             })
             .unwrap_or_default();
         let total = data.map(|d| d.section(kind).len()).unwrap_or(0);
+        let empty = rows.is_empty();
         list = list.child(section_cap(kind, total, rows.len(), &q));
         for row in rows {
             list = list.child(element_row(kind, row, st, desk, cx));
         }
-        if rows.is_empty() && q.is_empty() && total == 0 {
+        if empty && q.is_empty() && total == 0 {
             list = list.child(
                 div()
                     .px(t().d(10.))
@@ -1304,7 +1304,7 @@ fn render_delete_confirm(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElemen
                 .child(
                     div()
                         .text_size(t().fs(11.5))
-                        .line_h(t().d(18.))
+                        .line_height(t().d(18.))
                         .text_color(rgb(muted()))
                         .child("文件会从私库里删掉，并且提交一条。历史还在 git 里，但这页上看不到了。"),
                 )
