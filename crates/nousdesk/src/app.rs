@@ -33,6 +33,7 @@ use nous_engine::{EngineClient, EngineError};
 use smol::Timer;
 
 use crate::nav_ui::SessionNav;
+use crate::rail_icons::RailIcon;
 use crate::recent::Recent;
 
 pub(crate) mod scrollbar;
@@ -3342,27 +3343,27 @@ impl Desktop {
             .items_center()
             .py(t().d(10.))
             .gap(t().d(6.))
-            .child(self.tab_button(IconName::MessageCircle, Tab::Chats, true, cx))
+            .child(self.tab_button(RailIcon::Chats, Tab::Chats, true, cx))
             .child(self.gated_tab_button(
-                IconName::BookUser,
+                RailIcon::Templates,
                 Tab::Templates,
                 crate::capability::Feature::Presets,
                 cx,
             ))
             .child(self.gated_tab_button(
-                IconName::Bolt,
+                RailIcon::Triggers,
                 Tab::Triggers,
                 crate::capability::Feature::Triggers,
                 cx,
             ))
-            .child(self.tab_button(IconName::Layers, Tab::Resources, true, cx))
+            .child(self.tab_button(RailIcon::Resources, Tab::Resources, true, cx))
             .child(self.gated_tab_button(
-                IconName::Box,
+                RailIcon::Elements,
                 Tab::Elements,
                 crate::capability::Feature::Elements,
                 cx,
             ))
-            .child(self.tab_button(IconName::Database, Tab::Data, true, cx))
+            .child(self.tab_button(RailIcon::Data, Tab::Data, true, cx))
             .child(div().flex_1())
             .child(self.more_button(cx))
     }
@@ -3396,18 +3397,18 @@ impl Desktop {
     /// 那会让人以为已经有 tooltip 了（本行就是被这么写错过一次）。
     fn gated_tab_button(
         &self,
-        name: IconName,
+        icon: RailIcon,
         tab: Tab,
         feature: crate::capability::Feature,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let reason = self.disabled_reason(feature);
-        self.tab_button(name, tab, reason.is_none(), cx)
+        self.tab_button(icon, tab, reason.is_none(), cx)
     }
 
     fn tab_button(
         &self,
-        name: IconName,
+        icon: RailIcon,
         tab: Tab,
         enabled: bool,
         cx: &mut Context<Self>,
@@ -3436,7 +3437,10 @@ impl Desktop {
             .rounded(t().r(8.))
             .hover(|el| el.bg(rgb(t().p.sidebar_hover)))
             .child(
-                Icon::new(name)
+                // rail 用自己画的 6 个图标（`rail_icons.rs`），不走 lucide 的 `IconName`。
+                // `data` 内嵌源码：`currentColor` 由 `text_color` 替换，上色逻辑不变。
+                Icon::empty()
+                    .data(icon.svg())
                     .with_size(Size::Size(t().d(22.)))
                     .text_color(rgb(if active { t().p.accent } else { t().p.muted })),
             )
