@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn 新 id 跳过已占用的() {
+    fn new_id_skips_taken_ones() {
         let data: Elements = serde_json::from_value(json!({
             "kind": "elements",
             "repo": {"root": "/tmp/x", "present": true},
