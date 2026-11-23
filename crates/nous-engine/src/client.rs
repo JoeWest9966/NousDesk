@@ -10,6 +10,9 @@ use url::Url;
 
 use crate::capabilities::Capabilities;
 use crate::sse::{SseError, SseEvent};
+use crate::elements::{
+    ElementFile, ElementKind, ElementList, ElementPush, ElementReceipt, Elements,
+};
 use crate::types::{
     ArchiveGens, CategoriesResult, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
     DefaultSet, Dirs, Entries, ExtCategories, Extensions, Forked, Machines, Models, ModelRef,
@@ -180,6 +183,104 @@ impl EngineClient {
     /// 扩展清单。五类东西混在一份响应里（见 [`Extensions`] 的注释）。
     pub async fn extensions(&self) -> Result<Extensions, EngineError> {
         let resp = self.http.get(self.url("v1/extensions")?).send().await?;
+        self.json(resp).await
+    }
+
+    // ── 元素库（组 / 包，一份 JSON 一个元素） ─────────────────────────────
+
+    /// `GET /v1/elements`：两段全量 + 引用解析 + 私库状态。
+    ///
+    /// 目录不存在也是 200（空表 + `repo.present=false`），不是 404 ——
+    /// 客户端不该把「没装配私库」画成「引擎坏了」。
+    pub async fn elements(&self) -> Result<Elements, EngineError> {
+        let resp = self.http.get(self.url(ELEMENTS)?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/elements/{kind}`：只扫一段，不解析引用。
+    pub async fn element_list(&self, kind: ElementKind) -> Result<ElementList, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&format!("{ELEMENTS}/{}", kind.dir()))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/elements/{kind}/{id}`：整份字段 + 内容指纹（写回时当 `base`）。
+    pub async fn element(&self, kind: ElementKind, id: &str) -> Result<ElementFile, EngineError> {
+        let resp = self
+            .http
+            .get(self.url(&element_url(kind, id))?)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `PUT /v1/elements/{kind}/{id}`：写一次提交一次。
+    ///
+    /// `base` 是 `If-Match`（不符 → 409，不静默覆盖）；`request_id` 是幂等锚
+    /// （同一个值重放不会二次提交）。界面必须给 `base`，否则两个人同时改会互相盖掉。
+    pub async fn element_put(
+        &self,
+        kind: ElementKind,
+        id: &str,
+        fields: &serde_json::Value,
+        base: Option<&str>,
+        request_id: Option<&str>,
+    ) -> Result<ElementReceipt, EngineError> {
+        let body = element_body(fields, base, request_id);
+        let resp = self
+            .http
+            .put(self.url(&element_url(kind, id))?)
+            .json(&body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `POST /v1/elements/{kind}`：新建，`id` 从 `fields.id` 取（201）。
+    pub async fn element_create(
+        &self,
+        kind: ElementKind,
+        fields: &serde_json::Value,
+        request_id: Option<&str>,
+    ) -> Result<ElementReceipt, EngineError> {
+        let body = element_body(fields, None, request_id);
+        let resp = self
+            .http
+            .post(self.url(&format!("{ELEMENTS}/{}", kind.dir()))?)
+            .json(&body)
+            .send()
+            .await?;
+        self.json(resp).await
+    }
+
+    /// `DELETE /v1/elements/{kind}/{id}`：删掉并提交（`base` 不符 → 409）。
+    pub async fn element_delete(
+        &self,
+        kind: ElementKind,
+        id: &str,
+        base: Option<&str>,
+        request_id: Option<&str>,
+    ) -> Result<ElementReceipt, EngineError> {
+        let mut url = self.url(&element_url(kind, id))?;
+        {
+            let mut q = url.query_pairs_mut();
+            if let Some(base) = base.filter(|b| !b.is_empty()) {
+                q.append_pair("base", base);
+            }
+            if let Some(rid) = request_id.filter(|r| !r.trim().is_empty()) {
+                q.append_pair("requestId", rid);
+            }
+        }
+        let resp = self.http.delete(url).send().await?;
+        self.json(resp).await
+    }
+
+    /// `POST /v1/elements/push`：手动补推 —— 不写文件、不制造提交。
+    pub async fn elements_push(&self) -> Result<ElementPush, EngineError> {
+        let resp = self.http.post(self.url(&format!("{ELEMENTS}/push"))?).send().await?;
         self.json(resp).await
     }
 
@@ -1216,6 +1317,13 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("PUT", "v1/extensions/file"),
     ("POST", "v1/extensions/publish"),
     ("GET", "v1/extensions"),
+    ("GET", "v1/elements"),
+    ("GET", "v1/elements/{kind}"),
+    ("GET", "v1/elements/{kind}/{id}"),
+    ("PUT", "v1/elements/{kind}/{id}"),
+    ("POST", "v1/elements/{kind}"),
+    ("DELETE", "v1/elements/{kind}/{id}"),
+    ("POST", "v1/elements/push"),
     ("GET", "v1/extensions/categories"),
     ("POST", "v1/extensions/categories"),
     ("GET", "v1/extensions/trash"),
@@ -1317,4 +1425,42 @@ pub fn validation_from(v: &serde_json::Value) -> PresetValidation {
         resolved: v.get("resolved").cloned().filter(|r| !r.is_null()),
         extra: Default::default(),
     }
+}
+
+/// 元素库的根路径。**只在这里写一次字面量**：`dead_paths.rs` 的字面量审计
+/// 会把源码里的 `v1/...` 与引擎夹具比对，拼在 `format!` 里的半截路径它看不见，
+/// 那正是我们要的 —— 模板的真相在 `CLIENT_PATHS` 里，一条不少。
+const ELEMENTS: &str = "v1/elements";
+
+/// 元素库的单条路径。`id` 就是文件名，但仍编码：不对未来形状设限，也防 `/` 穿越。
+fn element_url(kind: ElementKind, id: &str) -> String {
+    format!("{ELEMENTS}/{}/{}", kind.dir(), urlencoding(id))
+}
+
+/// 最保守的一层：非 `[A-Za-z0-9._-]` 全部百分号编码。
+fn urlencoding(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for b in segment.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// 写请求体：`{ fields, base?, requestId? }`。空值不出现（服务端按缺省处理）。
+fn element_body(
+    fields: &serde_json::Value,
+    base: Option<&str>,
+    request_id: Option<&str>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({ "fields": fields });
+    if let Some(base) = base.filter(|b| !b.is_empty()) {
+        body["base"] = serde_json::Value::String(base.to_string());
+    }
+    if let Some(rid) = request_id.filter(|r| !r.trim().is_empty()) {
+        body["requestId"] = serde_json::Value::String(rid.to_string());
+    }
+    body
 }
