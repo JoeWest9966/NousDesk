@@ -3948,7 +3948,7 @@ dependencies = [
 
 [[package]]
 name = "nous-engine"
-version = "0.9.25"
+version = "0.9.26"
 dependencies = [
  "bytes",
  "futures-util",

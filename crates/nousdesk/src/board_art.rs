@@ -200,6 +200,16 @@ impl M {
         px((cqmin * 7.4).clamp(lo, hi) * self.scale)
             .max(px(9.))
     }
+
+    /// 竖轴清单（方案 D）的设计值 → px。
+    ///
+    /// D 是全流式布局（`flex_1` 平分、没有绝对坐标），所以它不需要 `ox` / `oy`，
+    /// 也不需要 `layout` 那三档断点 —— 只需要**一个比例**：盘面宽 / 644（那份
+    /// demo 的设计基准）。窄到 0.88 就不再缩，免得中文挤成一列；宽到 1.35 封顶，
+    /// 900 宽时字不会跟着摊成一片。
+    pub fn k(&self, design: f32) -> Pixels {
+        px(design * (self.w / 644.).clamp(0.88, 1.35))
+    }
 }
 
 // ── 四张卡 / 中央圆 / dock 的几何 ────────────────────────────────────
@@ -466,6 +476,39 @@ pub(crate) enum PopKind {
 /// 模型弹层贴在卡片**下方**；技能 / 提示词贴在卡片**左侧**（右上角右边没地方）；
 /// 机器 / 目录贴在 dock **上方**、居中。
 pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
+    // 宽档还是「轨道」那套（四角卡），窄档是竖轴清单 —— 两套贴法各按各的几何。
+    if matches!(m.layout, Layout::Wide) {
+        return pop_orbit(m, slot, kind);
+    }
+    let k = (m.w / 644.).clamp(0.88, 1.35);
+    let w = match kind {
+        PopKind::Skills | PopKind::Ext => (m.w - 56. * k).min(620.),
+        PopKind::Model => (m.w - 56. * k).min(560.),
+        _ => (m.w * 0.76).min(460.),
+    };
+    let x = (m.w - w) / 2.;
+    // 挂行的弹层：从那一行的下沿往下长，看得见自己点的是哪一行。
+    // 没挂行的（会话页 / 目录 / 机器）：贴画面上方，不压住下半截。
+    let (anchor_y, from) = match slot {
+        Some(s) => (axis_center(m, s) + 34. * k, axis_center(m, s)),
+        None => ((m.h * 0.26).max(60.), m.h * 0.26),
+    };
+    if anchor_y + 320. > m.h - 24. {
+        Pop {
+            x,
+            w,
+            anchor: Anchor::Bottom((m.h - from + 34. * k).max(40.)),
+        }
+    } else {
+        Pop {
+            x,
+            w,
+            anchor: Anchor::Top(anchor_y),
+        }
+    }
+}
+
+fn pop_orbit(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
     let gap = 14.;
     // 竖排档没有四角卡、也没有环 —— `node_rect` / `foot_rect` 在这里是流式布局，
     // 拿它们的坐标去贴只会把弹层甩到格子外。这一档统一居中贴顶。
@@ -553,5 +596,81 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
                 anchor: Anchor::Bottom(m.h - t.y + 10.),
             }
         }
+    }
+}
+
+/// 竖轴清单（D）：某一行的**中心 y**（相对右格顶部，标题栏已扣掉）。
+///
+/// 这组数字和 `board::board_axis` 里的 `pt(30) / 标题 / mt(10)` 与 foot
+/// （`pt(16) + name + chips + status + 54 按钮 + pb(26)`）是同一套。弹层要贴着
+/// 被点的那一行弹出来，两边各算各的就会错位 —— 所以只在这里算一次。
+pub(crate) fn axis_center(m: &M, slot: Slot) -> f32 {
+    let k = (m.w / 644.).clamp(0.88, 1.35);
+    let top = 70. * k;
+    let foot = 216. * k;
+    let axis = (m.h - top - foot).max(160.);
+    let i = match slot {
+        Slot::Model => 0.,
+        Slot::Ext => 1.,
+        Slot::Context => 2.,
+        Slot::Perms => 3.,
+    };
+    top + axis * (i + 0.5) / 4.
+}
+
+
+#[cfg(test)]
+mod tests {
+    // 显式列名，别 `use super::*`：文件顶的 `use gpui_kit::*` 会把 gpui 的
+    // `test` 宏也带进来，`#[test]` 就递归展开（坑.md 记过这条）。
+    use super::{axis_center, Layout, Slot, M};
+    use crate::app::Tab;
+    use gpui_kit::{px, Size};
+
+    fn m(win_w: f32, win_h: f32) -> M {
+        M::new(Size::new(px(win_w), px(win_h)), Tab::Chats)
+    }
+
+    #[test]
+    fn 宽窄两档在_980_和_1600_上各归各位() {
+        // 980 窗口 → 右格 644（rail 56 + list 280）。
+        assert_eq!(m(980., 1168.).layout, Layout::Compact);
+        // 1600 窗口 → 右格 1264。
+        assert_eq!(m(1600., 1000.).layout, Layout::Wide);
+    }
+
+    #[test]
+    fn 竖轴四行中心从上到下单调() {
+        let m = m(980., 1168.);
+        let ys: Vec<f32> = [Slot::Model, Slot::Ext, Slot::Context, Slot::Perms]
+            .iter()
+            .map(|s| axis_center(&m, *s))
+            .collect();
+        assert!(ys[0] < ys[1] && ys[1] < ys[2] && ys[2] < ys[3], "{ys:?}");
+        assert!(ys[0] > 40., "{ys:?}");
+        assert!(ys[3] < m.h, "{ys:?}");
+    }
+
+    #[test]
+    fn 竖轴比例夹在_088_到_135_之间() {
+        let narrow = m(900., 1100.);
+        let wide = m(1600., 1000.);
+        let kn = f32::from(narrow.k(100.)) / 100.;
+        let kw = f32::from(wide.k(100.)) / 100.;
+        assert!((kn - 0.88).abs() < 0.001, "kn={kn}");
+        assert!((kw - 1.35).abs() < 0.001, "kw={kw}");
+    }
+
+    #[test]
+    fn 弹层宽档贴卡窄档贴行() {
+        use super::{pop_rect, PopKind};
+        // 宽档：贴 Model 卡下方，x 不许居中出现（那是窄档的规矩）。
+        let wide = m(1600., 1000.);
+        let pw = pop_rect(&wide, Some(Slot::Model), PopKind::Model);
+        // 窄档：同一行，居中。
+        let narrow = m(980., 1168.);
+        let pn = pop_rect(&narrow, Some(Slot::Model), PopKind::Model);
+        assert!((pn.x + pn.w / 2. - narrow.w / 2.).abs() < 1., "窄档应水平居中");
+        assert!(pw.w <= wide.w);
     }
 }

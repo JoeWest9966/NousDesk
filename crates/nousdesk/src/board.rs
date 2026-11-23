@@ -118,8 +118,8 @@ pub(crate) enum Stop {
 }
 
 impl Stop {
-    /// 一圈的固定顺序（顺时针：中央 → 左上 → 右上 → 左下 → 右下）。
-    const RING: [Stop; 5] = [
+    /// 宽档（四角卡）的固定顺序：顺时针 中央 → 左上 → 右上 → 左下 → 右下。
+    const RING_WIDE: [Stop; 5] = [
         Stop::Create,
         Stop::Model,
         Stop::Context,
@@ -127,10 +127,24 @@ impl Stop {
         Stop::Perms,
     ];
 
-    fn step(self, back: bool) -> Stop {
-        let n = Self::RING.len();
-        let i = Self::RING.iter().position(|s| *s == self).unwrap_or(0);
-        Self::RING[(i + if back { n - 1 } else { 1 }) % n]
+    /// 窄档（竖轴）的固定顺序：从上往下 Model → Ext → Context → Perms → 创建。
+    /// 同一套顺时针照搬到竖轴上会 1 → 3 → 2 → 4 地跳，眼看跟不上手。
+    const RING_AXIS: [Stop; 5] = [
+        Stop::Model,
+        Stop::Ext,
+        Stop::Context,
+        Stop::Perms,
+        Stop::Create,
+    ];
+
+    fn step(self, back: bool, layout: art::Layout) -> Stop {
+        let ring = match layout {
+            art::Layout::Wide => &Self::RING_WIDE,
+            _ => &Self::RING_AXIS,
+        };
+        let n = ring.len();
+        let i = ring.iter().position(|s| *s == self).unwrap_or(0);
+        ring[(i + if back { n - 1 } else { 1 }) % n]
     }
 
     fn of(slot: art::Slot) -> Stop {
@@ -224,6 +238,9 @@ pub(crate) struct NewChat {
     /// 下一次渲染要把焦点抢到盘面上。用 `Cell` 是因为 `render_board` 只有 `&self`，
     /// 而「开一次就抢一次」这件事必须在渲染时做（那时才有 window）。
     needs_focus: std::cell::Cell<bool>,
+    /// 上一帧用的是哪一档布局（`art::M::new` 算出来的）。只给 `board_key` 用：
+    /// 它手上没有 window，算不出右格的宽度，Tab 的走法得靠这个。
+    layout: std::cell::Cell<art::Layout>,
     /// 停在 Context 站点时，`← →` 选的是里面哪一半：`false` = 技能（左），`true` = 模板（右）。
     /// 那张卡里本来就是两个不等价的子块，用一个 Enter 说不清。
     ctx_half: bool,
@@ -290,6 +307,7 @@ impl NewChat {
             ss_kb: None,
             ss_back: false,
             needs_focus: std::cell::Cell::new(false),
+            layout: std::cell::Cell::new(art::Layout::Compact),
             ctx_half: false,
             read_only: false,
             sheet: None,
@@ -453,25 +471,25 @@ impl NewChat {
             return String::new();
         }
         if self.creating {
-            return "creating…".into();
+            return "正在创建…".into();
         }
         if self.models.is_none() {
             return if self.loading {
-                "loading…".into()
+                "正在读模型清单…".into()
             } else {
-                "no models".into()
+                "模型清单是空的 · 去设置里配".into()
             };
         }
         match self.picked {
             Some(_) => {
-                let mut parts = vec!["ready".to_string()];
+                let mut parts = vec!["就绪".to_string()];
                 parts.push(self.machine.clone().unwrap_or_else(|| "本机".into()));
                 if let Some(d) = &self.dir {
                     parts.push(tail_path(d));
                 }
                 parts.join(" · ")
             }
-            None => "pick a model".into(),
+            None => "挑一个模型就能建".into(),
         }
     }
 
@@ -1024,7 +1042,7 @@ impl Desktop {
             "tab" => {
                 // 还没停过就从最后一站起步，第一次 Tab 落到圆上。
                 let cur = self.newchat.kb.unwrap_or(Stop::Perms);
-                self.newchat.kb = Some(cur.step(mods.shift));
+                self.newchat.kb = Some(cur.step(mods.shift, self.newchat.layout.get()));
                 cx.notify();
                 return true;
             }
@@ -1164,66 +1182,75 @@ impl Desktop {
         // 基准是**右格**不是整窗：盘面现在是三栏里的一格。
         let m = art::M::new(window.viewport_size(), self.tab);
         let b = &self.newchat;
-        let model_value = b.picked_label().unwrap_or_else(|| "—".into());
+        // Tab 的走法跟着档位走：宽档是四角的顺时针，窄档是从上往下的一列。
+        // 记在这里是因为 `board_key` 手上没有 window，算不出右格宽度。
+        b.layout.set(m.layout);
 
-        // 窄到放不下「四角 + 圆 + 环」时换竖排，别把同一套硬塞进去。
-        if m.layout == art::Layout::Stack {
+        // ── 宽档（右格 ≥ 780）：还是「轨道」那套 ──────────────────────────
+        // 四角卡 + 中心圆 + 虚线环，一屏铺满。这套在大屏上是对的：有地方摆，
+        // 四个方向的值围着中央那颗 Create，看一眼就知道谁喂给谁。
+        if m.layout == art::Layout::Wide {
+            let model_value = b.picked_label().unwrap_or_else(|| "—".into());
+            let body = div()
+                .relative()
+                .flex_1()
+                .min_h(t().d(0.))
+                .child(self.board_wires(&m))
+                .child(self.board_core(&m, cx))
+                .child(self.board_card(
+                    &m,
+                    art::Slot::Model,
+                    "board-model",
+                    "MODEL",
+                    "Model",
+                    model_value,
+                    "change ›",
+                    b.models.is_some(),
+                    cx,
+                    |this, _cx| this.newchat.sheet = Some(Sheet::Model),
+                ))
+                .child(self.board_context(&m, cx))
+                .child(self.board_ext(&m, cx))
+                .child(self.board_perms(&m, cx))
+                .child(self.board_feet(&m, cx))
+                .children(self.board_status(&m));
+
             return div()
                 .relative()
                 .flex()
                 .flex_col()
                 .flex_1()
+                // flex 项不写 min_w(0) 会被内容撑到比右格还宽（坑 16）。
                 .min_w(t().d(0.))
                 .h_full()
                 .bg(rgb(art::bg()))
                 .text_color(rgb(art::fg()))
                 .text_size(m.f(1.75, 12., 16.))
+                .line_height(relative(1.5))
                 .track_focus(&b.focus)
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                     if this.board_key(&ev.keystroke, cx) {
                         cx.stop_propagation();
                     }
                 }))
-                .child(self.board_stack(&m, cx))
+                .child(body)
                 .children(self.board_sheet(&m, cx))
                 .into_any_element();
         }
 
-        let body = div()
-            .relative()
-            .flex_1()
-            .min_h(t().d(0.))
-            .child(self.board_wires(&m))
-            .child(self.board_core(&m, cx))
-            .child(self.board_card(
-                &m,
-                art::Slot::Model,
-                "board-model",
-                "MODEL",
-                "Model",
-                model_value,
-                "change ›",
-                b.models.is_some(),
-                cx,
-                |this, _cx| this.newchat.sheet = Some(Sheet::Model),
-            ))
-            .child(self.board_context(&m, cx))
-            .child(self.board_ext(&m, cx))
-            .child(self.board_perms(&m, cx))
-            .child(self.board_feet(&m, cx))
-            .children(self.board_status(&m));
-
+        // ── 窄档（右格 < 780）：竖轴清单 ─────────────────────────────────
+        // 980 / 960 这一档的右格只有 600 多宽，四角卡会把内容挤成上下两坨、
+        // 中间一圈虚线空着。改成一条竖线串四行，高度四等分。
         div()
             .relative()
             .flex()
             .flex_col()
             .flex_1()
-            // flex 项不写 min_w(0) 会被内容撑到比右格还宽（坑 16）。
             .min_w(t().d(0.))
             .h_full()
             .bg(rgb(art::bg()))
             .text_color(rgb(art::fg()))
-            .text_size(m.f(1.75, 12., 16.))
+            .text_size(m.k(13.))
             .line_height(relative(1.5))
             .track_focus(&b.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
@@ -1231,7 +1258,7 @@ impl Desktop {
                     cx.stop_propagation();
                 }
             }))
-            .child(body)
+            .child(self.board_axis(&m, cx))
             .children(self.board_sheet(&m, cx))
             .into_any_element()
     }
@@ -2048,237 +2075,6 @@ impl Desktop {
             .into_any_element()
     }
 
-    /// 竖排档（右格 < 620）：圆在顶、三颗 pill 一行、四张卡一列，整列可滚。
-    ///
-    /// 这一档「一屏不滚」已经不可能 —— 300px 宽硬要塞四角 + 环只会互相盖住，
-    /// 所以干脆承认它是个列表页。
-    fn board_stack(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
-        let m = *m;
-        let b = &self.newchat;
-        let live = self.can_create() || b.creating;
-        let r = art::core_r(&m);
-        let machine = b.machine.clone().unwrap_or_else(|| "本机".into());
-        let dir = b
-            .dir
-            .as_ref()
-            .map(|p| tail_path(p))
-            .unwrap_or_else(|| "—".into());
-        let model = b.picked_label().unwrap_or_else(|| "—".into());
-        let skills = format!("{} / {}", b.picked_skills.len(), b.skill_list().len());
-        let prompt = b.template.clone().unwrap_or_else(|| "none".into());
-        let pickable = b.ext_pickable();
-        let picked = pickable.iter().filter(|n| b.picked_exts.contains(*n)).count();
-        let broken = b.ext_broken();
-        let ext = if broken > 0 {
-            format!("{picked}/{} · {broken} 坏", pickable.len())
-        } else {
-            format!("{picked}/{}", pickable.len())
-        };
-
-        let pill = |id: &'static str, text: String, sheet: Sheet, cx: &mut Context<Self>| {
-            div()
-                .id(ElementId::Name(id.into()))
-                .px(m.s(11.))
-                .py(m.s(6.))
-                .rounded_full()
-                .bg(if live { rgb(art::solid()) } else { rgb(art::surface()) })
-                .text_color(if live { rgb(art::bg()) } else { rgb(art::muted()) })
-                .font_family(art::mono())
-                .text_size(m.f(1.45, 10., 11.5))
-                .when(live, |el| el.hover(|s| s.opacity(0.88)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.newchat.sheet = Some(sheet);
-                    cx.notify();
-                }))
-                .child(text)
-        };
-
-        #[allow(clippy::too_many_arguments)]
-        let row = |id: &'static str,
-                   k: &'static str,
-                   title: &'static str,
-                   value: String,
-                   sheet: Option<Sheet>,
-                   toggle: bool,
-                   hot: bool,
-                   cx: &mut Context<Self>| {
-            let mut el = div()
-                .id(ElementId::Name(id.into()))
-                .w_full()
-                .px(m.s(13.))
-                .py(m.s(11.))
-                .mb(m.s(8.))
-                .bg(rgb(art::panel()))
-                .border_1()
-                .border_color(rgb(art::border()))
-                .rounded(t().r(9.))
-                .when(sheet.is_some() || toggle, |el| {
-                    el.hover(|s| s.border_color(rgb(art::line())))
-                })
-                .when(hot, |el| el.border_2().border_color(rgb(art::accent())))
-                .child(
-                    div()
-                        .font_family(art::mono())
-                        .text_size(m.f(0.95, 8., 9.5))
-                        .text_color(rgb(art::faint()))
-                        .child(k),
-                )
-                .child(
-                    div()
-                        .mt(m.s(4.))
-                        .text_size(m.f(1.55, 11., 13.))
-                        .font_weight(FontWeight::BOLD)
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .mt(m.s(3.))
-                        .font_family(art::mono())
-                        .text_size(m.f(1.25, 9., 11.))
-                        .text_color(rgb(art::muted()))
-                        .truncate()
-                        .child(value),
-                );
-            if toggle {
-                // 竖排档跟宽档同一个语义：整行就是那个开关，不开弹层。
-                el = el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.newchat.read_only = !this.newchat.read_only;
-                    cx.notify();
-                }));
-            } else if let Some(sh) = sheet {
-                el = el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.newchat.sheet = Some(sh);
-                    cx.notify();
-                }));
-            }
-            el
-        };
-
-        div()
-            .id(ElementId::Name("board-stack".into()))
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(m.s(6.))
-            .px(m.s(16.))
-            .py(m.s(18.))
-            .flex_1()
-            .min_h(t().d(0.))
-            .overflow_y_scroll()
-            .scrollbar_width(px(6.))
-            .child(
-                div()
-                    .id(ElementId::Name("board-create-stack".into()))
-                    .flex_none()
-                    .size(px(2. * r))
-                    .rounded_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(if live || b.creating {
-                        rgb(art::solid())
-                    } else {
-                        rgb(art::surface())
-                    })
-                    .when(b.kb == Some(Stop::Create), |el| {
-                        el.border_2().border_color(rgb(art::accent()))
-                    })
-                    .text_color(if live || b.creating {
-                        rgb(art::bg())
-                    } else {
-                        rgb(art::faint())
-                    })
-                    .when(live, |el| {
-                        el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.board_create(cx)))
-                    })
-                    .child(
-                        div()
-                            .text_size(m.f(1.7, 12., 14.))
-                            .font_weight(FontWeight::BOLD)
-                            .child(if b.creating { "Creating…" } else { "+ Create" }),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .gap(m.s(6.))
-                    .child(pill("stk-machine", machine.clone(), Sheet::Machine, cx))
-                    .child(pill("stk-dir", dir.clone(), Sheet::Dir, cx)),
-            )
-            .child(
-                // 名字：竖排档给它一条整宽的输入，别塞进小 pill 里。
-                div()
-                    .flex_none()
-                    .w_full()
-                    .mt(m.s(4.))
-                    .px(m.s(12.))
-                    .py(m.s(9.))
-                    .rounded(t().r(9.))
-                    .bg(rgb(art::solid()))
-                    .text_color(rgb(art::bg()))
-                    .child(Textarea::new(&b.name_input).appearance(false).bordered(false)),
-            )
-            .child(div().flex_none().h(m.s(10.)))
-            .child(row(
-                "stk-model",
-                "MODEL",
-                "Model",
-                model,
-                Some(Sheet::Model),
-                false,
-                b.kb == Some(Stop::Model),
-                cx,
-            ))
-            .child(row(
-                "stk-ctx",
-                "CONTEXT",
-                "Skills · Prompt",
-                format!("{skills} · {prompt}"),
-                Some(if b.ctx_half { Sheet::Prompt } else { Sheet::Skills }),
-                false,
-                b.kb == Some(Stop::Context),
-                cx,
-            ))
-            .child(row(
-                "stk-ext",
-                "EXTENSIONS",
-                "Extensions",
-                ext,
-                Some(Sheet::Ext),
-                false,
-                b.kb == Some(Stop::Ext),
-                cx,
-            ))
-            .child(row(
-                "stk-perm",
-                "PERMISSIONS",
-                "Permissions",
-                if b.read_only { "只读" } else { "可写" }.into(),
-                None,
-                true,
-                b.kb == Some(Stop::Perms),
-                cx,
-            ))
-            // 状态行放最底下：竖排档顶部已经够挤，它在那儿会被输入框压住。
-            .child(
-                div()
-                    .flex_none()
-                    .mt(m.s(6.))
-                    .mb(m.s(8.))
-                    .text_center()
-                    .font_family(art::mono())
-                    .text_size(m.f(1.15, 9., 10.5))
-                    .text_color(rgb(if b.flash.is_some() {
-                        art::danger()
-                    } else {
-                        art::ok()
-                    }))
-                    .child(b.flash.clone().unwrap_or_else(|| b.hub_sub())),
-            )
-            .into_any_element()
-    }
-
     /// 环底下那行状态：`flash` 是失败（红调），否则说现在差什么。
     fn board_status(&self, m: &art::M) -> Option<AnyElement> {
         let b = &self.newchat;
@@ -2301,6 +2097,395 @@ impl Desktop {
                 .child(text)
                 .into_any_element(),
         )
+    }
+
+    /// 竖轴清单（方案 D）：一条竖线串四个节点，从上往下就是一次「填参数」。
+    ///
+    /// 四行**平分**轴这一段的高度，不再把内容堆在顶上、剩一大片空（旧的四角卡
+    /// 就是这样：1134 高的右格里，四张 130 的卡挤在上半截）。脚下一条发丝线切出
+    /// 动作区：命名 → 机器 / 目录 → 全宽创建。整页没有一处是装饰。
+    fn board_axis(&self, m: &art::M, cx: &mut Context<Self>) -> AnyElement {
+        let m = *m;
+        let b = &self.newchat;
+        let live = self.can_create() || b.creating;
+        let k = |v: f32| m.k(v);
+
+        // ── 四行的值与副行 ──────────────────────────────────────────────
+        let model = b.picked_label().unwrap_or_else(|| "—".into());
+        let model_sub = match b.model() {
+            Some(mm) => format!("{} · 思考 {}", mm.provider, level_label(&b.level)),
+            None if b.loading => "正在读模型清单…".into(),
+            None => "还没选模型".to_string(),
+        };
+
+        let pickable = b.ext_pickable();
+        let picked_ext = pickable.iter().filter(|n| b.picked_exts.contains(*n)).count();
+        let broken = b.ext_broken();
+        let ext_v = format!("{picked_ext} / {} 个扩展", pickable.len());
+        let core_n = b.exts.as_ref().map(|x| core_exts(x).len()).unwrap_or(0);
+        let ext_sub = if broken > 0 {
+            format!("{broken} 个加载失败 · 见设置")
+        } else if core_n > 0 {
+            format!("核心自带 {core_n} 个 · 其余在这里勾")
+        } else {
+            "都装上了、都能用".to_string()
+        };
+
+        let ctx_v = b.template.clone().unwrap_or_else(|| "none".into());
+        let ctx_sub = format!("{} 个技能 · 模板与知识", b.picked_skills.len());
+
+        let perm_v = if b.read_only {
+            "只读".to_string()
+        } else {
+            "可写 · 文件 + 命令".to_string()
+        };
+        let perm_sub = if b.read_only {
+            "只能读文件、查目录".to_string()
+        } else {
+            "能改文件、能跑 shell".to_string()
+        };
+
+        let machine = b.machine.clone().unwrap_or_else(|| "本机".into());
+        let dir = b.dir.as_ref().map(|p| tail_path(p)).unwrap_or_else(|| "—".into());
+        let status = b.flash.clone().unwrap_or_else(|| b.hub_sub());
+        let bad = b.flash.is_some();
+
+        // 圆点：实心 = 这一项已经有值（`readOnly=false` 也算「选过」）。
+        let set_model = b.picked.is_some();
+        let set_ext = !pickable.is_empty() && picked_ext == pickable.len();
+        let set_ctx = b.template.is_some() || !b.picked_skills.is_empty();
+        let set_perm = !b.read_only;
+
+        // 机器 / 目录两颗 chip：机器是「本机」时实心（那是一个选择，不是空值）。
+        let chip = |id: &'static str, text: String, on: bool, sheet: Sheet, cx: &mut Context<Self>| {
+            div()
+                .id(ElementId::Name(id.into()))
+                .flex_none()
+                .px(k(11.))
+                .py(k(4.))
+                .rounded_full()
+                .border_1()
+                .border_color(rgb(if on { art::solid() } else { t().p.line_soft }))
+                .bg(if on { rgb(art::solid()) } else { rgb(art::panel()) })
+                .font_family(art::mono())
+                .text_size(k(11.5))
+                .text_color(if on { rgb(art::bg()) } else { rgb(art::muted()) })
+                .cursor_pointer()
+                .hover(|s| s.border_color(rgb(art::line())))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.newchat.sheet = Some(sheet);
+                    cx.notify();
+                }))
+                .child(text)
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(t().d(0.))
+            .px(k(34.))
+            .pt(k(30.))
+            .pb(k(26.))
+            // 标题行
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_baseline()
+                    .gap(k(10.))
+                    .child(div().text_size(k(21.)).font_weight(FontWeight::BOLD).child("新会话"))
+                    .child(
+                        div()
+                            .ml_auto()
+                            .font_family(art::mono())
+                            .text_size(k(10.5))
+                            .text_color(rgb(art::faint()))
+                            .child("ESC 取消"),
+                    ),
+            )
+            // 竖轴：一条线 + 四个节点，节点各自平分这段高度。
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h(t().d(0.))
+                    .mt(k(10.))
+                    // 线先画：节点悬停时的白底会盖住自己那一段，剩下的仍然连成一条。
+                    .child(
+                        div()
+                            .absolute()
+                            .left(k(5.))
+                            .top_0()
+                            .bottom_0()
+                            .w(px(1.))
+                            .bg(rgb(t().p.line_soft)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .h_full()
+                            .child(self.axis_row(
+                                &m,
+                                "ax-model",
+                                Stop::Model,
+                                "MODEL",
+                                model,
+                                model_sub,
+                                set_model,
+                                Some(Sheet::Model),
+                                cx,
+                            ))
+                            .child(self.axis_row(
+                                &m,
+                                "ax-ext",
+                                Stop::Ext,
+                                "EXTENSIONS",
+                                ext_v,
+                                ext_sub,
+                                set_ext,
+                                Some(Sheet::Ext),
+                                cx,
+                            ))
+                            .child(self.axis_row(
+                                &m,
+                                "ax-ctx",
+                                Stop::Context,
+                                "CONTEXT",
+                                ctx_v,
+                                ctx_sub,
+                                set_ctx,
+                                Some(Sheet::Skills),
+                                cx,
+                            ))
+                            .child(self.axis_row(
+                                &m,
+                                "ax-perm",
+                                Stop::Perms,
+                                "PERMISSIONS",
+                                perm_v,
+                                perm_sub,
+                                set_perm,
+                                None,
+                                cx,
+                            )),
+                    ),
+            )
+            // 脚下：命名 → 机器 / 目录 → 状态 → 全宽创建
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .mt(k(10.))
+                    .pt(k(16.))
+                    .gap(k(12.))
+                    .border_t_1()
+                    .border_color(rgb(t().p.line_soft))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(k(10.))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .font_family(art::mono())
+                                    .text_size(k(10.5))
+                                    .text_color(rgb(art::muted()))
+                                    .child("NAME"),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(t().d(0.))
+                                    .pb(k(4.))
+                                    .border_b_1()
+                                    .border_color(rgb(t().p.line_soft))
+                                    // 点进来打字，键盘就把停靠点交出去 —— 不然「⏎ 建会话」
+                                    // 会把用户在输入框里按的回车吃掉。
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _, cx| {
+                                            this.newchat.kb = None;
+                                            cx.notify();
+                                        }),
+                                    )
+                                    .child(
+                                        Textarea::new(&b.name_input)
+                                            .appearance(false)
+                                            .bordered(false),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(k(7.))
+                            .child(chip(
+                                "ax-machine",
+                                machine,
+                                b.machine.is_none(),
+                                Sheet::Machine,
+                                cx,
+                            ))
+                            .child(chip("ax-dir", dir, b.dir.is_some(), Sheet::Dir, cx)),
+                    )
+                    .when(!status.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .font_family(art::mono())
+                                .text_size(k(11.5))
+                                .text_color(rgb(if bad { art::danger() } else { art::ok() }))
+                                .child(status),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id(ElementId::Name("board-create".into()))
+                            .flex_none()
+                            .w_full()
+                            .h(k(54.))
+                            .rounded(t().r(10.))
+                            .bg(if live { rgb(art::solid()) } else { rgb(art::surface()) })
+                            .text_color(if live { rgb(art::bg()) } else { rgb(art::faint()) })
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .gap(k(10.))
+                            .when(live, |el| el.cursor_pointer())
+                            .when(b.creating, |el| el.opacity(0.72))
+                            // 键盘停在「创建」上时，给这颗长条一圈实线 —— 和圆点一个语法。
+                            .when(b.kb == Some(Stop::Create), |el| {
+                                el.border_2().border_color(rgb(art::accent()))
+                            })
+                            .when(live, |el| {
+                                el.hover(|s| s.opacity(0.92)).on_click(cx.listener(
+                                    |this, _: &ClickEvent, _, cx| {
+                                        this.newchat.kb = Some(Stop::Create);
+                                        this.board_create(cx)
+                                    },
+                                ))
+                            })
+                            .child(
+                                div()
+                                    .text_size(k(14.5))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(if b.creating { "正在创建…" } else { "创建会话" }),
+                            )
+                            .child(
+                                div()
+                                    .font_family(art::mono())
+                                    .text_size(k(10.5))
+                                    .text_color(rgb(art::bg()).opacity(0.5))
+                                    .child("⏎"),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 轴上一行：圆点 + 小标题 + 值 + 副行 + `›`。
+    ///
+    /// `sheet = None` 的那一行（权限）不弹层，点一下就是翻面 —— 两个选项不值当
+    /// 再开一层。`warn` 只染值（扩展加载失败、只读），副行照旧是灰的：
+    /// 一整行都在报警的话，警报就不响了。
+    #[allow(clippy::too_many_arguments)]
+    fn axis_row(
+        &self,
+        m: &art::M,
+        id: &'static str,
+        stop: Stop,
+        lab: &'static str,
+        value: String,
+        sub: String,
+        filled: bool,
+        sheet: Option<Sheet>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let m = *m;
+        let k = |v: f32| m.k(v);
+        let hot = self.newchat.kb == Some(stop);
+        let dot_filled = hot || filled;
+
+        div()
+            .id(ElementId::Name(id.into()))
+            .flex_1()
+            .min_h(t().d(0.))
+            .flex()
+            .items_center()
+            .gap(k(19.))
+            .pr(k(12.))
+            .rounded(t().r(9.))
+            .cursor_pointer()
+            // 悬停底色由**内容列**用 `group_hover` 画，不是整行：整行的底会把
+            // 左侧那条竖线盖断一节（浅色底和线同色，看着像线断了）。
+            .group(id)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                // 鼠标点哪一行，键盘就停在哪一行 —— 两种操作同一套状态。
+                this.newchat.kb = Some(stop);
+                match sheet {
+                    Some(sh) => this.newchat.sheet = Some(sh),
+                    // 权限只有一个来回：点一下就翻。
+                    None => this.newchat.read_only = !this.newchat.read_only,
+                }
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .flex_none()
+                    .w(k(11.))
+                    .h(k(11.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(rgb(if dot_filled { art::fg() } else { art::border() }))
+                    .bg(if dot_filled { rgb(art::fg()) } else { rgb(art::bg()) }),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(t().d(0.))
+                    .px(k(10.))
+                    .mx(k(-10.))
+                    .rounded(t().r(8.))
+                    .group_hover(id, |s| s.bg(rgb(art::fg()).opacity(0.035)))
+                    // 键盘停在这一行：同一个底，画在静态样式里 —— Tab 走过去要看得见。
+                    .when(hot, |el| el.bg(rgb(art::fg()).opacity(0.055)))
+                    .child(
+                        div()
+                            .font_family(art::mono())
+                            .text_size(k(10.5))
+                            .text_color(rgb(art::muted()))
+                            .child(lab),
+                    )
+                    .child(
+                        div()
+                            .mt(k(6.))
+                            .text_size(k(19.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(art::fg()))
+                            .truncate()
+                            .child(value),
+                    )
+                    .child(
+                        div()
+                            .mt(k(3.))
+                            .text_size(k(12.))
+                            .text_color(rgb(art::muted()))
+                            .truncate()
+                            .child(sub),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(k(16.))
+                    .text_color(rgb(art::faint()))
+                    .child("›"),
+            )
+            .into_any_element()
     }
 
     /// 弹层：「就地弹出」。**贴着被点的那张卡**，不是居中一个模态框 ——
