@@ -297,7 +297,7 @@ impl EngineClient {
         base: Option<&str>,
         request_id: Option<&str>,
     ) -> Result<ElementReceipt, EngineError> {
-        let body = json!({
+        let body = serde_json::json!({
             "locked": locked,
             "base": base.filter(|b| !b.is_empty()),
             "requestId": request_id.filter(|r| !r.trim().is_empty()),
