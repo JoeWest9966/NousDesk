@@ -210,6 +210,27 @@ impl M {
     pub fn k(&self, design: f32) -> Pixels {
         px(design * (self.w / 644.).clamp(0.88, 1.35))
     }
+
+    /// 弹层字号。窄档（竖轴）跟着 `k` 走 —— `design` 就是 980 窗口下的 px；
+    /// 宽档（轨道）还是老的 cqmin 那套，一格一格算。
+    ///
+    /// 分开是因为两档的**尺度**不同：轨道那套弹层是贴在四角卡旁的配角，
+    /// 字号本来就该小；竖轴这套弹层顶替了半页内容，字号得跟盘面主文案一个量级
+    /// （19 / 15.5 / 12.5），否则「点进去反而更小」。
+    pub fn pf(&self, design: f32, cqmin: f32, lo: f32, hi: f32) -> Pixels {
+        match self.layout {
+            Layout::Wide => self.f(cqmin, lo, hi),
+            _ => self.k(design),
+        }
+    }
+
+    /// 弹层的内边距 / 间距，同理：宽档不动，窄档按竖轴比例放大。
+    pub fn pv(&self, design: f32, cqmin: f32) -> Pixels {
+        match self.layout {
+            Layout::Wide => self.v(cqmin),
+            _ => self.k(design),
+        }
+    }
 }
 
 // ── 四张卡 / 中央圆 / dock 的几何 ────────────────────────────────────
@@ -480,31 +501,43 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
     if matches!(m.layout, Layout::Wide) {
         return pop_orbit(m, slot, kind);
     }
+    // A 方案：撑满右格，左右各留 16。原来按 kind 分档（620 / 560 / 460）再居中，
+    // 980 的右格只有 644，扣掉两边留白之后正文就只剩 13.5px 的地方 —— 看不清。
     let k = (m.w / 644.).clamp(0.88, 1.35);
-    let w = match kind {
-        PopKind::Skills | PopKind::Ext => (m.w - 56. * k).min(620.),
-        PopKind::Model => (m.w - 56. * k).min(560.),
-        _ => (m.w * 0.76).min(460.),
-    };
-    let x = (m.w - w) / 2.;
-    // 挂行的弹层：从那一行的下沿往下长，看得见自己点的是哪一行。
-    // 没挂行的（会话页 / 目录 / 机器）：贴画面上方，不压住下半截。
-    let (anchor_y, from) = match slot {
-        Some(s) => (axis_center(m, s) + 34. * k, axis_center(m, s)),
-        None => ((m.h * 0.26).max(60.), m.h * 0.26),
-    };
-    if anchor_y + 320. > m.h - 24. {
-        Pop {
+    let _ = kind;
+    let w = (m.w - 32. * k).max(240.);
+    let x = 16. * k;
+    // 挂行的弹层：从**行的下沿**往下长（行高 = 轴那段的四分之一），只留 10 的小缝
+    // —— 原来写死 +34，字号一放大就压在「还没选模型 / 1 个加载失败」那行字上了。
+    //
+    // 往下剩不到一个像样列表的高度（≈ 420）时就**往上翻**，从行的上沿往上长：
+    // 竖轴四行平分，Context / Perms 离底太近，不翻的话 5 条技能只看得见 3 条。
+    match slot {
+        Some(s) => {
+            let c = axis_center(m, s);
+            let half = axis_h(m) / 8.;
+            let below = c + half + 10. * k;
+            let above = c - half - 10. * k;
+            if below + 420. > m.h - 20. {
+                Pop {
+                    x,
+                    w,
+                    anchor: Anchor::Bottom((m.h - above).max(40.)),
+                }
+            } else {
+                Pop {
+                    x,
+                    w,
+                    anchor: Anchor::Top(below),
+                }
+            }
+        }
+        // 没挂行的（会话页 / 目录 / 机器）：贴画面上方，不压住下半截。
+        None => Pop {
             x,
             w,
-            anchor: Anchor::Bottom((m.h - from + 34. * k).max(40.)),
-        }
-    } else {
-        Pop {
-            x,
-            w,
-            anchor: Anchor::Top(anchor_y),
-        }
+            anchor: Anchor::Top((m.h * 0.26).max(60.)),
+        },
     }
 }
 
@@ -607,8 +640,7 @@ fn pop_orbit(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
 pub(crate) fn axis_center(m: &M, slot: Slot) -> f32 {
     let k = (m.w / 644.).clamp(0.88, 1.35);
     let top = 70. * k;
-    let foot = 216. * k;
-    let axis = (m.h - top - foot).max(160.);
+    let axis = axis_h(m);
     let i = match slot {
         Slot::Model => 0.,
         Slot::Ext => 1.,
@@ -616,6 +648,14 @@ pub(crate) fn axis_center(m: &M, slot: Slot) -> f32 {
         Slot::Perms => 3.,
     };
     top + axis * (i + 0.5) / 4.
+}
+
+/// 竖轴那一段的总高（四行平分它）。
+pub(crate) fn axis_h(m: &M) -> f32 {
+    let k = (m.w / 644.).clamp(0.88, 1.35);
+    let top = 70. * k;
+    let foot = 216. * k;
+    (m.h - top - foot).max(160.)
 }
 
 
