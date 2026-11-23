@@ -280,6 +280,8 @@ impl Desktop {
     ) {
         self.elements_state.confirm_delete = false;
         self.elements_state.json_error = None;
+        // 点回一条**盘上**的元素 = 放弃那份草稿（草稿只在内存里，没落盘就该丢掉）。
+        self.elements_state.creating = false;
         self.elements_state.selected = Some((kind, id));
         self.elements_state.mode = Mode::Form;
         self.sync_forms_windowed(window, cx);
