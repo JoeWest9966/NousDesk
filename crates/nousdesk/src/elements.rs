@@ -396,7 +396,7 @@ impl Desktop {
                     Ok(receipt) => {
                         this.elements_state.creating = false;
                         this.elements_state.selected = Some((kind, receipt.id.clone()));
-                        this.notify_element(
+                        this.notice_element(
                             &receipt,
                             if creating { "已新建" } else { "已保存" },
                             cx,
