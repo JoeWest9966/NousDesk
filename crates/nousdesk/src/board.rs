@@ -2548,27 +2548,27 @@ impl Desktop {
             .flex()
             .items_start()
             .justify_between()
-            .gap(m.v(1.))
-            .px(m.v(1.6))
-            .pt(m.v(1.3))
-            .pb(m.v(0.95))
+            .gap(m.pv(13., 1.))
+            .px(m.pv(20.8, 1.6))
+            .pt(m.pv(16.9, 1.3))
+            .pb(m.pv(12.35, 0.95))
             .border_b(t().d(1.))
             .border_color(rgb(art::border()))
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap(m.v(0.25))
+                    .gap(m.pv(3.25, 0.25))
                     .child(
                         div()
-                            .text_size(m.f(1.3, 10., 12.5))
+                            .text_size(m.pf(19., 1.3, 10., 12.5))
                             .font_weight(FontWeight::BOLD)
                             .child(title),
                     )
                     .child(
                         div()
                             .italic()
-                            .text_size(m.f(1.05, 8., 10.))
+                            .text_size(m.pf(12.5, 1.05, 8., 10.))
                             .text_color(rgb(art::muted()))
                             .child(hint),
                     ),
@@ -2577,10 +2577,10 @@ impl Desktop {
                 div()
                     .id(ElementId::Name("pop-close".into()))
                     .flex_none()
-                    .px(m.v(0.45))
-                    .py(m.v(0.05))
+                    .px(m.pv(5.85, 0.45))
+                    .py(m.pv(0.65, 0.05))
                     .rounded(t().r(5.))
-                    .text_size(m.f(1.1, 8.5, 10.5))
+                    .text_size(m.pf(13., 1.1, 8.5, 10.5))
                     .text_color(rgb(art::muted()))
                     .hover(|s| s.bg(rgb(art::surface())).text_color(rgb(art::fg())))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -2596,14 +2596,14 @@ impl Desktop {
             .flex()
             .items_center()
             .justify_between()
-            .px(m.v(1.4))
-            .py(m.v(0.75))
+            .px(m.pv(18.2, 1.4))
+            .py(m.pv(9.75, 0.75))
             .border_t(t().d(1.))
             .border_color(rgb(art::border()))
             .children((sheet != Sheet::Dir).then(|| {
                 div()
                     .font_family(art::mono())
-                    .text_size(m.f(0.8, 6.5, 8.5))
+                    .text_size(m.pf(11., 0.8, 6.5, 8.5))
                     .text_color(rgb(art::faint()))
                     .child("Esc 关闭 · 点空白处也关")
                     .into_any_element()
@@ -2611,13 +2611,13 @@ impl Desktop {
             .children((sheet != Sheet::Dir).then(|| {
                 div()
                     .id(ElementId::Name("board-sheet-done".into()))
-                    .px(m.v(1.0))
-                    .py(m.v(0.3))
+                    .px(m.pv(13., 1.0))
+                    .py(m.pv(3.9, 0.3))
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(rgb(art::accent()))
                     .bg(rgb(art::accent()).opacity(0.14))
-                    .text_size(m.f(1.05, 8.5, 11.))
+                    .text_size(m.pf(13., 1.05, 8.5, 11.))
                     .hover(|s| s.bg(rgb(art::accent()).opacity(0.24)))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.newchat.sheet = None;
@@ -2648,7 +2648,6 @@ impl Desktop {
             .id(ElementId::Name("board-pop".into()))
             .absolute()
             .left(px(pop.x))
-            .w(px(pop.w))
             .flex()
             .flex_col()
             // 显式给上限：内容多就滚，别把面板顶出右格、也别压到 dock。
@@ -2658,6 +2657,12 @@ impl Desktop {
             .border_color(rgb(art::border()))
             .rounded(t().r(12.))
             .overflow_hidden();
+        // 窄档带 `right`：宽度用 `left + right` 由父容器决定 —— 即使 `m.w`（窗口宽减去
+        // 图标条和列表）算得比真实右格宽，也只是内容缩窄一像素，不会整块从右边被裁掉。
+        let panel = match pop.right {
+            Some(r) => panel.right(px(r)),
+            None => panel.w(px(pop.w)),
+        };
         let panel = match pop.anchor {
             art::Anchor::Top(y) => panel.top(px(y)),
             art::Anchor::Bottom(y) => panel.bottom(px(y)),
@@ -2725,12 +2730,12 @@ impl Desktop {
             (providers, models, b.levels())
         };
 
-        let pitch = f32::from(m.v(2.6)).clamp(26., 34.);
+        let pitch = f32::from(m.pv(33.8, 2.6)).clamp(26., 34.);
         let rows = providers.len().max(models.len()).max(levels.len()).max(1);
         let total_h = pitch * rows as f32 + 16.;
 
         // 三列的横向位置：列宽按比例切，和页面一样（列窄了不换版面，只是更挤）。
-        let (cols, xs) = sheet_lanes(sheet_w, f32::from(m.v(1.)));
+        let (cols, xs) = sheet_lanes(sheet_w, f32::from(m.pv(13., 1.)));
 
         let trunk = rgb(art::border());
         let hot = rgb(art::accent());
@@ -2810,7 +2815,7 @@ impl Desktop {
                         } else {
                             rgb(art::surface())
                         })
-                        .text_size(m.f(1.45, 10., 13.))
+                        .text_size(m.pf(14.5, 1.45, 10., 13.))
                         .font_family(art::mono())
                         .truncate()
                         .hover(|s| s.bg(rgb(art::surface())))
@@ -2952,10 +2957,10 @@ impl Desktop {
                     .id(ElementId::Name(format!("skill-{name}").into()))
                     .flex()
                     .items_start()
-                    .gap(m.v(0.9))
+                    .gap(m.pv(11.7, 0.9))
                     .w_full()
-                    .px(m.v(0.8))
-                    .py(m.v(0.55))
+                    .px(m.pv(10.4, 0.8))
+                    .py(m.pv(7.15, 0.55))
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
@@ -2977,7 +2982,7 @@ impl Desktop {
                     .child(
                         div()
                             .mt(t().d(2.))
-                            .size(m.f(1.1, 10., 14.))
+                            .size(m.pf(18., 1.1, 10., 14.))
                             .rounded(t().r(3.))
                             .border_1()
                             .border_color(if picked {
@@ -2988,7 +2993,7 @@ impl Desktop {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_size(m.f(0.85, 8., 11.))
+                            .text_size(m.pf(12., 0.85, 8., 11.))
                             .text_color(rgb(art::accent()))
                             .child(if picked { "✓" } else { "" }),
                     )
@@ -2999,13 +3004,13 @@ impl Desktop {
                             .child(
                                 div()
                                     .font_family(art::mono())
-                                    .text_size(m.f(1.5, 11., 13.5))
+                                    .text_size(m.pf(15.5, 1.5, 11., 13.5))
                                     .truncate()
                                     .child(name.clone()),
                             )
                             .child(
                                 div()
-                                    .text_size(m.f(1.35, 10., 12.5))
+                                    .text_size(m.pf(12.5, 1.35, 10., 12.5))
                                     .text_color(rgb(art::muted()))
                                     .truncate()
                                     .child(desc),
@@ -3016,7 +3021,7 @@ impl Desktop {
                         div()
                             .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(1.1, 8., 10.))
+                            .text_size(m.pf(11., 1.1, 8., 10.))
                             .text_color(rgb(art::faint()))
                             .child(tag),
                     )
@@ -3031,13 +3036,13 @@ impl Desktop {
                 .id(ElementId::Name(format!("skill-cat-{id}").into()))
                 .flex()
                 .items_center()
-                .gap(m.v(0.45))
+                .gap(m.pv(5.85, 0.45))
                 .pl(m.s(6. + depth as f32 * 13.))
                 .pr(m.s(6.))
                 .py(m.s(3.))
                 .rounded(t().r(5.))
                 .font_family(art::mono())
-                .text_size(m.f(1.15, 8.5, 10.5))
+                .text_size(m.pf(11.5, 1.15, 8.5, 10.5))
                 .text_color(rgb(if on {
                     art::fg()
                 } else if live {
@@ -3054,7 +3059,7 @@ impl Desktop {
                 .child(
                     div()
                         .ml_auto()
-                        .text_size(m.f(1.0, 8., 9.5))
+                        .text_size(m.pf(10.5, 1.0, 8., 9.5))
                         .text_color(rgb(art::faint()))
                         .child(count.to_string()),
                 )
@@ -3113,19 +3118,19 @@ impl Desktop {
                 div()
                     .flex()
                     .items_center()
-                    .gap(m.v(0.8))
-                    .mx(m.v(1.3))
-                    .mt(m.v(1.1))
-                    .mb(m.v(0.7))
-                    .px(m.v(0.9))
-                    .py(m.v(0.45))
+                    .gap(m.pv(10.4, 0.8))
+                    .mx(m.pv(16.9, 1.3))
+                    .mt(m.pv(14.3, 1.1))
+                    .mb(m.pv(9.1, 0.7))
+                    .px(m.pv(11.7, 0.9))
+                    .py(m.pv(5.85, 0.45))
                     .rounded(t().r(7.))
                     .bg(rgb(art::surface()))
                     .child(
                         div()
                             .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(1.3, 10., 12.))
+                            .text_size(m.pf(14., 1.3, 10., 12.))
                             .text_color(rgb(art::accent()))
                             .child("›"),
                     )
@@ -3183,8 +3188,8 @@ impl Desktop {
         let b = &self.newchat;
         let Some(x) = b.exts.as_ref() else {
             return div()
-                .p(m.v(2.))
-                .text_size(m.f(1.4, 10., 12.5))
+                .p(m.pv(26., 2.))
+                .text_size(m.pf(15., 1.4, 10., 12.5))
                 .text_color(rgb(art::muted()))
                 .child(if b.loading {
                     "正在读扩展清单…"
@@ -3226,10 +3231,10 @@ impl Desktop {
                 .id(ElementId::Name(format!("ext-{name}").into()))
                 .flex()
                 .items_start()
-                .gap(m.v(0.9))
+                .gap(m.pv(11.7, 0.9))
                 .w_full()
-                .px(m.v(0.8))
-                .py(m.v(0.55))
+                .px(m.pv(10.4, 0.8))
+                .py(m.pv(7.15, 0.55))
                 .rounded(t().r(6.))
                 .border_1()
                 .border_color(if picked && !locked {
@@ -3258,7 +3263,7 @@ impl Desktop {
             el.child(
                 div()
                     .mt(t().d(2.))
-                    .size(m.f(1.1, 10., 14.))
+                    .size(m.pf(18., 1.1, 10., 14.))
                     .rounded(t().r(3.))
                     .border_1()
                     .border_color(if picked && !locked {
@@ -3273,7 +3278,7 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(m.f(0.85, 8., 11.))
+                    .text_size(m.pf(12., 0.85, 8., 11.))
                     .text_color(rgb(art::accent()))
                     .child(if picked { "✓" } else { "" }),
             )
@@ -3285,25 +3290,25 @@ impl Desktop {
                         div()
                             .flex()
                             .items_baseline()
-                            .gap(m.v(0.5))
+                            .gap(m.pv(6.5, 0.5))
                             .child(
                                 div()
                                     .font_family(art::mono())
-                                    .text_size(m.f(1.5, 11., 13.5))
+                                    .text_size(m.pf(15.5, 1.5, 11., 13.5))
                                     .truncate()
                                     .child(name.clone()),
                             )
                             .child(
                                 div()
                                     .font_family(art::mono())
-                                    .text_size(m.f(1.05, 8., 9.5))
+                                    .text_size(m.pf(10.5, 1.05, 8., 9.5))
                                     .text_color(rgb(art::faint()))
                                     .child(ver),
                             ),
                     )
                     .children((!desc.is_empty()).then(|| {
                         div()
-                            .text_size(m.f(1.35, 10., 12.5))
+                            .text_size(m.pf(12.5, 1.35, 10., 12.5))
                             .text_color(rgb(art::muted()))
                             .truncate()
                             .child(desc)
@@ -3312,7 +3317,7 @@ impl Desktop {
                     .children((!secs.is_empty()).then(|| {
                         div()
                             .font_family(art::mono())
-                            .text_size(m.f(1.05, 8., 9.5))
+                            .text_size(m.pf(10.5, 1.05, 8., 9.5))
                             .text_color(rgb(art::faint()))
                             .truncate()
                             .child(secs)
@@ -3323,7 +3328,7 @@ impl Desktop {
                 div()
                     .flex_none()
                     .font_family(art::mono())
-                    .text_size(m.f(1.05, 8., 10.))
+                    .text_size(m.pf(12.5, 1.05, 8., 10.))
                     .text_color(rgb(if kind == ExtKind::Broken {
                         art::accent()
                     } else {
@@ -3400,13 +3405,13 @@ impl Desktop {
                 .id(ElementId::Name(format!("ext-cat-{id}").into()))
                 .flex()
                 .items_center()
-                .gap(m.v(0.45))
+                .gap(m.pv(5.85, 0.45))
                 .pl(m.s(6. + depth as f32 * 13.))
                 .pr(m.s(6.))
                 .py(m.s(3.))
                 .rounded(t().r(5.))
                 .font_family(art::mono())
-                .text_size(m.f(1.15, 8.5, 10.5))
+                .text_size(m.pf(11.5, 1.15, 8.5, 10.5))
                 .text_color(rgb(if on {
                     art::fg()
                 } else if live {
@@ -3425,7 +3430,7 @@ impl Desktop {
                 .child(
                     div()
                         .ml_auto()
-                        .text_size(m.f(1.0, 8., 9.5))
+                        .text_size(m.pf(10.5, 1.0, 8., 9.5))
                         .text_color(rgb(art::faint()))
                         .child(count.to_string()),
                 )
@@ -3472,7 +3477,7 @@ impl Desktop {
                 .px(m.s(8.))
                 .pb(m.s(2.))
                 .font_family(art::mono())
-                .text_size(m.f(0.95, 7.5, 8.5))
+                .text_size(m.pf(10., 0.95, 7.5, 8.5))
                 .text_color(rgb(art::faint()))
                 .child("按类别")
                 .into_any_element(),
@@ -3522,19 +3527,19 @@ impl Desktop {
                 div()
                     .flex()
                     .items_center()
-                    .gap(m.v(0.8))
-                    .mx(m.v(1.3))
-                    .mt(m.v(1.1))
-                    .mb(m.v(0.7))
-                    .px(m.v(0.9))
-                    .py(m.v(0.45))
+                    .gap(m.pv(10.4, 0.8))
+                    .mx(m.pv(16.9, 1.3))
+                    .mt(m.pv(14.3, 1.1))
+                    .mb(m.pv(9.1, 0.7))
+                    .px(m.pv(11.7, 0.9))
+                    .py(m.pv(5.85, 0.45))
                     .rounded(t().r(7.))
                     .bg(rgb(art::surface()))
                     .child(
                         div()
                             .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(1.3, 10., 12.))
+                            .text_size(m.pf(14., 1.3, 10., 12.))
                             .text_color(rgb(art::accent()))
                             .child("›"),
                     )
@@ -3597,10 +3602,10 @@ impl Desktop {
                     .id(ElementId::Name(format!("prompt-{name}").into()))
                     .flex()
                     .items_start()
-                    .gap(m.v(0.9))
+                    .gap(m.pv(11.7, 0.9))
                     .w_full()
-                    .px(m.v(0.8))
-                    .py(m.v(0.55))
+                    .px(m.pv(10.4, 0.8))
+                    .py(m.pv(7.15, 0.55))
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
@@ -3627,7 +3632,7 @@ impl Desktop {
                     .child(
                         div()
                             .mt(t().d(2.))
-                            .size(m.f(1.1, 10., 14.))
+                            .size(m.pf(18., 1.1, 10., 14.))
                             .rounded_full()
                             .border_1()
                             .border_color(if picked {
@@ -3638,7 +3643,7 @@ impl Desktop {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(div().size(m.f(0.5, 5., 7.)).rounded_full().bg(if picked {
+                            .child(div().size(m.pf(8., 0.5, 5., 7.)).rounded_full().bg(if picked {
                                 rgb(art::accent())
                             } else {
                                 rgba(t().p.transparent)
@@ -3651,13 +3656,13 @@ impl Desktop {
                             .child(
                                 div()
                                     .font_family(art::mono())
-                                    .text_size(m.f(1.5, 11., 13.5))
+                                    .text_size(m.pf(15.5, 1.5, 11., 13.5))
                                     .truncate()
                                     .child(name),
                             )
                             .child(
                                 div()
-                                    .text_size(m.f(1.35, 10., 12.5))
+                                    .text_size(m.pf(12.5, 1.35, 10., 12.5))
                                     .text_color(rgb(art::muted()))
                                     .truncate()
                                     .child(desc),
@@ -3708,18 +3713,18 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(t().d(1.))
-            .px(m.v(1.5))
-            .pb(m.v(0.9))
+            .px(m.pv(19.5, 1.5))
+            .pb(m.pv(11.7, 0.9))
             .overflow_hidden()
             .child(
                 div()
                     .id(ElementId::Name("crumb-root".into()))
                     .flex_none()
-                    .px(m.v(0.45))
-                    .py(m.v(0.2))
+                    .px(m.pv(5.85, 0.45))
+                    .py(m.pv(2.6, 0.2))
                     .rounded(t().r(4.))
                     .font_family(art::mono())
-                    .text_size(m.f(1.15, 9., 11.))
+                    .text_size(m.pf(12., 1.15, 9., 11.))
                     .text_color(rgb(art::faint()))
                     .hover(|s| s.bg(rgb(art::accent()).opacity(0.08)))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -3734,7 +3739,7 @@ impl Desktop {
                     out.push(
                         div()
                             .flex_none()
-                            .text_size(m.f(0.95, 8., 10.))
+                            .text_size(m.pf(10.5, 0.95, 8., 10.))
                             .text_color(rgb(art::faint()))
                             .child("/")
                             .into_any_element(),
@@ -3746,11 +3751,11 @@ impl Desktop {
                         .flex_none()
                         .max_w(mm.s(120.))
                         .truncate()
-                        .px(m.v(0.45))
-                        .py(m.v(0.2))
+                        .px(m.pv(5.85, 0.45))
+                        .py(m.pv(2.6, 0.2))
                         .rounded(t().r(4.))
                         .font_family(art::mono())
-                        .text_size(m.f(1.15, 9., 11.))
+                        .text_size(m.pf(12., 1.15, 9., 11.))
                         .text_color(if last { rgb(art::fg()) } else { rgb(art::muted()) })
                         .when(last, |el| el.font_weight(FontWeight::BOLD))
                         .hover(|s| s.bg(rgb(art::accent()).opacity(0.08)))
@@ -3772,10 +3777,10 @@ impl Desktop {
                     .id(ElementId::Name("dir-jump".into()))
                     .flex()
                     .items_center()
-                    .gap(m.v(0.8))
+                    .gap(m.pv(10.4, 0.8))
                     .w_full()
-                    .px(m.v(0.8))
-                    .py(m.v(0.6))
+                    .px(m.pv(10.4, 0.8))
+                    .py(m.pv(7.8, 0.6))
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(rgb(art::accent()))
@@ -3788,7 +3793,7 @@ impl Desktop {
                         div()
                             .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(1.2, 9.5, 11.))
+                            .text_size(m.pf(12.5, 1.2, 9.5, 11.))
                             .text_color(rgb(art::accent()))
                             .child("↵"),
                     )
@@ -3798,7 +3803,7 @@ impl Desktop {
                             .min_w(t().d(0.))
                             .truncate()
                             .font_family(art::mono())
-                            .text_size(m.f(1.25, 10., 11.5))
+                            .text_size(m.pf(13., 1.25, 10., 11.5))
                             .child(typed.clone()),
                     )
                     .into_any_element(),
@@ -3811,10 +3816,10 @@ impl Desktop {
                     .id(ElementId::Name("dir-up".into()))
                     .flex()
                     .items_center()
-                    .gap(m.v(0.8))
+                    .gap(m.pv(10.4, 0.8))
                     .w_full()
-                    .px(m.v(0.8))
-                    .py(m.v(0.45))
+                    .px(m.pv(10.4, 0.8))
+                    .py(m.pv(5.85, 0.45))
                     .rounded(t().r(6.))
                     .hover(|s| s.bg(rgb(art::accent()).opacity(0.07)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -3824,7 +3829,7 @@ impl Desktop {
                         div()
                             .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(1.1, 9., 10.5))
+                            .text_size(m.pf(11.5, 1.1, 9., 10.5))
                             .text_color(rgb(art::faint()))
                             .child("↑"),
                     )
@@ -3834,7 +3839,7 @@ impl Desktop {
                             .min_w(t().d(0.))
                             .truncate()
                             .font_family(art::mono())
-                            .text_size(m.f(1.2, 9.5, 11.))
+                            .text_size(m.pf(12.5, 1.2, 9.5, 11.))
                             .text_color(rgb(art::muted()))
                             .child(up.clone()),
                     )
@@ -3868,10 +3873,10 @@ impl Desktop {
                     .id(ElementId::Name(format!("dir-{}", d.name).into()))
                     .flex()
                     .items_center()
-                    .gap(m.v(0.8))
+                    .gap(m.pv(10.4, 0.8))
                     .w_full()
-                    .px(m.v(0.8))
-                    .py(m.v(0.45))
+                    .px(m.pv(10.4, 0.8))
+                    .py(m.pv(5.85, 0.45))
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if selected {
@@ -3890,14 +3895,14 @@ impl Desktop {
                             .min_w(t().d(0.))
                             .truncate()
                             .font_family(art::mono())
-                            .text_size(m.f(1.25, 10., 11.5))
+                            .text_size(m.pf(13., 1.25, 10., 11.5))
                             .child(format!("{}/", d.name)),
                     )
                     .children((sessions_here > 0).then(|| {
                         div()
                             .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(0.9, 7.5, 9.))
+                            .text_size(m.pf(10., 0.9, 7.5, 9.))
                             .text_color(rgb(art::faint()))
                             .child(format!("{sessions_here} 会话"))
                     }))
@@ -3916,11 +3921,11 @@ impl Desktop {
             div()
                 .flex()
                 .justify_between()
-                .gap(m.v(0.6))
+                .gap(m.pv(7.8, 0.6))
                 .child(
                     div()
                         .flex_none()
-                        .text_size(m.f(0.95, 8., 9.5))
+                        .text_size(m.pf(10.5, 0.95, 8., 9.5))
                         .text_color(rgb(art::faint()))
                         .child(k),
                 )
@@ -3928,7 +3933,7 @@ impl Desktop {
                     div()
                         .truncate()
                         .font_family(art::mono())
-                        .text_size(m.f(1.05, 8.5, 10.))
+                        .text_size(m.pf(11., 1.05, 8.5, 10.))
                         .child(v),
                 )
         };
@@ -3937,26 +3942,26 @@ impl Desktop {
             .w(mm.s(196.))
             .border_l(t().d(1.))
             .border_color(rgb(art::border()))
-            .px(m.v(1.3))
-            .py(m.v(1.2))
+            .px(m.pv(16.9, 1.3))
+            .py(m.pv(15.6, 1.2))
             .flex()
             .flex_col()
-            .gap(m.v(0.55))
+            .gap(m.pv(7.15, 0.55))
             .child(
                 div()
                     .font_family(art::mono())
-                    .text_size(m.f(0.9, 7.5, 9.))
+                    .text_size(m.pf(10., 0.9, 7.5, 9.))
                     .text_color(rgb(art::faint()))
                     .child("选中目录"),
             )
             .child(
                 div()
                     .font_family(art::mono())
-                    .text_size(m.f(1.05, 8.5, 10.))
+                    .text_size(m.pf(11., 1.05, 8.5, 10.))
                     .text_color(rgb(art::fg()))
                     .child(if at.is_empty() { "—".into() } else { at.clone() }),
             )
-            .child(div().h(m.v(0.4)))
+            .child(div().h(m.pv(5.2, 0.4)))
             .child(kv("机器", machine_label.clone()))
             .child(kv("这一层的会话", format!("{here}")))
             .child(kv("子目录", format!("{n}")))
@@ -3972,19 +3977,19 @@ impl Desktop {
                 div()
                     .flex()
                     .items_center()
-                    .gap(m.v(0.8))
-                    .mx(m.v(1.3))
-                    .mt(m.v(1.1))
-                    .mb(m.v(0.5))
-                    .px(m.v(0.9))
-                    .py(m.v(0.45))
+                    .gap(m.pv(10.4, 0.8))
+                    .mx(m.pv(16.9, 1.3))
+                    .mt(m.pv(14.3, 1.1))
+                    .mb(m.pv(6.5, 0.5))
+                    .px(m.pv(11.7, 0.9))
+                    .py(m.pv(5.85, 0.45))
                     .rounded(t().r(7.))
                     .bg(rgb(art::surface()))
                     .child(
                         div()
                             .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(1.3, 10., 12.))
+                            .text_size(m.pf(14., 1.3, 10., 12.))
                             .text_color(rgb(art::accent()))
                             .child("›"),
                     )
@@ -4012,17 +4017,17 @@ impl Desktop {
                             .flex_1()
                             .min_w(t().d(0.))
                             .min_h(t().d(0.))
-                            .px(m.v(0.9))
-                            .py(m.v(0.8))
+                            .px(m.pv(11.7, 0.9))
+                            .py(m.pv(10.4, 0.8))
                             .overflow_y_scroll()
                             .track_scroll(&self.newchat.sheet_scroll)
                             .children(rows)
                             .children(if hits == 0 && !as_path {
                                 vec![
                                     div()
-                                        .py(m.v(1.6))
+                                        .py(m.pv(20.8, 1.6))
                                         .text_center()
-                                        .text_size(m.f(1.2, 9.5, 11.))
+                                        .text_size(m.pf(12.5, 1.2, 9.5, 11.))
                                         .text_color(rgb(art::muted()))
                                         .child(if typed.is_empty() {
                                             "这一层没有子目录".to_string()
@@ -4043,16 +4048,16 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .gap(m.v(1.))
-                    .px(m.v(1.4))
-                    .py(m.v(0.7))
+                    .gap(m.pv(13., 1.))
+                    .px(m.pv(18.2, 1.4))
+                    .py(m.pv(9.1, 0.7))
                     .border_t(t().d(1.))
                     .border_color(rgb(art::border()))
                     .child(
                         div()
                             .flex_none()
                             .font_family(art::mono())
-                            .text_size(m.f(0.9, 7.5, 9.))
+                            .text_size(m.pf(10., 0.9, 7.5, 9.))
                             .text_color(rgb(art::faint()))
                             .child(format!("{} · {machine_label}", at.clone())),
                     )
@@ -4060,12 +4065,12 @@ impl Desktop {
                         div()
                             .id(ElementId::Name("dir-use".into()))
                             .flex_none()
-                            .px(m.v(1.0))
-                            .py(m.v(0.3))
+                            .px(m.pv(13., 1.0))
+                            .py(m.pv(3.9, 0.3))
                             .rounded(t().r(6.))
                             .bg(rgb(art::accent()))
                             .text_color(rgb(art::bg()))
-                            .text_size(m.f(1.05, 8.5, 11.))
+                            .text_size(m.pf(13., 1.05, 8.5, 11.))
                             .hover(|s| s.opacity(0.88))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 if let Some(at) = this.newchat.dir_at.clone() {
@@ -4106,10 +4111,10 @@ impl Desktop {
                     .id(ElementId::Name(format!("machine-{}", label.clone()).into()))
                     .flex()
                     .items_center()
-                    .gap(m.v(0.9))
+                    .gap(m.pv(11.7, 0.9))
                     .w_full()
-                    .px(m.v(0.8))
-                    .py(m.v(0.55))
+                    .px(m.pv(10.4, 0.8))
+                    .py(m.pv(7.15, 0.55))
                     .rounded(t().r(6.))
                     .border_1()
                     .border_color(if picked {
@@ -4131,7 +4136,7 @@ impl Desktop {
                     .child(
                         div()
                             .mt(t().d(1.))
-                            .size(m.f(1.1, 10., 14.))
+                            .size(m.pf(18., 1.1, 10., 14.))
                             .rounded_full()
                             .border_1()
                             .border_color(if picked {
@@ -4142,7 +4147,7 @@ impl Desktop {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(div().size(m.f(0.5, 5., 7.)).rounded_full().bg(if picked {
+                            .child(div().size(m.pf(8., 0.5, 5., 7.)).rounded_full().bg(if picked {
                                 rgb(art::accent())
                             } else {
                                 rgba(t().p.transparent)
@@ -4155,13 +4160,13 @@ impl Desktop {
                             .child(
                                 div()
                                     .font_family(art::mono())
-                                    .text_size(m.f(1.45, 10., 13.))
+                                    .text_size(m.pf(14.5, 1.45, 10., 13.))
                                     .truncate()
                                     .child(label),
                             )
                             .child(
                                 div()
-                                    .text_size(m.f(1.3, 9.5, 12.))
+                                    .text_size(m.pf(14., 1.3, 9.5, 12.))
                                     .text_color(rgb(art::muted()))
                                     .truncate()
                                     .child(note),
@@ -4189,9 +4194,9 @@ impl Desktop {
                 .flex()
                 .items_center()
                 .justify_center()
-                .px(m.v(1.2))
-                .py(m.v(2.4))
-                .text_size(m.f(1.4, 10., 12.5))
+                .px(m.pv(15.6, 1.2))
+                .py(m.pv(31.2, 2.4))
+                .text_size(m.pf(15., 1.4, 10., 12.5))
                 .text_color(rgb(art::muted()))
                 .child(empty.to_string())
                 .into_any_element();
@@ -4213,8 +4218,8 @@ impl Desktop {
                     .flex()
                     .flex_col()
                     .gap(t().d(2.))
-                    .px(m.v(1.2))
-                    .py(m.v(1.))
+                    .px(m.pv(15.6, 1.2))
+                    .py(m.pv(13., 1.))
                     .flex_1()
                     .min_h(t().d(0.))
                     .overflow_y_scroll()

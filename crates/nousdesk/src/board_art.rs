@@ -210,6 +210,27 @@ impl M {
     pub fn k(&self, design: f32) -> Pixels {
         px(design * (self.w / 644.).clamp(0.88, 1.35))
     }
+
+    /// 弹层字号。窄档（竖轴）跟着 `k` 走 —— `design` 就是 980 窗口下的 px；
+    /// 宽档（轨道）还是老的 cqmin 那套，一格一格算。
+    ///
+    /// 分开是因为两档的**尺度**不同：轨道那套弹层是贴在四角卡旁的配角，
+    /// 字号本来就该小；竖轴这套弹层顶替了半页内容，字号得跟盘面主文案一个量级
+    /// （19 / 15.5 / 12.5），否则「点进去反而更小」。
+    pub fn pf(&self, design: f32, cqmin: f32, lo: f32, hi: f32) -> Pixels {
+        match self.layout {
+            Layout::Wide => self.f(cqmin, lo, hi),
+            _ => self.k(design),
+        }
+    }
+
+    /// 弹层的内边距 / 间距，同理：宽档不动，窄档按竖轴比例放大。
+    pub fn pv(&self, design: f32, cqmin: f32) -> Pixels {
+        match self.layout {
+            Layout::Wide => self.v(cqmin),
+            _ => self.k(design),
+        }
+    }
 }
 
 // ── 四张卡 / 中央圆 / dock 的几何 ────────────────────────────────────
@@ -452,6 +473,10 @@ pub(crate) struct Pop {
     pub x: f32,
     pub w: f32,
     pub anchor: Anchor,
+    /// 右边留多少。**给了就不再用 `w` 撑宽度**，改成 `left + right` 交给布局 ——
+    /// `w` 是"算出来的"（窗口宽 − 图标条 − 列表），只要它比真实右格宽一点点，
+    /// 父容器 `overflow_hidden` 就只从右边裁，左边 16、右边 0 那种不对称就是这么来的。
+    pub right: Option<f32>,
 }
 
 /// 弹层各自的脾气 —— 宽度、贴哪边、要不要翻边，全在这里定。
@@ -480,31 +505,51 @@ pub(crate) fn pop_rect(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
     if matches!(m.layout, Layout::Wide) {
         return pop_orbit(m, slot, kind);
     }
+    // A 方案：撑满右格。原来按 kind 分档（620 / 560 / 460）再居中，980 的右格只有
+    // 644，扣掉两边留白之后正文就只剩 13.5px 的地方 —— 看不清。
+    //
+    // 左边 16、右边 24：右边没有邻居，紧挨着就是窗口边框，同样 16px 在左边读作
+    // 「内间距」、在右边读作「顶到边」。宽度不再写死，交给 `left + right`。
     let k = (m.w / 644.).clamp(0.88, 1.35);
-    let w = match kind {
-        PopKind::Skills | PopKind::Ext => (m.w - 56. * k).min(620.),
-        PopKind::Model => (m.w - 56. * k).min(560.),
-        _ => (m.w * 0.76).min(460.),
-    };
-    let x = (m.w - w) / 2.;
-    // 挂行的弹层：从那一行的下沿往下长，看得见自己点的是哪一行。
-    // 没挂行的（会话页 / 目录 / 机器）：贴画面上方，不压住下半截。
-    let (anchor_y, from) = match slot {
-        Some(s) => (axis_center(m, s) + 34. * k, axis_center(m, s)),
-        None => ((m.h * 0.26).max(60.), m.h * 0.26),
-    };
-    if anchor_y + 320. > m.h - 24. {
-        Pop {
+    let _ = kind;
+    let x = 16. * k;
+    let right = 24. * k;
+    // 这个 w 只用来喂内容区（模型三列要按宽度分栏），不参与定位。
+    let w = (m.w - x - right).max(240.);
+    // 挂行的弹层：从**行的下沿**往下长（行高 = 轴那段的四分之一），只留 10 的小缝
+    // —— 原来写死 +34，字号一放大就压在「还没选模型 / 1 个加载失败」那行字上了。
+    //
+    // 往下剩不到一个像样列表的高度（≈ 420）时就**往上翻**，从行的上沿往上长：
+    // 竖轴四行平分，Context / Perms 离底太近，不翻的话 5 条技能只看得见 3 条。
+    match slot {
+        Some(s) => {
+            let c = axis_center(m, s);
+            let half = axis_h(m) / 8.;
+            let below = c + half + 10. * k;
+            let above = c - half - 10. * k;
+            if below + 420. > m.h - 20. {
+                Pop {
+                    x,
+                    w,
+                    anchor: Anchor::Bottom((m.h - above).max(40.)),
+                    right: Some(right),
+                }
+            } else {
+                Pop {
+                    x,
+                    w,
+                    anchor: Anchor::Top(below),
+                    right: Some(right),
+                }
+            }
+        }
+        // 没挂行的（会话页 / 目录 / 机器）：贴画面上方，不压住下半截。
+        None => Pop {
             x,
             w,
-            anchor: Anchor::Bottom((m.h - from + 34. * k).max(40.)),
-        }
-    } else {
-        Pop {
-            x,
-            w,
-            anchor: Anchor::Top(anchor_y),
-        }
+            anchor: Anchor::Top((m.h * 0.26).max(60.)),
+            right: Some(right),
+        },
     }
 }
 
@@ -518,6 +563,7 @@ fn pop_orbit(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
             x: (m.w - w) / 2.,
             w,
             anchor: Anchor::Top(20.),
+            right: None,
         };
     }
     match slot {
@@ -532,12 +578,14 @@ fn pop_orbit(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
                     x,
                     w,
                     anchor: Anchor::Bottom(m.h - n.y + gap),
+                    right: None,
                 }
             } else {
                 Pop {
                     x,
                     w,
                     anchor: Anchor::Top(top),
+                    right: None,
                 }
             }
         }
@@ -561,12 +609,14 @@ fn pop_orbit(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
                     x,
                     w,
                     anchor: Anchor::Bottom(m.h - n.y + gap),
+                    right: None,
                 }
             } else {
                 Pop {
                     x,
                     w,
                     anchor: Anchor::Top(down),
+                    right: None,
                 }
             }
         }
@@ -577,6 +627,7 @@ fn pop_orbit(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
                 x: (m.w - w) / 2.,
                 w,
                 anchor: Anchor::Top((m.h * 0.18).max(20.)),
+                right: None,
             }
         }
         None => {
@@ -594,6 +645,7 @@ fn pop_orbit(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
                 x,
                 w,
                 anchor: Anchor::Bottom(m.h - t.y + 10.),
+                right: None,
             }
         }
     }
@@ -607,8 +659,7 @@ fn pop_orbit(m: &M, slot: Option<Slot>, kind: PopKind) -> Pop {
 pub(crate) fn axis_center(m: &M, slot: Slot) -> f32 {
     let k = (m.w / 644.).clamp(0.88, 1.35);
     let top = 70. * k;
-    let foot = 216. * k;
-    let axis = (m.h - top - foot).max(160.);
+    let axis = axis_h(m);
     let i = match slot {
         Slot::Model => 0.,
         Slot::Ext => 1.,
@@ -616,6 +667,14 @@ pub(crate) fn axis_center(m: &M, slot: Slot) -> f32 {
         Slot::Perms => 3.,
     };
     top + axis * (i + 0.5) / 4.
+}
+
+/// 竖轴那一段的总高（四行平分它）。
+pub(crate) fn axis_h(m: &M) -> f32 {
+    let k = (m.w / 644.).clamp(0.88, 1.35);
+    let top = 70. * k;
+    let foot = 216. * k;
+    (m.h - top - foot).max(160.)
 }
 
 
@@ -664,13 +723,20 @@ mod tests {
     #[test]
     fn 弹层宽档贴卡窄档贴行() {
         use super::{pop_rect, PopKind};
-        // 宽档：贴 Model 卡下方，x 不许居中出现（那是窄档的规矩）。
+        // 宽档：贴 Model 卡下方，宽度写死（居中在卡下面）。
         let wide = m(1600., 1000.);
         let pw = pop_rect(&wide, Some(Slot::Model), PopKind::Model);
-        // 窄档：同一行，居中。
+        assert!(pw.right.is_none(), "宽档还得用固定宽度贴卡");
+        assert!(pw.w <= wide.w);
+        // 窄档：左边 16、右边 24 —— **宽度交给布局**（`right`），不再自己算一个 w。
+        // 这是「右边被窗框吃掉」那次的修法：w 是算出来的，比真实右格宽一点点就会被
+        // 父容器的 overflow_hidden 从右边裁掉，于是左边 16、右边 0。
         let narrow = m(980., 1168.);
         let pn = pop_rect(&narrow, Some(Slot::Model), PopKind::Model);
-        assert!((pn.x + pn.w / 2. - narrow.w / 2.).abs() < 1., "窄档应水平居中");
-        assert!(pw.w <= wide.w);
+        // 两个留白都按竖轴比例走（`k` 由右格宽算），所以断言的是比例而不是绝对像素。
+        let k = (narrow.w / 644.).clamp(0.88, 1.35);
+        assert!((pn.x - 16. * k).abs() < 0.01, "左边 16k");
+        assert!((pn.right.unwrap() - 24. * k).abs() < 0.01, "右边 24k");
+        assert!((pn.w - (narrow.w - pn.x - pn.right.unwrap())).abs() < 0.01);
     }
 }
