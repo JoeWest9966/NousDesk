@@ -858,8 +858,9 @@ fn render_tree(r: &ResourceState, cx: &mut Context<Desktop>, narrow: bool) -> An
                     this.resource_section(Section::Content, cx);
                     this.resource_content(Content::Skills, cx);
                 }
-                // 窄窗下选了段就是「我要看条目的」，自动退回列表那一层。
-                this.resources.narrow_col = ResCol::Items;
+                // 窄窗：分组行只是**切段**，子行换一批（内容 → 技能/提示词，扩展 → 类别）。
+                // 不退回列表 —— 「想看的条目」是下一层的具体类别，越级跳等于把选择权替人做掉。
+                this.resources.narrow_col = ResCol::Tree;
                 cx.notify();
             }))
             .flex_1()
