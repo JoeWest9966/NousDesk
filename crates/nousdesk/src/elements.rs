@@ -153,7 +153,6 @@ impl ElementState {
 impl Desktop {
     /// 切进元素库页 / 手动刷新：一份 GET 拉两段（引擎一次给全）。
     pub(crate) fn load_elements(&mut self, force: bool, cx: &mut Context<Self>) {
-        log::info!("DBG load_elements force={force} engine={} hydrated={} loading={}", self.engine.is_some(), self.elements_state.hydrated(), self.elements_state.loading);
         if self.elements_state.loading {
             return;
         }
@@ -175,7 +174,6 @@ impl Desktop {
                 this.elements_state.loading = false;
                 match result {
                     Ok(data) => {
-                        log::info!("DBG elements loaded: {} groups {} packages", data.groups.len(), data.packages.len());
                         this.elements_state.error = None;
                         // 选中项跨刷新保住：id 还在就留着，没了就清空（不猜「大概指哪条」）。
                         let keep = this
@@ -607,7 +605,10 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         ),
     );
 
-    if let Some(err) = st.error.as_deref() {
+    // 整页级理由分两个来源：这一页自己的（401 / 500 / JSON 不像话）和全局连接错误。
+    // 全局那句必须也显示 —— 否则连不上引擎时这一页只是一张空表，看着像「私库是空的」。
+    let page_error = st.error.as_deref().or(desk.error.as_deref());
+    if let Some(err) = page_error {
         col = col.child(
             div()
                 .mx(t().d(12.))
@@ -751,6 +752,10 @@ fn element_row(
         .px(t().d(10.))
         .py(t().d(6.))
         .rounded(t().r(6.))
+        // 选中时左边一条强调色竖线（demo 01）。边框一直占位（transparent），
+        // 否则一选中整行文字会往右跳 2px。
+        .border_l(t().d(2.))
+        .border_color(rgb(if on { t().p.accent } else { t().p.transparent }))
         .when(on, |el| el.bg(rgb(t().p.selected)))
         .hover(|el| el.bg(rgb(t().p.hover)))
         .child(
