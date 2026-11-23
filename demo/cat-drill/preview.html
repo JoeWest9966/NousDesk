@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>980 窄窗 · 类别下钻（列表 → 类别 → 该类别的条目）— 观感确认稿</title>
+<style>
+  /* 色值逐字抄自 theme.rs 的 Palette::AMBER（琥珀皮），栏宽抄真实常量：
+     rail 56 / 窄窗列表 240（TEMPLATE_LIST_W_NARROW）/ 详情 420（detail_w）。 */
+  :root{
+    --sidebar:#090806; --sidebar-hover:#17150f; --sidebar-idle:#6f6656;
+    --list-bg:#0d0c0a; --chat-bg:#0d0c0a; --panel:#12110e; --panel-alt:#17150f;
+    --text:#f0e9dc; --text2:#d6c9ae; --muted:#b4a88e; --faint:#968c78;
+    --line:#251f18; --line-strong:#322a1f; --line-soft:#1c1712;
+    --hover:#1a1711; --row-hover:#1a1711;
+    --accent:#e8a33d; --accent-hover:#f2b455; --accent-soft:#2a2113;
+    --on-accent:#14110c; --accent-fg:#e8a33d;
+    --ok:#3f9c6a; --warn:#c98a2e; --bad:#d4614f;
+    --shadow:0 14px 34px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--chat-bg); color:var(--text);
+    font:13px/1.45 Inter,"Inter",-apple-system,"Segoe UI",Roboto,"Noto Sans CJK SC","PingFang SC",sans-serif;
+    -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums}
+  .top{position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+    padding:10px 18px; background:var(--panel); border-bottom:1px solid var(--line)}
+  .top h1{font-size:13.5px; font-weight:650; margin:0 10px 0 0}
+  .top .note{color:var(--muted); font-size:11.5px; flex:1; min-width:220px}
+  .seg{display:flex; border:1px solid var(--line-strong); border-radius:7px; overflow:hidden}
+  .seg button{border:0; background:transparent; color:var(--text2); font:inherit; font-size:12px;
+    padding:5px 11px; cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line-strong)}
+  .seg button.on{background:var(--accent); color:var(--on-accent)}
+
+  .stage{display:flex; flex-direction:column; align-items:center; gap:18px; padding:24px 16px 40px}
+  .win{display:flex; width:980px; height:560px; background:var(--list-bg);
+    border:1px solid var(--line-strong); border-radius:10px; overflow:hidden;
+    box-shadow:0 18px 50px rgba(0,0,0,.35)}
+
+  /* 左图标条 56px */
+  .rail{width:56px; flex:none; background:var(--sidebar); display:flex; flex-direction:column;
+    align-items:center; gap:6px; padding:10px 0}
+  .rail i{width:34px; height:34px; border-radius:8px; display:flex; align-items:center;
+    justify-content:center; color:var(--sidebar-idle); font-size:14px}
+  .rail i.on{background:var(--sidebar-hover); color:var(--accent)}
+
+  /* 中间列：窄窗 240px */
+  .mid{width:240px; flex:none; background:var(--list-bg); border-right:1px solid var(--line);
+    display:flex; flex-direction:column; min-height:0}
+  .mid.tree{background:#0b0a08}
+  .hdr{display:flex; align-items:center; gap:6px; padding:14px 14px 4px}
+  .hdr .title{font-size:15px}
+  .hdr .count{font-size:12px; color:var(--muted)}
+  .btn{display:inline-flex; align-items:center; gap:4px; height:20px; padding:0 6px;
+    border:1px solid var(--line); border-radius:5px; font-size:11px; color:var(--text2);
+    cursor:pointer; background:transparent}
+  .btn:hover{background:var(--hover)}
+  .btn.accent{background:var(--accent); color:var(--on-accent); border-color:var(--accent);
+    height:22px; padding:0 8px; border-radius:6px}
+  .ml-auto{margin-left:auto}
+  .search{margin:6px 12px 8px; height:26px; border-radius:6px; background:var(--panel-alt);
+    border:1px solid var(--line); display:flex; align-items:center; padding:0 8px;
+    font-size:11.5px; color:var(--faint)}
+  .rows{flex:1; overflow:auto; padding:2px 8px 8px}
+  .row{display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:6px; cursor:pointer}
+  .row:hover{background:var(--hover)}
+  .row.on{background:var(--panel-alt)}
+  .row .glyph{width:14px; color:var(--muted); font-size:12px; text-align:center}
+  .row .name{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px}
+  .row .n{font-size:11px; color:var(--faint)}
+  .row .caret{width:12px; color:var(--faint); font-size:10px; text-align:center}
+  .row.sub{padding-left:22px}
+
+  /* 预设行 */
+  .prow{display:flex; gap:8px; padding:8px; border-radius:8px; cursor:pointer}
+  .prow:hover{background:var(--hover)}
+  .prow.on{background:var(--panel-alt)}
+  .prow .av{width:30px; height:30px; flex:none; border-radius:8px; background:var(--panel-alt);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    font-size:12px; color:var(--accent-fg)}
+  .prow .txt{min-width:0; flex:1}
+  .prow .t1{font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .prow .t2{font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; margin-top:1px}
+  .tag{display:inline-block; margin-top:3px; font-size:10px; color:var(--faint);
+    border:1px solid var(--line); border-radius:4px; padding:0 4px}
+
+  /* 详情列 420px */
+  .detail{width:420px; flex:none; background:var(--panel); border-left:1px solid var(--line);
+    display:flex; flex-direction:column; min-height:0}
+  .detail .dh{display:flex; align-items:center; gap:10px; padding:12px 14px 4px}
+  .detail .dn{font-size:17px; font-weight:700}
+  .detail .ds{flex:1; min-width:0; font-size:11px; color:var(--muted);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .graph{flex:1; display:flex; align-items:center; justify-content:center; position:relative}
+  .center{width:86px; height:86px; border-radius:50%; background:var(--panel-alt);
+    border:1px solid var(--line-strong); display:flex; align-items:center;
+    justify-content:center; text-align:center; font-size:11.5px; line-height:1.25;
+    padding:6px; z-index:2}
+  .node{position:absolute; width:78px; padding:5px 6px; border-radius:8px;
+    background:var(--panel-alt); border:1px solid var(--line-strong); text-align:center; z-index:2}
+  .node .k{font-size:10px; color:var(--faint)}
+  .node .v{font-size:11px; color:var(--text2); white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis}
+  .node.unset .v{color:var(--faint)}
+  .edge{position:absolute; height:1px; background:var(--line-strong); transform-origin:0 50%; z-index:1}
+
+  .legend{max-width:980px; color:var(--muted); font-size:12px; line-height:1.7}
+  .legend b{color:var(--text2); font-weight:600}
+  .legend li{margin:2px 0}
+  kbd{font:inherit; font-size:11px; border:1px solid var(--line-strong); border-radius:4px;
+    padding:0 4px; color:var(--text2)}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>980 窄窗 · 类别下钻</h1>
+  <span class="note">同一个中间列，三层：列表 → 类别 → 该类别的条目。点里面的东西就能走完一圈。</span>
+  <div class="seg">
+    <button id="s-list" class="on" onclick="go('list')">① 列表</button>
+    <button id="s-tree" onclick="go('tree')">② 类别</button>
+    <button id="s-items" onclick="go('items')">③ 写作</button>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="win">
+    <div class="rail">
+      <i>☰</i><i class="on">▤</i><i>◷</i><i>◎</i><i>⚙</i>
+    </div>
+
+    <!-- 中间列 -->
+    <div class="mid" id="mid"></div>
+
+    <!-- 详情列（不动） -->
+    <div class="detail">
+      <div class="dh">
+        <div class="dn">deep-dive</div>
+        <div class="ds">把一条需求拆到能开工的粒度</div>
+        <div class="btn">编辑</div>
+      </div>
+      <div class="graph">
+        <div class="center">deep-dive<br><span style="color:var(--faint);font-size:10px">工程 · 写作</span></div>
+        <div class="node" style="left:20px;top:60px"><div class="k">模型</div><div class="v">volc-ark/x</div></div>
+        <div class="node" style="right:16px;top:44px"><div class="k">思考</div><div class="v">high</div></div>
+        <div class="node" style="left:14px;bottom:66px"><div class="k">技能</div><div class="v">3 条</div></div>
+        <div class="node" style="right:14px;bottom:56px"><div class="k">模板</div><div class="v">smart-ass</div></div>
+        <div class="node unset" style="left:50%;top:12px;transform:translateX(-50%)"><div class="k">扩展</div><div class="v">未设</div></div>
+        <div class="node unset" style="left:50%;bottom:10px;transform:translateX(-50%)"><div class="k">目录</div><div class="v">未设</div></div>
+        <div class="edge" style="left:60px;top:120px;width:90px;transform:rotate(20deg)"></div>
+        <div class="edge" style="left:150px;top:130px;width:110px;transform:rotate(-14deg)"></div>
+        <div class="edge" style="left:60px;top:230px;width:100px;transform:rotate(-16deg)"></div>
+        <div class="edge" style="left:150px;top:236px;width:100px;transform:rotate(12deg)"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <b>这套想干什么：</b>980 宽装不下「类别树 + 列表 + 详情」三栏，所以不再把类别整栏折掉，
+    而是让<b>中间列自己往下钻</b>——
+    <ul>
+      <li><b>① 列表</b>：跟现在一样是预设列表，列表头多一个「类别」按钮（窄窗才出现）。</li>
+      <li><b>② 类别</b>：整列换成类别树（全部 / 工程 / 写作 / 写作·周报 / 未分类 + 段切换 + 归档入口），
+        顶部一行「‹ 列表」回去。</li>
+      <li><b>③ 条目</b>：点「写作」后整列换成该类别的条目，标题是类别名 + 条数，顶部「‹ 类别」回上一层；
+        右栏详情跟着当前选中走，不闪。</li>
+      <li>Esc 一层一层退：③ → ② → ①。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const DATA = {
+  categories: [
+    {path:'工程', label:'工程', count:3},
+    {path:'写作', label:'写作', count:2, hasChildren:true},
+    {path:'写作/周报', label:'周报', count:1, depth:1},
+  ],
+  presets: [
+    {name:'asd', summary:'随便试试', cat:['工程']},
+    {name:'deep-dive', summary:'把一条需求拆到能开工的粒度', cat:['工程','写作']},
+    {name:'read-only-review', summary:'只读审查，不改盘', cat:['工程']},
+    {name:'weekly-report', summary:'一周的周报，按项目分段', cat:['写作','写作/周报']},
+    {name:'scratch', summary:'空白起手', cat:[]},
+  ],
+  uncat: 1, total: 5,
+};
+
+const el = (h) => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstElementChild; };
+const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+function header(kind, cat) {
+  if (kind === 'list') {
+    return `<div class="hdr">
+      <div class="btn" onclick="go('tree')">☰ 类别</div>
+      <div class="title">全部</div><div class="count">5 条</div>
+      <div class="btn accent ml-auto">新建</div>
+    </div>`;
+  }
+  if (kind === 'tree') {
+    return `<div class="hdr">
+      <div class="btn" onclick="go('list')">‹ 列表</div>
+      <div class="title">Template</div>
+      <div class="count ml-auto">4 类</div>
+    </div>`;
+  }
+  return `<div class="hdr">
+    <div class="btn" onclick="go('tree')">‹ 类别</div>
+    <div class="title">${esc(cat)}</div>
+    <div class="count">${cat === '写作' ? 2 : 1} 条</div>
+  </div>`;
+}
+
+function treeBody() {
+  const rows = [];
+  rows.push(`<div class="row" onclick="go('list')"><div class="glyph">▦</div><div class="name">全部</div><div class="n">5</div></div>`);
+  for (const c of DATA.categories) {
+    const caret = c.hasChildren ? '<div class="caret">▾</div>' : '<div class="caret"></div>';
+    rows.push(`<div class="row ${c.depth ? 'sub' : ''}" onclick="go('items','${c.path}')">
+      <div class="glyph"></div><div class="name">${esc(c.label)}</div><div class="n">${c.count}</div>${caret}
+    </div>`);
+  }
+  rows.push(`<div class="row"><div class="glyph">·</div><div class="name">未分类</div><div class="n">1</div></div>`);
+  return `<div class="search">搜索模板</div><div class="rows">${rows.join('')}</div>
+    <div class="row" style="margin:0 8px 8px;border-top:1px solid var(--line-soft);border-radius:0;padding-top:10px">
+      <div class="glyph">▣</div><div class="name">已归档</div><div class="n">0</div></div>`;
+}
+
+function presetRows(cat) {
+  const list = cat ? DATA.presets.filter(p => p.cat.includes(cat)) : DATA.presets;
+  return list.map(p => `<div class="prow ${p.name === 'deep-dive' ? 'on' : ''}">
+      <div class="av">${p.name[0].toUpperCase()}</div>
+      <div class="txt"><div class="t1">${esc(p.name)}</div><div class="t2">${esc(p.summary)}</div>
+        ${p.cat.length ? `<div class="tag">${esc(p.cat.join(' · '))}</div>` : ''}</div>
+    </div>`).join('');
+}
+
+function go(kind, cat) {
+  document.querySelectorAll('.seg button').forEach(b => b.classList.remove('on'));
+  document.getElementById(kind === 'list' ? 's-list' : kind === 'tree' ? 's-tree' : 's-items').classList.add('on');
+  const mid = document.getElementById('mid');
+  mid.classList.toggle('tree', kind === 'tree');
+  if (kind === 'tree') {
+    mid.innerHTML = header('tree') + treeBody();
+  } else if (kind === 'items') {
+    mid.innerHTML = header('items', cat || '写作') + `<div class="search">搜索模板</div><div class="rows">${presetRows(cat || '写作')}</div>`;
+  } else {
+    mid.innerHTML = header('list') + `<div class="search">搜索模板</div><div class="rows">${presetRows(null)}</div>`;
+  }
+}
+go('list');
+</script>
+</body>
+</html>

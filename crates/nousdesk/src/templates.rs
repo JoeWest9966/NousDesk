@@ -673,10 +673,16 @@ impl Desktop {
     }
 
     /// 选类别（`None` = 全部，`Some("∅")` = 未分类）。
+    ///
+    /// 窄窗下这就是「往下钻一层」：中间列从类别树换成该类别的条目（`NarrowCol::Items`），
+    /// 宽窗不动布局（三栏常驻，只换列表内容）。
     fn pick_category(&mut self, cat: Option<String>, cx: &mut Context<Self>) {
         // 点类别 = 回到普通列表（归档视图只有一个口袋，不该和类别树并排）。
         self.archive_view = false;
         self.preset_cat = cat;
+        if self.narrow {
+            self.narrow_col = crate::app::NarrowCol::Items;
+        }
         // 换了类别，右栏那条多半不在视图里了 —— 留着它会显示「这条已经不在列表里」，
         // 像坏了。宁可让它回到空状态。
         self.drop_picked();
@@ -1985,45 +1991,6 @@ impl Desktop {
         )
     }
 
-    /// 窄窗下的「类别」抽屉：把常驻的那一栏原样搬到一个左滑的浮层里。
-    ///
-    /// 只在 `TREE_FOLD_W` 以下出现（宽窗类别树本来就常驻，抽屉永远关着）。
-    pub(crate) fn cat_drawer_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.cat_drawer {
-            return None;
-        }
-        let scrim = div()
-            .id("cat-drawer-scrim")
-            .absolute()
-            .inset_0()
-            .bg(rgba(t().p.scrim))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.cat_drawer = false;
-                cx.notify();
-            }));
-
-        // 抽屉里的东西**就是**那一栏本身：同一份状态、同一套点击逻辑，
-        // 不另开一套「窄屏专用类别列表」。
-        let panel = div()
-            .id("cat-drawer")
-            .absolute()
-            .top(t().d(0.))
-            .bottom(t().d(0.))
-            .left(px(t().rail_w))
-            .shadow_lg()
-            .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.stop_propagation())
-            .child(self.render_preset_tree(cx));
-
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(scrim)
-                .child(panel)
-                .into_any_element(),
-        )
-    }
-
     /// 弹层本体。罩子点掉 = 关闭；弹窗吃掉点击。
     pub(crate) fn new_cat_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let input = self.new_cat.input.clone()?;
@@ -2980,7 +2947,11 @@ impl Desktop {
             .into_any_element()
     }
 
-    pub(crate) fn render_preset_tree(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// 类别列。
+    ///
+    /// `wide` = 窄窗下它**顶替**中间列（占列表那一栏的宽度）；宽窗时它只是常驻的左栏
+    /// （`preset_tree_w`），两种宽度差得不多，但窄窗把宽度给足，类别路径才不会被截断。
+    pub(crate) fn render_preset_tree(&self, wide: bool, cx: &mut Context<Self>) -> AnyElement {
         let sec = &self.sections[self.section];
         let tree = sec
             .data
@@ -3131,7 +3102,11 @@ impl Desktop {
         div()
             .flex()
             .flex_col()
-            .w(px(t().preset_tree_w))
+            .w(px(if wide {
+                crate::app::TEMPLATE_LIST_W_NARROW
+            } else {
+                t().preset_tree_w
+            }))
             .h_full()
             .flex_none()
             .bg(rgb(tree_bg()))
@@ -3145,6 +3120,33 @@ impl Desktop {
                     .px(t().d(14.))
                     .pt(t().d(14.))
                     .pb(t().d(8.))
+                    // 窄窗它是顶替中间列的那一层：给一条回去的路（Esc 也退得回去）。
+                    .children(wide.then(|| {
+                        div()
+                            .id("cat-back-list")
+                            .flex()
+                            .items_center()
+                            .gap(t().d(3.))
+                            .h(t().d(20.))
+                            .px(t().d(6.))
+                            .rounded(t().r(5.))
+                            .border(t().d(1.))
+                            .border_color(rgb(t().p.line))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.text_2))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.narrow_col = crate::app::NarrowCol::List;
+                                // 列表那一层是「全部」：别把上一层选过的类别带下来，
+                                // 否则①和③看着是同一个东西。
+                                this.preset_cat = None;
+                                this.drop_picked();
+                                cx.notify();
+                            }))
+                            .child(Icon::new(IconName::ChevronLeft).size(t().d(12.)))
+                            .child("列表")
+                    }))
                     .child(div().text_size(t().fs(13.)).child("Template"))
                     .child(
                         div()
@@ -3207,6 +3209,10 @@ impl Desktop {
                     .hover(|h| h.bg(rgb(t().p.hover)))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.archive_view = !this.archive_view;
+                        // 窄窗下归档列表住在「列表」那一层：从类别树点进来要跟着下去。
+                        if this.narrow && this.archive_view {
+                            this.narrow_col = crate::app::NarrowCol::List;
+                        }
                         cx.notify();
                     }))
                     .child(
@@ -3523,9 +3529,22 @@ impl Desktop {
                     .px(t().d(14.))
                     .pt(t().d(14.))
                     .pb(t().d(4.))
+                    // 窄窗：这一列可以往下钻，所以顶部给一条来回的路 ——
+                    // 在「某类别」里是「‹ 类别」，在「全部」里是「☰ 类别」。
                     .children(narrow.then(|| {
+                        let in_items = self.narrow_col == crate::app::NarrowCol::Items;
+                        let (id, glyph, label, target) = if in_items {
+                            (
+                                "cat-back-tree",
+                                IconName::ChevronLeft,
+                                "类别",
+                                crate::app::NarrowCol::Tree,
+                            )
+                        } else {
+                            ("cat-open-tree", IconName::Menu, "类别", crate::app::NarrowCol::Tree)
+                        };
                         div()
-                            .id("cat-drawer-btn")
+                            .id(ElementId::Name(id.into()))
                             .flex()
                             .items_center()
                             .gap(t().d(3.))
@@ -3538,12 +3557,12 @@ impl Desktop {
                             .text_color(rgb(t().p.text_2))
                             .cursor_pointer()
                             .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.cat_drawer = true;
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.narrow_col = target;
                                 cx.notify();
                             }))
-                            .child(Icon::new(IconName::Menu).size(t().d(12.)))
-                            .child("类别")
+                            .child(Icon::new(glyph).size(t().d(12.)))
+                            .child(label)
                     }))
                     .child(div().text_size(t().fs(15.)).child(title.clone()))
                     .child(

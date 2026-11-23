@@ -49,6 +49,28 @@ pub(crate) const NAV_COLUMN_MIN_W: f32 = 960.;
 /// 960 只剩 356，640 只剩 36 —— 图和新表单就全废了。收掉类别树把这 248 让给右栏。
 pub(crate) const TREE_FOLD_W: f32 = 1000.;
 
+/// 窄窗下 Template 页中间列在哪一层：列表 → 类别 → 某类别的条目。
+///
+/// 宽窗不看它：三栏常驻，中间列永远是列表。窄窗装不下「类别树 + 列表 + 详情」，
+/// 所以不把类别整栏折掉（折掉就只剩一个 12px 的图标，等于藏起来），改成同一列往下钻。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NarrowCol {
+    /// 预设列表（默认）。
+    List,
+    /// 类别树（点列表头的「类别」进来）。
+    Tree,
+    /// 某个类别的条目（点类别树里的一行进来）。
+    Items,
+}
+
+/// 窄窗下钻的「退一层」：③ → ② → ①，到头就停着（Esc 连按不会退到别处去）。
+pub(crate) fn pop_narrow(col: NarrowCol) -> NarrowCol {
+    match col {
+        NarrowCol::Items => NarrowCol::Tree,
+        NarrowCol::Tree | NarrowCol::List => NarrowCol::List,
+    }
+}
+
 /// 窄窗时模板列表的宽度（宽窗用皮肤里的 `template_list_w`，默认 300）。
 /// 盘面算右格宽度时也得用这一份，否则 `pane_width` 会把右格算窄 60px。
 pub(crate) const TEMPLATE_LIST_W_NARROW: f32 = 240.;
@@ -499,8 +521,10 @@ pub struct Desktop {
     pub(crate) preset_order_flying: Option<Vec<String>>,
     /// 飞着的时候又拖了一下 —— 排在这儿，回来再发。
     pub(crate) preset_order_next: Option<Vec<String>>,
-    /// 窄窗下 Template 页的类别抽屉开着没有（宽窗常驻，不用这个）。
-    pub(crate) cat_drawer: bool,
+    /// 窄窗下 Template 页的中间列在哪一层（宽窗常驻三栏，不用它）。
+    pub(crate) narrow_col: NarrowCol,
+    /// 这一帧是不是窄窗（`TREE_FOLD_W` 以下）。点击处理器要知道自己处在哪种布局里。
+    pub(crate) narrow: bool,
     /// Template 页在看**归档区**（列表栏换成归档列表）。
     pub(crate) archive_view: bool,
     _subs: Vec<Subscription>,
@@ -896,8 +920,9 @@ impl Desktop {
                                 cx.notify();
                                 return true;
                             }
-                            if this.cat_drawer {
-                                this.cat_drawer = false;
+                            // 窄窗下钻的层级先退（③ → ② → ①），别一步收光。
+                            if this.narrow && this.narrow_col != NarrowCol::List {
+                                this.narrow_col = pop_narrow(this.narrow_col);
                                 cx.notify();
                                 return true;
                             }
@@ -1132,7 +1157,8 @@ impl Desktop {
             picked_node: None,
             new_preset: None,
             new_cat: crate::templates::NewCatDraft::default(),
-            cat_drawer: false,
+            narrow_col: NarrowCol::List,
+            narrow: false,
             archive_view: false,
             newchat: crate::board::NewChat::new(window, cx),
             nav: SessionNav::new(),
@@ -5527,8 +5553,13 @@ impl Render for Desktop {
         // 不会「看到的」和「选中的」对不上。
         self.refresh_slash(cx);
 
-        // 窄窗：类别树收进抽屉，那一栏不再常驻（见 `TREE_FOLD_W`）。
+        // 窄窗：类别树不再常驻，中间列自己在「列表 / 类别 / 某类别」三层里钻（见 `NarrowCol`）。
         let narrow_tree = window.viewport_size().width.as_f32() < TREE_FOLD_W;
+        self.narrow = narrow_tree;
+        if !narrow_tree {
+            // 宽窗三栏常驻：层级没有意义，拉宽就归位。
+            self.narrow_col = NarrowCol::List;
+        }
         // 设置 / 归档库是**整页**：连 Template 的类别树和列表一起让位。
         // 只顶替最右一格的话，1280 下它们只剩 676，640 下只剩 36 —— 输入框里
         // 连一句完整的话都看不见（坑.md 57 是同一类问题，那条只修了滚动条）。
@@ -5540,20 +5571,24 @@ impl Render for Desktop {
             match self.tab {
                 Tab::Chats => self.render_session_list(cx).into_any_element(),
                 // Template 页是**两栏**：类别树 + 预设列表。跟聊天页那一栏不是一个东西。
-                Tab::Templates => div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .h_full()
-                    .min_w(t().d(0.))
-                    .children((!narrow_tree).then(|| self.render_preset_tree(cx)))
-                    .child(self.render_templates(narrow_tree, cx))
-                    .child(if self.new_preset.is_some() {
-                        self.render_new_preset(window, cx)
-                    } else {
-                        self.render_detail(window, cx)
-                    })
-                    .into_any_element(),
+                Tab::Templates => {
+                    // 窄窗只有一列：类别那一层占住中间列，列表这一层让位（详情列始终在）。
+                    let tree_layer = !narrow_tree || self.narrow_col == NarrowCol::Tree;
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_1()
+                        .h_full()
+                        .min_w(t().d(0.))
+                        .children(tree_layer.then(|| self.render_preset_tree(narrow_tree, cx)))
+                        .children((!tree_layer).then(|| self.render_templates(narrow_tree, cx)))
+                        .child(if self.new_preset.is_some() {
+                            self.render_new_preset(window, cx)
+                        } else {
+                            self.render_detail(window, cx)
+                        })
+                        .into_any_element()
+                }
                 Tab::Triggers => self.render_triggers(cx).into_any_element(),
                 // 资源页自带三栏（树 / 列表 / 详情），自己画完全宽。
                 Tab::Resources => crate::resources::render(self, cx, narrow_tree).into_any_element(),
@@ -5755,8 +5790,6 @@ impl Render for Desktop {
             .children(self.rename_overlay(window, cx))
             // 「撕原件」确认（盖在菜单之上）
             .children(self.purge_overlay(window, cx))
-            // 窄窗的类别抽屉（比弹层低一层：弹层永远压在它上面）
-            .children(self.cat_drawer_overlay(cx))
             // 「新建类别」弹层
             .children(self.new_cat_overlay(cx))
             .children(self.copy_overlay(cx))
@@ -6409,6 +6442,15 @@ x
         };
 
         assert_eq!(error_notice(&err), message);
+    }
+
+    /// 窄窗下钻：Esc / 「‹」一层一层退，到头就停着（不许一步收光，也不许越退越深）。
+    #[test]
+    fn narrow_column_pops_one_layer_at_a_time() {
+        use super::{pop_narrow, NarrowCol};
+        assert_eq!(pop_narrow(NarrowCol::Items), NarrowCol::Tree, "③ 退回 ②");
+        assert_eq!(pop_narrow(NarrowCol::Tree), NarrowCol::List, "② 退回 ①");
+        assert_eq!(pop_narrow(NarrowCol::List), NarrowCol::List, "① 到头就停");
     }
 }
 
