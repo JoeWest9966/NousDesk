@@ -251,13 +251,30 @@ mod tests {
         assert_eq!(only_items.len(), 3);
     }
 
+    /// 卸载过的（内核 `kind/state = absent`）落在「本机没装」那一档：
+    /// 只有「安装 / 改类别」可做，文件面一律不给（目录在 trash 里）。
+    #[test]
+    fn 卸载过的落进本机没装档() {
+        let exts = Extensions {
+            items: vec![ExtItem { kind: "absent".into(), state: Some("absent".into()), ..item("gone-one", "absent", "absent", None, None) }],
+            ..Default::default()
+        };
+        let all = ext_rows(exts_only(&exts), None, "");
+        assert_eq!(all.len(), 1, "卸载过的不许从列表里蒸发");
+        assert_eq!(all[0].kind, ExtKind::Off);
+        assert!(!file_backed(Some(all[0].kind)), "文件面按名字找只会 404");
+    }
+
     /// 「编辑 / 发布 / 复制」走文件面，只对源码根里真有的目录成立。
     /// 已归档（在 `.archive/`）和旧 JS（清单都不合法）点进去只会 404。
     #[test]
     fn 文件面动作只给源码根里的档位() {
         assert!(file_backed(None), "技能 / 提示词段照旧全给");
         assert!(file_backed(Some(ExtKind::On)));
-        assert!(file_backed(Some(ExtKind::Off)));
+        assert!(
+            !file_backed(Some(ExtKind::Off)),
+            "本机没装：目录在 trash 里，源码根里没有它"
+        );
         assert!(file_backed(Some(ExtKind::Builtin)));
         assert!(
             !file_backed(Some(ExtKind::Variant)),

@@ -179,6 +179,8 @@ pub(crate) struct ResourceState {
     pub(crate) form: Option<crate::resource_write::NewForm>,
     /// 变体表单（开变体 / 改分支）。与 `form` 互斥，跟 `view` 一起活着。
     pub(crate) variant: Option<crate::resource_write::VariantForm>,
+    /// 改类别表单。
+    pub(crate) category: Option<crate::resource_write::CategoryForm>,
     pub(crate) edit: Option<crate::resource_write::EditSession>,
     pub(crate) publish: crate::resource_write::PublishState,
     /// 归档 / 真删 / 丢掉改动 的确认层。不可逆的动作必须先过这一步。
@@ -219,6 +221,7 @@ impl ResourceState {
             view: crate::resource_write::View::Browse,
             form: None,
             variant: None,
+            category: None,
             edit: None,
             publish: Default::default(),
             confirm: None,
@@ -392,6 +395,10 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
                 ExtKind::Builtin
             } else if legacy {
                 ExtKind::Legacy
+            } else if item.kind == "absent" {
+                // 卸载过的：目录不在源码根里（搬进了 trash），但名字还在删除名单上。
+                // 内核 0.1.16 起 `items` 会把它们列成 `absent` —— 不然「安装」没有入口。
+                ExtKind::Off
             } else if item.kind == "invalid" {
                 ExtKind::Failed
             } else if item.state.as_deref() == Some("running") {
@@ -492,11 +499,15 @@ pub(crate) fn ext_rows(src: ExtView<'_>, cat: Option<&str>, q: &str) -> Vec<ExtR
 /// 但连清单都不合法 —— 两档都不该挂「编辑 / 发布 / 复制」：点下去只会 404，
 /// 而 404 长得像「没有这个扩展」，查起来最费劲。
 pub(crate) fn file_backed(kind: Option<ExtKind>) -> bool {
-    // 变体也是「不在这里」：绑定表里它是另一棵 worktree（`/v1/repos/extend/variants`），
-    // 源码根里没有 `<id>` 这个目录，文件面按名字找只会 404。
+    // 认的是源码根里**真有这个目录**：已归档在 `.archive/`、变体在另一棵 worktree、
+    // 本机没装（`Off`，目录被搬进 trash）三档按名字找都是 404 —— 都收着不给。
+    // 清单不合法（`Failed`）反而要给：目录在，编辑就是修清单那条路。
     !matches!(
         kind,
-        Some(ExtKind::Archived) | Some(ExtKind::Legacy) | Some(ExtKind::Variant)
+        Some(ExtKind::Archived)
+            | Some(ExtKind::Legacy)
+            | Some(ExtKind::Variant)
+            | Some(ExtKind::Off)
     )
 }
 
@@ -663,6 +674,7 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) ->
         View::Edit => crate::resource_write::render_edit(desk, cx),
         View::Publish => crate::resource_write::render_publish(desk, cx),
         View::Variant => crate::resource_write::render_variant(desk, cx),
+        View::Category => crate::resource_write::render_category(desk, cx),
         View::Browse => {
             let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
             if !narrow {
@@ -1305,13 +1317,18 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     // 扩展的五类各有各的动作：已归档给「恢复 / 真删」，在册的给「卸载 / 安装」+「归档」。
     // 「编辑」和「发布」走的是**文件面**（`/v1/{kind}/file`），只对源码根里真有的目录成立 ——
     // 已归档（在 `.archive/`）和旧 JS 插件点进去只会 404，所以先算档位再决定挂不挂。
-    let ext_kind = if kind == Kind::Ext {
+    let ext_row = if kind == Kind::Ext {
         r.ext_view()
             .and_then(|v| ext_rows(v, None, "").into_iter().find(|x| x.name == name))
-            .map(|x| x.kind)
     } else {
         None
     };
+    let ext_kind = ext_row.as_ref().map(|x| x.kind);
+    // 「改类别」要把现值填进表单：类别是清单里那一行字符串（`items[].category`）。
+    let ext_cat = ext_row
+        .as_ref()
+        .map(|x| x.category.join(" · "))
+        .unwrap_or_default();
     // `None` = 不是扩展段，照旧全给（技能 / 提示词没有这些档位）。
     let file_backed = file_backed(ext_kind);
 
@@ -1442,6 +1459,29 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             && k != ExtKind::Variant
             && k != ExtKind::Archived
         {
+            // 改类别走清单（`POST /v1/extensions/category`），不需要 git，
+            // 所以源码根里的档位都给，包括本机没装的（它的清单还在仓库里）。
+            let cat_now = if ext_cat.is_empty() { None } else { Some(ext_cat.clone()) };
+            acts = acts.child(
+                div()
+                    .id("res-act-category")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(t().d(28.))
+                    .px(t().d(10.))
+                    .rounded(t().r(7.))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .text_size(t().fs(11.5))
+                    .text_color(rgb(t().p.text_2))
+                    .hover(|el| el.bg(rgb(t().p.hover)))
+                    .child("改类别")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        let name = this.resources.selected_name();
+                        this.resource_open_category(name, cat_now.clone(), window, cx);
+                    })),
+            );
             let installed = k != ExtKind::Off;
             acts = acts.child(
                 div()
@@ -1467,7 +1507,7 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         // （核心归档了引擎自己就少一块，变体与归档区的名字 git mv 也找不到）。
         let can_archive = match ext_kind {
             None => true,
-            Some(k) => k == ExtKind::On || k == ExtKind::Off,
+            Some(k) => k == ExtKind::On,
         };
         if can_archive {
         acts = acts.child(
@@ -1608,8 +1648,16 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 row.into_iter().find(|x| &x.name == name)
             });
             if let Some(e) = found {
+                let cats = if e.category.is_empty() {
+                    "未分类".to_string()
+                } else {
+                    e.category.join(" · ")
+                };
                 body = body
-                    .child(detail_kv("类别", e.kind.label()))
+                    .child(detail_kv("类别", &cats))
+                    // 归属 = 档位（启用中 / 内置 / 变体 / 已归档）。以前这一格写成「类别」，
+                    // 于是「类别 启用中」—— 类别是清单里的分类，档位是盘上的状态，两回事。
+                    .child(detail_kv("归属", e.kind.label()))
                     .child(detail_kv("摘要", e.summary.as_deref().unwrap_or("—")));
                 // 装 / 卸 / 归档是三件不同的事，按钮分开摆；核心三条卸载会被引擎 403 挡回来。
                 if e.kind == ExtKind::Archived {
