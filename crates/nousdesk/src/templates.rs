@@ -410,6 +410,7 @@ impl Desktop {
         let feature = match tab {
             Tab::Templates => Some(crate::capability::Feature::Presets),
             Tab::Triggers => Some(crate::capability::Feature::Triggers),
+            Tab::Elements => Some(crate::capability::Feature::Elements),
             _ => None,
         };
         if feature.is_some_and(|f| !self.feature_enabled(f)) {
@@ -430,6 +431,10 @@ impl Desktop {
         if tab == Tab::Resources {
             // 三份清单并发拉，跟数据监控室一个口径。
             self.load_resources(false, cx);
+        }
+        if tab == Tab::Elements {
+            // 一份 GET 拉两段（引擎一次给全）；拉过就不重拉。
+            self.load_elements(false, cx);
         }
         cx.notify();
     }

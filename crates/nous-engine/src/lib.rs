@@ -5,6 +5,7 @@
 //! - [`sse`]：SSE 帧解析。
 //! - [`client`]：HTTP 转发（qrd3wh：会话/历史/流）。
 //! - [`resource`]：三个资源仓（技能 / 提示词 / 扩展）的**文件读写**形状。
+//! - [`elements`]：元素库（组 / 包）的读写形状 —— 一份 JSON 一个元素。
 //! - [`pins`]：置顶的哑客户端（qrd3wh：Sessions 文档里的提交日志是单源）。
 //!
 //! token 注入只有一处实现（`auth`）：`EngineClient` 和 `PinClient` 共用，
@@ -19,6 +20,7 @@ pub mod client;
 pub mod conflict;
 pub mod console;
 pub mod diff;
+pub mod elements;
 pub mod pins;
 pub mod resource;
 pub mod sse;
@@ -56,6 +58,10 @@ pub fn stats_paths() -> &'static [(&'static str, &'static str)] {
     STATS_PATHS
 }
 
+pub use elements::{
+    Element, ElementFile, ElementKind, ElementList, ElementPush, ElementReceipt, ElementRepo,
+    ElementResolved, Elements,
+};
 pub use pins::{PinClient, PinError, pin_paths};
 pub use resource::{NewExtension, NewPrompt, NewSkill, Repo, ResourceFile, ResourceFileEntry, ResourceFiles, SaveFile};
 pub use sse::{Change, SseError, SseEvent};

@@ -21,6 +21,8 @@ pub enum Feature {
     Device,
     Stats,
     Ext,
+    /// 元素库（组 / 包）：一份 JSON 一个元素（旧面板 `k3skws` 块）。
+    Elements,
 }
 
 impl Feature {
@@ -39,6 +41,7 @@ impl Feature {
             Self::Device => ("GET", "v1/device"),
             Self::Stats => ("GET", "v1/stats/usage"),
             Self::Ext => ("GET", "v1/extensions"),
+            Self::Elements => ("GET", "v1/elements"),
         }
     }
 
@@ -56,6 +59,7 @@ impl Feature {
             Self::Device => "设备",
             Self::Stats => "数据监控",
             Self::Ext => "扩展",
+            Self::Elements => "元素库",
         }
     }
 
@@ -72,6 +76,7 @@ impl Feature {
             Self::Device => "device",
             Self::Stats => "stats",
             Self::Ext => "ext",
+            Self::Elements => "elements",
         }
     }
 }
@@ -121,6 +126,7 @@ pub fn module_feature(name: &str) -> Option<Feature> {
         Feature::Sessions, Feature::Presets, Feature::Archive,
         Feature::Combos, Feature::Triggers, Feature::Skills, Feature::Prompts,
         Feature::Selection, Feature::Device, Feature::Stats, Feature::Ext,
+        Feature::Elements,
     ]
     .into_iter()
     .find(|f| f.module_name() == name)
@@ -205,6 +211,7 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
             "prompts" => Some(Feature::Prompts),
             "extend" => Some(Feature::Ext),
             "presets" => Some(Feature::Presets),
+            "elements" => Some(Feature::Elements),
             _ => None,
         };
     }
@@ -226,6 +233,9 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     }
     if path == "v1/extensions" || path.starts_with("v1/extensions/") {
         return Some(Feature::Ext);
+    }
+    if path == "v1/elements" || path.starts_with("v1/elements/") {
+        return Some(Feature::Elements);
     }
     if path.starts_with("v1/triggers") || path.starts_with("v1/trigger-projects") {
         return Some(Feature::Triggers);
