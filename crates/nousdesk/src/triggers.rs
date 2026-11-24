@@ -678,13 +678,20 @@ impl Desktop {
         let code = menu.name.clone();
         let arch = menu.name.clone();
         let copy = menu.name.clone();
+        let cat = menu.name.clone();
         div()
             .absolute()
-            .size_full()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
             .child(
                 div()
                     .absolute()
-                    .size_full()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _: &MouseDownEvent, _, cx| {
@@ -744,6 +751,24 @@ impl Desktop {
                     )
                     .child(
                         div()
+                            .id("tm-cat")
+                            .flex()
+                            .items_center()
+                            .px(t().d(10.))
+                            .h(t().d(30.))
+                            .rounded(t().r(5.))
+                            .text_size(t().fs(11.))
+                            .text_color(rgb(t().p.text))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.triggers.menu = None;
+                                this.cat_pick_open(&cat, window, cx);
+                            }))
+                            .child("改类别…"),
+                    )
+                    .child(
+                        div()
                             .id("tm-arch")
                             .flex()
                             .items_center()
@@ -792,7 +817,10 @@ impl Desktop {
         let path = self.triggers.code.path.clone();
         div()
             .absolute()
-            .size_full()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
             .flex()
             .items_center()
             .justify_center()
@@ -1311,21 +1339,23 @@ impl Desktop {
             .collect();
 
         div()
+            .id("cat-pick-scrim")
             .absolute()
-            .size_full()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
             .flex()
             .items_center()
             .justify_center()
             .bg(rgba(t().p.scrim))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.triggers.cat_pick = None;
-                    cx.notify();
-                }),
-            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.triggers.cat_pick = None;
+                cx.notify();
+            }))
             .child(
                 div()
+                    .id("cat-pick-dialog")
                     .w(t().d(360.))
                     .p(t().d(18.))
                     .rounded(t().r(9.))
@@ -1334,7 +1364,9 @@ impl Desktop {
                     .border_color(rgb(t().p.line))
                     .flex()
                     .flex_col()
-                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                    .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut gpui::App| {
+                        cx.stop_propagation()
+                    })
                     .child(
                         div()
                             .text_size(t().fs(13.))
@@ -1544,11 +1576,17 @@ impl Desktop {
         };
         div()
             .absolute()
-            .size_full()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
             .child(
                 div()
                     .absolute()
-                    .size_full()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _: &MouseDownEvent, _, cx| {
@@ -1624,21 +1662,23 @@ impl Desktop {
         };
         let old = label.clone();
         div()
+            .id("cat-form-scrim")
             .absolute()
-            .size_full()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
             .flex()
             .items_center()
             .justify_center()
             .bg(rgba(t().p.scrim))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.triggers.cat_form = None;
-                    cx.notify();
-                }),
-            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.triggers.cat_form = None;
+                cx.notify();
+            }))
             .child(
                 div()
+                    .id("cat-form-dialog")
                     .w(t().d(360.))
                     .p(t().d(18.))
                     .rounded(t().r(9.))
@@ -1647,7 +1687,9 @@ impl Desktop {
                     .border_color(rgb(t().p.line))
                     .flex()
                     .flex_col()
-                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                    .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut gpui::App| {
+                        cx.stop_propagation()
+                    })
                     .child(
                         div()
                             .text_size(t().fs(13.))
@@ -1776,7 +1818,10 @@ impl Desktop {
         let del = label.clone();
         div()
             .absolute()
-            .size_full()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
             .flex()
             .items_center()
             .justify_center()
@@ -2371,10 +2416,10 @@ mod cat_pick_tests {
     }
 
     #[test]
-    fn parents_come_before_children() {
-        // 引擎给的是父在子前；这里自己重排也要守住，否则列表看起来像散了。
+    fn children_stay_under_their_parent() {
+        // 按层级数排会把 `工程/发布` 甩到 `时间` 后面 —— 看着像挂错了爹。
         let got = pick_vocab(&v(&["工程/发布", "时间/一次", "工程", "时间"]), &[]);
-        assert_eq!(got, v(&["工程", "时间", "工程/发布", "时间/一次"]));
+        assert_eq!(got, v(&["工程", "工程/发布", "时间", "时间/一次"]));
     }
 
     #[test]
@@ -2404,10 +2449,9 @@ fn pick_vocab(categories: &[String], draft: &[String]) -> Vec<String> {
             out.push(c.clone());
         }
     }
-    out.sort_by(|a, b| {
-        let depth = |s: &str| s.matches('/').count();
-        depth(a).cmp(&depth(b)).then_with(|| a.cmp(b))
-    });
+    // 字典序 = 父在子前、子紧跟在父后面（`工程` < `工程/发布` < `时间`）。
+    // 别按层级数排：那样 `工程/发布` 会掉到 `时间` 后面，看着像挂错了爹。
+    out.sort();
     out.dedup();
     out
 }
