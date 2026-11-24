@@ -378,6 +378,8 @@ pub struct Desktop {
     pub(crate) about_selected: Option<String>,
     /// 窄窗时插件列表 → 详情的输入状态：详情开着时不画列表。
     pub(crate) about_detail_open: bool,
+    /// 插件页的文档阅读列（方案 03「右滑阅读」）。缓存与状态在 `plugin_doc.rs`。
+    pub(crate) plugin_doc: crate::plugin_doc::PluginDoc,
     /// 当前主题。启动时从 `theme.toml` 读进 `theme::ActiveSkin` 这个 Global；
     /// 这里留一份只是给设置页判断「哪张卡片在选中态」用。
     /// **渲染层不读这个字段**，一律 `crate::theme::cur()` 取帧内快照。
@@ -871,6 +873,20 @@ impl Desktop {
                     }
                 }
                 if key == "escape" {
+                    // 插件文档阅读列盖在设置页最上面：Esc 先收它，别再往下关设置页。
+                    if weak
+                        .update(app, |this, cx| {
+                            let was_open = this.plugin_doc.close();
+                            if was_open {
+                                cx.notify();
+                            }
+                            was_open
+                        })
+                        .unwrap_or(false)
+                    {
+                        app.stop_propagation();
+                        return;
+                    }
                     // 会话页的「带什么」弹层：它跟盘面共用一层 sheet，但这时盘面没开着。
                     if weak
                         .update(app, |this, cx| {
@@ -1141,6 +1157,7 @@ impl Desktop {
             about_tab: crate::settings::AboutTab::Overview,
             about_selected: None,
             about_detail_open: false,
+            plugin_doc: crate::plugin_doc::PluginDoc::default(),
             theme_name: crate::theme::ThemeName::load(),
             sound: crate::sound::Prefs::load(),
             settings_msg: None,

@@ -243,6 +243,11 @@ pub fn feature_for_path(method: &str, path: &str) -> Option<Feature> {
     if path == "v1/selection" {
         return Some(Feature::Selection);
     }
+    // 插件 README（`/v1/plugins/{name}/readme`）是设置页「关于」用的只读面：
+    // 归到 Device 这一面，不单独开一个 Feature —— 它没有自己的入口，也不该多一道门。
+    if path.starts_with("v1/plugins/") {
+        return Some(Feature::Device);
+    }
     if path == "v1/device"
         || path == "v1/models"
         || path == "v1/machines"
