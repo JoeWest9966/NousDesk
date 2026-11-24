@@ -137,6 +137,10 @@ pub(crate) struct ElementState {
     pub creating: bool,
     /// 锁请求在路上（防连点两下：一个上锁一个解锁）。
     pub locking: bool,
+    /// 中间列正在看哪个组的包（点组时设）。`None` = 中间列列全部包。
+    pub focus_group: Option<String>,
+    /// 窄窗（`TREE_FOLD_W` 以下）单栏下钻：`true` = 这一栏现在是「某组的包」。
+    pub narrow_pkgs: bool,
 
     pub search: Entity<InputState>,
     /// 新建草稿的 id（它是文件名，只在**还没落盘**时可改；落过盘就是只读的）。
@@ -167,6 +171,8 @@ impl ElementState {
             confirm_delete: false,
             creating: false,
             locking: false,
+            focus_group: None,
+            narrow_pkgs: false,
             search: cx.new(|cx| InputState::new(window, cx).placeholder("搜 id / 名字 / 正文")),
             form_id: cx.new(|cx| InputState::new(window, cx).placeholder("frontend")),
             form_name: cx.new(|cx| InputState::new(window, cx)),
@@ -289,6 +295,10 @@ impl Desktop {
         self.elements_state.json_error = None;
         // 点回一条**盘上**的元素 = 放弃那份草稿（草稿只在内存里，没落盘就该丢掉）。
         self.elements_state.creating = false;
+        if kind == ElementKind::Groups {
+            self.elements_state.focus_group = Some(id.clone());
+            self.elements_state.narrow_pkgs = true;
+        }
         self.elements_state.selected = Some((kind, id));
         self.elements_state.mode = Mode::Form;
         self.sync_forms_windowed(window, cx);
@@ -753,9 +763,20 @@ pub(crate) fn unused_id(kind: ElementKind, data: Option<&Elements>) -> String {
 pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     let st = &desk.elements_state;
     let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
-    root = root
-        .child(render_side(desk, cx))
-        .child(render_detail(desk, cx));
+    // 宽窗三栏（组 180 / 包 220 / 详情）；窄窗单栏下钻（组 ↔ 某组的包，280），详情不变。
+    // 判据与模板页同一个 `TREE_FOLD_W`（`desk.narrow` 在同一帧里先算好）。
+    root = if desk.narrow {
+        let col = if st.narrow_pkgs && st.focus_group.is_some() {
+            render_col(desk, ElementKind::Packages, NARROW_COL_W, true, cx)
+        } else {
+            render_col(desk, ElementKind::Groups, NARROW_COL_W, false, cx)
+        };
+        root.child(col)
+    } else {
+        root.child(render_col(desk, ElementKind::Groups, GROUP_COL_W, false, cx))
+            .child(render_col(desk, ElementKind::Packages, PKG_COL_W, false, cx))
+    };
+    root = root.child(render_detail(desk, cx));
     if st.confirm_delete {
         return div()
             .relative()
@@ -771,14 +792,37 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     root.into_any_element()
 }
 
-/// 左清单：组一段、包一段。段的标题上带条数 —— 空着也显示（「0 个包」是信息）。
-fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+/// 宽窗三栏的组列 / 包列宽（demo elements-groups 方案 A，980 下详情还剩约 524）。
+const GROUP_COL_W: f32 = 180.;
+const PKG_COL_W: f32 = 220.;
+/// 窄窗单栏下钻的那一栏宽（方案 B）。
+const NARROW_COL_W: f32 = 280.;
+
+/// 包列要列哪些 id：聚焦了组就是那组引用的（含断链），否则全部包。
+///
+/// 纯函数（不碰 `Desktop`），好测：顺序照组里 JSON 的写法，断链的 id 也在里面 ——
+/// 「盘上没有」是**列的时候**才发现的事（列表里给它一行红的），不是过滤掉。
+pub(crate) fn pkg_scope(data: Option<&Elements>, focus: Option<&str>) -> Option<Vec<String>> {
+    let g = focus?;
+    let group = data?.find(ElementKind::Groups, g)?;
+    Some(group.packages().into_iter().map(str::to_string).collect())
+}
+
+/// 一列：组列或包列。段的标题上带条数 —— 空着也显示（「0 个包」是信息）。
+fn render_col(
+    desk: &Desktop,
+    only: ElementKind,
+    width: f32,
+    back: bool,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
     let st = &desk.elements_state;
     let q = st.query(cx);
     let data = st.data.as_ref();
 
     let mut col = div()
-        .w(t().d(262.))
+        .w(t().d(width))
+        .flex_none()
         .h_full()
         .flex()
         .flex_col()
@@ -826,16 +870,46 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         .px(t().d(8.))
         .pb(t().d(16.));
 
-    for kind in [ElementKind::Groups, ElementKind::Packages] {
+    if back {
+        list = list.child(
+            div()
+                .id("el-narrow-back")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.elements_state.narrow_pkgs = false;
+                    cx.notify();
+                }))
+                .px(t().d(10.))
+                .pt(t().d(10.))
+                .text_size(t().fs(12.))
+                .text_color(rgb(text_color()))
+                .hover(|el| el.text_color(rgb(t().p.accent)))
+                .child("‹ 组"),
+        );
+    }
+    let scope = if only == ElementKind::Packages {
+        pkg_scope(data, st.focus_group.as_deref())
+    } else {
+        None
+    };
+    for kind in [only] {
         let rows: Vec<&Element> = data
-            .map(|d| {
-                d.section(kind)
+            .map(|d| match (&scope, kind) {
+                (Some(ids), ElementKind::Packages) => ids
+                    .iter()
+                    .filter_map(|id| d.find(kind, id))
+                    .filter(|e| matches_query(e, &q))
+                    .collect(),
+                _ => d
+                    .section(kind)
                     .iter()
                     .filter(|e| matches_query(e, &q))
-                    .collect()
+                    .collect(),
             })
             .unwrap_or_default();
-        let total = data.map(|d| d.section(kind).len()).unwrap_or(0);
+        let total = match (&scope, kind) {
+            (Some(ids), ElementKind::Packages) => ids.len(),
+            _ => data.map(|d| d.section(kind).len()).unwrap_or(0),
+        };
         // 还没落盘的草稿不在引擎回包里，但它必须占一行 —— 否则点了「新建」，
         // 左列看不出发生了什么（选中的高亮也不见了）。
         if st.creating
@@ -845,9 +919,48 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             list = list.child(draft_row(desk, cx));
         }
         let empty = rows.is_empty();
-        list = list.child(section_cap(kind, total, rows.len(), &q));
+        let scope_name = if kind == ElementKind::Packages {
+            st.focus_group.as_ref().and_then(|g| {
+                data.and_then(|d| d.find(ElementKind::Groups, g))
+                    .map(|g| g.name().to_string())
+            })
+        } else {
+            None
+        };
+        list = list.child(section_cap(kind, total, rows.len(), &q, scope_name.as_deref(), cx));
         for row in rows {
             list = list.child(element_row(kind, row, st, desk, cx));
+        }
+        // 组里引用了、盘上没有的包：照样占一行、标红（断链要在列表里看得见）。
+        if let (Some(ids), ElementKind::Packages, Some(d)) = (&scope, kind, data) {
+            for id in ids.iter().filter(|id| d.find(kind, id).is_none()) {
+                if !q.is_empty() && !id.to_lowercase().contains(&q) {
+                    continue;
+                }
+                list = list.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t().d(8.))
+                        .px(t().d(10.))
+                        .py(t().d(6.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(t().d(0.))
+                                .text_size(t().fs(11.5))
+                                .text_color(rgb(t().p.danger))
+                                .child(id.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.danger))
+                                .child("断链"),
+                        ),
+                );
+            }
         }
         if empty && q.is_empty() && total == 0 {
             list = list.child(
@@ -880,7 +993,6 @@ fn draft_row(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             };
             this.select_element(kind, id, window, cx);
         }))
-        .when(kind == ElementKind::Packages, |el| el.pl(t().d(20.)))
         .flex()
         .items_center()
         .gap(t().d(8.))
@@ -917,20 +1029,47 @@ fn draft_row(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         .into_any_element()
 }
 
-fn section_cap(kind: ElementKind, total: usize, shown: usize, q: &str) -> AnyElement {
+fn section_cap(
+    kind: ElementKind,
+    total: usize,
+    shown: usize,
+    q: &str,
+    scope: Option<&str>,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
     let label = if q.is_empty() {
         format!("{} · {total}", kind.label())
     } else {
         format!("{} · {shown}/{total}", kind.label())
     };
-    div()
+    let mut cap = div()
         .px(t().d(10.))
         .pt(t().d(14.))
         .pb(t().d(6.))
+        .flex()
+        .items_center()
+        .gap(t().d(6.))
         .text_size(t().fs(10.))
         .text_color(rgb(t().p.faint))
-        .child(label)
-        .into_any_element()
+        .child(div().flex_1().min_w(t().d(0.)).child(label));
+    // 只看一个组的包时给一条「全部」：不点回去，那些没被任何组引用的包就永远看不见了。
+    if let Some(group) = scope {
+        cap = cap
+            .child(div().flex_none().child(format!("{group} 的")))
+            .child(
+                div()
+                    .id("el-pkg-all")
+                    .flex_none()
+                    .text_color(rgb(t().p.accent))
+                    .hover(|el| el.text_color(rgb(text_color())))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.elements_state.focus_group = None;
+                        cx.notify();
+                    }))
+                    .child("全部 ›"),
+            );
+    }
+    cap.into_any_element()
 }
 
 fn matches_query(e: &Element, q: &str) -> bool {
@@ -997,7 +1136,6 @@ fn element_row(
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             this.select_element(kind, id.clone(), window, cx);
         }))
-        .when(kind == ElementKind::Packages, |el| el.pl(t().d(20.)))
         .flex()
         .items_center()
         .gap(t().d(8.))

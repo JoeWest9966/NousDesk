@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::elements::{parse_draft, set_list, set_scalar, unused_id};
+    use crate::elements::{parse_draft, pkg_scope, set_list, set_scalar, unused_id};
     use nous_engine::{Element, ElementKind, ElementReceipt, Elements};
     use serde_json::json;
 
@@ -167,5 +167,43 @@ mod tests {
         assert!(locked.locked());
         assert_eq!(locked.name(), "前端");
         assert_eq!(locked.packages(), vec!["react-rules"], "读锁不该把引用读没");
+    }
+
+    /// 一份最小的回包：一个组（引用两个包，其中一个盘上没有）+ 一个没人引用的包。
+    fn repo() -> Elements {
+        serde_json::from_value(json!({
+            "kind": "elements",
+            "groups": [{
+                "kind": "groups", "id": "frontend", "etag": "e1", "state": "ok",
+                "fields": { "id": "frontend", "name": "前端",
+                            "packages": ["react-rules", "sql-rules"] },
+            }],
+            "packages": [
+                { "kind": "packages", "id": "react-rules", "etag": "e2", "state": "ok",
+                  "fields": { "id": "react-rules", "name": "React 规范" } },
+                { "kind": "packages", "id": "loose", "etag": "e3", "state": "ok",
+                  "fields": { "id": "loose", "name": "没人引用" } },
+            ],
+        }))
+        .expect("形状要能反序列化")
+    }
+
+    #[test]
+    fn 点了组_包列就只剩这组引用的() {
+        let data = repo();
+        assert_eq!(
+            pkg_scope(Some(&data), Some("frontend")),
+            Some(vec!["react-rules".to_string(), "sql-rules".to_string()]),
+            "顺序照组里 JSON 的写法；盘上没有的 sql-rules 也留着（列表里给它一行红的）"
+        );
+    }
+
+    #[test]
+    fn 没聚焦组就是全部包_包括没人引用的() {
+        // 不聚焦 = 中间列列全部：`None` 让渲染那边走原路（不会漏掉 `loose`）。
+        assert_eq!(pkg_scope(Some(&repo()), None), None);
+        // 聚焦了一个不存在的组、或者还没拉到数据 → 也当「全部」，别把列清空。
+        assert_eq!(pkg_scope(Some(&repo()), Some("nope")), None);
+        assert_eq!(pkg_scope(None, Some("frontend")), None);
     }
 }
