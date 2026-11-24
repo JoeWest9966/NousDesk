@@ -237,8 +237,13 @@ pub(crate) enum CatDialog {
     },
     Delete {
         name: String,
-        /// 会被摘掉挂载的预设条数（含子类别）。
-        count: usize,
+        /// 会被摘掉这个类别的预设条数（含子类别）。
+        affected: usize,
+        /// 其中**删完就没有任何类别**的那些 —— 它们会变成「未分类」。
+        ///
+        /// 一条模板同时挂 `工程` 和 `写作`，删 `工程` 只是少一个类别，不是变未分类。
+        /// 老文案一律说「会变成未分类」，在这种情况下是错的。
+        orphaned: usize,
         busy: bool,
         err: Option<String>,
     },
@@ -1233,11 +1238,18 @@ impl Desktop {
         cx.notify();
     }
 
-    /// 打开类别的「删除」弹层。`count` 是会被摘掉挂载的条数（含子类别）。
-    pub(crate) fn open_cat_delete(&mut self, name: String, count: usize, cx: &mut Context<Self>) {
+    /// 打开类别的「删除」弹层。影响面在打开这一刻现算（词表可能刚被别人改过）。
+    pub(crate) fn open_cat_delete(&mut self, name: String, cx: &mut Context<Self>) {
+        let presets = self.sections[self.section]
+            .data
+            .as_ref()
+            .map(|d| d.presets.as_slice())
+            .unwrap_or_default();
+        let (affected, orphaned) = delete_impact(presets, &name);
         self.cat_dialog = Some(CatDialog::Delete {
             name,
-            count,
+            affected,
+            orphaned,
             busy: false,
             err: None,
         });
@@ -2520,13 +2532,9 @@ impl Desktop {
                 *busy,
                 err.clone(),
             ),
-            CatDialog::Delete { name, count, busy, err } => (
+            CatDialog::Delete { name, affected, orphaned, busy, err } => (
                 format!("删除类别「{name}」"),
-                if *count == 0 {
-                    "这个类别下面没有模板，删掉就完了。".to_string()
-                } else {
-                    format!("**{count} 条模板**会变成未分类（子类别一起删）。模板本身不会没，只是不再属于这个类别。")
-                },
+                delete_blurb(*affected, *orphaned),
                 true,
                 None,
                 *busy,
@@ -3796,7 +3804,7 @@ impl Desktop {
                     .item(PopupMenuItem::new("删除…").on_click(
                         move |_: &ClickEvent, _window, cx: &mut App| {
                             let p = p2.clone();
-                            let _ = del.update(cx, |this, cx| this.open_cat_delete(p, count, cx));
+                            let _ = del.update(cx, |this, cx| this.open_cat_delete(p, cx));
                         },
                     ))
                 })
@@ -4513,6 +4521,41 @@ fn keep_category(cat: &Option<String>, tree: &[CatNode]) -> Option<String> {
     }
 }
 
+/// 删一个类别会伤到几条模板：`(被摘掉这个类别的, 其中删完变未分类的)`。
+///
+/// 两个数分开是为了文案说实话：删 `工程` 时，只挂 `工程` 的会变「未分类」，同时挂着
+/// `工程` + `写作` 的只是少一个类别 —— 一律说「会变成未分类」是错的（`坑.md` 的规矩：
+/// 说清代价，别让用户点完才发现）。子类别天然算在内（`is_under`）。
+pub(crate) fn delete_impact(presets: &[Preset], cat: &str) -> (usize, usize) {
+    let mut affected = 0;
+    let mut orphaned = 0;
+    for p in presets {
+        if !in_category(p, cat) {
+            continue;
+        }
+        affected += 1;
+        // 删的是 `cat` 整枝：留下的必须是**不在这枝里**的类别。
+        if !p.category.iter().any(|c| !is_under(c, cat)) {
+            orphaned += 1;
+        }
+    }
+    (affected, orphaned)
+}
+
+/// 删除弹层那句实话。三个分支：不伤任何模板 / 全都会变未分类 / 只有一部分。
+fn delete_blurb(affected: usize, orphaned: usize) -> String {
+    match (affected, orphaned) {
+        (0, _) => "这个类别下面没有模板，删掉就完了。".to_string(),
+        (n, o) if n == o => format!(
+            "{n} 条模板会变成未分类（子类别一起删）。模板本身不会没，只是不再属于这个类别。"
+        ),
+        (n, o) => format!(
+            "{n} 条模板会失去这个类别（子类别一起删），其中 {o} 条会变成未分类，另外 {} 条还挂在别的类别上。",
+            n - o
+        ),
+    }
+}
+
 /// 这条预设算不算在 `cat` 这一类里（父级天然包含整枝）。
 fn in_category(p: &Preset, cat: &str) -> bool {
     p.category.iter().any(|c| is_under(c, cat))
@@ -4661,6 +4704,42 @@ mod tests {
         let src = include_str!("templates.rs");
         let stale = ["任务", "没跑完"].concat();
         assert!(!src.contains(&stale), "类别写分支还留着假话");
+    }
+
+    /// 删类别的影响面：被摘掉的和变成未分类的要分开数。
+    #[test]
+    fn delete_impact_separates_lost_from_orphaned() {
+        use super::{delete_blurb, delete_impact};
+        let mk = |name: &str, cats: &[&str]| Preset {
+            name: name.into(),
+            summary: String::new(),
+            description: String::new(),
+            category: cats.iter().map(|c| c.to_string()).collect(),
+            spec: None,
+            spec_error: None,
+            tracked: true,
+            dir: String::new(),
+            resolved: None,
+            extra: Default::default(),
+        };
+        let presets = vec![
+            mk("只挂工程", &["工程"]),
+            mk("工程加写作", &["工程", "写作"]),
+            mk("挂子级", &["工程/审查"]),
+            mk("无关", &["写作"]),
+        ];
+        // 工程 + 工程/审查 + 工程加写作 = 3 条受影响；「工程加写作」删完还剩「写作」。
+        assert_eq!(delete_impact(&presets, "工程"), (3, 2));
+        // 删子级只伤挂子级那条。
+        assert_eq!(delete_impact(&presets, "工程/审查"), (1, 1));
+        // 没人挂的类别：不动任何人。
+        assert_eq!(delete_impact(&presets, "空类别"), (0, 0));
+        assert_eq!(delete_impact(&presets, "写作"), (2, 1));
+
+        assert!(delete_blurb(0, 0).contains("没有模板"));
+        assert!(delete_blurb(2, 2).contains("会变成未分类"));
+        let mixed = delete_blurb(3, 2);
+        assert!(mixed.contains("3 条模板会失去") && mixed.contains("2 条会变成未分类"));
     }
 
     /// 重名在本地就挡：引擎的 `add` 是幂等的，放过去只会「点完没变化」。
