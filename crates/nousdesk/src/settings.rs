@@ -1876,9 +1876,7 @@ fn plugin_row(
 ) -> AnyElement {
     let t = t();
     let name = module.name.clone();
-    let label = crate::capability::module_feature(&name)
-        .map(|f| f.label().to_string())
-        .unwrap_or_else(|| name.clone());
+    let label = crate::capability::plugin_title(&name).to_string();
     let version = module.version.as_deref().unwrap_or(fallback_version);
     let state = if module.enabled { "启用" } else { "未启用" };
     let color = if module.enabled { t.p.ok } else { t.p.muted };
