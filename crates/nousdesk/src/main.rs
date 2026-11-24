@@ -38,6 +38,7 @@ mod nav_ui;
 mod nav_toggle_tests;
 mod new_entry;
 mod perf;
+mod plugin_doc;
 mod preset_confirm;
 mod preview;
 mod preset_menu;

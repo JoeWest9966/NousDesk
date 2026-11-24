@@ -77,6 +77,8 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+// 用 gpui-base 那个原始 TextView（和 app.rs 同一套），不是兼容包装。
+use gpui_kit::base::text::TextView;
 
 use crate::app::Desktop;
 use crate::config::Config;
@@ -136,6 +138,8 @@ impl Desktop {
     pub(crate) fn close_settings(&mut self, cx: &mut Context<Self>) {
         self.settings_open = false;
         self.settings_msg = None;
+        // 文档跟着引擎版本走：关掉设置页就把缓存清了，换引擎重连后不会读到上一版的正文。
+        self.plugin_doc.reset();
         cx.notify();
     }
 
@@ -1050,9 +1054,13 @@ impl Desktop {
             return list.into_any_element();
         }
         let module = &caps.modules[selected];
-        let detail = self.about_plugin_detail(module, caps, narrow, cx);
+        let pane = if self.plugin_doc.opened() == Some(module.name.as_str()) {
+            self.plugin_reader(module, cx)
+        } else {
+            self.about_plugin_detail(module, caps, narrow, cx)
+        };
         if narrow {
-            detail
+            pane
         } else {
             div()
                 .flex()
@@ -1066,10 +1074,168 @@ impl Desktop {
                         .border_l(t.d(1.))
                         .border_color(rgb(t.p.line_soft))
                         .pl(t.d(18.))
-                        .child(detail),
+                        .child(pane),
                 )
                 .into_any_element()
         }
+    }
+
+    /// 打开插件文档阅读列（demo 03）。已缓存就直接开，不重复请求。
+    pub(crate) fn open_plugin_doc(&mut self, name: String, cx: &mut Context<Self>) {
+        let Some(epoch) = self.plugin_doc.open(&name) else {
+            cx.notify();
+            return;
+        };
+        cx.notify();
+        let Some(engine) = self.engine.clone() else { return };
+        let Some(handle) = crate::TOKIO.get().cloned() else {
+            self.plugin_doc.finish(
+                epoch,
+                &name,
+                crate::plugin_doc::Doc::Failed("tokio 没起".into()),
+            );
+            cx.notify();
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let req_name = name.clone();
+            let got = handle
+                .spawn(async move { engine.plugin_readme(&req_name).await })
+                .await;
+            let doc = match got {
+                Ok(result) => crate::plugin_doc::Doc::from_result(result),
+                Err(e) => crate::plugin_doc::Doc::Failed(format!("任务挂了：{e}")),
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.plugin_doc.finish(epoch, &name, doc);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 插件文档阅读列（demo 03）：**替换**右栏，左边的模块列表还在。
+    ///
+    /// 不做滑入动画：GPUI 里这块没有现成的 60fps 过渡，而且设置页整页在滚动容器里 ——
+    /// 绝对定位的「滑出层」拿不到视口高度，只会变成一条半截浮条。原地替换与 demo 的
+    /// 差别只在过渡那一百来毫秒，信息结构一模一样。
+    fn plugin_reader(&self, module: &nous_engine::Module, cx: &mut Context<Self>) -> AnyElement {
+        use crate::plugin_doc::Doc;
+        let t = t();
+        let name = module.name.clone();
+        let head = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(t.d(12.))
+            .child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(t.d(8.))
+                    .child(div().text_size(t.fs(10.)).text_color(rgb(muted())).child("文档"))
+                    .child(
+                        div()
+                            .text_size(t.fs(10.))
+                            .text_color(rgb(faint()))
+                            .child(name.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .id(ElementId::Name("about-plugin-readme-close".into()))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        if this.plugin_doc.close() {
+                            cx.notify();
+                        }
+                    }))
+                    .px(t.d(6.))
+                    .py(t.d(3.))
+                    .rounded(t.r(4.))
+                    .text_size(t.fs(11.))
+                    .text_color(rgb(t.p.text_2))
+                    .hover(|h| h.bg(rgb(t.p.line_soft)))
+                    .child("✕ 关闭"),
+            );
+
+        let (body, foot): (AnyElement, Option<String>) = match self.plugin_doc.doc(&name) {
+            Some(Doc::Ready { markdown, .. }) => {
+                let cn = markdown
+                    .chars()
+                    .filter(|c| matches!(*c, '\u{4e00}'..='\u{9fff}'))
+                    .count();
+                (
+                    TextView::markdown(
+                        ElementId::Name(format!("plugin-readme-{name}").into()),
+                        markdown.clone(),
+                    )
+                    .selectable(true)
+                    .text_size(t.fs(13.5))
+                    .text_color(rgb(t.p.text))
+                    // 文档不是聊天：段落之间要能看出「换了一节」（聊天那条 0.42rem 太紧）。
+                    .style(crate::md::md_style().with_paragraph_gap(rems(1.05)))
+                    .code_block_actions(crate::md::code_copy_button)
+                    .shared_code_block_highlighter(crate::md::code_highlighter())
+                    .into_any_element(),
+                    Some(format!("{cn} 汉字 · docs/plugins/{name}.md")),
+                )
+            }
+            Some(Doc::Missing) => (
+                doc_notice(
+                    t,
+                    "这份文档没随产物发布",
+                    "引擎认识这个模块，但产物目录里没有这份 README。在部署机上跑一次下面这条即可 —— 不用重编译、不用重启。",
+                    Some("scripts/deploy.sh --docs-only"),
+                ),
+                None,
+            ),
+            Some(Doc::UnknownModule) => (
+                doc_notice(
+                    t,
+                    "引擎不认识这个模块名",
+                    "模块名单由引擎的 /v1/capabilities 给。这个引擎版本比客户端旧，或者名字对不上。",
+                    None,
+                ),
+                None,
+            ),
+            Some(Doc::UnknownEndpoint) => (
+                doc_notice(
+                    t,
+                    "这个引擎还没有插件文档",
+                    "文档端点是 Nous 0.1.25 起的。先把内核产物部署上去，再回来点一次。",
+                    Some("GET /v1/plugins/{name}/readme"),
+                ),
+                None,
+            ),
+            Some(Doc::Failed(e)) => (doc_notice(t, "文档没读出来", e, None), None),
+            Some(Doc::Loading) | None => (
+                div()
+                    .text_size(t.fs(12.))
+                    .text_color(rgb(muted()))
+                    .child("读取中…")
+                    .into_any_element(),
+                None,
+            ),
+        };
+
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .gap(t.d(14.))
+            .min_w(t.d(0.))
+            .max_w(t.d(600.))
+            .child(head)
+            .child(body);
+        if let Some(foot) = foot {
+            col = col.child(
+                div()
+                    .pt(t.d(10.))
+                    .text_size(t.fs(10.5))
+                    .text_color(rgb(faint()))
+                    .child(foot),
+            );
+        }
+        col.into_any_element()
     }
 
     /// 单个模块详情（demo 01 右栏）。缺省字段按票面降级：
@@ -1122,6 +1288,24 @@ impl Desktop {
             });
         let state = if module.enabled { "启用" } else { "未启用" };
 
+        // 方案 03：详情保持密度，文档走右上角这一颗 —— 点击后右栏换成阅读列。
+        let readme_btn = div()
+            .id(ElementId::Name("about-plugin-readme".into()))
+            .on_click(cx.listener({
+                let name = module.name.clone();
+                move |this, _: &ClickEvent, _, cx| this.open_plugin_doc(name.clone(), cx)
+            }))
+            .flex_none()
+            .px(t.d(9.))
+            .py(t.d(4.))
+            .rounded(t.r(5.))
+            .border(t.d(1.))
+            .border_color(rgb(t.p.line_soft))
+            .text_size(t.fs(11.5))
+            .text_color(rgb(t.p.text_2))
+            .hover(|h| h.bg(rgb(t.p.line_soft)))
+            .child("读文档");
+
         let mut detail = div()
             .flex()
             .flex_col()
@@ -1130,15 +1314,23 @@ impl Desktop {
             .child(
                 div()
                     .flex()
-                    .flex_col()
-                    .gap(t.d(4.))
-                    .child(div().text_size(t.fs(15.)).child(label))
+                    .items_start()
+                    .justify_between()
+                    .gap(t.d(12.))
                     .child(
                         div()
-                            .text_size(t.fs(10.5))
-                            .text_color(rgb(muted()))
-                            .child(module.name.clone()),
-                    ),
+                            .flex()
+                            .flex_col()
+                            .gap(t.d(4.))
+                            .child(div().text_size(t.fs(15.)).child(label))
+                            .child(
+                                div()
+                                    .text_size(t.fs(10.5))
+                                    .text_color(rgb(muted()))
+                                    .child(module.name.clone()),
+                            ),
+                    )
+                    .child(readme_btn),
             )
             .child(
                 div()
@@ -1757,6 +1949,41 @@ fn plugin_row(
                 ),
         )
         .into_any_element()
+}
+
+/// 阅读列的空 / 错状态：一句标题 + 一段人话。不用警示红 —— 文档没装不是错误。
+fn doc_notice(
+    t: crate::theme::Skin,
+    title: &'static str,
+    detail: &str,
+    command: Option<&str>,
+) -> AnyElement {
+    let mut box_ = div()
+        .flex()
+        .flex_col()
+        .gap(t.d(6.))
+        .p(t.d(12.))
+        .bg(rgb(t.p.surface))
+        .border(t.d(1.))
+        .border_color(rgb(t.p.line_soft))
+        .child(div().text_size(t.fs(12.5)).text_color(rgb(t.p.text)).child(title))
+        .child(
+            div()
+                .text_size(t.fs(11.5))
+                .text_color(rgb(muted()))
+                .child(detail.to_string()),
+        );
+    if let Some(command) = command {
+        box_ = box_.child(
+            div()
+                .mt(t.d(4.))
+                .font_family("JetBrainsMono")
+                .text_size(t.fs(11.))
+                .text_color(rgb(t.p.accent_fg))
+                .child(command.to_string()),
+        );
+    }
+    box_.into_any_element()
 }
 
 fn plugin_meta(label: &'static str, value: String) -> AnyElement {
