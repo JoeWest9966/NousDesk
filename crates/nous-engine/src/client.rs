@@ -1419,6 +1419,8 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/trigger-projects/restore"),
     ("POST", "v1/trigger-projects/purge"),
     ("POST", "v1/trigger-projects/category"),
+    ("GET", "v1/trigger-projects/order"),
+    ("PUT", "v1/trigger-projects/order"),
     ("GET", "v1/trigger-projects/categories"),
     ("POST", "v1/trigger-projects/categories"),
     ("POST", "v1/trigger-projects/sync"),

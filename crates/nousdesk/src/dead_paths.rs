@@ -192,6 +192,8 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/trigger-projects/categories"),
     ("POST", "v1/trigger-projects/categories"),
     ("POST", "v1/trigger-projects/category"),
+    ("GET", "v1/trigger-projects/order"),
+    ("PUT", "v1/trigger-projects/order"),
     ("POST", "v1/trigger-projects/sync"),
     ("GET", "v1/capabilities"),
     // stats（Nous#62）：recovery 分支真有这三条，客户端可以打，不进死路径白名单。
@@ -362,6 +364,8 @@ mod tests {
             ("GET", "v1/trigger-projects/categories"),
             ("POST", "v1/trigger-projects/categories"),
             ("POST", "v1/trigger-projects/category"),
+            ("GET", "v1/trigger-projects/order"),
+            ("PUT", "v1/trigger-projects/order"),
             ("POST", "v1/trigger-projects/sync"),
         ];
         for (method, path) in triggers {
@@ -395,8 +399,9 @@ mod tests {
         // 数字改一次就要问一次「为什么」：这条断言是防「夹具被悄悄裁掉一半」的。
         assert_eq!(
             fixture["routes"].as_array().unwrap().len(),
-            162,
-            "0.1.21 真路由器整份重抓：0.1.15 的 139 + 触发器工程面 13 + 垃圾站 2 + 元素库 7 + 锁 1"
+            164,
+            "0.1.21 真路由器整份重抓：0.1.15 的 139 + 触发器工程面 13 + 垃圾站 2 + 元素库 7 + 锁 1 \
+             + 触发器排序面 2（2026-11-24，内核 feat/trigger-order，手加待重抓）"
         );
         assert!(fixture["_provenance"].get("commit").is_some());
     }

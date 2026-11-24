@@ -41,6 +41,7 @@ mod perf;
 mod preset_confirm;
 mod preview;
 mod preset_menu;
+mod trigger_menu;
 mod rail_icons;
 mod recent;
 mod rename_box;

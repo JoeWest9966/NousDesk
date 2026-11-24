@@ -18,7 +18,8 @@ use std::time::Duration;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
-use gpui_kit::component::Icon;
+use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -112,12 +113,6 @@ pub(crate) struct Wizard {
     pub err: Option<String>,
 }
 
-pub(crate) struct TriggerMenu {
-    pub name: String,
-    pub x: f32,
-    pub y: f32,
-}
-
 /// 类别节点右键菜单（和卡片右键同一套手感）。
 pub(crate) struct CatMenu {
     pub label: String,
@@ -176,7 +171,14 @@ pub(crate) struct State {
     pub wizard: Wizard,
     pub confirm: Confirm,
     pub busy: Option<String>,
-    pub menu: Option<TriggerMenu>,
+    /// 顺序请求飞着的那个（同一时刻只许一个，见 `commit_order`）。
+    pub order_flying: Option<Vec<String>>,
+    /// 飞着的时候又拖了一下：只记**最新**那一次，回包回来直接发它。
+    pub order_next: Option<Vec<String>>,
+    /// 拖拽时鼠标停在哪一行（画落点线用）。
+    pub drop_target: Option<String>,
+    /// 鼠标停在哪一行（露排序箭头用）。
+    pub hover: Option<String>,
     pub cat_menu: Option<CatMenu>,
     pub cat_form: Option<CatForm>,
     pub cat_del: Option<String>,
@@ -245,7 +247,10 @@ impl State {
                 purge: false,
             },
             busy: None,
-            menu: None,
+            order_flying: None,
+            order_next: None,
+            drop_target: None,
+            hover: None,
             cat_menu: None,
             cat_form: None,
             cat_del: None,
@@ -408,6 +413,141 @@ impl Desktop {
         self.triggers.selected = Some(name.to_string());
         self.triggers.layer = Layer::Detail;
         cx.notify();
+    }
+
+    /// 右键菜单的出口（`trigger_menu.rs` 只管长相，动作全在这儿落）。
+    pub(crate) fn on_trigger_menu(
+        &mut self,
+        action: crate::trigger_menu::TriggerMenuAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::trigger_menu::TriggerMenuAction as A;
+        match action {
+            A::Open { name } => self.select_trigger(&name, cx),
+            A::Code { name } => self.open_code(&name, window, cx),
+            A::ChangeCategory { name } => self.cat_pick_open(&name, window, cx),
+            A::CopyName { name } => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(name.clone()));
+                self.notice(format!("名字已复制：{name}"), false, cx);
+            }
+            A::Archive { name } => self.ask_archive(&name, window, cx),
+        }
+    }
+
+    // ── 排序（拖拽 + ↑↓，落 `order.json`）─────────────────────
+
+    /// 盘上那份顺序，也是屏幕上那份（引擎已经把 list 排好了）。
+    fn current_trigger_order(&self) -> Vec<String> {
+        self.triggers
+            .data
+            .as_ref()
+            .map(|d| d.triggers.iter().map(|t| t.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// 就地把列表按 `order` 排好。表里没有的留在后面、保持原相对顺序（稳定排序）。
+    ///
+    /// 这是**乐观更新**：引擎那边一次写盘，远端连不上时要等一会儿 —— UI 不能等。
+    fn apply_trigger_order_now(&mut self, order: &[String]) {
+        let Some(data) = self.triggers.data.as_mut() else {
+            return;
+        };
+        let at: std::collections::HashMap<&str, usize> =
+            order.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+        data.triggers
+            .sort_by_key(|t| at.get(t.name.as_str()).copied().unwrap_or(usize::MAX));
+    }
+
+    /// 落一次顺序：本地先排好给人看，后台再发。
+    fn commit_trigger_order(&mut self, order: Vec<String>, cx: &mut Context<Self>) {
+        if order.is_empty() {
+            return;
+        }
+        self.apply_trigger_order_now(&order);
+        cx.notify();
+
+        // **同一时刻只许一个请求在飞。** 拖三下就发三个请求，它们并发出去时
+        // 谁先落盘不定，最后那次未必最后写进去 —— 人就会看见「拖完是对的、刷新一下变回去」。
+        if self.triggers.order_flying.is_some() {
+            self.triggers.order_next = Some(order);
+            return;
+        }
+        self.send_trigger_order(order, cx);
+    }
+
+    /// 真正发出去那一次。回来之后再看看队里有没有更晚的一次。
+    fn send_trigger_order(&mut self, order: Vec<String>, cx: &mut Context<Self>) {
+        let Some(client) = self.triggers.client.clone() else {
+            self.notice("还没连上引擎", true, cx);
+            return;
+        };
+        self.triggers.order_flying = Some(order.clone());
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else {
+                return;
+            };
+            let result = handle.spawn(async move { client.set_order(&order).await }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.triggers.order_flying = None;
+                // 排队里还有更晚的一次：直接发它。别拿这次的回包盖回本地 ——
+                // 它已经过时了，盖回去就成了「越拖越回去」。
+                if let Some(next) = this.triggers.order_next.take() {
+                    this.send_trigger_order(next, cx);
+                    return;
+                }
+                match result {
+                    Ok(Ok(done)) => {
+                        // 盘上那份才是真相（引擎会滤掉已删除的名字）。空表别盖本地。
+                        if !done.is_empty() {
+                            this.apply_trigger_order_now(&done);
+                        }
+                        cx.notify();
+                    }
+                    Ok(Err(e)) => {
+                        this.notice(format!("顺序没存下：{e}"), true, cx);
+                        // 回滚到真相 —— 本地那次乐观排序是猜的。
+                        this.load_trigger_list(true, cx);
+                    }
+                    Err(e) => this.notice(format!("顺序没存下：{e}"), true, cx),
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 上移 / 下移一格。`delta` 是 `-1` / `+1`。
+    ///
+    /// 拖拽的兜底：Wayland 上拖不进别的窗口、触控板手抖、或者干脆不知道能拖 ——
+    /// 都得有条路能排。
+    fn move_trigger(&mut self, name: &str, delta: isize, cx: &mut Context<Self>) {
+        // 邻居按**屏幕上看得见的**那一列找，不是全量表 —— 筛着类别的时候，
+        // 全量表里前一条可能根本不在这一档，换完了屏幕上一点变化都没有。
+        let view: Vec<String> = self
+            .filtered_triggers(cx)
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        let Some(pos) = view.iter().position(|n| n == name) else {
+            return;
+        };
+        let to = pos as isize + delta;
+        if to < 0 || to >= view.len() as isize {
+            return;
+        }
+        let target = view[to as usize].clone();
+        if let Some(next) = crate::templates::reorder_move(&self.current_trigger_order(), name, &target) {
+            self.commit_trigger_order(next, cx);
+        }
+    }
+
+    /// 拖到某一行上松手：搬到那行的位置（插入式，不是交换）。
+    fn drop_trigger_on(&mut self, from: &str, to: &str, cx: &mut Context<Self>) {
+        self.triggers.drop_target = None;
+        match crate::templates::reorder_move(&self.current_trigger_order(), from, to) {
+            Some(next) => self.commit_trigger_order(next, cx),
+            None => cx.notify(),
+        }
     }
 
     fn close_detail(&mut self, cx: &mut Context<Self>) {
@@ -669,145 +809,6 @@ impl Desktop {
 
     // ── 右键菜单 / 冲突 / 键盘 ─────────────────────────────
 
-    pub(crate) fn trigger_menu_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(menu) = self.triggers.menu.as_ref() else {
-            return div().into_any_element();
-        };
-        let (x, y) = (menu.x, menu.y);
-        let open = menu.name.clone();
-        let code = menu.name.clone();
-        let arch = menu.name.clone();
-        let copy = menu.name.clone();
-        let cat = menu.name.clone();
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .right_0()
-                    .bottom_0()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                            this.triggers.menu = None;
-                            cx.notify();
-                        }),
-                    ),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(x))
-                    .top(px(y))
-                    .w(t().d(170.))
-                    .flex()
-                    .flex_col()
-                    .p(t().d(4.))
-                    .rounded(t().r(7.))
-                    .bg(rgb(t().p.overlay))
-                    .border(t().d(1.))
-                    .border_color(rgb(t().p.line))
-                    .child(
-                        div()
-                            .id("tm-open")
-                            .flex()
-                            .items_center()
-                            .px(t().d(10.))
-                            .h(t().d(30.))
-                            .rounded(t().r(5.))
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.text))
-                            .cursor_pointer()
-                            .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.triggers.menu = None;
-                                this.select_trigger(&open, cx);
-                            }))
-                            .child("打开详情"),
-                    )
-                    .child(
-                        div()
-                            .id("tm-code")
-                            .flex()
-                            .items_center()
-                            .px(t().d(10.))
-                            .h(t().d(30.))
-                            .rounded(t().r(5.))
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.text))
-                            .cursor_pointer()
-                            .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.triggers.menu = None;
-                                this.open_code(&code, window, cx);
-                            }))
-                            .child("改代码"),
-                    )
-                    .child(
-                        div()
-                            .id("tm-cat")
-                            .flex()
-                            .items_center()
-                            .px(t().d(10.))
-                            .h(t().d(30.))
-                            .rounded(t().r(5.))
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.text))
-                            .cursor_pointer()
-                            .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.triggers.menu = None;
-                                this.cat_pick_open(&cat, window, cx);
-                            }))
-                            .child("改类别…"),
-                    )
-                    .child(
-                        div()
-                            .id("tm-arch")
-                            .flex()
-                            .items_center()
-                            .px(t().d(10.))
-                            .h(t().d(30.))
-                            .rounded(t().r(5.))
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.danger))
-                            .cursor_pointer()
-                            .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.triggers.menu = None;
-                                this.ask_archive(&arch, window, cx);
-                            }))
-                            .child("归档"),
-                    )
-                    .child(
-                        div()
-                            .id("tm-copy")
-                            .flex()
-                            .items_center()
-                            .px(t().d(10.))
-                            .h(t().d(30.))
-                            .rounded(t().r(5.))
-                            .text_size(t().fs(11.))
-                            .text_color(rgb(t().p.text_2))
-                            .cursor_pointer()
-                            .hover(|h| h.bg(rgb(t().p.hover)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.triggers.menu = None;
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
-                                cx.notify();
-                            }))
-                            .child("复制名字"),
-                    ),
-            )
-            .into_any_element()
-    }
-
     pub(crate) fn trigger_conflict_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(message) = self.triggers.conflict.as_ref() else {
             return div().into_any_element();
@@ -934,11 +935,6 @@ impl Desktop {
             }
             if self.triggers.cat_menu.is_some() {
                 self.triggers.cat_menu = None;
-                cx.notify();
-                return true;
-            }
-            if self.triggers.menu.is_some() {
-                self.triggers.menu = None;
                 cx.notify();
                 return true;
             }
@@ -2469,6 +2465,7 @@ fn status_of(item: &TriggerItem) -> (&'static str, u32, u32) {
 }
 
 use crate::category::{CatNode, is_under};
+use crate::templates::status_pill;
 use crate::sync_state::{SyncFacts, Tone, sync_state};
 
 impl Desktop {
@@ -3137,182 +3134,300 @@ impl Desktop {
                 None,
             );
         }
-        let cards: Vec<AnyElement> = rows
+        let rows: Vec<AnyElement> = rows
             .iter()
-            .map(|item| self.trigger_card(item, cx))
+            .map(|item| self.trigger_row(item, cx))
             .collect();
+        // 一行一条（模板页 `preset_row` 的形状）：不再折成卡片网格 ——
+        // 列表就是列表，扫名字的时候眼睛只往下走。
         div()
-            .id("trigger-grid-scroll")
+            .id("trigger-list-scroll")
             .flex_1()
             .min_h(t().d(0.))
             .overflow_y_scroll()
             .track_scroll(&self.triggers.scroll)
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .gap(t().d(12.))
-                    .px(t().d(20.))
-                    .pb(t().d(20.))
-                    .children(cards),
-            )
+            .child(div().flex().flex_col().px(t().d(12.)).pb(t().d(16.)).children(rows))
             .into_any_element()
     }
 
-    fn trigger_card(&self, item: &TriggerItem, cx: &mut Context<Self>) -> AnyElement {
+    /// 一行 = 一个触发器。骨架照模板页的 `preset_row`：
+    /// 点行只负责选中（右侧出详情），行尾那个按钮才是另一个动作；
+    /// 右键走 `PopupMenu`（翻边 / Esc / 点空白由库管）。
+    ///
+    /// 卡片上原来有的东西一条不砍：图标方块、名字、摘要、类别 chip、状态、
+    /// 参数数、脏文件数、二进制名 —— 只是从「块」排成「行」。
+    fn trigger_row(&self, item: &TriggerItem, cx: &mut Context<Self>) -> AnyElement {
         let (label, bg, fg) = status_of(item);
         let name = item.name.clone();
-        let menu_name = item.name.clone();
-        // 键盘 ↑↓ 改的是 selected，卡片上得看得见，否则像没反应。
+        let pick_name = item.name.clone();
+        let code_name = item.name.clone();
+        let hover_name = item.name.clone();
+        let over_name = item.name.clone();
+        let drag_name = item.name.clone();
+        let drop_name = item.name.clone();
         let picked = self.triggers.selected.as_deref() == Some(item.name.as_str());
+        let hovered = self.triggers.hover.as_deref() == Some(item.name.as_str());
+        let dropping = self.triggers.drop_target.as_deref() == Some(item.name.as_str());
+        let tile = tile_color(&item.name);
         let params = item.params.len();
         let dirty = item.dirty_files;
-        let tile = tile_color(&item.name);
-        let cats: Vec<String> = item.category.iter().take(2).cloned().collect();
-        div()
-            .id(ElementId::Name(format!("tcard-{}", item.name).into()))
+        let cats: Vec<String> = if item.category.is_empty() {
+            vec!["未分类".to_string()]
+        } else {
+            item.category.iter().take(2).cloned().collect()
+        };
+
+        let row = div()
+            .relative()
             .flex()
-            .flex_col()
-            .w(t().d(300.))
-            .min_h(t().d(148.))
-            .p(t().d(13.))
-            .rounded(t().r(9.))
-            .border(t().d(1.))
-            .border_color(rgb(if picked {
-                t().p.accent
-            } else if label == "清单坏了" {
-                t().p.danger
-            } else {
-                t().p.line
-            }))
-            .bg(rgb(t().p.panel))
+            .items_center()
+            .gap(t().d(10.))
+            .p(t().d(10.))
+            .border_b(t().d(1.))
+            .border_color(rgb(t().p.line_strong))
+            .bg(rgb(if picked { t().p.hover } else { t().p.panel }))
+            .id(ElementId::Name(format!("trow-{}", item.name).into()))
             .cursor_pointer()
-            .hover(|h| h.border_color(rgb(t().p.muted)))
+            .hover(|h| h.bg(rgb(t().p.line_soft)))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.select_trigger(&name.clone(), cx);
+                this.triggers.drop_target = None;
+                this.select_trigger(&pick_name.clone(), cx);
             }))
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                    this.triggers.selected = Some(menu_name.clone());
-                    this.triggers.menu = Some(TriggerMenu {
-                        name: menu_name.clone(),
-                        x: f32::from(ev.position.x),
-                        y: f32::from(ev.position.y),
-                    });
-                    cx.notify();
-                }),
+            // 拖拽排序：拖起来的是一条「名字」，落到哪行就占那行的位置。
+            .on_drag(
+                DragTrigger {
+                    name: item.name.clone(),
+                },
+                |value, _offset, _window, cx| {
+                    cx.new(|_| TriggerGhost {
+                        name: value.name.clone(),
+                    })
+                },
+            )
+            .on_drag_move(cx.listener({
+                let over_name = over_name.clone();
+                move |this: &mut Self,
+                      _ev: &DragMoveEvent<DragTrigger>,
+                      _: &mut Window,
+                      cx: &mut Context<Self>| {
+                    if this.triggers.drop_target.as_deref() != Some(over_name.as_str()) {
+                        this.triggers.drop_target = Some(over_name.clone());
+                        cx.notify();
+                    }
+                }
+            }))
+            .on_drop(cx.listener({
+                let drop_name = drop_name.clone();
+                move |this: &mut Self,
+                      dragged: &DragTrigger,
+                      _: &mut Window,
+                      cx: &mut Context<Self>| {
+                    this.drop_trigger_on(&dragged.name, &drop_name, cx);
+                }
+            }))
+            .on_hover(cx.listener({
+                let hover_name = hover_name.clone();
+                move |this: &mut Self, hovered: &bool, _: &mut Window, cx: &mut Context<Self>| {
+                    let now = hovered.then(|| hover_name.clone());
+                    if this.triggers.hover != now {
+                        this.triggers.hover = now;
+                        cx.notify();
+                    }
+                }
+            }))
+            // 落点线：拖到哪一行，就在那行顶上画一条 —— 松手会插到那儿。
+            .children(dropping.then(|| {
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .h(t().d(2.))
+                    .bg(rgb(t().p.accent))
+            }))
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .size(t().d(30.))
+                    .rounded(t().r(8.))
+                    .bg(rgb(tile))
+                    .text_size(t().fs(13.))
+                    .text_color(rgb(t().p.on_accent))
+                    .child(item.name.chars().next().unwrap_or('?').to_uppercase().to_string()),
             )
             .child(
                 div()
                     .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap(t().d(9.))
+                    .flex_col()
+                    .gap(t().d(3.))
+                    .flex_1()
+                    .min_w(t().d(0.))
+                    .overflow_hidden()
                     .child(
+                        // 名字一行、摘要一行、chip 一行 —— 列表里不折行（折了行高就跳，扫不动）。
                         div()
                             .flex()
                             .items_center()
-                            .justify_center()
-                            .size(t().d(30.))
-                            .rounded(t().r(8.))
-                            .bg(rgb(tile))
-                            .text_size(t().fs(13.))
-                            .text_color(rgb(t().p.on_accent))
-                            .child(item.name.chars().next().unwrap_or('?').to_uppercase().to_string()),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
+                            .gap(t().d(6.))
                             .child(
                                 div()
-                                    .text_size(t().fs(11.5))
+                                    .text_size(t().fs(12.5))
                                     .text_color(rgb(t().p.text))
+                                    .whitespace_nowrap()
+                                    .text_overflow(TextOverflow::Truncate("…".into()))
                                     .child(item.name.clone()),
                             )
                             .child(
                                 div()
                                     .text_size(t().fs(10.))
-                                    .text_color(rgb(t().p.text_2))
+                                    .text_color(rgb(t().p.faint))
                                     .child(format!("v{}", item.version)),
                             ),
                     )
-                    .child(div().flex_1())
+                    .when(!item.summary.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .text_size(t().fs(12.))
+                                .text_color(rgb(t().p.muted))
+                                .whitespace_nowrap()
+                                .text_overflow(TextOverflow::Truncate("…".into()))
+                                .child(item.summary.clone()),
+                        )
+                    })
                     .child(
                         div()
-                            .h(t().d(19.))
-                            .px(t().d(6.))
                             .flex()
+                            .flex_row()
                             .items_center()
                             .gap(t().d(4.))
-                            .rounded(t().r(4.))
-                            .bg(rgb(bg))
+                            .overflow_hidden()
+                            .children(cats.into_iter().map(|c| {
+                                div()
+                                    .h(t().d(19.))
+                                    .px(t().d(6.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(4.))
+                                    .bg(rgb(t().p.line_soft))
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(t().p.text_2))
+                                    .child(c)
+                            }))
+                            .child(status_pill(label, fg))
+                            // 卡片下沿那两行字，并到 chip 行尾 —— 不再单独占一行。
                             .child(
                                 div()
-                                    .size(t().d(5.))
-                                    .rounded(t().r(2.5))
-                                    .bg(rgb(fg)),
+                                    .ml(t().d(2.))
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(t().p.text_2))
+                                    .whitespace_nowrap()
+                                    .child(match item.binary.clone() {
+                                        Some(binary) => format!("{params} 参数 · {binary}"),
+                                        None => format!("{params} 参数"),
+                                    }),
                             )
-                            .child(
+                            .children((dirty > 0).then(|| {
                                 div()
-                                    .text_size(t().fs(9.5))
-                                    .text_color(rgb(fg))
-                                    .child(label),
-                            ),
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(t().p.warn))
+                                    .whitespace_nowrap()
+                                    .child(format!("{dirty} 个文件"))
+                            })),
                     ),
             )
-            .child(
+            // 排序：悬停那行露两个箭头（透明占位，不跳行）。拖拽的兜底 ——
+            // 触控板手抖、或者根本不知道这行能拖的时候，总得有条路能排。
+            .child({
+                let up_name = item.name.clone();
+                let down_name = item.name.clone();
                 div()
-                    .mt(t().d(10.))
-                    .text_size(t().fs(11.))
-                    .text_color(rgb(t().p.muted))
-                    .child(short(&item.summary, 46)),
-            )
-            .child(
-                div()
+                    .flex_none()
                     .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .gap(t().d(4.))
-                    .mt(t().d(9.))
-                    .children(cats.iter().map(|c| {
-                        div()
-                            .h(t().d(19.))
-                            .px(t().d(6.))
-                            .flex()
-                            .items_center()
-                            .rounded(t().r(4.))
-                            .bg(rgb(t().p.line_soft))
-                            .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.text_2))
-                            .child(c.clone())
-                    })),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(t().d(6.))
-                    .mt_auto()
-                    .pt(t().d(10.))
+                    .flex_col()
+                    .gap(t().d(1.))
+                    .opacity(if hovered { 1.0 } else { 0.0 })
                     .child(
                         div()
-                            .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.text_2))
-                            .child(format!("{params} 参数")),
+                            .id(ElementId::Name(format!("tup-{}", item.name).into()))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(t().d(13.))
+                            .rounded(t().r(3.))
+                            .cursor_pointer()
+                            .text_color(rgb(t().p.muted))
+                            .hover(|h| h.bg(rgb(t().p.line)).text_color(rgb(t().p.text)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.move_trigger(&up_name, -1, cx);
+                            }))
+                            .child(
+                                div()
+                                    .text_size(t().fs(10.))
+                                    .line_height(t().d(11.))
+                                    .child("▲"),
+                            ),
                     )
-                    .child(div().flex_1())
-                    .children((dirty > 0).then(|| {
+                    .child(
                         div()
-                            .text_size(t().fs(10.))
-                            .text_color(rgb(t().p.warn))
-                            .child(format!("{dirty} 个文件"))
-                    })),
-            )
-            .into_any_element()
+                            .id(ElementId::Name(format!("tdown-{}", item.name).into()))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(t().d(13.))
+                            .rounded(t().r(3.))
+                            .cursor_pointer()
+                            .text_color(rgb(t().p.muted))
+                            .hover(|h| h.bg(rgb(t().p.line)).text_color(rgb(t().p.text)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.move_trigger(&down_name, 1, cx);
+                            }))
+                            .child(
+                                div()
+                                    .text_size(t().fs(10.))
+                                    .line_height(t().d(11.))
+                                    .child("▼"),
+                            ),
+                    )
+            })
+            // 行尾：README 上写过的那个动作 —— 打开代码。行体只负责选中，
+            // 两个动作分开：多一次辨认，少一堆误触。
+            .child(
+                div()
+                    .id(ElementId::Name(format!("tcode-{}", item.name).into()))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(t().d(3.))
+                    .h(t().d(26.))
+                    .px(t().d(8.))
+                    .rounded(t().r(6.))
+                    .text_size(t().fs(10.5))
+                    .text_color(rgb(t().p.muted))
+                    .hover(|h| h.bg(rgb(t().p.line)).text_color(rgb(t().p.link)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.open_code(&code_name.clone(), window, cx);
+                    }))
+                    .child("代码")
+                    .child(div().text_size(t().fs(11.)).child("›")),
+            );
+
+        // 右键菜单：条目顺序 / 文案 / 动作映射在 `trigger_menu.rs`。
+        // 只能在链尾挂：`context_menu()` 返回 `ContextMenu<Stateful<Div>>`，换个类型就串不下去。
+        let this = cx.entity().downgrade();
+        let target = crate::trigger_menu::TriggerTarget::new(item.name.clone());
+        row.context_menu(move |menu, window, cx| {
+            let this = this.clone();
+            crate::trigger_menu::build_menu(menu, window, cx, &target, move |action, window, cx| {
+                let _ = this.update(cx, |this, cx| this.on_trigger_menu(action, window, cx));
+            })
+        })
+        .into_any_element()
     }
 
     fn trigger_archived_list(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -6330,3 +6445,31 @@ fn code_block(text: &str) -> AnyElement {
         .into_any_element()
 }
 
+
+/// 拖起来的那个东西：只是「一个名字」，落点决定它插到哪。
+pub(crate) struct DragTrigger {
+    pub name: String,
+}
+
+/// 拖影：一条跟着鼠标的「正在搬这一行」。**不是那行本身** —— 原来那行留在原地，
+/// 人一眼能看出「从哪儿搬」。
+pub(crate) struct TriggerGhost {
+    name: String,
+}
+
+impl Render for TriggerGhost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let t = t();
+        div()
+            .px(t.d(10.))
+            .py(t.d(5.))
+            .rounded(t.r(6.))
+            .bg(rgb(t.p.panel))
+            .border(t.d(1.))
+            .border_color(rgb(t.p.accent))
+            .shadow_lg()
+            .text_size(t.fs(12.))
+            .text_color(rgb(t.p.text))
+            .child(self.name.clone())
+    }
+}

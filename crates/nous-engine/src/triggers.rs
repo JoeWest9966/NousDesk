@@ -409,6 +409,30 @@ impl TriggerClient {
         self.json(resp).await
     }
 
+    /// 盘上的排序表。引擎会把「漏掉的名字」补在后面 —— 拿到的就是生效顺序。
+    pub async fn order(&self) -> Result<Vec<String>, EngineError> {
+        let resp = self
+            .http
+            .get(self.url("v1/trigger-projects/order")?)
+            .send()
+            .await?;
+        let value: serde_json::Value = self.json(resp).await?;
+        Ok(order_of(&value))
+    }
+
+    /// 整段顺序。不认的名字引擎丢掉、漏掉的补在后面，回包就是盘上那份 ——
+    /// 客户端拿它校正本地乐观排序（服务端才是真相）。
+    pub async fn set_order(&self, order: &[String]) -> Result<Vec<String>, EngineError> {
+        let resp = self
+            .http
+            .put(self.url("v1/trigger-projects/order")?)
+            .json(&serde_json::json!({ "order": order }))
+            .send()
+            .await?;
+        let value: serde_json::Value = self.json(resp).await?;
+        Ok(order_of(&value))
+    }
+
     /// 词表增改删：`op` = `add` / `rename` / `remove`。
     ///
     /// `rename` / `remove` 会重写每个触发器 `nous.json` 的 `category`（子类一起搬 / 一起摘），
@@ -493,5 +517,35 @@ mod tests {
         assert!(out.committed);
         assert!(!out.pushed);
         assert_eq!(out.push_error, "rejected");
+    }
+}
+
+fn order_of(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("order")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::order_of;
+
+    #[test]
+    fn order_reads_the_array_and_ignores_noise() {
+        let value = serde_json::json!({ "order": ["b", "a", 7, null] });
+        assert_eq!(order_of(&value), vec!["b".to_string(), "a".to_string()]);
+    }
+
+    #[test]
+    fn missing_order_is_an_empty_list_not_an_error() {
+        assert!(order_of(&serde_json::json!({})).is_empty());
+        assert!(order_of(&serde_json::json!(null)).is_empty());
     }
 }

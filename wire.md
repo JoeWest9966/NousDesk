@@ -601,10 +601,11 @@ diff 由 Desk 对「当前原文 vs 第 n 版原文」做文本计算（`crates/
 （body `{message?}`），以及三仓 `/{op}` 旧拓扑化石（不可再调用）。
 UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 
-### 触发器工程面（13；Nous#95）
+### 触发器工程面（15；Nous#95 + 排序）
 
 `GET /v1/trigger-projects`、`GET .../{files,file}`、`PUT .../file`、
-`POST .../create|publish|archive|restore|purge|category|categories|sync`。
+`POST .../create|publish|archive|restore|purge|category|categories|sync`、
+`GET|PUT .../order`。
 请求/回包类型在 `triggers.rs`（`TriggerClient`），页面在 `triggers.rs`。
 
 - 数据根是引擎那台机器的 `NOUS_TRIGGERS`（默认 `/opt/Nous-Trigger`），**不是**客户端路径；
@@ -615,6 +616,11 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 - `base` 是保存的并发闸：它等于上次读到的 `etag`，不符 → **409**，盘上不动。
 - `sync` 只提交词表 / 清单（`categories.json`、`index.json`、各 `nous.json`），不碰 `.rs`。
 - 与 `GET /v1/triggers`（定义 + 调度 + 点火账）是**两层**：那边是库里的行，这边是盘上的项目。
+- **排序**：`order.json`（`{"v":1,"order":[...]}`）在触发器仓根，和 `categories.json` 同级。
+  `GET .../order` 回**生效顺序**（`{"order":[...]}`，盘上不存在的名字已滤掉、没进表的名字按名字补在后面）；
+  `PUT .../order`（body `{order:[...]}`）整段写盘，回包同 `GET`。两条都**不提交 git** ——
+  和 `category` 一样等 `POST .../sync`/`publish` 一起提交，所以拖完一次要在「提交并推送」里落一次。
+  `GET /v1/trigger-projects` 的 `triggers` 顺序就是这个顺序（引擎已排好，客户端**不许**再排一次）。
 
 ### 统计 / 默认 / 选择 / 文档（客户端在用，字段合同在正文或协议层）
 
