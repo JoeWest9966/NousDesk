@@ -492,7 +492,8 @@ mod tests {
         assert_ne!(plugin_title("stats"), Feature::Stats.label(), "插件标题不能是中文别名");
     }
 
-    /// #18 + #12：插件页左栏显示中文名。合并后 12 个 Feature 一个都不许漏，
+    /// 这些中文是 Desk 自己的页面名（导航 / 左列），不是插件名 —— 插件列表与详情
+    /// 只显示引擎报的英文模块名，不再使用它们。12 个 Feature 一个都不许漏，
     /// 新增变体时这里会先红（match 全覆盖 + 单测逐条钉字）。
     #[test]
     fn every_feature_has_a_chinese_label() {

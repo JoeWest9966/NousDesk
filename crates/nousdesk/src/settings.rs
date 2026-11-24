@@ -1260,9 +1260,7 @@ impl Desktop {
         let crate_name = module.crate_name.as_deref().unwrap_or(unknown);
         let description = module.description.as_deref().unwrap_or(unknown);
         let registered = crate::capability::module_feature(module.name.as_str());
-        let label = registered
-            .map(|f| f.label().to_string())
-            .unwrap_or_else(|| module.name.clone());
+        let label = crate::capability::plugin_title(module.name.as_str()).to_string();
 
         // 状态文案只走 disabled_text()：不在这里写第二套 if enabled。
         let reason = registered
