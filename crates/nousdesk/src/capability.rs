@@ -119,6 +119,13 @@ pub fn normalize_path(path: &str) -> String {
         .join("/")
 }
 
+/// 「关于 → 插件」列表行标题：**只有英文模块名**。不查 Feature、不翻译 —— 引擎报什么名字就显示什么，
+/// 新插件自动出现，客户端不用改。中文名只活在各模块自己的 README 里；`Feature::label()`
+/// 是 Desk 自己的页面名，不是插件名，两者不能混用。
+pub fn plugin_title(module_name: &str) -> &str {
+    module_name
+}
+
 /// 从引擎模块名找客户端登记的 `Feature`。`env` 这类引擎侧模块
 /// 没有 Desk 入口 → `None`，插件页照实列出并标「未登记」。
 pub fn module_feature(name: &str) -> Option<Feature> {
@@ -475,7 +482,18 @@ mod tests {
         .unwrap()
     }
 
-    /// #18 + #12：插件页左栏显示中文名。合并后 12 个 Feature 一个都不许漏，
+    /// 插件列表行不许再出现中文别名 —— 引擎报什么名字就显示什么。
+    /// 如果有人把 `Feature::label()` 的中文贴回插件标题，这条测试会红。
+    #[test]
+    fn plugin_title_is_the_verbatim_module_name() {
+        assert_eq!(plugin_title("stats"), "stats");
+        assert_eq!(plugin_title("element-models"), "element-models");
+        assert_eq!(plugin_title("brand-new-plugin"), "brand-new-plugin");
+        assert_ne!(plugin_title("stats"), Feature::Stats.label(), "插件标题不能是中文别名");
+    }
+
+    /// 这些中文是 Desk 自己的页面名（导航 / 左列），不是插件名 —— 插件列表与详情
+    /// 只显示引擎报的英文模块名，不再使用它们。12 个 Feature 一个都不许漏，
     /// 新增变体时这里会先红（match 全覆盖 + 单测逐条钉字）。
     #[test]
     fn every_feature_has_a_chinese_label() {
