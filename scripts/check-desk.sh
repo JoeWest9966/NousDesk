@@ -30,7 +30,11 @@ chmod 600 "$WORK/home/.config/nous/token"
 # Desk#11：引擎 PresetStore 的根来自 NOUS_PRESETS。预置一条 roster 条目，
 # 让 `GET /v1/presets/Session-Template` 返回 200 且 items 非空（判据 4）。
 mkdir -p "$WORK/presets/Session-Template/probe"
-printf '%s\n' '{"name":"probe","category":[],"spec":{}}' > "$WORK/presets/Session-Template/probe/preset.json"
+# 形状要过 `nous-presets-admin` 的校验：`v` 必须是 1、`name` 等于目录名、`summary`
+# 非空，且键只能是 PRESET_KEYS 里那 13 个（多一个 `spec` 就被判「不认识的键」，
+# 那条 roster 断言从 2026-11-23 起一直是红的 —— 种子过期，不是端点坏了）。
+printf '%s\n' '{"v":1,"name":"probe","summary":"探针模板","category":[]}' \
+  > "$WORK/presets/Session-Template/probe/preset.json"
 
 # 扩展页的三份数据要有东西可断言：临时源码根里放两条 —— 一条合法原生清单、
 # 一条 TS 时代（`index.js` + 字符串 sections）的老清单。没有种子，`kind` 一栏
@@ -41,10 +45,26 @@ printf '%s\n' '{"name":"native-one","version":"0.1.0","protocol":1,"file":"nativ
 printf '%s\n' '{"name":"old-js","version":"0.1.0","file":"index.js","entry":"default","sections":["preamble"]}' \
   > "$WORK/extend/old-js/nous.json"
 
+# 元素库判据：删除必须**真的从私库盘上消失**。种子是一个临时 git 私库 ——
+# 引擎写一次提交一次，仓不在或没配 user 就会 500，所以这里把 user 也配好。
+mkdir -p "$WORK/elements/groups" "$WORK/elements/packages"
+printf '%s\n' '{"id":"probe-group","name":"探针组","desc":"删掉我","packages":["probe-pack"]}' \
+  > "$WORK/elements/groups/probe-group.json"
+printf '%s\n' '{"id":"probe-pack","name":"探针包","kind":"prompt","body":"hi"}' \
+  > "$WORK/elements/packages/probe-pack.json"
+git -C "$WORK/elements" init -q
+git -C "$WORK/elements" config user.email probe@nous.local
+git -C "$WORK/elements" config user.name probe
+# 这台机器可能开着全局 commit.gpgsign（CI / 开发机带签名钩子），临时私库签不了就
+# 写不进提交 —— 这一步只影响临时库，不动任何人的全局配置。
+git -C "$WORK/elements" config commit.gpgsign false
+git -C "$WORK/elements" add -A
+git -C "$WORK/elements" commit -qm seed
+
 # 端口 0 由内核选；绑定行是 stdout 唯一一行，脚本靠它拿真实地址。
 HOME="$WORK/home" NOUS_PROVIDER=faux NOUS_LISTEN=127.0.0.1:0 \
   NOUS_PRESETS="$WORK/presets" NOUS_DB="$WORK/nous.db" NOUS_PLUGINS_DB="$WORK/nous-plugins.db" \
-  NOUS_EXTEND="$WORK/extend" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
+  NOUS_EXTEND="$WORK/extend" NOUS_ELEMENTS="$WORK/elements" "$NOUS_BIN" > "$WORK/server.out" 2> "$WORK/server.err" &
 SERVER_PID=$!
 
 ADDR=""
@@ -80,7 +100,7 @@ run_probe() {
   return "${PIPESTATUS[0]}"
 }
 
-run_probe positive
+run_probe positive --elements "$WORK/elements"
 grep -E '^ASSERT OK' "$WORK/positive.log"
 grep -q '^DONE$' "$WORK/positive.log" || { echo "FAIL: positive 没有 DONE"; exit 1; }
 
@@ -107,6 +127,17 @@ done
 for assert_name in stats.usage.200.totals archive.200.gens presets.enabled presets.roster.200 presets.roster.items.nonempty; do
   grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
     || { echo "FAIL: 缺了判据 4 的断言：$assert_name"; exit 1; }
+done
+
+# 元素库删除：删除必须真的从盘上消失，且过期 `base` 不许动文件。
+# 2026-11-24 真机那个「删不掉」的坑就在这条缝上：协议层说清 409 语义，
+# 客户端才敢「409 → 重读 → 再点一次」。——少一条就是那段回归又能滑过去。
+for assert_name in elements.list.etag elements.stale-base.409 elements.stale-base.kept \
+                  elements.delete.commit elements.delete.file-gone elements.delete.listed-gone \
+                  elements.delete.replay-no-second-write elements.delete.replay-still-gone \
+                  elements.delete.nobase; do
+  grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
+    || { echo "FAIL: 元素库删除少了一条断言：$assert_name"; exit 1; }
 done
 
 # 负向哨兵：错 token 必须 401，且会话 / entries 条数不变。

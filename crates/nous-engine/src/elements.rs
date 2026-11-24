@@ -304,11 +304,22 @@ pub struct ElementReceipt {
 impl ElementReceipt {
     /// 给轻提示的一句话：提交了什么、推没推上去。
     pub fn summary(&self, verb: &str) -> String {
+        self.summary_with(verb, "内容与盘上一致，没有产生新提交")
+    }
+
+    /// 删除的句子。跟 `summary` 只差「没有新提交」那半句 ——
+    /// 删除场景下盘上确实变了，拿「内容与盘上一致」解释就是瞎说：
+    /// `commit: null` 在这里只可能是「这份本来就没进 git」（未跟踪文件删了不产生改动）。
+    pub fn summary_deleted(&self) -> String {
+        self.summary_with("已删除", "盘上本来就没这份记录，没有新提交")
+    }
+
+    fn summary_with(&self, verb: &str, no_commit: &str) -> String {
         if self.replay {
             return format!("{verb}：同一个 requestId 已提交过，这次没有重复写");
         }
         let Some(commit) = self.commit.as_deref() else {
-            return format!("{verb}：内容与盘上一致，没有产生新提交");
+            return format!("{verb}：{no_commit}");
         };
         let short = commit.get(..7).unwrap_or(commit);
         match self.pushed.as_deref() {
