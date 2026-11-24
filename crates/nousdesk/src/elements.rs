@@ -141,6 +141,11 @@ pub(crate) struct ElementState {
     pub focus_group: Option<String>,
     /// 窄窗（`TREE_FOLD_W` 以下）单栏下钻：`true` = 这一栏现在是「某组的包」。
     pub narrow_pkgs: bool,
+    /// 有一次「必须重拉」被 `loading` 挡下了：这一轮回来再补一次。
+    ///
+    /// 写完之后的重拉不能被静默丢掉 —— 丢了界面上还是写之前那一版
+    /// （点了「锁定」，顶栏还写着「锁定」，可盘上已经锁上了）。
+    pub reload_pending: bool,
 
     pub search: Entity<InputState>,
     /// 新建草稿的 id（它是文件名，只在**还没落盘**时可改；落过盘就是只读的）。
@@ -169,6 +174,7 @@ impl ElementState {
             json_error: None,
             saving: false,
             confirm_delete: false,
+            reload_pending: false,
             creating: false,
             locking: false,
             focus_group: None,
@@ -240,6 +246,11 @@ impl Desktop {
     /// 切进元素库页 / 手动刷新：一份 GET 拉两段（引擎一次给全）。
     pub(crate) fn load_elements(&mut self, force: bool, cx: &mut Context<Self>) {
         if self.elements_state.loading {
+            // 已经有一轮在路上了。`force` 的那一次不能就这么丢 —— 它是「写完之后的
+            // 重拉」，丢了界面就停在写之前（点了锁定，顶栏还写着锁定）。记一笔，补在后头。
+            if force {
+                self.elements_state.reload_pending = true;
+            }
             return;
         }
         if !force && self.elements_state.hydrated() {
@@ -258,6 +269,7 @@ impl Desktop {
             let result = engine.elements().await;
             let _ = this.update(cx, |this, cx| {
                 this.elements_state.loading = false;
+                let again = std::mem::take(&mut this.elements_state.reload_pending);
                 match result {
                     Ok(data) => {
                         this.elements_state.error = None;
@@ -276,6 +288,10 @@ impl Desktop {
                         this.sync_forms(cx);
                     }
                     Err(e) => this.elements_state.error = Some(format!("元素库：{e}")),
+                }
+                // 这一轮之后还有人等着要拉：现在没有在跑的了，补上。
+                if again {
+                    this.load_elements(true, cx);
                 }
                 cx.notify();
             });
@@ -600,7 +616,14 @@ impl Desktop {
                         this.load_elements(true, cx);
                         this.sync_forms_windowed(window, cx);
                     }
-                    Err(e) => this.notify_error(&e, cx),
+                    Err(e) => {
+                        // 失败 ≠ 没发生：请求可能已经在引擎那边提交了，只是回执没回来
+                        // （超时、连接断、引擎重启）。界面这时候最怕「本地替盘上做主」，
+                        // 所以一个键都不改 —— 重新拉一次，让盘上那份说了算。
+                        this.notify_error(&e, cx);
+                        this.load_elements(true, cx);
+                        this.sync_forms_windowed(window, cx);
+                    }
                 }
                 cx.notify();
             });
