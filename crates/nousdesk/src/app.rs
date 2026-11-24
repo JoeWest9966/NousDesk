@@ -1346,6 +1346,7 @@ impl Desktop {
                         if this.tab == Tab::Resources {
                             this.load_resources(false, cx);
                         }
+                        log::info!("TEMP connect tab_is_elements={}", this.tab == Tab::Elements);
                         if this.tab == Tab::Elements {
                             this.load_elements(false, cx);
                         }

@@ -278,12 +278,14 @@ impl Desktop {
         };
         self.elements_state.loading = true;
         self.elements_state.error = None;
+        log::info!("TEMP 发起 force={force}");
         cx.notify();
 
         cx.spawn(async move |this, cx| {
             let result = engine.elements().await;
             let _ = this.update(cx, |this, cx| {
                 this.elements_state.loading = false;
+                log::info!("TEMP 回包 {:?}", result.as_ref().map(|d: &Elements| d.groups.len()).map_err(|e| e.to_string()));
                 match result {
                     Ok(data) => {
                         this.elements_state.error = None;
@@ -907,6 +909,19 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         .px(t().d(8.))
         .pb(t().d(16.));
 
+    // 还没拉到：给一句人话。两个「—」不够 —— 冷启动连引擎那一两秒不能看着像坏了
+    //（有错的时候上面已经有红字，不重复说）。
+    if data.is_none() && st.error.is_none() {
+        list = list.child(
+            div()
+                .px(t().d(10.))
+                .pt(t().d(14.))
+                .text_size(t().fs(11.))
+                .text_color(rgb(t().p.faint))
+                .child("正在读取私库…"),
+        );
+    }
+
     for kind in [ElementKind::Groups, ElementKind::Packages] {
         let rows: Vec<&Element> = data
             .map(|d| {
@@ -916,7 +931,9 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     .collect()
             })
             .unwrap_or_default();
-        let total = data.map(|d| d.section(kind).len()).unwrap_or(0);
+        // `None` = 还没拉过。不能当成 0：冷启动连引擎那一两秒里页面会把
+        // 「组 · 0 / 还没有组」画出来，看着像「私库是空的」（2026-11-24 冷启动截图）。
+        let total = data.map(|d| d.section(kind).len());
         // 还没落盘的草稿不在引擎回包里，但它必须占一行 —— 否则点了「新建」，
         // 左列看不出发生了什么（选中的高亮也不见了）。
         if st.creating
@@ -930,7 +947,7 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         for row in rows {
             list = list.child(element_row(kind, row, st, desk, cx));
         }
-        if empty && q.is_empty() && total == 0 {
+        if empty && q.is_empty() && total == Some(0) {
             list = list.child(
                 div()
                     .px(t().d(10.))
@@ -998,12 +1015,25 @@ fn draft_row(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         .into_any_element()
 }
 
-fn section_cap(kind: ElementKind, total: usize, shown: usize, q: &str) -> AnyElement {
-    let label = if q.is_empty() {
-        format!("{} · {total}", kind.label())
-    } else {
-        format!("{} · {shown}/{total}", kind.label())
-    };
+/// 段标题：`组 · 3` / `组 · 1/3`（搜过） / `组 · —`（还没拉到）。
+///
+/// 还没读到就别写 0：「0 个组」是「私库是空的」这个断言，冷启动那一两秒里它不成立
+/// 而页面照说（2026-11-24 冷启动截图：「组 · 0」+「还没有组」）。
+pub(crate) fn section_label(
+    kind: ElementKind,
+    total: Option<usize>,
+    shown: usize,
+    q: &str,
+) -> String {
+    match (total, q.is_empty()) {
+        (None, _) => format!("{} · —", kind.label()),
+        (Some(total), true) => format!("{} · {total}", kind.label()),
+        (Some(total), false) => format!("{} · {shown}/{total}", kind.label()),
+    }
+}
+
+fn section_cap(kind: ElementKind, total: Option<usize>, shown: usize, q: &str) -> AnyElement {
+    let label = section_label(kind, total, shown, q);
     div()
         .px(t().d(10.))
         .pt(t().d(14.))

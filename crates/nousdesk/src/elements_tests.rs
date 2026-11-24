@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::elements::{
-        apply_written, conflict_hint, engine_status, parse_draft, remove_written, set_list,
-        set_scalar, unused_id,
+        apply_written, conflict_hint, engine_status, parse_draft, remove_written, section_label,
+        set_list, set_scalar, unused_id,
     };
     use nous_engine::{Element, ElementKind, ElementReceipt, Elements, EngineError};
     use serde_json::json;
@@ -262,5 +262,17 @@ mod tests {
             body: None,
         };
         assert_eq!(engine_status(&boom), Some(500));
+    }
+
+    #[test]
+    fn 还没拉到就不写零() {
+        // 冷启动连引擎那一两秒里写「组 · 0」= 在说「私库是空的」，而那时什么都不知道。
+        assert_eq!(section_label(ElementKind::Groups, None, 0, ""), "组 · —");
+        assert_eq!(section_label(ElementKind::Groups, None, 0, "abc"), "组 · —");
+        assert_eq!(section_label(ElementKind::Groups, Some(3), 0, ""), "组 · 3");
+        // 搜过才写 `命中/总数`；没搜过写 `总数`（两个数是同一件事时别摆两遍）。
+        assert_eq!(section_label(ElementKind::Groups, Some(3), 1, "a"), "组 · 1/3");
+        // 真·空私库：写 0 是对的，那是真的信息。
+        assert_eq!(section_label(ElementKind::Packages, Some(0), 0, ""), "包 · 0");
     }
 }
