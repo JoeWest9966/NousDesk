@@ -133,6 +133,16 @@ pub(crate) struct CatForm {
     pub err: Option<String>,
 }
 
+/// 详情页「类别」区的分配弹层：勾选这个触发器挂哪几类。
+pub(crate) struct CatPick {
+    pub name: String,
+    /// 正在编辑的类别数组（含 `/` 的完整路径）。空 = 未分类。
+    pub draft: Vec<String>,
+    pub input: Entity<InputState>,
+    pub busy: bool,
+    pub err: Option<String>,
+}
+
 /// 类别改动攒着，等一次提交（引擎只写盘，commit + push 要显式同步）。
 #[derive(Default)]
 pub(crate) struct Commit {
@@ -170,6 +180,7 @@ pub(crate) struct State {
     pub cat_menu: Option<CatMenu>,
     pub cat_form: Option<CatForm>,
     pub cat_del: Option<String>,
+    pub cat_pick: Option<CatPick>,
     /// 「已归档」里点开的那一条（右侧详情）。
     pub archived_detail: Option<String>,
     /// 有没保存的改动时，用户想切过去的那个文件（等一句确认）。
@@ -238,6 +249,7 @@ impl State {
             cat_menu: None,
             cat_form: None,
             cat_del: None,
+            cat_pick: None,
             archived_detail: None,
             pending_path: None,
             commit: Commit::default(),
@@ -881,6 +893,11 @@ impl Desktop {
                 cx.notify();
                 return true;
             }
+            if self.triggers.cat_pick.is_some() {
+                self.triggers.cat_pick = None;
+                cx.notify();
+                return true;
+            }
             if self.triggers.cat_form.is_some() || self.triggers.cat_del.is_some() {
                 self.triggers.cat_form = None;
                 self.triggers.cat_del = None;
@@ -1128,6 +1145,378 @@ impl Desktop {
             });
         })
         .detach();
+    }
+
+    // ── 详情页「类别」分配（勾选这个触发器挂哪几类）──────────
+
+    fn cat_pick_open(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let draft = self
+            .triggers
+            .data
+            .as_ref()
+            .and_then(|d| d.triggers.iter().find(|t| t.name == name))
+            .map(|t| t.category.clone())
+            .unwrap_or_default();
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("新类别，如 工程/巡检"));
+        self.triggers.cat_pick = Some(CatPick {
+            name: name.to_string(),
+            draft,
+            input,
+            busy: false,
+            err: None,
+        });
+        cx.notify();
+    }
+
+    /// 保存后引擎回的是新的清单 + 新的类别树，就地换掉，不用整页重载。
+    fn cat_pick_save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.trigger_write_gate("POST", "/v1/trigger-projects/category") {
+            self.notice(reason, true, cx);
+            return;
+        }
+        let Some(pick) = self.triggers.cat_pick.as_mut() else {
+            return;
+        };
+        if pick.busy {
+            return;
+        }
+        let Some(client) = self.triggers.client.clone() else {
+            return;
+        };
+        let name = pick.name.clone();
+        let mut cats: Vec<String> = pick.draft.clone();
+        cats.sort();
+        cats.dedup();
+        pick.busy = true;
+        pick.err = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(handle) = crate::TOKIO.get().cloned() else { return };
+            let (n, c) = (name.clone(), cats.clone());
+            let res = handle
+                .spawn(async move { client.set_category(&n, &c).await })
+                .await;
+            let _ = this.update_in(cx, |this, _window, cx| {
+                match res {
+                    Ok(Ok(catalog)) => {
+                        if let Some(d) = this.triggers.data.as_mut() {
+                            d.triggers = catalog.catalog;
+                            d.categories = catalog.categories;
+                        }
+                        this.triggers.cat_pick = None;
+                        let c = &mut this.triggers.commit;
+                        c.pending += 1;
+                        c.what = if cats.is_empty() {
+                            format!("「{name}」→ 未分类")
+                        } else {
+                            format!("「{name}」→ {}", cats.join(" / "))
+                        };
+                        c.done = false;
+                    }
+                    Ok(Err(e)) => {
+                        if let Some(p) = this.triggers.cat_pick.as_mut() {
+                            p.busy = false;
+                            p.err = Some(e.to_string());
+                        }
+                    }
+                    Err(e) => {
+                        if let Some(p) = this.triggers.cat_pick.as_mut() {
+                            p.busy = false;
+                            p.err = Some(e.to_string());
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn cat_pick_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(pick) = self.triggers.cat_pick.as_ref() else {
+            return div().into_any_element();
+        };
+        let name = pick.name.clone();
+        let draft = pick.draft.clone();
+        let busy = pick.busy;
+        let vocab: Vec<String> = pick_vocab(
+            &self
+                .triggers
+                .data
+                .as_ref()
+                .map(|d| d.categories.clone())
+                .unwrap_or_default(),
+            &draft,
+        );
+
+        let toggle = |cat: String, on: bool| {
+            let label = cat.clone();
+            div()
+                .id(ElementId::Name(format!("cp-{cat}").into()))
+                .flex()
+                .items_center()
+                .gap(t().d(7.))
+                .px(t().d(6.))
+                .h(t().d(26.))
+                .rounded(t().r(4.))
+                .cursor_pointer()
+                .hover(|h| h.bg(rgb(t().p.hover)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(p) = this.triggers.cat_pick.as_mut() {
+                        if on {
+                            p.draft.retain(|c| c != &cat);
+                        } else if !p.draft.iter().any(|c| c == &cat) {
+                            p.draft.push(cat.clone());
+                        }
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(t().d(13.))
+                        .rounded(t().r(3.))
+                        .border(t().d(1.))
+                        .border_color(rgb(if on { t().p.accent } else { t().p.line }))
+                        .bg(rgb(if on { t().p.accent } else { t().p.panel }))
+                        .when(on, |el| {
+                            el.child(
+                                div()
+                                    .text_size(t().fs(9.))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .child("✓"),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .text_size(t().fs(11.))
+                        .text_color(rgb(t().p.text_2))
+                        .child(label),
+                )
+        };
+
+        let rows: Vec<AnyElement> = vocab
+            .iter()
+            .map(|c| {
+                let on = draft.iter().any(|d| d == c);
+                let indent = c.matches('/').count() as f32 * 14.0;
+                div()
+                    .pl(t().d(indent))
+                    .child(toggle(c.clone(), on))
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(t().p.scrim))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.triggers.cat_pick = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .w(t().d(360.))
+                    .p(t().d(18.))
+                    .rounded(t().r(9.))
+                    .bg(rgb(t().p.overlay))
+                    .border(t().d(1.))
+                    .border_color(rgb(t().p.line))
+                    .flex()
+                    .flex_col()
+                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                    .child(
+                        div()
+                            .text_size(t().fs(13.))
+                            .text_color(rgb(t().p.text))
+                            .child(format!("分配类别 · {name}")),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(4.))
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.muted))
+                            .child("勾几个就挂几个；一个都不勾 = 未分类。父类别不会自动带上。"),
+                    )
+                    .child(
+                        div()
+                            .id("cat-pick-list")
+                            .mt(t().d(10.))
+                            .max_h(t().d(260.))
+                            .overflow_y_scroll()
+                            .flex()
+                            .flex_col()
+                            .gap(t().d(1.))
+                            .children(rows)
+                            .child(
+                                div()
+                                    .id("cp-none")
+                                    .flex()
+                                    .items_center()
+                                    .gap(t().d(7.))
+                                    .px(t().d(6.))
+                                    .h(t().d(26.))
+                                    .rounded(t().r(4.))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if let Some(p) = this.triggers.cat_pick.as_mut() {
+                                            p.draft.clear();
+                                        }
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .size(t().d(13.))
+                                            .rounded(t().r(3.))
+                                            .border(t().d(1.))
+                                            .border_color(rgb(if draft.is_empty() {
+                                                t().p.accent
+                                            } else {
+                                                t().p.line
+                                            }))
+                                            .bg(rgb(if draft.is_empty() {
+                                                t().p.accent
+                                            } else {
+                                                t().p.panel
+                                            }))
+                                            .when(draft.is_empty(), |el| {
+                                                el.child(
+                                                    div()
+                                                        .text_size(t().fs(9.))
+                                                        .text_color(rgb(t().p.on_accent))
+                                                        .child("✓"),
+                                                )
+                                            }),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(t().fs(11.))
+                                            .text_color(rgb(t().p.text_2))
+                                            .child("未分类"),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(10.))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(t().d(6.))
+                            .child(div().flex_1().h(t().d(29.)).child(Input::new(&pick.input)))
+                            .child(
+                                div()
+                                    .id("cp-add")
+                                    .px(t().d(10.))
+                                    .h(t().d(29.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(5.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let Some(v) = this
+                                            .triggers
+                                            .cat_pick
+                                            .as_ref()
+                                            .map(|p| p.input.read(cx).value().trim().to_string())
+                                        else {
+                                            return;
+                                        };
+                                        if v.is_empty() || v.ends_with('/') || v.starts_with('/') {
+                                            if let Some(p) = this.triggers.cat_pick.as_mut() {
+                                                p.err = Some("类别路径不能为空，也不能以 / 开头或结尾".into());
+                                            }
+                                            cx.notify();
+                                            return;
+                                        }
+                                        if let Some(p) = this.triggers.cat_pick.as_mut() {
+                                            if !p.draft.iter().any(|c| c == &v) {
+                                                p.draft.push(v);
+                                            }
+                                            p.err = None;
+                                        }
+                                        cx.notify();
+                                    }))
+                                    .child("加为类别"),
+                            ),
+                    )
+                    .when_some(
+                        self.triggers.cat_pick.as_ref().and_then(|p| p.err.clone()),
+                        |el, err| {
+                            el.child(
+                                div()
+                                    .mt(t().d(7.))
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(t().p.danger))
+                                    .child(err),
+                            )
+                        },
+                    )
+                    .child(
+                        div()
+                            .mt(t().d(14.))
+                            .flex()
+                            .justify_end()
+                            .gap(t().d(8.))
+                            .child(
+                                div()
+                                    .id("cp-cancel")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .border(t().d(1.))
+                                    .border_color(rgb(t().p.line))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.text_2))
+                                    .cursor_pointer()
+                                    .hover(|h| h.bg(rgb(t().p.hover)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.triggers.cat_pick = None;
+                                        cx.notify();
+                                    }))
+                                    .child("取消"),
+                            )
+                            .child(
+                                div()
+                                    .id("cp-save")
+                                    .px(t().d(12.))
+                                    .h(t().d(28.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded(t().r(6.))
+                                    .bg(rgb(if busy { t().p.disabled } else { t().p.accent }))
+                                    .text_size(t().fs(10.5))
+                                    .text_color(rgb(t().p.on_accent))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.cat_pick_save(window, cx);
+                                    }))
+                                    .child(if busy { "保存中…" } else { "保存" }),
+                            ),
+                    ),
+            )
+            .into_any_element()
     }
 
     pub(crate) fn cat_menu_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1966,6 +2355,35 @@ mod param_tests {
     }
 }
 
+#[cfg(test)]
+mod cat_pick_tests {
+    use super::pick_vocab;
+
+    fn v(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn draft_categories_join_the_vocab() {
+        // 词表还没同步（比如刚在别的窗口改过）时，勾着的类别不能从弹层里消失。
+        let got = pick_vocab(&v(&["工程"]), &v(&["工程", "工程/发布"]));
+        assert_eq!(got, v(&["工程", "工程/发布"]));
+    }
+
+    #[test]
+    fn parents_come_before_children() {
+        // 引擎给的是父在子前；这里自己重排也要守住，否则列表看起来像散了。
+        let got = pick_vocab(&v(&["工程/发布", "时间/一次", "工程", "时间"]), &[]);
+        assert_eq!(got, v(&["工程", "时间", "工程/发布", "时间/一次"]));
+    }
+
+    #[test]
+    fn duplicates_collapse() {
+        let got = pick_vocab(&v(&["工程", "工程"]), &v(&["工程"]));
+        assert_eq!(got, v(&["工程"]));
+    }
+}
+
 // ── 渲染 ───────────────────────────────────────────────────────────────────
 
 fn short(text: &str, max: usize) -> String {
@@ -1976,6 +2394,22 @@ fn short(text: &str, max: usize) -> String {
     let mut s: String = text.chars().take(max.saturating_sub(1)).collect();
     s.push('…');
     s
+}
+
+/// 分配弹层里那串候选：词表 ∪ 已勾选的，父在子前、同级按名字。
+fn pick_vocab(categories: &[String], draft: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = categories.to_vec();
+    for c in draft {
+        if !out.iter().any(|v| v == c) {
+            out.push(c.clone());
+        }
+    }
+    out.sort_by(|a, b| {
+        let depth = |s: &str| s.matches('/').count();
+        depth(a).cmp(&depth(b)).then_with(|| a.cmp(b))
+    });
+    out.dedup();
+    out
 }
 
 fn status_of(item: &TriggerItem) -> (&'static str, u32, u32) {
@@ -3590,8 +4024,27 @@ impl Desktop {
                     .flex_1()
                     .min_h(t().d(0.))
                     .overflow_y_scroll()
-                    .child(detail_section(
+                    .child(detail_section_action(
                         "类别",
+                        div()
+                            .id("trigger-cat-edit")
+                            .flex()
+                            .items_center()
+                            .h(t().d(18.))
+                            .px(t().d(6.))
+                            .rounded(t().r(4.))
+                            .cursor_pointer()
+                            .hover(|h| h.bg(rgb(t().p.hover)))
+                            .text_size(t().fs(10.))
+                            .text_color(rgb(t().p.text_2))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let Some(name) = this.triggers.selected.clone() else {
+                                    return;
+                                };
+                                this.cat_pick_open(&name, window, cx);
+                            }))
+                            .child("编辑")
+                            .into_any_element(),
                         div()
                             .flex()
                             .flex_row()
@@ -3609,6 +4062,19 @@ impl Desktop {
                                     .text_color(rgb(t().p.muted))
                                     .child(c.clone())
                             }))
+                            .when(item.category.is_empty(), |el| {
+                                el.child(
+                                    div()
+                                        .h(t().d(19.))
+                                        .px(t().d(6.))
+                                        .flex()
+                                        .items_center()
+                                        .rounded(t().r(4.))
+                                        .text_size(t().fs(10.5))
+                                        .text_color(rgb(t().p.faint))
+                                        .child("未分类"),
+                                )
+                            })
                             .into_any_element(),
                     ))
                     .child(detail_section(
@@ -3807,6 +4273,35 @@ fn detail_section(title: &str, body: AnyElement) -> AnyElement {
                 .text_size(t().fs(10.))
                 .text_color(rgb(t().p.text_2))
                 .child(title.to_string()),
+        )
+        .child(body)
+        .into_any_element()
+}
+
+/// 带一个右侧小动作的分区（现在只有「类别 · 编辑」用）。
+fn detail_section_action(title: &str, action: AnyElement, body: AnyElement) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .px(t().d(20.))
+        .py(t().d(14.))
+        .border_b(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
+        .child(
+            div()
+                .mb(t().d(8.))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(t().d(8.))
+                .child(
+                    div()
+                        .text_size(t().fs(10.))
+                        .text_color(rgb(t().p.text_2))
+                        .child(title.to_string()),
+                )
+                .child(div().flex_1())
+                .child(action),
         )
         .child(body)
         .into_any_element()

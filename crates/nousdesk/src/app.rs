@@ -5915,6 +5915,10 @@ impl Render for Desktop {
                 (self.tab == Tab::Triggers && self.triggers.cat_del.is_some())
                     .then(|| self.cat_del_overlay(cx)),
             )
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.cat_pick.is_some())
+                    .then(|| self.cat_pick_overlay(cx)),
+            )
             // 「重命名会话」（居中对话框）：压在菜单之上、撕原件之下
             .children(self.rename_overlay(window, cx))
             // 「撕原件」确认（盖在菜单之上）
