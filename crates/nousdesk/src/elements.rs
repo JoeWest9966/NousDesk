@@ -76,6 +76,8 @@ pub(crate) struct Detail {
     pub detail: Option<String>,
     pub broken: bool,
     pub creating: bool,
+    /// 盘上那份锁没锁。**只读** —— 改它只能走 `/lock`（`toggle_lock`）。
+    pub locked: bool,
 }
 
 /// 右栏画什么。两个视图看的是同一份 `draft`。
@@ -146,6 +148,17 @@ pub(crate) struct ElementState {
     /// 半成品文件（用户没保存就退出 = 私库里多了个空组）。草稿只在内存里，
     /// 第一次「保存并提交」才 POST。
     pub creating: bool,
+    /// 锁请求在路上（防连点两下：一个上锁一个解锁）。
+    pub locking: bool,
+    /// 中间列正在看哪个组的包（点组时设）。`None` = 中间列列全部包。
+    pub focus_group: Option<String>,
+    /// 窄窗（`TREE_FOLD_W` 以下）单栏下钻：`true` = 这一栏现在是「某组的包」。
+    pub narrow_pkgs: bool,
+    /// 有一次「必须重拉」被 `loading` 挡下了：这一轮回来再补一次。
+    ///
+    /// 写完之后的重拉不能被静默丢掉 —— 丢了界面上还是写之前那一版
+    /// （点了「锁定」，顶栏还写着「锁定」，可盘上已经锁上了）。
+    pub reload_pending: bool,
 
     pub search: Entity<InputState>,
     /// 新建草稿的 id（它是文件名，只在**还没落盘**时可改；落过盘就是只读的）。
@@ -174,7 +187,11 @@ impl ElementState {
             json_error: None,
             saving: false,
             confirm_delete: false,
+            reload_pending: false,
             creating: false,
+            locking: false,
+            focus_group: None,
+            narrow_pkgs: false,
             search: cx.new(|cx| InputState::new(window, cx).placeholder("搜 id / 名字 / 正文")),
             form_id: cx.new(|cx| InputState::new(window, cx).placeholder("frontend")),
             form_name: cx.new(|cx| InputState::new(window, cx)),
@@ -213,6 +230,7 @@ impl ElementState {
                 detail: None,
                 broken: false,
                 creating: true,
+                locked: false,
             });
         }
         let element = self.data.as_ref()?.find(*kind, id)?;
@@ -225,6 +243,7 @@ impl ElementState {
             detail: element.detail.clone(),
             broken: element.broken(),
             creating: false,
+            locked: element.locked(),
         })
     }
 
@@ -262,10 +281,13 @@ impl Desktop {
     }
 
     fn fetch_elements(&mut self, force: bool, policy: DraftPolicy, cx: &mut Context<Self>) {
-        // 正在拉就不开第二份：两份 `GET` 的回包谁后到谁覆盖，后到的也可能是旧的。
-        // 要写失败重读碰上这一条（极少：几十毫秒的窗口），那一次回包同样是
-        // `DraftPolicy::Keep`，落地时照样会把 `base` 对齐 —— 最差是多点一次。
         if self.elements_state.loading {
+            // 已经有一轮在路上了。`force` 的那一次不能就这么丢 —— 它是「写完之后的
+            // 重拉」，丢了界面就停在写之前（点了锁定，顶栏还写着锁定）。记一笔，补在后头。
+            // 那一轮回包同样是 `DraftPolicy::Keep`，落地时会把 `base` 对齐。
+            if force {
+                self.elements_state.reload_pending = true;
+            }
             return;
         }
         if !force && self.elements_state.hydrated() {
@@ -278,14 +300,13 @@ impl Desktop {
         };
         self.elements_state.loading = true;
         self.elements_state.error = None;
-        log::info!("TEMP 发起 force={force}");
         cx.notify();
 
         cx.spawn(async move |this, cx| {
             let result = engine.elements().await;
             let _ = this.update(cx, |this, cx| {
                 this.elements_state.loading = false;
-                log::info!("TEMP 回包 {:?}", result.as_ref().map(|d: &Elements| d.groups.len()).map_err(|e| e.to_string()));
+                let again = std::mem::take(&mut this.elements_state.reload_pending);
                 match result {
                     Ok(data) => {
                         this.elements_state.error = None;
@@ -305,6 +326,10 @@ impl Desktop {
                     }
                     Err(e) => this.elements_state.error = Some(format!("元素库：{e}")),
                 }
+                // 这一轮之后还有人等着要拉：现在没有在跑的了，补上。
+                if again {
+                    this.load_elements(true, cx);
+                }
                 cx.notify();
             });
         })
@@ -323,6 +348,10 @@ impl Desktop {
         self.elements_state.json_error = None;
         // 点回一条**盘上**的元素 = 放弃那份草稿（草稿只在内存里，没落盘就该丢掉）。
         self.elements_state.creating = false;
+        if kind == ElementKind::Groups {
+            self.elements_state.focus_group = Some(id.clone());
+            self.elements_state.narrow_pkgs = true;
+        }
         self.elements_state.selected = Some((kind, id));
         self.elements_state.mode = Mode::Form;
         self.sync_forms_windowed(DraftPolicy::Reset, window, cx);
@@ -331,8 +360,8 @@ impl Desktop {
 
     /// 从当前选中项刷新 `draft` + 两个视图。选中项没了就清空。
     fn sync_forms(&mut self, policy: DraftPolicy, cx: &mut Context<Self>) {
-        // 没有 window 的路径（后台刷新回来）只对齐 draft；文本框由 `sync_forms_windowed` 补。
-        // 少一次 set_value 不会丢数据 —— 它只是视图。
+        // 没有 window 的路径（后台刷新回来）只对齐 draft；文本框由 render 前的
+        // `sync_forms_windowed` 补。少一次 set_value 不会丢数据 —— 它只是视图。
         // 草稿（`creating`）的 draft 是用户正在编辑的那一份，**不许**被「刷新选中项」
         // 覆盖成 None —— 那会让右栏瞬间退回空状态（新建时踩过）。
         if self.elements_state.creating {
@@ -402,6 +431,16 @@ impl Desktop {
     /// 保存并提交：PUT（有 `base` 就是 If-Match）。成功 / 失败都回一句话。
     pub(crate) fn save_element(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.elements_state.saving {
+            return;
+        }
+        // 锁着的元素不发请求：引擎会回 423，但让人填完一屏再被拒不是体验。
+        // （真正的拦截仍在引擎 —— 这里只是不白跑一趟。）
+        if self.elements_state.detail().is_some_and(|d| d.locked) {
+            self.notify(
+                "已锁定：先点顶栏的「解锁」再改",
+                crate::app::NoticeKind::Error,
+                cx,
+            );
             return;
         }
         let Some((kind, id)) = self.elements_state.selected.clone() else {
@@ -533,18 +572,20 @@ impl Desktop {
     }
 
     /// 删除（二次确认之后）。不可逆：走 DELETE，`base` 一起带上防误删别人的新版。
-    ///
-    /// 两种失败不是「报错就完了」：
-    /// - **409**（盘上那份被改过）= 重读指纹，再点一次就删的是最新那份；
-    /// - **404**（已经没了）= 清单重拉，那一行自己消失。
-    ///
-    /// 不重读就只能重启 App（`base` 停在旧快照上，删几次都是 409）—— 2026-11-24 真机踩过。
     pub(crate) fn delete_element(&mut self, cx: &mut Context<Self>) {
         let Some((kind, id)) = self.elements_state.selected.clone() else {
             return;
         };
-        // 草稿还没落盘：盘上没有这一份，删就是 404（按钮本来也不挂，这里再拦一道）。
         if self.elements_state.creating {
+            return;
+        }
+        if self.elements_state.detail().is_some_and(|d| d.locked) {
+            self.notify(
+                "已锁定：删不掉，先点顶栏的「解锁」",
+                crate::app::NoticeKind::Error,
+                cx,
+            );
+            self.elements_state.confirm_delete = false;
             return;
         }
         let Some(engine) = self.engine.clone() else {
@@ -589,6 +630,8 @@ impl Desktop {
                     }
                     Err(e) => {
                         match engine_status(&e) {
+                            // 409 = 盘上别人改过；404 = 已经被别人删了。
+                            // 两种都只有一个解：重读指纹 / 重拉清单，然后让人再点一次。
                             Some(409) | Some(404) => {
                                 this.resync_after_write_error(cx);
                                 this.notify(
@@ -599,6 +642,83 @@ impl Desktop {
                             }
                             _ => this.notify_error(&e, cx),
                         }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 上锁 / 解锁。
+    ///
+    /// 锁在**引擎**（`locked` 写进那份 JSON 并提交），这里只发一个请求；
+    /// 成功后把本地 `draft` 的 `locked` 也改掉 —— 不然重新拉取回来之前
+    /// 一保存就会把旧值回写，引擎会以 `400` 拒掉（“锁只能由 /lock 改”）。
+    pub(crate) fn toggle_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.elements_state.locking {
+            return;
+        }
+        let Some((kind, id)) = self.elements_state.selected.clone() else {
+            return;
+        };
+        if self.elements_state.creating {
+            return;
+        }
+        // 目标状态从盘上那份推出来，不在本地存一份「现在是开是关」。
+        let Some(locked_now) = self
+            .elements_state
+            .selected_element()
+            .map(nous_engine::Element::locked)
+        else {
+            return;
+        };
+        let target = !locked_now;
+        let base = self.elements_state.base.clone();
+        let Some(engine) = self.engine.clone() else {
+            self.notify("还没连上引擎", crate::app::NoticeKind::Error, cx);
+            return;
+        };
+        let request_id = new_request_id();
+        self.elements_state.locking = true;
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let result = engine
+                .element_lock(kind, &id, target, base.as_deref(), Some(&request_id))
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.elements_state.locking = false;
+                match result {
+                    Ok(receipt) => {
+                        if let Some(map) = this
+                            .elements_state
+                            .draft
+                            .as_mut()
+                            .and_then(|draft| draft.as_object_mut())
+                        {
+                            map.insert("locked".into(), serde_json::Value::Bool(target));
+                        }
+                        this.notify(
+                            match receipt.commit.as_deref() {
+                                Some(_) if target => "已锁定 · 现在改不了也删不掉",
+                                Some(_) => "已解锁",
+                                None => "锁定状态没变",
+                            },
+                            crate::app::NoticeKind::Info,
+                            cx,
+                        );
+                        // 重新拉一次：拿到新的 etag（`base`）与别人的可能改动。
+                        this.load_elements(true, cx);
+                        this.sync_forms_windowed(DraftPolicy::Keep, window, cx);
+                    }
+                    Err(e) => {
+                        // 失败 ≠ 没发生：请求可能已经在引擎那边提交了，只是回执没回来
+                        // （超时、连接断、引擎重启）。界面这时候最怕「本地替盘上做主」，
+                        // 所以一个键都不改 —— 重新拉一次，让盘上那份说了算。
+                        this.notify_error(&e, cx);
+                        this.load_elements(true, cx);
+                        this.sync_forms_windowed(DraftPolicy::Keep, window, cx);
                     }
                 }
                 cx.notify();
@@ -640,7 +760,7 @@ impl Desktop {
     }
 }
 
-// ── 回执并进清单 ─────────────────────────────────────────────
+// ── 回执并进清单 ─────────────────────────────────────────────────────
 
 /// 引擎错误里的 HTTP 状态码。网络层错误（reqwest）没有码，返 `None` ——
 /// 那种失败不可能是「盘上被改过」，不该走冲突分支。
@@ -656,13 +776,11 @@ pub(crate) fn engine_status(err: &EngineError) -> Option<u16> {
 /// 分两行而不是接在括号里：引擎那句（「先重新打开这个文件，再存一次」）说的是
 /// **保存**的路子，而删除时它读起来跟后半句打架。原话照引，另起一行说我们做了什么。
 /// 重读已由 `resync_after_write_error` 做了 —— 「再点一次」是真的能成，不是安慰话
-/// （唯一个例外：那一瞬间正好已经在拉清单，那一次回包会替我们对齐，见 `fetch_elements`）。
+/// （唯一例外：那一瞬间正好已经在拉清单，那一次回包会替我们对齐，见 `fetch_elements`）。
 pub(crate) fn conflict_hint(err: &EngineError, action: &str) -> String {
     match engine_status(err) {
         Some(404) => format!("{err}\n（已经重新读取清单，这一行不在了）"),
-        _ => format!(
-            "{err}\n（已重新读取盘上最新版本 —— 再点一次「{action}」就按最新那份来）"
-        ),
+        _ => format!("{err}\n（已重新读取盘上最新版本 —— 再点一次「{action}」就按最新那份来）"),
     }
 }
 
@@ -672,8 +790,8 @@ pub(crate) fn conflict_hint(err: &EngineError, action: &str) -> String {
 /// 而回填表单读的是 `draft` / `data` —— 拿旧快照回填，刚存进去的字当场退回旧值，
 /// 再敲一个字就成了「旧值 + 新字」，把上一次的保存静默吃掉（2026-11-24 真机踩过）。
 ///
-/// `etag` 为 `None`（引擎没给）时保留旧指纹以外的东西：指纹留空，下一次写就是
-/// 「不带 `base` 的写」，宁可多一次冲突，也不编一个假指纹。
+/// `etag` 为 `None`（引擎没给）时指纹留空，下一次写就是「不带 `base` 的写」：
+/// 宁可多一次冲突，也不编一个假指纹。
 pub(crate) fn apply_written(
     data: &mut Elements,
     kind: ElementKind,
@@ -836,9 +954,20 @@ pub(crate) fn unused_id(kind: ElementKind, data: Option<&Elements>) -> String {
 pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     let st = &desk.elements_state;
     let mut root = div().flex().flex_row().flex_1().h_full().min_w(t().d(0.));
-    root = root
-        .child(render_side(desk, cx))
-        .child(render_detail(desk, cx));
+    // 宽窗三栏（组 180 / 包 220 / 详情）；窄窗单栏下钻（组 ↔ 某组的包，280），详情不变。
+    // 判据与模板页同一个 `TREE_FOLD_W`（`desk.narrow` 在同一帧里先算好）。
+    root = if desk.narrow {
+        let col = if st.narrow_pkgs && st.focus_group.is_some() {
+            render_col(desk, ElementKind::Packages, NARROW_COL_W, true, cx)
+        } else {
+            render_col(desk, ElementKind::Groups, NARROW_COL_W, false, cx)
+        };
+        root.child(col)
+    } else {
+        root.child(render_col(desk, ElementKind::Groups, GROUP_COL_W, false, cx))
+            .child(render_col(desk, ElementKind::Packages, PKG_COL_W, false, cx))
+    };
+    root = root.child(render_detail(desk, cx));
     if st.confirm_delete {
         return div()
             .relative()
@@ -854,14 +983,37 @@ pub(crate) fn render(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     root.into_any_element()
 }
 
-/// 左清单：组一段、包一段。段的标题上带条数 —— 空着也显示（「0 个包」是信息）。
-fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
+/// 宽窗三栏的组列 / 包列宽（demo elements-groups 方案 A，980 下详情还剩约 524）。
+const GROUP_COL_W: f32 = 180.;
+const PKG_COL_W: f32 = 220.;
+/// 窄窗单栏下钻的那一栏宽（方案 B）。
+const NARROW_COL_W: f32 = 280.;
+
+/// 包列要列哪些 id：聚焦了组就是那组引用的（含断链），否则全部包。
+///
+/// 纯函数（不碰 `Desktop`），好测：顺序照组里 JSON 的写法，断链的 id 也在里面 ——
+/// 「盘上没有」是**列的时候**才发现的事（列表里给它一行红的），不是过滤掉。
+pub(crate) fn pkg_scope(data: Option<&Elements>, focus: Option<&str>) -> Option<Vec<String>> {
+    let g = focus?;
+    let group = data?.find(ElementKind::Groups, g)?;
+    Some(group.packages().into_iter().map(str::to_string).collect())
+}
+
+/// 一列：组列或包列。段的标题上带条数 —— 空着也显示（「0 个包」是信息）。
+fn render_col(
+    desk: &Desktop,
+    only: ElementKind,
+    width: f32,
+    back: bool,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
     let st = &desk.elements_state;
     let q = st.query(cx);
     let data = st.data.as_ref();
 
     let mut col = div()
-        .w(t().d(262.))
+        .w(t().d(width))
+        .flex_none()
         .h_full()
         .flex()
         .flex_col()
@@ -922,18 +1074,48 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
         );
     }
 
-    for kind in [ElementKind::Groups, ElementKind::Packages] {
+    if back {
+        list = list.child(
+            div()
+                .id("el-narrow-back")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.elements_state.narrow_pkgs = false;
+                    cx.notify();
+                }))
+                .px(t().d(10.))
+                .pt(t().d(10.))
+                .text_size(t().fs(12.))
+                .text_color(rgb(text_color()))
+                .hover(|el| el.text_color(rgb(t().p.accent)))
+                .child("‹ 组"),
+        );
+    }
+    let scope = if only == ElementKind::Packages {
+        pkg_scope(data, st.focus_group.as_deref())
+    } else {
+        None
+    };
+    for kind in [only] {
         let rows: Vec<&Element> = data
-            .map(|d| {
-                d.section(kind)
+            .map(|d| match (&scope, kind) {
+                (Some(ids), ElementKind::Packages) => ids
+                    .iter()
+                    .filter_map(|id| d.find(kind, id))
+                    .filter(|e| matches_query(e, &q))
+                    .collect(),
+                _ => d
+                    .section(kind)
                     .iter()
                     .filter(|e| matches_query(e, &q))
-                    .collect()
+                    .collect(),
             })
             .unwrap_or_default();
         // `None` = 还没拉过。不能当成 0：冷启动连引擎那一两秒里页面会把
         // 「组 · 0 / 还没有组」画出来，看着像「私库是空的」（2026-11-24 冷启动截图）。
-        let total = data.map(|d| d.section(kind).len());
+        let total = match (&scope, kind) {
+            (Some(ids), ElementKind::Packages) => Some(ids.len()),
+            _ => data.map(|d| d.section(kind).len()),
+        };
         // 还没落盘的草稿不在引擎回包里，但它必须占一行 —— 否则点了「新建」，
         // 左列看不出发生了什么（选中的高亮也不见了）。
         if st.creating
@@ -943,9 +1125,48 @@ fn render_side(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             list = list.child(draft_row(desk, cx));
         }
         let empty = rows.is_empty();
-        list = list.child(section_cap(kind, total, rows.len(), &q));
+        let scope_name = if kind == ElementKind::Packages {
+            st.focus_group.as_ref().and_then(|g| {
+                data.and_then(|d| d.find(ElementKind::Groups, g))
+                    .map(|g| g.name().to_string())
+            })
+        } else {
+            None
+        };
+        list = list.child(section_cap(kind, total, rows.len(), &q, scope_name.as_deref(), cx));
         for row in rows {
             list = list.child(element_row(kind, row, st, desk, cx));
+        }
+        // 组里引用了、盘上没有的包：照样占一行、标红（断链要在列表里看得见）。
+        if let (Some(ids), ElementKind::Packages, Some(d)) = (&scope, kind, data) {
+            for id in ids.iter().filter(|id| d.find(kind, id).is_none()) {
+                if !q.is_empty() && !id.to_lowercase().contains(&q) {
+                    continue;
+                }
+                list = list.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t().d(8.))
+                        .px(t().d(10.))
+                        .py(t().d(6.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(t().d(0.))
+                                .text_size(t().fs(11.5))
+                                .text_color(rgb(t().p.danger))
+                                .child(id.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(t().fs(10.))
+                                .text_color(rgb(t().p.danger))
+                                .child("断链"),
+                        ),
+                );
+            }
         }
         if empty && q.is_empty() && total == Some(0) {
             list = list.child(
@@ -978,7 +1199,6 @@ fn draft_row(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
             };
             this.select_element(kind, id, window, cx);
         }))
-        .when(kind == ElementKind::Packages, |el| el.pl(t().d(20.)))
         .flex()
         .items_center()
         .gap(t().d(8.))
@@ -1032,16 +1252,43 @@ pub(crate) fn section_label(
     }
 }
 
-fn section_cap(kind: ElementKind, total: Option<usize>, shown: usize, q: &str) -> AnyElement {
+fn section_cap(
+    kind: ElementKind,
+    total: Option<usize>,
+    shown: usize,
+    q: &str,
+    scope: Option<&str>,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
     let label = section_label(kind, total, shown, q);
-    div()
+    let mut cap = div()
         .px(t().d(10.))
         .pt(t().d(14.))
         .pb(t().d(6.))
+        .flex()
+        .items_center()
+        .gap(t().d(6.))
         .text_size(t().fs(10.))
         .text_color(rgb(t().p.faint))
-        .child(label)
-        .into_any_element()
+        .child(div().flex_1().min_w(t().d(0.)).child(label));
+    // 只看一个组的包时给一条「全部」：不点回去，那些没被任何组引用的包就永远看不见了。
+    if let Some(group) = scope {
+        cap = cap
+            .child(div().flex_none().child(format!("{group} 的")))
+            .child(
+                div()
+                    .id("el-pkg-all")
+                    .flex_none()
+                    .text_color(rgb(t().p.accent))
+                    .hover(|el| el.text_color(rgb(text_color())))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.elements_state.focus_group = None;
+                        cx.notify();
+                    }))
+                    .child("全部 ›"),
+            );
+    }
+    cap.into_any_element()
 }
 
 fn matches_query(e: &Element, q: &str) -> bool {
@@ -1108,7 +1355,6 @@ fn element_row(
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             this.select_element(kind, id.clone(), window, cx);
         }))
-        .when(kind == ElementKind::Packages, |el| el.pl(t().d(20.)))
         .flex()
         .items_center()
         .gap(t().d(8.))
@@ -1140,6 +1386,16 @@ fn element_row(
                 .text_color(rgb(name_color))
                 .child(e.name().to_string()),
         )
+        // 锁标：一眼看出哪几条动不了（不看详情也能知道）。
+        .when(e.locked(), |el| {
+            el.child(
+                div()
+                    .flex_none()
+                    .text_size(t().fs(9.5))
+                    .text_color(rgb(t().p.warn))
+                    .child("锁"),
+            )
+        })
         .child(
             div()
                 .flex_none()
@@ -1256,6 +1512,9 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
 
 fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>) -> AnyElement {
     let st = &desk.elements_state;
+    // 锁状态从盘上那份推出来（草稿永远没锁）。不在本地存一个「switch」——
+    // 两份状态一定会分叉，而锁分叉的后果是“界面说开了、引擎说锁着”。
+    let locked = !st.creating && st.selected_element().is_some_and(Element::locked);
     let mode_btn = |mode: Mode, cx: &mut Context<Desktop>| {
         let on = st.mode == mode;
         div()
@@ -1308,6 +1567,37 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
             .child(mode_btn(Mode::Json, cx));
     }
 
+    // 锁开关：盘上锁着的元素，保存 / 删除都变灰，只有这一个口子能解开。
+    // （真拦住的是引擎：锁着时 PUT / DELETE 回 423，过界面也删不掉。）
+    if has_selection && !st.creating {
+        let locking = st.locking;
+        bar = bar.child(
+            div()
+                .id("el-lock")
+                .px(t().d(9.))
+                .py(t().d(6.))
+                .rounded(t().r(6.))
+                .text_size(t().fs(11.5))
+                .text_color(rgb(if locked { t().p.warn } else { muted() }))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .when(!locking, |el| {
+                    el.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.toggle_lock(window, cx);
+                    }))
+                })
+                .child(if locking {
+                    "…".to_string()
+                } else if locked {
+                    "解锁".to_string()
+                } else {
+                    "锁定".to_string()
+                }),
+        );
+    }
+
+    // 手动刷新：**这一页唯一能重新读盘上的入口**。没有它，盘上那份被别人改过之后
+    // 删除会一直 409（`base` 停在旧快照上），只能重启 App —— 2026-11-24 真机踩过。
+    let fetching = st.loading;
     bar = bar.child(
         div()
             .id("el-refresh")
@@ -1315,14 +1605,14 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
             .py(t().d(5.))
             .rounded(t().r(6.))
             .text_size(t().fs(11.5))
-            .text_color(rgb(if st.loading { muted() } else { t().p.text_2 }))
-            .when(!st.loading, |el| {
+            .text_color(rgb(if fetching { t().p.disabled } else { muted() }))
+            .when(!fetching, |el| {
                 el.hover(|el| el.bg(rgb(t().p.hover)))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.refresh_elements(cx);
                     }))
             })
-            .child(if st.loading { "刷新中…" } else { "刷新" }),
+            .child(if fetching { "刷新中…" } else { "刷新" }),
     );
 
     bar = bar.child(
@@ -1347,6 +1637,7 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
     // 第一次写这里时把两个按钮放在同一个 `if` 里，于是草稿没有保存按钮，
     // 人只能看着一份填好的表单没法提交（真踩过）。
     if has_selection && !st.creating {
+        let deletable = !locked && !st.saving;
         bar = bar.child(
             div()
                 .id("el-delete")
@@ -1354,19 +1645,22 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
                 .py(t().d(6.))
                 .rounded(t().r(6.))
                 .text_size(t().fs(11.5))
-                .text_color(rgb(t().p.danger))
-                .hover(|el| el.bg(rgb(t().p.danger_soft)))
-                .child("删除")
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.elements_state.confirm_delete = true;
-                    cx.notify();
-                })),
+                .text_color(rgb(if deletable { t().p.danger } else { t().p.disabled }))
+                .when(deletable, |el| {
+                    el.hover(|el| el.bg(rgb(t().p.danger_soft)))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.elements_state.confirm_delete = true;
+                            cx.notify();
+                        }))
+                })
+                .child("删除"),
         );
     }
 
-    // 保存：盘上的和草稿都有（草稿第一次保存是 POST）。
+    // 保存：盘上的和草稿都有（草稿第一次保存是 POST）。锁着就是个死按钮 ——
+    // 不挂点击，并在文案里说清楚为什么。
     if has_selection {
-        let saving = st.saving;
+        let saving = st.saving || locked;
         let creating_now = st.creating;
         bar = bar.child(
             div()
@@ -1384,10 +1678,11 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
                             this.save_element(window, cx);
                         }))
                 })
-                .child(match (saving, creating_now) {
-                    (true, _) => "保存中…",
-                    (false, true) => "建好并提交",
-                    (false, false) => "保存并提交",
+                .child(match (saving, locked, creating_now) {
+                    (_, true, _) => "已锁定",
+                    (true, _, _) => "保存中…",
+                    (false, false, true) => "建好并提交",
+                    (false, false, false) => "保存并提交",
                 }),
         );
     }
@@ -1402,6 +1697,7 @@ fn render_topbar(desk: &Desktop, has_selection: bool, cx: &mut Context<Desktop>)
 fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
     let st = &desk.elements_state;
     let kind = detail.kind;
+    let locked = detail.locked;
     let path = format!("{}/{}.json", kind.dir(), detail.id);
     let (fingerprint, fp_color) = match (detail.creating, detail.etag.as_deref()) {
         (true, _) => ("还没提交（草稿）".to_string(), t().p.warn),
@@ -1477,6 +1773,29 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
         );
     }
 
+    // 锁着：字段全是灰的，上面一行说清楚去哪个口子解开。
+    if detail.locked {
+        doc = doc.child(
+            div()
+                .mt(t().d(14.))
+                .max_w(t().d(640.))
+                .flex()
+                .items_center()
+                .gap(t().d(8.))
+                .p(t().d(10.))
+                .rounded(t().r(7.))
+                .bg(rgb(t().p.selected))
+                .text_size(t().fs(11.))
+                .text_color(rgb(t().p.text_2))
+                .child(div().child("已锁定"))
+                .child(
+                    div()
+                        .text_color(rgb(muted()))
+                        .child("改不了也删不掉 —— 点顶栏「解锁」再改"),
+                ),
+        );
+    }
+
     doc = doc.child(div().h(t().d(1.)).mt(t().d(30.)).mb(t().d(26.)).bg(rgb(line_color())));
 
     // 字段：ID 只读（它就是文件名，改名 = 新建 + 删旧的），别的都能改。
@@ -1504,10 +1823,10 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
     };
 
     doc = doc.child(div().mt(t().d(22.)).child(field_label("NAME")));
-    doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_name).small()));
+    doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_name).small().disabled(locked)));
 
     doc = doc.child(div().mt(t().d(22.)).child(field_label("DESC")));
-    doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_desc).small()));
+    doc = doc.child(div().mt(t().d(6.)).max_w(t().d(620.)).child(Input::new(&st.form_desc).small().disabled(locked)));
 
     match kind {
         ElementKind::Groups => {
@@ -1520,7 +1839,7 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
                 div()
                     .mt(t().d(6.))
                     .max_w(t().d(620.))
-                    .child(Input::new(&st.form_refs).small()),
+                    .child(Input::new(&st.form_refs).small().disabled(locked)),
             );
             // 断链点名（只显示引擎算出来的，不自己比对）。
             if let Some(data) = st.data.as_ref() {
@@ -1557,7 +1876,8 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
                     .child(
                         Textarea::new(&st.form_body)
                             .size_full()
-                            .font_family(mono()),
+                            .font_family(mono())
+                            .disabled(locked),
                     ),
             );
             doc = doc.child(div().mt(t().d(22.)).child(field_label("TAGS · 逗号分隔")));
@@ -1565,7 +1885,7 @@ fn render_form(desk: &Desktop, detail: &Detail) -> AnyElement {
                 div()
                     .mt(t().d(6.))
                     .max_w(t().d(620.))
-                    .child(Input::new(&st.form_tags).small()),
+                    .child(Input::new(&st.form_tags).small().disabled(locked)),
             );
             // 属于哪些组：引用是「组 → 包」单向的，这里只是把它反过来画一眼。
             if let Some(data) = st.data.as_ref() {
@@ -1614,6 +1934,7 @@ fn short_hash(etag: &str) -> String {
 /// 没有——这里就用等宽 + 主题色，选中复制靠 `Textarea` 自己的选区）。
 fn render_json(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
     let st = &desk.elements_state;
+    let locked = st.detail().is_some_and(|d| d.locked);
     let err = st.json_error.clone();
     let lines = st
         .json
@@ -1652,7 +1973,8 @@ fn render_json(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 .child(
                     Textarea::new(&st.json)
                         .size_full()
-                        .font_family(mono()),
+                        .font_family(mono())
+                        .disabled(locked),
                 ),
         )
         .child(
@@ -1670,11 +1992,13 @@ fn render_json(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     None => div().text_color(rgb(t().p.ok)).child("JSON 能解析"),
                 })
                 .child(div().flex_1())
-                .child(
-                    div()
-                        .text_color(rgb(muted()))
-                        .child("保存会提交一条 · push 尽力而为"),
-                ),
+                .child(div().text_color(rgb(if locked { t().p.warn } else { muted() })).child(
+                    if locked {
+                        "已锁定 · 先解锁才能存"
+                    } else {
+                        "保存会提交一条 · push 尽力而为"
+                    },
+                )),
         )
         .into_any_element()
 }

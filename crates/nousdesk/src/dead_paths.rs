@@ -138,6 +138,7 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("PUT", "v1/elements/{kind}/{id}"),
     ("POST", "v1/elements/{kind}"),
     ("DELETE", "v1/elements/{kind}/{id}"),
+    ("POST", "v1/elements/{kind}/{id}/lock"),
     ("POST", "v1/elements/push"),
     ("GET", "v1/extensions/files"),
     ("GET", "v1/extensions/file"),
@@ -394,8 +395,8 @@ mod tests {
         // 数字改一次就要问一次「为什么」：这条断言是防「夹具被悄悄裁掉一半」的。
         assert_eq!(
             fixture["routes"].as_array().unwrap().len(),
-            161,
-            "0.1.20 真产物整份重抓：0.1.15 的 139 + 触发器工程面 13 + 垃圾站 2 + 元素库 7"
+            162,
+            "0.1.21 真路由器整份重抓：0.1.15 的 139 + 触发器工程面 13 + 垃圾站 2 + 元素库 7 + 锁 1"
         );
         assert!(fixture["_provenance"].get("commit").is_some());
     }

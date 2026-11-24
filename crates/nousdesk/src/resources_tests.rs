@@ -510,3 +510,22 @@ fn 窄窗下钻只有两层() {
     assert_eq!(ResCol::Tree.pop(), ResCol::Items);
     assert_eq!(ResCol::Items.pop(), ResCol::Items, "在列表上再退还是列表");
 }
+
+/// 扩展段的 `⋯` 菜单：空垃圾站时只有两项，有东西才多出「垃圾站 N」。
+///
+/// 判据钉两件事 —— ① 垃圾站在树里已经有一行且常显（2026-11-23），空着再给一个
+/// 菜单项就是同一页两个入口；② 顺序固定（重载 → 类别词表 → 垃圾站），菜单的
+/// 肌肉记忆跟段按钮一样不能乱跳。
+#[test]
+fn 扩展段菜单空垃圾站只有两项() {
+    use crate::resources::{ExtMenu, ext_menu_items};
+    assert_eq!(
+        ext_menu_items(0),
+        vec![ExtMenu::Reload, ExtMenu::Categories]
+    );
+    assert_eq!(
+        ext_menu_items(3),
+        vec![ExtMenu::Reload, ExtMenu::Categories, ExtMenu::Trash(3)],
+        "有东西才出垃圾站，且带份数"
+    );
+}

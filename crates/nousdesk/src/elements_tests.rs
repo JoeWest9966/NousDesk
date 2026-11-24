@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::elements::{
-        apply_written, conflict_hint, engine_status, parse_draft, remove_written, section_label,
-        set_list, set_scalar, unused_id,
+        apply_written, conflict_hint, engine_status, parse_draft, pkg_scope, remove_written,
+        section_label, set_list, set_scalar, unused_id,
     };
     use nous_engine::{Element, ElementKind, ElementReceipt, Elements, EngineError};
     use serde_json::json;
@@ -148,6 +148,66 @@ mod tests {
         assert!(s.contains("没有产生新提交"), "{s}");
         let s = commit(None, None, true).summary("已保存");
         assert!(s.contains("没有重复写"), "{s}");
+    }
+
+    #[test]
+    fn 锁是盘上那个键_不是客户端自己记的() {
+        // 引擎写进 JSON 的 `locked: true` → 这一条就是锁着的。
+        assert!(element("a", json!({ "id": "a", "name": "A", "locked": true })).locked());
+        // 没有这个键 → 没锁（老数据不该因为少一个键就画成锁住）。
+        assert!(!element("b", json!({ "id": "b", "name": "B" })).locked());
+        // 类型不对就当没锁：不猜 `"true"` 这种写法（引擎只写布尔）。
+        assert!(!element("c", json!({ "id": "c", "name": "C", "locked": "true" })).locked());
+        assert!(!element("d", json!({ "id": "d", "name": "D", "locked": null })).locked());
+    }
+
+    #[test]
+    fn 锁标不影响别的字段判定() {
+        let locked = element(
+            "g",
+            json!({ "id": "g", "name": "前端", "packages": ["react-rules"], "locked": true }),
+        );
+        assert!(locked.locked());
+        assert_eq!(locked.name(), "前端");
+        assert_eq!(locked.packages(), vec!["react-rules"], "读锁不该把引用读没");
+    }
+
+    /// 一份最小的回包：一个组（引用两个包，其中一个盘上没有）+ 一个没人引用的包。
+    fn repo() -> Elements {
+        serde_json::from_value(json!({
+            "kind": "elements",
+            "groups": [{
+                "kind": "groups", "id": "frontend", "etag": "e1", "state": "ok",
+                "fields": { "id": "frontend", "name": "前端",
+                            "packages": ["react-rules", "sql-rules"] },
+            }],
+            "packages": [
+                { "kind": "packages", "id": "react-rules", "etag": "e2", "state": "ok",
+                  "fields": { "id": "react-rules", "name": "React 规范" } },
+                { "kind": "packages", "id": "loose", "etag": "e3", "state": "ok",
+                  "fields": { "id": "loose", "name": "没人引用" } },
+            ],
+        }))
+        .expect("形状要能反序列化")
+    }
+
+    #[test]
+    fn 点了组_包列就只剩这组引用的() {
+        let data = repo();
+        assert_eq!(
+            pkg_scope(Some(&data), Some("frontend")),
+            Some(vec!["react-rules".to_string(), "sql-rules".to_string()]),
+            "顺序照组里 JSON 的写法；盘上没有的 sql-rules 也留着（列表里给它一行红的）"
+        );
+    }
+
+    #[test]
+    fn 没聚焦组就是全部包_包括没人引用的() {
+        // 不聚焦 = 中间列列全部：`None` 让渲染那边走原路（不会漏掉 `loose`）。
+        assert_eq!(pkg_scope(Some(&repo()), None), None);
+        // 聚焦了一个不存在的组、或者还没拉到数据 → 也当「全部」，别把列清空。
+        assert_eq!(pkg_scope(Some(&repo()), Some("nope")), None);
+        assert_eq!(pkg_scope(None, Some("frontend")), None);
     }
 
     /// 一份两段齐全的空清单。
