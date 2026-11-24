@@ -3,324 +3,446 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NousDesk · 设置 → 关于 → 插件 · 文档阅读 demo</title>
+<title>NousDesk · 关于 → 插件 · 文档阅读（Cybertruck 皮）</title>
 <style>
 __FONTS__
 :root {
-  --sidebar: #2e2e2e; --list-bg: #f7f7f7; --panel: #ffffff; --surface: #f6f6f6;
-  --text: #1a1a1a; --text2: #333333; --muted: #999999; --faint: #aaaaaa;
-  --line: #e6e6e6; --line-soft: #eeeeee;
-  --accent: #07c160; --accent-soft: #e8f7ee; --accent-fg: #0a7a3f;
-  --ok: #079c50; --warn-soft: #fff8ee; --code-bg: #f4f4f4; --row-hover: #f0f0f0;
+  /* Cybertruck 皮（crates/nousdesk/src/theme.rs → Skin::CYBERTRUCK） */
+  --sidebar: #2a2d30; --sidebar-hover: #34383b;
+  --list-bg: #303336; --chat-bg: #232628; --panel: #34373a;
+  --panel-alt: #2d3033; --surface: #3b3e42; --overlay: #35383c;
+  --text: #e8eaec; --text-2: #b0b4b8; --muted: #83888d; --faint: #5c6166;
+  --line: #454a4e; --line-strong: #575d62; --line-soft: #393d40;
+  --accent: #ff6b1a; --accent-hover: #ff8038; --accent-soft: #3d2a1c; --accent-fg: #ff8a4d;
+  --ok: #4dd08a; --hover: #383c3f; --selected: #40454a;
+  --code-bg: #3b3e42;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; min-height: 100%; }
 body {
-  font-family: Inter, "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-  background: #d9d9d9; color: var(--text);
-  font-size: 13px; -webkit-font-smoothing: antialiased;
+  font-family: Archivo, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", sans-serif;
+  background: #17191b; color: var(--text); font-size: 13px;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 .mono { font-family: "JBMono", ui-monospace, monospace; }
+::selection { background: var(--accent-soft); color: var(--accent-fg); }
 
-/* ── demo 切换条（不进产品） ─────────────────────────── */
+/* ── demo 切换（不进产品） ───────────────────────────── */
 .picker {
-  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
-  display: flex; gap: 4px; padding: 4px; border-radius: 8px;
-  background: #ffffffee; box-shadow: 0 6px 24px #0000001f; z-index: 90;
-  font-size: 12px;
+  position: fixed; right: 18px; bottom: 18px; z-index: 90;
+  display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: #202325; border: 1px solid var(--line); box-shadow: 0 12px 32px #00000066;
+  font-size: 11.5px;
 }
+.picker .lbl { color: var(--faint); padding: 5px 8px 5px 6px; letter-spacing: .04em; }
 .picker button {
-  border: 0; background: transparent; color: var(--text2); cursor: pointer;
-  padding: 5px 12px; border-radius: 5px; font: inherit;
+  border: 0; background: transparent; color: var(--text-2); cursor: pointer;
+  padding: 5px 11px; font: inherit; letter-spacing: .02em;
 }
-.picker button.on { background: var(--accent-soft); color: var(--accent-fg); font-weight: 600; }
-.picker .hint { color: var(--muted); padding: 5px 8px 5px 10px; }
+.picker button:hover { background: var(--hover); }
+.picker button.on { background: var(--accent-soft); color: var(--accent-fg); }
 
-/* ── 窗口 ─────────────────────────────────────────── */
-.stage { min-height: 100%; display: grid; place-items: center; padding: 54px 24px 24px; }
+/* ── 桌面与窗口 ─────────────────────────────────────── */
+.stage { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 46px 24px 30px; gap: 22px; }
 .win {
-  width: 1120px; height: 720px; background: var(--panel); border-radius: 10px;
-  overflow: hidden; display: flex; box-shadow: 0 24px 64px #00000024, 0 1px 0 #ffffff1f inset;
+  width: 1120px; height: 720px; flex: none; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid #0f1112;
+  box-shadow: 0 34px 90px #00000080, 0 0 0 1px #ffffff08 inset;
 }
-.rail { width: 196px; flex: none; background: var(--list-bg); border-right: 1px solid var(--line-soft); padding: 18px 10px; display: flex; flex-direction: column; gap: 2px; }
-.rail .who { padding: 2px 8px 14px; }
-.rail .who b { font-size: 13px; font-weight: 600; display: block; }
-.rail .who span { font-size: 10.5px; color: var(--muted); }
-.rail .item { display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: 5px; font-size: 12.5px; color: var(--text2); }
-.rail .item .dot { width: 15px; height: 15px; border-radius: 4px; background: var(--line); flex: none; }
-.rail .item.on { background: #ffffff; box-shadow: 0 0 0 1px var(--line-soft); font-weight: 600; }
-.rail .item.on .dot { background: var(--accent-soft); }
-.rail .spacer { flex: 1; }
-.rail .foot { font-size: 10.5px; color: var(--faint); padding: 0 8px; }
+.titlebar {
+  height: 38px; flex: none; display: flex; align-items: center; padding: 0 10px 0 14px;
+  background: var(--sidebar); border-bottom: 1px solid #222527;
+}
+.titlebar .brand { font-size: 11.5px; color: var(--muted); letter-spacing: .06em; }
+.titlebar .wbtns { margin-left: auto; display: flex; }
+.titlebar .wbtns i {
+  width: 34px; height: 26px; display: grid; place-items: center; font-style: normal;
+  font-size: 9px; color: var(--muted);
+}
+.titlebar .wbtns i:hover { background: var(--sidebar-hover); color: var(--text); }
+.titlebar .wbtns i.x:hover { background: #c4432b; color: #fff; }
 
-.main { flex: 1; min-width: 0; padding: 20px 24px 0; display: flex; flex-direction: column; }
-.head { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; }
-.head h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .01em; }
-.seg { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line-soft); }
-.seg span { padding: 4px 10px; border-radius: 5px; font-size: 11.5px; color: var(--text2); }
-.seg span.on { background: var(--accent-soft); color: var(--accent-fg); font-weight: 600; }
+.shead {
+  height: 48px; flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 0 14px; background: var(--list-bg); border-bottom: 1px solid var(--line-soft);
+}
+.back { display: flex; align-items: center; gap: 6px; padding: 5px 7px; font-size: 12px; color: var(--text-2); cursor: pointer; }
+.back:hover { background: var(--line-soft); color: var(--text); }
+.shead .stitle { font-size: 13px; color: var(--text); }
 
-/* ── 插件页：列表 ─────────────────────────────────── */
-.plugins { flex: 1; min-height: 0; display: flex; gap: 18px; padding-bottom: 18px; }
-.plist { width: 268px; flex: none; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.plist .count { font-size: 11.5px; color: var(--muted); }
-.plist .rows { display: flex; flex-direction: column; gap: 2px; overflow: auto; padding-right: 2px; }
-.prow { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 5px; cursor: pointer; }
-.prow:hover { background: var(--row-hover); }
-.prow.on { background: var(--accent-soft); }
-.prow .st { width: 6px; height: 6px; border-radius: 50%; flex: none; }
-.prow .nm { font-size: 11.5px; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.prow .vr { font-size: 10px; color: var(--faint); }
+.sbody { flex: 1; min-height: 0; display: flex; }
+.snav {
+  width: 170px; flex: none; padding: 10px; background: var(--panel-alt);
+  border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 2px;
+}
+.snav .it {
+  display: flex; align-items: center; gap: 9px; padding: 8px 10px;
+  font-size: 12.5px; color: var(--text-2); cursor: pointer;
+}
+.snav .it .ic { width: 14px; height: 14px; border: 1px solid var(--faint); opacity: .7; }
+.snav .it:hover { background: var(--line-soft); }
+.snav .it.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.snav .it.on .ic { border-color: var(--accent); opacity: 1; }
+.snav .grow { flex: 1; }
+.snav .foot { font-size: 10.5px; color: var(--faint); padding: 0 10px 2px; letter-spacing: .02em; }
 
-/* ── 插件页：详情（右栏共用骨架） ──────────────────── */
-.pdetail { flex: 1; min-width: 0; border-left: 1px solid var(--line-soft); padding-left: 18px; overflow: auto; }
-.dhead { display: flex; align-items: flex-start; gap: 10px; }
-.dhead .ttl { min-width: 0; }
-.dhead h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
-.dhead .raw { font-size: 10.5px; color: var(--muted); }
-.dhead .grow { flex: 1; }
-.status { display: flex; gap: 8px; align-items: center; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
-.status .en { color: var(--ok); }
+.pane { flex: 1; min-width: 0; padding: 20px 22px 0; display: flex; flex-direction: column; }
+.page-head { display: flex; align-items: center; gap: 14px; padding-bottom: 14px; flex: none; }
+.page-head h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+.seg { display: flex; gap: 1px; padding: 2px; background: var(--surface); border: 1px solid var(--line-soft); }
+.seg span { padding: 4px 11px; font-size: 11.5px; color: var(--text-2); cursor: pointer; }
+.seg span.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.seg span:not(.on):hover { background: var(--hover); color: var(--text); }
 
-/* 文档正文 */
-.doc { margin-top: 12px; font-size: 12.5px; line-height: 1.75; color: var(--text2); max-width: 560px; }
-.doc p { margin: 0 0 9px; }
-.doc p:last-child { margin-bottom: 0; }
-.doc b { color: var(--text); font-weight: 600; }
-.doc code { font-family: "JBMono", ui-monospace, monospace; font-size: 11px; background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
-.doc .lead { color: var(--text); }
-.doc-missing { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: var(--warn-soft); font-size: 11.5px; color: var(--text2); }
-.doc-meta { margin-top: 14px; font-size: 10.5px; color: var(--faint); display: flex; gap: 10px; }
+/* ── 插件页骨架：列表 + 详情 ─────────────────────────── */
+.plugins { position: relative; flex: 1; min-height: 0; display: flex; gap: 0; overflow: hidden; }
+.plist {
+  width: 292px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--chat-bg); border-right: 1px solid var(--line-soft);
+  margin: -20px 0 0 -22px; padding: 20px 16px 20px 22px;
+}
+.plist .sum { font-size: 10.5px; color: var(--faint); letter-spacing: .02em; padding: 0 10px 12px; }
+.plist .rows { display: flex; flex-direction: column; overflow: auto; }
+.prow {
+  position: relative; height: 35px; flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 0 10px; cursor: pointer; color: var(--text-2);
+}
+.prow:hover { background: var(--hover); color: var(--text); }
+.prow.on { background: var(--hover); color: var(--text); }
+.prow.on .nm { font-weight: 500; }
+.prow.on::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px; background: var(--accent); }
+.prow .sq { width: 5px; height: 5px; flex: none; border-radius: 50%; background: var(--ok); }
+.prow.off .sq { background: var(--faint); }
+.prow .nm { flex: 1; min-width: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .vr { font-size: 10px; color: var(--faint); letter-spacing: .01em; opacity: 0; transition: opacity .12s ease; }
+.prow:hover .vr, .prow.on .vr { opacity: 1; }
 
-/* 开发者信息折叠 */
-.brief { margin-top: 16px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
-.brief .tg { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); cursor: pointer; user-select: none; }
-.brief .tg .cv { transition: transform .12s ease; font-size: 9px; }
-.brief.open .tg .cv { transform: rotate(90deg); }
-.brief .body { display: none; margin-top: 10px; }
-.brief.open .body { display: block; }
-.kv { display: grid; grid-template-columns: 72px 1fr; gap: 5px 12px; font-size: 11px; color: var(--text2); }
-.kv .k { color: var(--muted); }
-.eps { margin-top: 12px; }
-.eps .et { font-size: 10px; color: var(--faint); margin-bottom: 4px; }
-.ep { display: flex; gap: 8px; font-size: 10.5px; font-family: "JBMono", ui-monospace, monospace; padding: 1px 0; }
-.ep .m { width: 38px; flex: none; color: var(--muted); }
-.ep .m.post { color: var(--accent-fg); }
+.pdetail { flex: 1; min-width: 0; padding-left: 30px; padding-bottom: 20px; overflow: auto; }
 
-/* ── 方案 B：双页签 ───────────────────────────────── */
-.bseg { display: flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line-soft); margin-left: auto; }
-.bseg span { padding: 3px 10px; border-radius: 5px; font-size: 11px; color: var(--text2); cursor: pointer; }
-.bseg span.on { background: #fff; box-shadow: 0 0 0 1px var(--line-soft); font-weight: 600; color: var(--text); }
-.btab .pane { display: none; }
-.btab[data-tab="doc"] .pane.doc-pane { display: block; }
-.btab[data-tab="info"] .pane.info-pane { display: block; }
+/* ── 文档排版（三套共用） ────────────────────────────── */
+.crumb { font-family: "JBMono", ui-monospace, monospace; font-size: 10px; color: var(--accent-fg); letter-spacing: .12em; margin-bottom: 12px; }
+.crumb b { color: var(--text-2); font-weight: 500; }
+.dtitle { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+.dsub { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 11.5px; color: var(--muted); }
+.dsub .st { color: var(--ok); }
+.dsub .st.off { color: var(--faint); }
+.dsub .sep { width: 3px; height: 3px; background: var(--faint); opacity: .6; }
+.dsub .v { font-size: 10.5px; }
+.reading { margin-top: 28px; padding-top: 28px; border-top: 1px solid var(--line-soft); max-width: 600px; }
+.reading .lead { margin: 0 0 32px; font-size: 17px; line-height: 1.85; color: var(--text); letter-spacing: .004em; }
+.sect { margin: 0 0 30px; }
+.sect .k {
+  display: block; margin-bottom: 9px; font-size: 10.5px; font-weight: 500;
+  color: var(--muted); letter-spacing: .18em;
+}
+.sect .v { margin: 0; font-size: 14.5px; line-height: 1.95; color: #c9cdd0; }
+.reading .meta { margin-top: 32px; font-size: 10.5px; color: var(--muted); letter-spacing: .05em; }
+.reading code { font-family: "JBMono", ui-monospace, monospace; font-size: 11px; padding: 1px 4px; background: var(--code-bg); color: var(--text); }
 
-/* ── 方案 C：浮层 ─────────────────────────────────── */
-.docbtn .kbd { font-size: 10px; color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; margin-left: 3px; }
-.docbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line-soft); font-size: 11.5px; color: var(--text2); cursor: pointer; }
-.docbtn:hover { background: var(--accent-soft); color: var(--accent-fg); border-color: transparent; }
-.scrim { position: fixed; inset: 0; background: #0000002a; display: none; place-items: center; z-index: 80; }
-.scrim.on { display: grid; }
-.sheet { width: 620px; max-height: 580px; background: var(--panel); border-radius: 12px; box-shadow: 0 24px 60px #0000002e; padding: 22px 24px; overflow: auto; }
-.sheet .sh { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
-.sheet h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; }
-.sheet .raw { font-size: 10.5px; color: var(--muted); }
-.sheet .x { margin-left: auto; width: 26px; height: 26px; border-radius: 6px; border: 0; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 13px; }
-.sheet .x:hover { background: var(--row-hover); color: var(--text); }
-.sheet .note { font-size: 10.5px; color: var(--faint); margin-top: 16px; }
+/* 技术细节（方案 1 折叠 / 方案 2 侧栏） */
+.deets { margin-top: 34px; padding-top: 15px; border-top: 1px solid var(--line-soft); }
+.deets .tg { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-2); cursor: pointer; letter-spacing: .04em; }
+.deets .tg:hover { color: var(--text-2); }
+.deets .tg .cv { font-size: 8px; transition: transform .14s ease; }
+.deets.open .tg .cv { transform: rotate(90deg); }
+.deets .bd { display: none; margin-top: 14px; }
+.deets.open .bd { display: block; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; max-width: 500px; }
+.fact .k { display: block; font-size: 10px; color: var(--faint); letter-spacing: .1em; margin-bottom: 3px; }
+.fact .v { font-size: 11.5px; color: var(--text-2); }
+.eps { margin-top: 20px; }
+.eps .ttl { font-size: 10px; color: var(--faint); letter-spacing: .1em; margin-bottom: 7px; }
+.ep { display: flex; gap: 12px; padding: 3px 0; font-family: "JBMono", ui-monospace, monospace; font-size: 10.5px; }
+.ep .m { width: 40px; flex: none; color: var(--muted); }
+.ep .m.post { color: var(--accent); }
+.ep .p { color: var(--text-2); }
 
-/* ── 方案说明 ─────────────────────────────────────── */
-.why { max-width: 1120px; margin: 14px auto 40px; color: #555; font-size: 11.5px; line-height: 1.7; }
-.why b { color: #1a1a1a; }
-[data-scheme="A"] .only-b, [data-scheme="A"] .only-c { display: none !important; }
-[data-scheme="B"] .only-a, [data-scheme="B"] .only-c { display: none !important; }
-[data-scheme="C"] .only-a, [data-scheme="C"] .only-b { display: none !important; }
+/* ── 方案 2：技术侧栏 ───────────────────────────────── */
+.split .pdetail { display: flex; gap: 0; padding-left: 20px; }
+.split .doccol { flex: 1; min-width: 0; padding-right: 20px; }
+.split .side {
+  width: 252px; flex: none; align-self: stretch; margin: 0 -22px 0 0;
+  padding: 2px 20px 20px; background: var(--panel-alt); border-left: 1px solid var(--line-soft);
+}
+.split .side .facts { grid-template-columns: 1fr; gap: 0; }
+.split .side .fact {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 9px 0; border-bottom: 1px solid #33373a;
+}
+.split .side .fact .k { margin: 0; flex: none; font-size: 10.5px; letter-spacing: .06em; }
+.split .side .fact .v { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.split .ep { font-size: 10px; }
+.split .ep .p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side .h { font-size: 10px; color: var(--muted); letter-spacing: .16em; margin: 0 0 12px; }
+.side .fact { margin-bottom: 14px; }
+.side .eps { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+
+/* ── 方案 3：信息页 + 右滑阅读列 ─────────────────────── */
+.docbtn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px; background: var(--surface); border: 1px solid var(--line-soft);
+  color: var(--text-2); font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.docbtn:hover { border-color: var(--accent); color: var(--accent-fg); }
+.docbtn .kbd { font-size: 10px; color: var(--faint); border: 1px solid var(--line); padding: 0 4px; }
+.thead { display: flex; align-items: flex-start; gap: 12px; }
+.infogrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); margin-top: 24px; }
+.infogrid .cell { background: var(--panel); padding: 13px 14px 15px; }
+.infogrid .k { display: block; font-size: 10px; color: var(--faint); letter-spacing: .12em; margin-bottom: 6px; }
+.infogrid .v { font-size: 12px; color: var(--text-2); }
+.infopage .eps { margin-top: 26px; }
+
+.reader {
+  position: absolute; top: -20px; left: 292px; right: -22px; bottom: 0; z-index: 20;
+  background: #262a2c; border-left: 1px solid var(--line); visibility: hidden;
+  box-shadow: -30px 0 60px #0000004d;
+  transform: translateX(102%); transition: transform .2s cubic-bezier(.22,.8,.24,1);
+  display: flex; flex-direction: column;
+}
+.reader.on { transform: translateX(0); visibility: visible; }
+.reader .rhead {
+  height: 46px; flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 0 16px; border-bottom: 1px solid var(--line-soft);
+}
+.reader .rhead .who { font-size: 11.5px; color: var(--text-2); }
+.reader .rhead .who b { color: var(--text); font-weight: 600; }
+.reader .rhead .x { margin-left: auto; font-size: 11px; color: var(--muted); cursor: pointer; padding: 4px 6px; }
+.reader .rhead .x:hover { background: var(--hover); color: var(--text); }
+.reader .rbody { flex: 1; overflow: auto; padding: 28px 40px 40px; }
+.reader .reading { max-width: 520px; }
+.reader .rfoot { flex: none; padding: 10px 34px 14px; border-top: 1px solid var(--line-soft); font-size: 10.5px; color: var(--faint); letter-spacing: .02em; }
+
+/* 方案切换 */
+[data-scheme="1"] .only-2, [data-scheme="1"] .only-3 { display: none !important; }
+[data-scheme="2"] .only-1, [data-scheme="2"] .only-3 { display: none !important; }
+[data-scheme="3"] .only-1, [data-scheme="3"] .only-2 { display: none !important; }
+
+.why { width: 1120px; color: #8b9196; font-size: 12px; line-height: 1.85; letter-spacing: .01em; }
+.why b { color: #c3c8cc; font-weight: 600; }
+.why .tag { color: var(--accent-fg); letter-spacing: .08em; margin-right: 6px; }
 </style>
 </head>
-<body data-scheme="A">
-
-<div class="picker">
-  <span class="hint">demo 切换（不进产品）</span>
-  <button data-set="A" class="on">A 文档即主体</button>
-  <button data-set="B">B 双页签</button>
-  <button data-set="C">C 浮层阅读</button>
-</div>
+<body data-scheme="1">
 
 <div class="stage">
-  <div class="win">
-    <nav class="rail">
-      <div class="who"><b>设置</b><span>v0.9.33</span></div>
-      <div class="item"><span class="dot"></span>连接</div>
-      <div class="item"><span class="dot"></span>主题</div>
-      <div class="item"><span class="dot"></span>声音</div>
-      <div class="item on"><span class="dot"></span>关于</div>
-      <div class="spacer"></div>
-      <div class="foot">local · 12 ms</div>
-    </nav>
-
-    <main class="main">
-      <header class="head">
-        <h1>关于</h1>
-        <div class="seg"><span>概览</span><span class="on">插件 14</span></div>
-      </header>
-
-      <div class="plugins">
-        <aside class="plist">
-          <div class="count" id="count"></div>
-          <div class="rows" id="rows"></div>
-        </aside>
-        <section class="pdetail" id="detail"></section>
-      </div>
-    </main>
+  <div class="win" style="height:660px">
+    <div class="titlebar">
+      <span class="brand">NousDesk</span>
+      <div class="wbtns"><i>–</i><i>□</i><i class="x">✕</i></div>
+    </div>
+    <div class="shead">
+      <span class="back">← 返回聊天</span>
+      <span class="stitle">设置</span>
+    </div>
+    <div class="sbody">
+      <nav class="snav">
+        <div class="it">连接</div>
+        <div class="it">主题</div>
+        <div class="it">声音</div>
+        <div class="it on">关于</div>
+        <div class="grow"></div>
+        <div class="foot">local · 12 ms</div>
+      </nav>
+      <main class="pane">
+        <div class="page-head">
+          <h1>关于</h1>
+          <div class="seg"><span>概览</span><span class="on">插件 14</span></div>
+        </div>
+        <div class="plugins">
+          <aside class="plist">
+            <div class="rows" id="rows"></div>
+          </aside>
+          <section class="pdetail" id="detail"></section>
+          <div class="reader" id="reader">
+            <div class="rhead">
+              <span class="who" id="readerWho"></span>
+              <span class="x" onclick="closeReader()">✕ 关闭</span>
+            </div>
+            <div class="rbody" id="readerBody"></div>
+            <div class="rfoot" id="rfoot"></div>
+          </div>
+        </div>
+      </main>
+    </div>
   </div>
+
+  <div class="why" id="why"></div>
 </div>
 
-<div class="why" id="why"></div>
-
-<div class="scrim" id="scrim">
-  <div class="sheet">
-    <div class="sh">
-      <div><h2 id="sheetTitle"></h2><div class="raw" id="sheetRaw"></div></div>
-      <button class="x" onclick="document.getElementById('scrim').classList.remove('on')">✕</button>
-    </div>
-    <div class="status" id="sheetStatus"></div>
-    <div class="doc" id="sheetDoc"></div>
-    <div class="note">正文来自 <span class="mono">GET /v1/plugins/{name}/readme</span> —— 引擎读产物目录里的 <span class="mono">README.md</span>，改文档不用重编译。</div>
-  </div>
+<div class="picker">
+  <span class="lbl">方案</span>
+  <button data-set="1" class="on">01 文档即主体</button>
+  <button data-set="2">02 技术侧栏</button>
+  <button data-set="3">03 右滑阅读</button>
 </div>
 
 <script>
+/* 真数据：来自内核仓 crates/nous/<module>/README.md（2026-11-24 规则 7 后的正文） */
 const MODULES = [
-  { name: "sessions", label: "会话", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "是", crate: "nous-sessions", eps: [["POST","/v1/sessions"],["POST","/v1/sessions/:id/messages"],["POST","/v1/sessions/:id/abort"]] },
-  { name: "env", label: "执行环境", version: "0.1.25", enabled: true, kind: "编译期", layer: "platform", required: "是", crate: "nous-env", eps: [["GET","/v1/fs/dirs"]] },
-  { name: "repo", label: "私库读写", version: "0.1.25", enabled: true, kind: "编译期", layer: "platform", required: "是", crate: "nous-repo", eps: [["GET","/v1/upstream"],["POST","/v1/upstream/sync"]] },
-  { name: "presets", label: "模板", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "—", eps: [["GET","/v1/presets"],["GET","/v1/presets/:section"]] },
-  { name: "presets-admin", label: "模板管理", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "nous-presets-admin", eps: [] },
-  { name: "skills", label: "技能", version: "0.1.25", enabled: true, kind: "声明式", layer: "app", required: "否", crate: "nous-skills", eps: [["GET","/v1/skills"]] },
-  { name: "archive", label: "归档", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "—", eps: [["GET","/v1/archive"],["POST","/v1/sessions/:id/archive"]] },
-  { name: "combos", label: "组合", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "—", eps: [["GET","/v1/combos/:section"],["PATCH","/v1/combos/:section/:name"]] },
-  { name: "triggers", label: "触发器", version: "0.1.25", enabled: true, kind: "运行时外挂", layer: "app", required: "否", crate: "—", eps: [["GET","/v1/triggers"],["POST","/v1/triggers/:code/fire"]] },
-  { name: "stats", label: "统计", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "nous-stats", eps: [["GET","/v1/stats/usage"],["GET","/v1/stats/db"]] },
-  { name: "device", label: "设备", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "是", crate: "nous-device", eps: [["GET","/v1/device"],["GET","/v1/capabilities"]] },
-  { name: "prompts", label: "提示词", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "是", crate: "nous-prompts", eps: [["GET","/v1/prompts"]] },
-  { name: "ext", label: "扩展", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "nous-ext", eps: [["GET","/v1/extensions"],["POST","/v1/extensions/reload"]] },
-  { name: "elements", label: "元素库", version: "0.1.25", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "nous-elements", eps: [["GET","/v1/elements"],["POST","/v1/elements/push"]] },
+  { name: "sessions", label: "会话", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "是", crate: "nous-sessions",
+    lead: "最小轮次：一轮对话 = 流式输出 → 调工具 → 唯一写者收口 → 一次提交。",
+    when: "要让一条消息真正跑起来、中途取消、并收敛到一个确定的终态时。",
+    notFor: "不做 HTTP 与事件编码（server、wire），也不直接存库（durable）。",
+    eps: [["POST","/v1/sessions"],["POST","/v1/sessions/:id/messages"],["POST","/v1/sessions/:id/abort"]] },
+  { name: "env", label: "执行环境", version: "0.1.25", enabled: true, layer: "platform", kind: "编译期", required: "是", crate: "nous-env",
+    lead: "执行环境的契约层：文件系统与命令执行两张 trait，外加四条私库路径的解析。",
+    when: "任何要读写技能库、模板库、扩展库或提示词库的代码，都从这里拿路径和能力。",
+    notFor: "不决定内容长什么样、不做 git 发布、不做缓存；本地与远端实现都在它之下。",
+    eps: [["GET","/v1/fs/dirs"]] },
+  { name: "repo", label: "私库读写", version: "0.1.25", enabled: true, layer: "platform", kind: "编译期", required: "是", crate: "nous-repo",
+    lead: "四套私库的文件读写与发布：增删改、git 提交与归档、变体、上游追踪。全仓唯一的 git 进程面。",
+    when: "任何要落盘并留下版本记录的技能、模板、扩展或提示词改动。",
+    notFor: "不解析配置路径（env 给），也不决定内容长什么样（各插件自己判定）。",
+    eps: [["GET","/v1/upstream"],["POST","/v1/upstream/sync"]] },
+  { name: "presets", label: "模板", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "否", crate: "—",
+    lead: "模板与终极模板的名册，以及 /v1/presets 的端点面。判定逻辑在 presets-admin。",
+    when: "要列出模板、看某个模板能不能开、读出它的分段内容时。",
+    notFor: "不读盘、不做形状校验；盘面由 server 读进来。",
+    eps: [["GET","/v1/presets"],["GET","/v1/presets/:section"],["PUT","/v1/presets/:section/:name"]] },
+  { name: "presets-admin", label: "模板管理", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "否", crate: "nous-presets-admin",
+    lead: "模板管理的判定层：形状校验、引用解析、名册投影。全是纯函数，不碰盘。",
+    when: "要回答「这个模板能不能开」「开出来是什么样」，而且希望界面和建会话读同一份判定时。",
+    notFor: "不读盘、不写盘、不做 HTTP；盘面由 server 读进来，写回与 git 归 repo。",
+    eps: [] },
+  { name: "skills", label: "技能", version: "0.1.25", enabled: true, layer: "app", kind: "声明式", required: "否", crate: "nous-skills",
+    lead: "技能目录的只读解析：SKILL.md 的 frontmatter、附件清单、类别词表，投影成 /v1/skills。",
+    when: "要列出有哪些技能、每个技能声明的类别与附件是什么时。",
+    notFor: "不碰 git、不写回私库、也不执行技能内容。",
+    eps: [["GET","/v1/skills"]] },
+  { name: "archive", label: "归档", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "否", crate: "—",
+    lead: "会话归档：把一段对话复印进归档库，或者真删并留墓碑；恢复从归档库回来。",
+    when: "要把旧会话从主列表里拿走，又不希望它彻底消失时。",
+    notFor: "不是 Git 归档，也不动会话内容本身。",
+    eps: [["GET","/v1/archive"],["POST","/v1/sessions/:id/archive"],["POST","/v1/archive/:id/restore"]] },
+  { name: "combos", label: "组合", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "否", crate: "—",
+    lead: "组合名册：按分段列出可组合的条目，开关写穿 spec.enabled，试跑复用调度判定。",
+    when: "要配一套「这次用哪些模板 / 规则 / 技能」，并记住这个组合时。",
+    notFor: "不实现触发器调度，也不执行组合里的内容。",
+    eps: [["GET","/v1/combos/:section"],["PATCH","/v1/combos/:section/:name"]] },
+  { name: "triggers", label: "触发器", version: "0.1.25", enabled: true, layer: "app", kind: "运行时外挂", required: "否", crate: "—",
+    lead: "触发器：定义、点火、账本。定时或事件到点后起一轮会话，结果记在 fires 表里。",
+    when: "要让某件事按 cron 或事件自动跑，并查它跑过几次、成没成时。",
+    notFor: "不做调度节拍（dispatcher），也不实现被点起来的那一轮（sessions）。",
+    eps: [["GET","/v1/triggers"],["POST","/v1/triggers/:code/fire"],["GET","/v1/triggers/:code/fires"]] },
+  { name: "stats", label: "统计", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "否", crate: "nous-stats",
+    lead: "只读观测聚合：用量、任务、库大小，以及六屏明细（概览、会话、账单、健康）。",
+    when: "要看花了多少、跑了什么、库多大、哪里不健康时。",
+    notFor: "不建表、不写库、不常驻采样；每次都是现算，数据来自 durable 与 store。",
+    eps: [["GET","/v1/stats/usage"],["GET","/v1/stats/tasks"],["GET","/v1/stats/db"]] },
+  { name: "device", label: "设备", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "是", crate: "nous-device",
+    lead: "机器编目与模型编目：有哪些机器、有哪些可选模型、默认模型是哪个。",
+    when: "界面要列可用模型、切换默认模型，或者要挑一台机器去执行时。",
+    notFor: "不真正跑模型，也不验证供应商密钥能不能用；它只维护编目这份数据。",
+    eps: [["GET","/v1/device"],["GET","/v1/capabilities"],["PUT","/v1/default"]] },
+  { name: "prompts", label: "提示词", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "是", crate: "nous-prompts",
+    lead: "提示词目录的只读扫描，加上一个纯函数 render()：把模板与变量拼成最终文本。",
+    when: "要列出有哪些提示词、读一份、或者按参数渲染出最终内容时。",
+    notFor: "不写盘、不碰 git、不看时钟；发布与文件管理在管理面，读写归 repo。",
+    eps: [["GET","/v1/prompts"]] },
+  { name: "ext", label: "扩展", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "否", crate: "nous-ext",
+    lead: "扩展运行时：一个扩展一个进程，长度前缀的帧通道，外加隔离、预算、熔断、热重载与管理面。",
+    when: "要安装、启动、重启或查看一个扩展，以及它越界时把它按住。",
+    notFor: "不定义扩展能做什么（契约在 ext-sdk），也不实现扩展本身。",
+    eps: [["GET","/v1/extensions"],["POST","/v1/extensions/reload"],["POST","/v1/extensions/install"]] },
+  { name: "elements", label: "元素库", version: "0.1.25", enabled: true, layer: "app", kind: "编译期", required: "否", crate: "nous-elements",
+    lead: "元素库的盘上真相：一个 JSON 一个元素，分「组」和「包」两类，写一次提交一次。",
+    when: "要复用提示词、规则、清单或文件，并且希望它们像数据一样被版本管理时。",
+    notFor: "不做模型编目投影（那在 element-models），也不做 git 发布（那在 repo）。",
+    eps: [["GET","/v1/elements"],["POST","/v1/elements/push"],["DELETE","/v1/elements/:kind/:id"]] },
 ];
-
-const DOCS = {
-  sessions: "最小轮次：一轮对话 = 流式输出 → 调工具 → 唯一写者收口 → 一次提交。\n\n**什么时候用**：要让一条消息真正跑起来、中途取消、并收敛到一个确定的终态时。\n\n**不负责**：不做 HTTP 与事件编码（server、wire），也不直接存库（durable）。",
-  env: "执行环境的契约层：文件系统与命令执行两张 trait，外加四条私库路径的解析。\n\n**什么时候用**：任何要读写技能库、模板库、扩展库或提示词库的代码，都从这里拿路径和能力。\n\n**不负责**：不决定内容长什么样、不做 git 发布、不做缓存；本地与远端实现都在它之下。",
-  repo: "四套私库的文件读写与发布：增删改、git 提交与归档、变体、上游追踪。全仓唯一的 git 进程面。\n\n**什么时候用**：任何要落盘并留下版本记录的技能、模板、扩展或提示词改动。\n\n**不负责**：不解析配置路径（env 给），也不决定内容长什么样（各插件自己判定）。",
-  presets: "模板与终极模板的名册，以及 `/v1/presets` 的端点面。判定逻辑在 presets-admin。\n\n**什么时候用**：要列出模板、看某个模板能不能开、读出它的分段内容时。\n\n**不负责**：不读盘、不做形状校验；盘面由 server 读进来。",
-  "presets-admin": "模板管理的判定层：形状校验、引用解析、名册投影。全是纯函数，不碰盘。\n\n**什么时候用**：要回答「这个模板能不能开」「开出来是什么样」，而且希望界面和建会话读同一份判定时。\n\n**不负责**：不读盘、不写盘、不做 HTTP。",
-  skills: "技能目录的只读解析：`SKILL.md` 的 frontmatter、附件清单、类别词表，投影成 `/v1/skills`。\n\n**什么时候用**：要列出有哪些技能、每个技能声明的类别与附件是什么时。\n\n**不负责**：不碰 git、不写回私库、也不执行技能内容。",
-  archive: "会话归档：把一段对话复印进归档库，或者真删并留墓碑；恢复从归档库回来。\n\n**什么时候用**：要把旧会话从主列表里拿走，又不希望它彻底消失时。\n\n**不负责**：不是 Git 归档，也不动会话内容本身。",
-  combos: "组合名册：按分段列出可组合的条目，开关写穿 `spec.enabled`，试跑复用调度判定。\n\n**什么时候用**：要配一套「这次用哪些模板 / 规则 / 技能」，并记住这个组合时。\n\n**不负责**：不实现触发器调度，也不执行组合里的内容。",
-  triggers: "触发器：定义、点火、账本。定时或事件到点后起一轮会话，结果记在 fires 表里。\n\n**什么时候用**：要让某件事按 cron 或事件自动跑，并查它跑过几次、成没成时。\n\n**不负责**：不做调度节拍（dispatcher），也不实现被点起来的那一轮（sessions）。",
-  stats: "只读观测聚合：用量、任务、库大小，以及六屏明细（概览、会话、账单、健康）。\n\n**什么时候用**：要看花了多少、跑了什么、库多大、哪里不健康时。\n\n**不负责**：不建表、不写库、不常驻采样；每次都是现算。",
-  device: "机器编目与模型编目：有哪些机器、有哪些可选模型、默认模型是哪个。\n\n**什么时候用**：界面要列可用模型、切换默认模型，或者要挑一台机器去执行时。\n\n**不负责**：不真正跑模型，也不验证供应商密钥能不能用。",
-  prompts: "提示词目录的只读扫描，加上一个纯函数 `render()`：把模板与变量拼成最终文本。\n\n**什么时候用**：要列出有哪些提示词、读一份、或者按参数渲染出最终内容时。\n\n**不负责**：不写盘、不碰 git、不看时钟。",
-  ext: "扩展运行时：一个扩展一个进程，长度前缀的帧通道，外加隔离、预算、熔断、热重载与管理面。\n\n**什么时候用**：要安装、启动、重启或查看一个扩展，以及它越界时把它按住。\n\n**不负责**：不定义扩展能做什么（契约在 ext-sdk），也不实现扩展本身。",
-  elements: "元素库的盘上真相：一个 JSON 一个元素，分「组」和「包」两类，写一次提交一次。\n\n**什么时候用**：要复用提示词、规则、清单或文件，并且希望它们像数据一样被版本管理时。\n\n**不负责**：不做模型编目投影，也不做 git 发布。",
-};
 
 let selected = 0;
 
-function md(text) {
-  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const inline = (s) => esc(s)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-  return text.split("\n\n").map((para, i) => `<p${i === 0 ? ' class="lead"' : ""}>${inline(para).replace(/\n/g, "<br>")}</p>`).join("");
-}
+const sub = (m) => `<div class="dsub">
+  <span class="st ${m.enabled ? "" : "off"}">${m.enabled ? "启用" : "未启用"}</span><span class="sep"></span>
+  <span>${m.layer} 层</span><span class="sep"></span><span>${m.required === "是" ? "必需" : "可选"}</span><span class="sep"></span>
+  <span class="v mono">v${m.version}</span>
+</div>`;
 
-const status = (m) => `<div class="status"><span class="${m.enabled ? "en" : ""}">${m.enabled ? "启用" : "未启用"}</span><span>v${m.version} · 合同 v1</span></div>`;
+const facts = (m) => `<div class="facts">
+  <div class="fact"><span class="k">类型</span><span class="v">${m.kind}</span></div>
+  <div class="fact"><span class="k">层</span><span class="v">${m.layer}</span></div>
+  <div class="fact"><span class="k">必需</span><span class="v">${m.required}</span></div>
+  <div class="fact"><span class="k">来源 crate</span><span class="v mono">${m.crate}</span></div>
+</div>`;
 
-function brief(m, open) {
-  const eps = m.eps.length
-    ? `<div class="eps"><div class="et">端点 · ${m.eps.length}</div>${m.eps.map(([k, p]) => `<div class="ep"><span class="m ${k === "POST" ? "post" : ""}">${k}</span><span>${p}</span></div>`).join("")}</div>`
-    : "";
-  return `<div class="brief ${open ? "open" : ""}">
-    <div class="tg" onclick="this.parentNode.classList.toggle('open')"><span class="cv">▶</span>开发者信息 · ${m.kind} · ${m.layer} · ${m.crate}</div>
-    <div class="body">
-      <div class="kv">
-        <span class="k">类型</span><span>${m.kind}</span>
-        <span class="k">层</span><span>${m.layer}</span>
-        <span class="k">必需</span><span>${m.required}</span>
-        <span class="k">来源 crate</span><span class="mono">${m.crate}</span>
-        <span class="k">客户端登记</span><span>已登记 · capability.rs</span>
-      </div>
-      ${eps}
-    </div>
-  </div>`;
-}
+const eps = (m) => m.eps.length ? `<div class="eps"><div class="ttl">端点 · ${m.eps.length}</div>
+  ${m.eps.map(([k, p]) => `<div class="ep"><span class="m ${k === "POST" ? "post" : ""}">${k}</span><span class="p">${p}</span></div>`).join("")}
+</div>` : "";
 
-function renderDetail() {
+const reading = (m) => {
+  const han = (m.lead + m.when + m.notFor).replace(/[^\u4e00-\u9fff]/g, "").length;
+  return `<div class="reading">
+  <p class="lead">${m.lead}</p>
+  <div class="sect"><span class="k">什么时候用</span><p class="v">${m.when}</p></div>
+  <div class="sect"><span class="k">不负责</span><p class="v">${m.notFor}</p></div>
+  <div class="meta">约 ${han} 汉字 · crates/nous/${m.name}/README.md</div>
+</div>`;
+};
+
+const deets = (m, open) => `<div class="deets ${open ? "open" : ""}">
+  <span class="tg" onclick="this.parentNode.classList.toggle('open')"><span class="cv">▶</span>技术细节</span>
+  <div class="bd">${facts(m)}${eps(m)}</div>
+</div>`;
+
+function render() {
   const m = MODULES[selected];
-  const doc = DOCS[m.name] || "这个插件还没有人话说明。补在 `crates/nous/" + m.name + "/README.md`，300 字以内。";
-  const has = !!DOCS[m.name];
-
-  document.getElementById("rows").innerHTML = MODULES.map((x, i) =>
-    `<div class="prow ${i === selected ? "on" : ""}" onclick="pick(${i})">
-      <span class="st" style="background:${x.enabled ? "var(--ok)" : "var(--muted)"}"></span>
-      <span class="nm">${x.label}</span><span class="vr">${x.version}</span>
+  document.getElementById("rows").innerHTML = MODULES.map((x, i) => `
+    <div class="prow ${i === selected ? "on" : ""} ${x.enabled ? "" : "off"}" onclick="pick(${i})">
+      <span class="sq"></span><span class="nm">${x.label}</span><span class="vr mono">${x.version}</span>
     </div>`).join("");
-  document.getElementById("count").textContent = `${MODULES.length} 个模块 · ${MODULES.filter(x => x.enabled).length} 启用 · 0 未启用 · ${MODULES.reduce((n, x) => n + x.eps.length, 0)} 端点`;
 
-  const head = `<div class="dhead"><div class="ttl"><h2>${m.label}</h2><div class="raw">${m.name}</div></div>`;
+  const head = `<div class="crumb">${m.name}</div>
+    <h2 class="dtitle">${m.label}</h2>${sub(m)}`;
 
-  // A：文档为主体（开发者信息折叠）
-  const a = `${head}</div>${status(m)}
-    <div class="doc">${has ? md(doc) : ""}</div>
-    ${has ? "" : `<div class="doc-missing">产物里还没有这份文档（<span class="mono">readme_not_installed</span>）。跑 <span class="mono">scripts/deploy.sh --docs-only</span> 同步。</div>`}
-    <div class="doc-meta"><span>约 ${doc.replace(/[^\u4e00-\u9fff]/g, "").length} 汉字</span><span>·</span><span>README.md</span></div>
-    ${brief(m, false)}`;
-
-  // B：双页签
-  const bHead = `${head}<div class="bseg" data-tab="doc"><span class="on" onclick="setTab(this,'doc')">文档</span><span onclick="setTab(this,'info')">详情</span></div></div>`;
-  const b = `${bHead}<div class="btab" data-tab="doc">
-      <div class="pane doc-pane">${status(m)}<div class="doc">${has ? md(doc) : ""}</div>${has ? "" : `<div class="doc-missing">产物里还没有这份文档。</div>`}</div>
-      <div class="pane info-pane">${status(m)}${brief(m, true)}</div>
+  const only1 = `<div class="only-1">${head}${reading(m)}${deets(m, false)}</div>`;
+  const only2 = `<div class="only-2 split" style="display:flex;height:100%">
+      <div class="doccol">${head}${reading(m)}</div>
+      <div class="side"><div class="h">技术细节</div>${facts(m)}${eps(m)}</div>
+    </div>`;
+  const only3 = `<div class="only-3 infopage">
+      <div class="thead"><div style="min-width:0"><div class="crumb">${m.name}</div>
+        <h2 class="dtitle">${m.label}</h2>${sub(m)}</div>
+        <button class="docbtn" onclick="openReader()">读文档 <span class="kbd">⌘D</span></button></div>
+      <div class="infogrid">
+        <div class="cell"><span class="k">类型</span><span class="v">${m.kind}</span></div>
+        <div class="cell"><span class="k">层</span><span class="v">${m.layer}</span></div>
+        <div class="cell"><span class="k">必需</span><span class="v">${m.required}</span></div>
+        <div class="cell"><span class="k">来源 crate</span><span class="v mono" style="font-size:11px">${m.crate}</span></div>
+      </div>
+      ${eps(m)}
     </div>`;
 
-  // C：详情不动，另开浮层
-  const c = `${head}<button class="docbtn" onclick="openSheet()">读文档 <span class="kbd">⌘D</span></button></div>${status(m)}${brief(m, true)}`;
+  document.getElementById("detail").innerHTML = only1 + only2 + only3;
 
-  document.getElementById("detail").innerHTML =
-    `<div class="only-a" style="height:100%">${a}</div>
-     <div class="only-b" style="height:100%">${b}</div>
-     <div class="only-c" style="height:100%">${c}</div>`;
-
-  document.getElementById("sheetTitle").textContent = m.label;
-  document.getElementById("sheetRaw").textContent = m.name;
-  document.getElementById("sheetStatus").innerHTML = `${status(m)}`;
-  document.getElementById("sheetStatus").className = "status";
-  document.getElementById("sheetDoc").innerHTML = has ? md(doc) : `<div class="doc-missing">产物里还没有这份文档。</div>`;
+  document.getElementById("readerWho").innerHTML = `<b>文档</b> <span style="opacity:.4">/</span> ${m.name}`;
+  document.getElementById("readerBody").innerHTML = `<h2 class="dtitle">${m.label}</h2>${sub(m)}${reading(m)}`;
+  document.getElementById("rfoot").innerHTML = `<span class="mono" style="opacity:.65">Esc</span> 关闭 · 内容来自 crates/nous/${m.name}/README.md`;
 }
 
 const WHY = {
-  A: "<b>A · 文档即主体</b> —— 点开插件先读那 300 字，端点 / 类型 / crate 收进「开发者信息」折叠。理由：插件页是给人看「这玩意儿干嘛的」，不是给调试看的；Tesla 的先删后加。代价：开发者信息多一次点击。",
-  B: "<b>B · 双页签</b> —— 「文档 / 详情」各一页，默认文档。理由：不改现有信息密度，两件事互不打扰。代价：多一个控件，且「详情」仍然占一页却很少被点。",
-  C: "<b>C · 浮层阅读</b> —— 详情页保持现状，右上「读文档」另开 620 宽浮层。理由：长文档有更宽的阅读面，关掉就回到元信息。代价：多一层遮罩、多一次点击，`⌘D` 是补偿。",
+  1: "<span class='tag'>01 文档即主体</span><b>打开插件，先读那 300 字。</b>标题 → 一句定义 → 两个小节（什么时候用 / 不负责）；类型、crate、端点收进底部「技术细节」。理由：插件页第一位的任务是「这是什么」，开发信息是第二位的；Tesla 的先删后加。<b>代价</b>：查端点要多点一次。",
+  2: "<span class='tag'>02 技术侧栏</span><b>文档在左，事实在右。</b>右侧 236px 常驻技术面板（类型 / 层 / 必需 / crate / 端点），文档按阅读宽度排。理由：既不用点开，也不让开发信息挤进正文。代价：文档区变窄，窗口小于 1000px 时侧栏得收掉。",
+  3: "<span class='tag'>03 右滑阅读</span><b>信息页不动，文档单独滑出来。</b>详情页保持现在的密度（四格字段 + 端点清单），右上「读文档」从右滑出 604px 阅读列，Esc / ✕ 关闭。理由：读和查是两个动作，各有各的宽版面。代价：多一层浮现，且窄窗下阅读列要占满整宽。",
 };
 
-function pick(i) { selected = i; renderDetail(); }
-function setTab(el, tab) {
-  const wrap = el.closest(".btab");
-  wrap.dataset.tab = tab;
-  el.parentNode.querySelectorAll("span").forEach(s => s.classList.remove("on"));
-  el.classList.add("on");
-}
-function openSheet() { document.getElementById("scrim").classList.add("on"); }
+function pick(i) { selected = i; closeReader(); render(); }
+function openReader() { document.getElementById("reader").classList.add("on"); }
+function closeReader() { document.getElementById("reader").classList.remove("on"); }
 
 document.querySelectorAll(".picker button").forEach(b => b.addEventListener("click", () => {
   const s = b.dataset.set;
   document.body.dataset.scheme = s;
   document.querySelectorAll(".picker button").forEach(x => x.classList.toggle("on", x === b));
   document.getElementById("why").innerHTML = WHY[s];
+  closeReader();
 }));
-document.getElementById("why").innerHTML = WHY.A;
-renderDetail();
+document.getElementById("why").innerHTML = WHY[1];
+render();
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeReader();
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") { e.preventDefault(); openReader(); }
+});
 </script>
 </body>
 </html>
