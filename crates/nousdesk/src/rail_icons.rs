@@ -1,7 +1,7 @@
 //! 最左列窄图标条（rail）的 6 个入口图标。
 //!
 //! 来源：`demo/rail-icons-cyber/preview.html`，按用户给的「组号-序号」原话取：
-//! 聊天 01–13 / 模板 02–28 / 触发器 03–24 / 资源 04–03 / 元素 04–28 / 数据 06–01。
+//! 聊天 01–13 / 模板 02–01 / 触发器 03–18 / 资源 04–03 / 元素 04–28 / 数据 06–01。
 //! **编号以组号为准，不是组名** —— 两段的数字就是选择，别按主题名"纠正"。
 //!
 //! 不走 `IconName`：lucide 里没有这套「机器人 / 赛博」线条。这里用
@@ -16,9 +16,9 @@
 pub(crate) enum RailIcon {
     /// 聊天：机器人侧脸 + 侧插口（01–13）
     Chats,
-    /// 模板：机器人线框骨架（02–28）
+    /// 模板：芯片（02–01）
     Templates,
-    /// 触发器：特斯拉塔（03–24）
+    /// 触发器：光子脉冲（03–18）
     Triggers,
     /// 资源：服务器机架（04–03）
     Resources,
@@ -43,9 +43,9 @@ impl RailIcon {
 
 const CHATS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.4 8.4a6.6 6.6 0 0 1 13.2 0v7.2a3.6 3.6 0 0 1-3.6 3.6H9a3.6 3.6 0 0 1-3.6-3.6V8.4Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9.6" cy="11.6" r="1.05" fill="currentColor"/><circle cx="14.2" cy="11.6" r="1.05" fill="currentColor"/><path d="M9.4 15.6h5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/><path d="M20.2 10.6h1.6v3.4h-1.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.75"/></svg>"##;
 
-const TEMPLATES: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4.6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 7v6.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.6 9.4h10.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.4 9.4 6 14.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.6 9.4 18 14.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 13.4 9.4 19.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 13.4 14.6 19.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="4.6" r="0.9" fill="currentColor"/></svg>"##;
+const TEMPLATES: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6.4" y="6.4" width="11.2" height="11.2" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 9.20H6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.6 9.20H19.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 12.00H6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.6 12.00H19.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 14.80H6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.6 14.80H19.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>"##;
 
-const TRIGGERS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20.9h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 20.9V9.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.6 17.6h6.8M9.6 15.4h4.8M10.6 13.2h2.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="9.2" r="0.95" fill="currentColor"/><path d="M12 8.2 10 5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/><path d="M12 8.2 14 5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/><circle cx="9.4" cy="4.4" r="0.8" fill="currentColor"/><circle cx="14.6" cy="4.4" r="0.8" fill="currentColor"/></svg>"##;
+const TRIGGERS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.4" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10.4 8.2a5.4 5.4 0 0 1 0 7.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/><path d="M13.6 6a9 9 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/><path d="M16.8 3.8a12.6 12.6 0 0 1 0 16.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity="0.45"/></svg>"##;
 
 const RESOURCES: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.6" width="16" height="16.8" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M4 9.2h16M4 14.8h16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.6" cy="6.4" r="0.75" fill="currentColor"/><circle cx="6.6" cy="12" r="0.75" fill="currentColor"/><circle cx="6.6" cy="17.6" r="0.75" fill="currentColor"/><path d="M10 6.4h7M10 12h7M10 17.6h4.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/></svg>"##;
 
