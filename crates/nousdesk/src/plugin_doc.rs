@@ -28,6 +28,9 @@ pub enum Doc {
     Missing,
     /// 引擎不认识这个模块名（404 `unknown_module`）。
     UnknownModule,
+    /// 引擎根本没有这个端点（404 且没有 `error` 字段 —— axum 的空 404）。
+    /// 0.1.25 之前的内核就是这样：路由不存在，不是「模块不认识」。
+    UnknownEndpoint,
     /// 网络 / 5xx / 回包不合法。可以再点一次重试。
     Failed(String),
 }
@@ -50,6 +53,8 @@ impl Doc {
             }) => match message.as_str() {
                 "readme_not_installed" => Doc::Missing,
                 "unknown_module" => Doc::UnknownModule,
+                // 空 body = 路由本身不存在（0.1.25 之前的引擎）。
+                "" => Doc::UnknownEndpoint,
                 other => Doc::Failed(format!("引擎 404：{other}")),
             },
             Err(e) => Doc::Failed(e.to_string()),
@@ -60,7 +65,7 @@ impl Doc {
     fn settled(&self) -> bool {
         matches!(
             self,
-            Doc::Ready { .. } | Doc::Missing | Doc::UnknownModule
+            Doc::Ready { .. } | Doc::Missing | Doc::UnknownModule | Doc::UnknownEndpoint
         )
     }
 }
@@ -195,6 +200,15 @@ mod tests {
             Doc::UnknownModule
         );
         assert_eq!(Doc::from_result(Ok(readme("  \n"))), Doc::Missing);
+        assert_eq!(
+            Doc::from_result(Err(EngineError::Engine {
+                status: 404,
+                message: String::new(),
+                body: None,
+            })),
+            Doc::UnknownEndpoint,
+            "空 body 的 404 = 引擎没有这个路由，不是「模块不认识」"
+        );
         assert_eq!(
             Doc::from_result(Err(EngineError::Engine {
                 status: 500,

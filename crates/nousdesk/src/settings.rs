@@ -1172,7 +1172,8 @@ impl Desktop {
                     .selectable(true)
                     .text_size(t.fs(13.5))
                     .text_color(rgb(t.p.text))
-                    .style(crate::md::md_style())
+                    // 文档不是聊天：段落之间要能看出「换了一节」（聊天那条 0.42rem 太紧）。
+                    .style(crate::md::md_style().with_paragraph_gap(rems(1.05)))
                     .code_block_actions(crate::md::code_copy_button)
                     .shared_code_block_highlighter(crate::md::code_highlighter())
                     .into_any_element(),
@@ -1183,7 +1184,8 @@ impl Desktop {
                 doc_notice(
                     t,
                     "这份文档没随产物发布",
-                    "引擎认识这个模块，但产物目录里没有这份 README。在部署机上跑一次                      scripts/deploy.sh --docs-only 同步文档即可 —— 不用重编译、不用重启。",
+                    "引擎认识这个模块，但产物目录里没有这份 README。在部署机上跑一次下面这条即可 —— 不用重编译、不用重启。",
+                    Some("scripts/deploy.sh --docs-only"),
                 ),
                 None,
             ),
@@ -1192,10 +1194,20 @@ impl Desktop {
                     t,
                     "引擎不认识这个模块名",
                     "模块名单由引擎的 /v1/capabilities 给。这个引擎版本比客户端旧，或者名字对不上。",
+                    None,
                 ),
                 None,
             ),
-            Some(Doc::Failed(e)) => (doc_notice(t, "文档没读出来", e), None),
+            Some(Doc::UnknownEndpoint) => (
+                doc_notice(
+                    t,
+                    "这个引擎还没有插件文档",
+                    "文档端点是 Nous 0.1.25 起的。先把内核产物部署上去，再回来点一次。",
+                    Some("GET /v1/plugins/{name}/readme"),
+                ),
+                None,
+            ),
+            Some(Doc::Failed(e)) => (doc_notice(t, "文档没读出来", e, None), None),
             Some(Doc::Loading) | None => (
                 div()
                     .text_size(t.fs(12.))
@@ -1940,8 +1952,13 @@ fn plugin_row(
 }
 
 /// 阅读列的空 / 错状态：一句标题 + 一段人话。不用警示红 —— 文档没装不是错误。
-fn doc_notice(t: crate::theme::Skin, title: &'static str, detail: &str) -> AnyElement {
-    div()
+fn doc_notice(
+    t: crate::theme::Skin,
+    title: &'static str,
+    detail: &str,
+    command: Option<&str>,
+) -> AnyElement {
+    let mut box_ = div()
         .flex()
         .flex_col()
         .gap(t.d(6.))
@@ -1955,8 +1972,18 @@ fn doc_notice(t: crate::theme::Skin, title: &'static str, detail: &str) -> AnyEl
                 .text_size(t.fs(11.5))
                 .text_color(rgb(muted()))
                 .child(detail.to_string()),
-        )
-        .into_any_element()
+        );
+    if let Some(command) = command {
+        box_ = box_.child(
+            div()
+                .mt(t.d(4.))
+                .font_family("JetBrainsMono")
+                .text_size(t.fs(11.))
+                .text_color(rgb(t.p.accent_fg))
+                .child(command.to_string()),
+        );
+    }
+    box_.into_any_element()
 }
 
 fn plugin_meta(label: &'static str, value: String) -> AnyElement {
