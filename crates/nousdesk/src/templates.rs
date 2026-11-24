@@ -141,9 +141,10 @@ impl Section {
     }
 }
 
-/// 类别写端点里**还没接**的那几个动作（新建已接 `POST /categories`，改名 / 删除还没接）。
+/// 类别写操作发不出去时的兜底文案（后台运行时没起来）。新建 / 改名 / 删除都走
+/// `POST /v1/presets/{section}/categories`。
 const CATEGORY_WRITE_UNAVAILABLE: &str =
-    "类别的新建走 POST /v1/presets/{section}/categories；改名 / 删除桌面端还没接";
+    "类别写操作没发出去（POST /v1/presets/{section}/categories）：后台运行时没起来，重启试试";
 
 /// 类别树那一行在 `category.rs` —— 触发器和模板共用一个，别再各写一份。
 /// **顺序就是引擎给的顺序**（父在子前），客户端不重排。
@@ -1318,11 +1319,27 @@ impl Desktop {
         cx.notify();
 
         let sec_idx = self.section;
+        let section_id = SECTIONS[sec_idx].0.to_string();
         cx.spawn(async move |this, cx| {
-            let _ = &engine;
-            let _ = &body;
-            // 同上：类别写操作在新契约里没有端点，不发 HTTP。
-            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> = None;
+            // 改名 / 删除走同一条词表端点：`rename` 带 `to`，`remove` 连子类别一起删。
+            let handle = crate::TOKIO.get().cloned();
+            let result: Option<Result<nous_engine::types::CategoriesResult, EngineError>> =
+                match &handle {
+                    Some(h) => h
+                        .spawn(async move {
+                            engine
+                                .preset_categories_op(
+                                    &section_id,
+                                    &body.op,
+                                    &body.name,
+                                    body.to.as_deref(),
+                                )
+                                .await
+                        })
+                        .await
+                        .ok(),
+                    None => None,
+                };
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Some(Ok(r)) => {
@@ -4638,8 +4655,8 @@ mod tests {
             "实际文案：{CATEGORY_WRITE_UNAVAILABLE}"
         );
         assert!(
-            CATEGORY_WRITE_UNAVAILABLE.contains("改名") && CATEGORY_WRITE_UNAVAILABLE.contains("删除"),
-            "没接的是改名 / 删除，得说出来：{CATEGORY_WRITE_UNAVAILABLE}"
+            !CATEGORY_WRITE_UNAVAILABLE.contains("还没接"),
+            "改名 / 删除已接上，别再说没接：{CATEGORY_WRITE_UNAVAILABLE}"
         );
         let src = include_str!("templates.rs");
         let stale = ["任务", "没跑完"].concat();

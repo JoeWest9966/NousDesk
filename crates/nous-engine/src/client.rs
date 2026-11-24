@@ -920,7 +920,7 @@ impl EngineClient {
     ///
     /// 与 `PATCH /v1/presets/{section}/{name}` 的 `category` 位不是一件事：那个给一条预设
     /// 挂类别，这个动词表 `categories.json`；`rename` / `remove` 会连带改写所有挂着它的
-    /// 预设，所以是宽操作。桌面端现在只接 `add`（新建类别）。
+    /// 预设，所以是宽操作。桌面端三个 op 都接了（新建 / 改名 / 删除）。
     pub async fn preset_categories_op(
         &self,
         section: &str,
