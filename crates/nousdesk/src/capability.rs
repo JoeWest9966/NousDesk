@@ -126,6 +126,15 @@ pub fn plugin_title(module_name: &str) -> &str {
     module_name
 }
 
+/// 插件行标题后面的供应商后缀。只拼字面量，不查 Feature、不翻译模块名；
+/// 老引擎没有 vendor（None）时返回空串，界面什么都不显示。
+pub fn vendor_suffix(vendor: Option<&str>) -> String {
+    match vendor {
+        Some(vendor) if !vendor.is_empty() => format!(" · {vendor}"),
+        _ => String::new(),
+    }
+}
+
 /// 从引擎模块名找客户端登记的 `Feature`。`env` 这类引擎侧模块
 /// 没有 Desk 入口 → `None`，插件页照实列出并标「未登记」。
 pub fn module_feature(name: &str) -> Option<Feature> {
@@ -490,6 +499,15 @@ mod tests {
         assert_eq!(plugin_title("element-models"), "element-models");
         assert_eq!(plugin_title("brand-new-plugin"), "brand-new-plugin");
         assert_ne!(plugin_title("data-manager"), Feature::Stats.label(), "插件标题不能是中文别名");
+    }
+
+    /// 供应商是追加在英文模块名后面的弱显示后缀：有值才是 ` · data`，
+    /// 没有就空串；不许拿 "nous" 或「未知」顶替。
+    #[test]
+    fn vendor_suffix_appends_only_when_present() {
+        assert_eq!(vendor_suffix(Some("data")), " · data");
+        assert_eq!(vendor_suffix(Some("nous")), " · nous");
+        assert_eq!(vendor_suffix(None), "");
     }
 
     /// 这些中文是 Desk 自己的页面名（导航 / 左列），不是插件名 —— 插件列表与详情

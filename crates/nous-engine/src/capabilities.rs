@@ -52,6 +52,9 @@ pub struct Module {
     pub crate_name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// 出品方（规则 10）："nous" / "data" …；老引擎没有这个字段 → None。
+    #[serde(default)]
+    pub vendor: Option<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -150,7 +153,8 @@ mod tests {
                 { "name": "old", "enabled": true, "endpoints": [] },
                 { "name": "new", "enabled": true, "endpoints": [],
                   "version": "0.2.0", "kind": "编译期", "layer": "app",
-                  "required": true, "crate": "nous-new", "description": "新模块" }
+                  "required": true, "crate": "nous-new", "description": "新模块",
+                  "vendor": "data" }
             ],
             "runtime": { "provider": { "configured": false } }
         }))
@@ -158,6 +162,7 @@ mod tests {
         let old = &caps.modules[0];
         assert!(old.version.is_none() && old.kind.is_none() && old.layer.is_none());
         assert!(old.required.is_none() && old.crate_name.is_none() && old.description.is_none());
+        assert_eq!(old.vendor, None, "老引擎没有 vendor 字段必须解析成 None");
         let new = &caps.modules[1];
         assert_eq!(new.version.as_deref(), Some("0.2.0"));
         assert_eq!(new.kind.as_deref(), Some("编译期"));
@@ -165,6 +170,7 @@ mod tests {
         assert_eq!(new.required, Some(true));
         assert_eq!(new.crate_name.as_deref(), Some("nous-new"));
         assert_eq!(new.description.as_deref(), Some("新模块"));
+        assert_eq!(new.vendor.as_deref(), Some("data"));
     }
 
     #[test]

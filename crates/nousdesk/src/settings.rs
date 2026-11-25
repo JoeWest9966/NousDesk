@@ -1875,6 +1875,7 @@ fn plugin_row(
     let t = t();
     let name = module.name.clone();
     let label = crate::capability::plugin_title(&name).to_string();
+    let vendor_suffix = crate::capability::vendor_suffix(module.vendor.as_deref());
     let version = module.version.as_deref().unwrap_or(fallback_version);
     let state = if module.enabled { "启用" } else { "未启用" };
     let color = if module.enabled { t.p.ok } else { t.p.muted };
@@ -1913,9 +1914,22 @@ fn plugin_row(
                 .flex_1()
                 .child(
                     div()
-                        .text_size(t.fs(12.))
-                        .text_color(rgb(if selected { t.p.accent_fg } else { t.p.text }))
-                        .child(label),
+                        .flex()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_size(t.fs(12.))
+                                .text_color(rgb(if selected { t.p.accent_fg } else { t.p.text }))
+                                .child(label),
+                        )
+                        .when(!vendor_suffix.is_empty(), |row| {
+                            row.child(
+                                div()
+                                    .text_size(t.fs(10.5))
+                                    .text_color(rgb(muted()))
+                                    .child(vendor_suffix),
+                            )
+                        }),
                 )
                 .child(
                     div()
