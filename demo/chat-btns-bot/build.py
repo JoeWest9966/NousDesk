@@ -220,6 +220,13 @@ PIX = {
              ".#....#.", ".#.##.#.", ".#....#.", ".######."],
 }
 
+# 模板页分段按钮上的两枚芯片（`template_icons.rs` 原样搬，24 viewBox / 1.6 线 / round）
+CHIP = {
+    "session": '<rect x="6.4" y="6.4" width="11.2" height="11.2" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 9.2H6.4M4.5 12H6.4M4.5 14.8H6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.6 9.2H19.5M17.6 12H19.5M17.6 14.8H19.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.8 9.4 14.4 12l-3.6 2.6z" fill="currentColor" stroke="none"/>',
+    "ultimate": '<rect x="6.4" y="6.4" width="11.2" height="11.2" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 9.2H6.4M4.5 12H6.4M4.5 14.8H6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.6 9.2H19.5M17.6 12H19.5M17.6 14.8H19.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.2 4.5V6.4M12 4.5V6.4M14.8 4.5V6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.2 17.6V19.5M12 17.6V19.5M14.8 17.6V19.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/>',
+}
+
+
 # 四张脸：同一个头，只换眼和嘴（眼睛加宽到 2.8，20px 下还有 2.3px）
 FACE_FRAME = ('<rect x="4.2" y="6" width="15.6" height="13.4"/>'
               '<path d="M12 2.2v3.8"/>'
@@ -267,6 +274,13 @@ def _solid(name, size=20.0):
     return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
             f'stroke="currentColor" stroke-width="2.2" stroke-linecap="square" '
             f'stroke-linejoin="miter">{SOLID[name]}</svg>')
+
+
+def _chip(name, size=24.0):
+    """模板页那两枚芯片：图形、线宽、圆头全部照抄 `template_icons.rs`，只把 24 定成显示尺寸。"""
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
+            f'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" '
+            f'stroke-linejoin="round">{CHIP[name]}</svg>')
 
 
 def _px(rows, cell=2.5):
@@ -317,14 +331,10 @@ def _row(cls, items, on=0):
 
 
 PLANS["1"] = (
-    "机甲线稿 + 段药丸",
-    "前两颗换成模板页顶部那两个段切换药丸（Session-Template / Ultimate-Template），后两颗仍是机甲图标。",
-    '<div class="btnrow v1">'
-    '<div class="sg2"><button class="sg on">Session-Template</button>'
-    '<button class="sg">Ultimate-Template</button></div>'
-    f'<button class="bb">{_ico("jack")}</button>'
-    f'<button class="bb">{_ico("rack")}</button>'
-    "</div>",
+    "机甲线稿 + 芯片",
+    "前两颗换成模板页分段按钮上那两枚芯片（会话=播放三角 / 终极=四面引脚+实心核），后两颗仍是机甲图标。",
+    _row("v1", [_chip("session"), _chip("ultimate"), _ico("jack", 24, 1.8),
+                _ico("rack", 24, 1.8)]),
 )
 
 PLANS["2"] = (
@@ -371,14 +381,6 @@ CSS_PLANS = """
 .v1 .bb.on,.v2 .bb.on,.v3 .bb.on,.v4 .bb.on,.v5 .bb.on{background:var(--text);color:#fff}
 .v1 .bb:hover:not(.on),.v2 .bb:hover:not(.on),.v3 .bb:hover:not(.on),
 .v4 .bb:hover:not(.on),.v5 .bb:hover:not(.on){background:var(--hover);color:var(--text)}
-
-/* 段切换药丸（照 templates.rs 的 segments：底座 line 色、选中 panel 色、圆角 9/7） */
-.sg2{display:flex;flex-direction:row;gap:2.1px;padding:3.15px;border-radius:0;
-  background:var(--hover);flex:1 1 0;min-width:0}
-.btnrow .sg{display:block;text-align:center;flex:1 1 0;min-width:0;padding:4.2px 2.6px;
-  border-radius:0;font-size:9.5px;line-height:1.3;white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;color:var(--muted);letter-spacing:-0.2px}
-.btnrow .sg.on{background:var(--panel);color:var(--text)}
 
 /* 6 机械键帽 */
 .v6{gap:5.25px}
