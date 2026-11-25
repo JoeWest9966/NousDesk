@@ -135,6 +135,32 @@ pub fn vendor_label(vendor: Option<&str>) -> &str {
     }
 }
 
+/// 模块名比对用的一把尺：只留字母数字、降小写。`Nous_Device` / `nous_device` /
+/// `nous-device` 归一后是同一个词；中文、空格、标点一律不算数（模块名本来就不许有）。
+fn flatten(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// 引擎报的模块名与客户端登记的 `Feature` 是不是同一个。
+///
+/// 两个方向都要认：`docs/plugins.md` 规则 12 之后引擎报的是全名（`Nous_Device`），
+/// 而 Desk 登记的是短名（`device`）。所以比**全名**，再比**尾段**（`_` 之后那段）。
+/// 两条都不中就是没登记 —— 不猜、不降级。
+pub fn module_matches(reported: &str, feature: Feature) -> bool {
+    let want = flatten(feature.module_name());
+    if flatten(reported) == want {
+        return true;
+    }
+    reported
+        .rsplit('_')
+        .next()
+        .map(flatten)
+        .is_some_and(|tail| tail == want)
+}
+
 /// 从引擎模块名找客户端登记的 `Feature`。`env` 这类引擎侧模块
 /// 没有 Desk 入口 → `None`，插件页照实列出并标「未登记」。
 pub fn module_feature(name: &str) -> Option<Feature> {
@@ -145,7 +171,7 @@ pub fn module_feature(name: &str) -> Option<Feature> {
         Feature::Elements,
     ]
     .into_iter()
-    .find(|f| f.module_name() == name)
+    .find(|f| module_matches(name, *f))
 }
 
 /// `Module::endpoints` 里一条形如 `"GET /v1/sessions"` 的字符串拆成 (method, path)。
@@ -178,7 +204,7 @@ pub fn endpoint_disabled_reason(caps: &Capabilities, method: &str, path: &str) -
 
 /// 唯一的判定处。UI 里不许再写第二处 `if module_enabled(...)`。
 pub fn gate<'a>(caps: &'a Capabilities, feature: Feature) -> Gate<'a> {
-    match caps.modules.iter().find(|m| m.name == feature.module_name()) {
+    match caps.modules.iter().find(|m| module_matches(&m.name, feature)) {
         Some(Module { enabled: true, .. }) => Gate::Enabled,
         Some(Module {
             enabled: false,
@@ -499,6 +525,25 @@ mod tests {
         assert_eq!(plugin_title("element-models"), "element-models");
         assert_eq!(plugin_title("brand-new-plugin"), "brand-new-plugin");
         assert_ne!(plugin_title("data-manager"), Feature::Stats.label(), "插件标题不能是中文别名");
+    }
+
+    /// 规则 12 之后引擎报全名（`Nous_Device`），Desk 登记的是短名（`device`）：
+    /// 两个方向都要认，否则改名当天 Desk 就把「设备」判成「未登记」而灰掉整页。
+    #[test]
+    fn module_matches_accepts_both_short_and_magento_full_name() {
+        // 老引擎：短名原样对上。
+        assert!(module_matches("device", Feature::Device));
+        assert!(module_matches("data-manager", Feature::Stats));
+        // 新引擎：`Vendor_Module` 全名，按尾段对上。
+        assert!(module_matches("Nous_Device", Feature::Device));
+        assert!(module_matches("Nous_Sessions", Feature::Sessions));
+        // 归一化只看字母数字：大小写与连字符/下划线不敏感。
+        assert!(module_matches("nous-device", Feature::Device));
+        assert!(module_matches("Data_Manager", Feature::Stats));
+        // 不许多认：元素库是 `Element_Models`，不是 `Nous_Elements`。
+        assert!(!module_matches("Element_Models", Feature::Elements));
+        assert!(!module_matches("Nous_Device", Feature::Elements));
+        assert!(!module_matches("env", Feature::Device));
     }
 
     /// 供应商是第二行的胶囊文案：有值原样显示；没有（老引擎 / 空串）一律「—」，
