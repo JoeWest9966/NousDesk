@@ -537,9 +537,11 @@ mod tests {
         // 新引擎：`Vendor_Module` 全名，按尾段对上。
         assert!(module_matches("Nous_Device", Feature::Device));
         assert!(module_matches("Nous_Sessions", Feature::Sessions));
-        // 归一化只看字母数字：大小写与连字符/下划线不敏感。
-        assert!(module_matches("nous-device", Feature::Device));
+        // 归一化只看字母数字：大小写与下划线不敏感。
         assert!(module_matches("Data_Manager", Feature::Stats));
+        // 但**包名形态**（`nous-device`）不是模块名，不认 —— 引擎报的是 `Nous_Device`，
+        // 认了就等于把包名当身份，规则 12 的三样东西又糊回一起了。
+        assert!(!module_matches("nous-device", Feature::Device));
         // 不许多认：元素库是 `Element_Models`，不是 `Nous_Elements`。
         assert!(!module_matches("Element_Models", Feature::Elements));
         assert!(!module_matches("Nous_Device", Feature::Elements));
