@@ -126,12 +126,12 @@ pub fn plugin_title(module_name: &str) -> &str {
     module_name
 }
 
-/// 插件行标题后面的供应商后缀。只拼字面量，不查 Feature、不翻译模块名；
-/// 老引擎没有 vendor（None）时返回空串，界面什么都不显示。
-pub fn vendor_suffix(vendor: Option<&str>) -> String {
+/// 插件行 / 详情页第二行的供应商文案（方案 C 胶囊里的字）。原样透传引擎给的 `vendor`，
+/// 不查 Feature、不翻译；老引擎没有 vendor（None）或空串时给「—」，行高不跳。
+pub fn vendor_label(vendor: Option<&str>) -> &str {
     match vendor {
-        Some(vendor) if !vendor.is_empty() => format!(" · {vendor}"),
-        _ => String::new(),
+        Some(vendor) if !vendor.is_empty() => vendor,
+        _ => "—",
     }
 }
 
@@ -501,13 +501,14 @@ mod tests {
         assert_ne!(plugin_title("data-manager"), Feature::Stats.label(), "插件标题不能是中文别名");
     }
 
-    /// 供应商是追加在英文模块名后面的弱显示后缀：有值才是 ` · data`，
-    /// 没有就空串；不许拿 "nous" 或「未知」顶替。
+    /// 供应商是第二行的胶囊文案：有值原样显示；没有（老引擎 / 空串）一律「—」，
+    /// 不许拿 "nous" 或「未知」顶替。
     #[test]
-    fn vendor_suffix_appends_only_when_present() {
-        assert_eq!(vendor_suffix(Some("data")), " · data");
-        assert_eq!(vendor_suffix(Some("nous")), " · nous");
-        assert_eq!(vendor_suffix(None), "");
+    fn vendor_label_is_verbatim_or_dash() {
+        assert_eq!(vendor_label(Some("data")), "data");
+        assert_eq!(vendor_label(Some("nous")), "nous");
+        assert_eq!(vendor_label(Some("")), "—");
+        assert_eq!(vendor_label(None), "—");
     }
 
     /// 这些中文是 Desk 自己的页面名（导航 / 左列），不是插件名 —— 插件列表与详情

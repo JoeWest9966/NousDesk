@@ -1325,7 +1325,10 @@ impl Desktop {
                                 div()
                                     .text_size(t.fs(10.5))
                                     .text_color(rgb(muted()))
-                                    .child(module.name.clone()),
+                                    .child(
+                                        crate::capability::vendor_label(module.vendor.as_deref())
+                                            .to_string(),
+                                    ),
                             ),
                     )
                     .child(readme_btn),
@@ -1875,7 +1878,8 @@ fn plugin_row(
     let t = t();
     let name = module.name.clone();
     let label = crate::capability::plugin_title(&name).to_string();
-    let vendor_suffix = crate::capability::vendor_suffix(module.vendor.as_deref());
+    // 方案 C：第二行是供应商胶囊；老引擎 / 没有 plugin.toml 的模块给「—」，行高不变。
+    let vendor = crate::capability::vendor_label(module.vendor.as_deref()).to_string();
     let version = module.version.as_deref().unwrap_or(fallback_version);
     let state = if module.enabled { "启用" } else { "未启用" };
     let color = if module.enabled { t.p.ok } else { t.p.muted };
@@ -1914,28 +1918,25 @@ fn plugin_row(
                 .flex_1()
                 .child(
                     div()
-                        .flex()
-                        .items_center()
-                        .child(
-                            div()
-                                .text_size(t.fs(12.))
-                                .text_color(rgb(if selected { t.p.accent_fg } else { t.p.text }))
-                                .child(label),
-                        )
-                        .when(!vendor_suffix.is_empty(), |row| {
-                            row.child(
-                                div()
-                                    .text_size(t.fs(10.5))
-                                    .text_color(rgb(muted()))
-                                    .child(vendor_suffix),
-                            )
-                        }),
+                        .text_size(t.fs(12.))
+                        .text_color(rgb(if selected { t.p.accent_fg } else { t.p.text }))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .child(label),
                 )
                 .child(
-                    div()
-                        .text_size(t.fs(10.))
-                        .text_color(rgb(muted()))
-                        .child(name),
+                    div().flex().child(
+                        div()
+                            .px(t.d(4.))
+                            .h(t.d(15.))
+                            .flex()
+                            .items_center()
+                            .border(t.d(1.))
+                            .border_color(rgb(t.p.line_soft))
+                            .text_size(t.fs(9.5))
+                            .text_color(rgb(muted()))
+                            .child(vendor),
+                    ),
                 ),
         )
         .child(
