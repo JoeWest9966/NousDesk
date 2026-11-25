@@ -3423,10 +3423,31 @@ impl Desktop {
                             .child(SECTIONS[i].1),
                     )
                     .child(
+                        // 第二行：图标 + 条数。图标放这一行（而不是名字前面）是 2026-11-24 挑的
+                        // 方案 04 —— 两块等宽、名字已经吃掉 95px，11px 的字再塞图标只剩 3px 气。
+                        // 图标走 `template_icons`（手画的芯片，跟 rail 的模板入口一家人），
+                        // 不上 lucide：`Icon::data` + `text_color`，换皮/灰化照旧。
                         div()
-                            .text_size(t().fs(10.))
-                            .text_color(rgb(if active { t().p.ok_fg } else { t().p.faint }))
-                            .child(count),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(t().d(3.))
+                            .child(
+                                Icon::empty()
+                                    .data(crate::template_icons::for_section(SECTIONS[i].0))
+                                    .with_size(Size::Size(t().d(10.)))
+                                    .text_color(rgb(if active {
+                                        t().p.accent_fg
+                                    } else {
+                                        t().p.faint
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_size(t().fs(10.))
+                                    .text_color(rgb(if active { t().p.ok_fg } else { t().p.faint }))
+                                    .child(count),
+                            ),
                     )
             }));
 
