@@ -520,6 +520,26 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
   （PUT 的重放才是 `replay:true` + `commit:null`）。
 - `state:"problem"`（坏 JSON）时 `fields` / `etag` 都是 `null`：标红这一条，`base` 也发不出去。
 
+## 插件文档（`/v1/plugins/{name}/readme`，内核 0.1.25 起）
+
+设置 → 关于 → 插件页的「读文档」用它。每个插件一份 ≤300 汉字的人话 README，规则在内核仓
+`docs/plugins.md` 第 7 条。
+
+- **成功 200**：`{module, version, markdown, bytes}`。`module` 是引擎模块名，`version` 是文档
+  所属的引擎版本，`bytes` 是正文字节数（客户端只拿它显示大小，不参与判定）。
+- **404 `unknown_module`**：名字不在内核 `meta::MANIFEST`（拼错 / 不是插件）。
+- **404 `readme_not_installed`**：名单里有，但产物目录没带这份文档 —— 部署漏同步。
+  客户端把这两种**分开说**：前者提示「引擎版本旧」，后者提示跑
+  `scripts/deploy.sh --docs-only` 同步（不重编译、不重启）。
+- **文档不进二进制**：源码 `crates/<vendor>/<module>/README.md`，部署时同步到产物目录的
+  `docs/plugins/<module>.md`；端点运行时读盘（mtime + 长度做缓存键），改文档立刻生效。
+  `NOUS_DOCS_DIR` 可覆盖文档根。
+- **客户端不缓存跨会话**：`plugin_doc.rs` 按模块名存在内存里，关设置页清空 —— 文档跟引擎
+  版本走，换引擎重连后不该看到上一版的正文。
+
+**反悔点**：如果以后 README 里要有截图或链接到别的端点，这个只回 markdown 正文的形状不够；
+那时要么改成回 `{markdown, assets:[…]}`，要么把图片也放进 `docs/plugins/` 并约定相对路径。
+
 ## 合同外调用（客户端在用，本文件没写）
 
 **27 条 + 资源/触发器写回族**。来源是**真引擎的行为**，不是某份文档 —— 它们整包转发

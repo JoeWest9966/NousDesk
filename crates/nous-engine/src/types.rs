@@ -1299,3 +1299,20 @@ pub struct Combos {
 /// **平铺的一条 Combo**（不是 `{combo:{…}}`）：`{name, trigger, params, session,
 /// enabled, problem, version, requestId}`，`requestId` 落 `extra` 原样透传。
 pub type ComboChanged = Combo;
+
+/// `GET /v1/plugins/{name}/readme`：插件随产物发布的那份「人话 README」。
+///
+/// 正文在产物目录的 `docs/plugins/<module>.md`（源码在 `crates/<vendor>/<module>/README.md`），
+/// 端点运行时读盘 —— 改文档不用重编译内核。`version` 是文档所属的引擎版本，
+/// `bytes` 是正文字节数；客户端不拿它做判定，只用来显示「多大」。
+#[derive(Debug, Clone, Deserialize)]
+pub struct PluginReadme {
+    pub module: String,
+    #[serde(default)]
+    pub version: String,
+    pub markdown: String,
+    #[serde(default)]
+    pub bytes: usize,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}

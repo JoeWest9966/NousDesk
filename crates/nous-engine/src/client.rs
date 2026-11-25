@@ -16,7 +16,7 @@ use crate::elements::{
 use crate::types::{
     ArchiveGens, CategoriesResult, ComboChanged, Combos, ConfigPatch, CreateSession, CreatedSession, Device,
     DefaultSet, Dirs, Entries, ExtCategories, Extensions, Forked, Machines, Models, ModelRef,
-    NewPreset, PresetFile, PresetValidation, Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset,
+    NewPreset, PluginReadme, PresetFile, PresetValidation, Presets, Prompts, ReadReceipt, Renamed, ReorderedPreset,
     RepoArchive, RepoVariants,
     SessionConfig, Sessions, Skills, Submission, Triggers, Unread,
 };
@@ -143,6 +143,16 @@ impl EngineClient {
     /// `GET /v1/capabilities`：功能面的唯一真相。未知字段原样留在类型里。
     pub async fn capabilities(&self) -> Result<Capabilities, EngineError> {
         let resp = self.http.get(self.url("v1/capabilities")?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/plugins/{name}/readme`：插件的人话文档。
+    ///
+    /// 404 有两种含义（`unknown_module` / `readme_not_installed`），**不折叠成
+    /// `Ok(None)`**：没装文档和「引擎不认识这个名字」是两件事，调用方要分开说。
+    pub async fn plugin_readme(&self, name: &str) -> Result<PluginReadme, EngineError> {
+        let path = format!("v1/plugins/{name}/readme", name = urlencoding(name));
+        let resp = self.http.get(self.url(&path)?).send().await?;
         self.json(resp).await
     }
 
@@ -1324,6 +1334,7 @@ impl EngineClient {
 pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("GET", "v1/device"),
     ("GET", "v1/capabilities"),
+    ("GET", "v1/plugins/:name/readme"),
     ("GET", "v1/models"),
     ("PUT", "v1/default"),
     ("GET", "v1/skills"),
