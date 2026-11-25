@@ -74,7 +74,7 @@ impl Feature {
             Self::Prompts => "prompts",
             Self::Selection => "selection",
             Self::Device => "device",
-            Self::Stats => "stats",
+            Self::Stats => "data-manager",
             Self::Ext => "ext",
             Self::Elements => "elements",
         }
@@ -486,10 +486,10 @@ mod tests {
     /// 如果有人把 `Feature::label()` 的中文贴回插件标题，这条测试会红。
     #[test]
     fn plugin_title_is_the_verbatim_module_name() {
-        assert_eq!(plugin_title("stats"), "stats");
+        assert_eq!(plugin_title("data-manager"), "data-manager");
         assert_eq!(plugin_title("element-models"), "element-models");
         assert_eq!(plugin_title("brand-new-plugin"), "brand-new-plugin");
-        assert_ne!(plugin_title("stats"), Feature::Stats.label(), "插件标题不能是中文别名");
+        assert_ne!(plugin_title("data-manager"), Feature::Stats.label(), "插件标题不能是中文别名");
     }
 
     /// 这些中文是 Desk 自己的页面名（导航 / 左列），不是插件名 —— 插件列表与详情
