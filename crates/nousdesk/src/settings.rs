@@ -1284,7 +1284,7 @@ impl Desktop {
                     })
                 }
             });
-        let state = if module.enabled { "启用" } else { "未启用" };
+        let state = crate::capability::module_state_label(module.enabled);
 
         // 方案 03：详情保持密度，文档走右上角这一颗 —— 点击后右栏换成阅读列。
         let readme_btn = div()
@@ -1333,18 +1333,10 @@ impl Desktop {
                     )
                     .child(readme_btn),
             )
-            .child(
-                div()
-                    .flex()
-                    .gap(t.d(8.))
-                    .child(div().text_size(t.fs(11.5)).text_color(rgb(muted())).child(state))
-                    .child(
-                        div()
-                            .text_size(t.fs(11.5))
-                            .text_color(rgb(muted()))
-                            .child(format!("v{version} · 合同 v{}", caps.contract)),
-                    ),
-            );
+            // #19：状态 / 版本拆成两行、左对齐上下堆叠，跟下面四条 meta 同一副骨架
+            // （`标签 值`，不用 `·`）；合同版本在概览页 `kv("合同", …)` 已经有一处，这里不重复。
+            .child(plugin_meta("状态", state.to_string()))
+            .child(plugin_meta("版本", version.to_string()));
         if let Some(reason) = reason {
             detail = detail.child(
                 div()
@@ -1364,7 +1356,7 @@ impl Desktop {
             .child(plugin_meta(
                 "客户端登记",
                 match registered {
-                    Some(_) => "已登记 · capability.rs".to_string(),
+                    Some(_) => "已登记 capability.rs".to_string(),
                     None => "未登记".to_string(),
                 },
             ))
@@ -1380,7 +1372,7 @@ impl Desktop {
             div()
                 .text_size(t.fs(10.))
                 .text_color(rgb(faint()))
-                .child(format!("端点 · {}", module.endpoints.len())),
+                .child(format!("端点 {}", module.endpoints.len())),
         );
         for endpoint in &module.endpoints {
             let (method, path) = crate::capability::split_endpoint(endpoint)
@@ -1881,7 +1873,7 @@ fn plugin_row(
     // 方案 C：第二行是供应商胶囊；老引擎 / 没有 plugin.toml 的模块给「—」，行高不变。
     let vendor = crate::capability::vendor_label(module.vendor.as_deref()).to_string();
     let version = module.version.as_deref().unwrap_or(fallback_version);
-    let state = if module.enabled { "启用" } else { "未启用" };
+    let state = crate::capability::module_state_label(module.enabled);
     let color = if module.enabled { t.p.ok } else { t.p.muted };
     div()
         .id(ElementId::Name(format!("about-plugin-{name}").into()))
@@ -1947,10 +1939,18 @@ fn plugin_row(
                 .gap(t.d(2.))
                 .flex_none()
                 .child(
+                    // #19：`v{version} 状态 {state}` —— 前两段 muted，值跟上那个圆点同色，
+                    // 读得出「这是引擎自报的一项状态」，不再拿 `·` 糊成一句。
                     div()
-                        .text_size(t.fs(10.5))
-                        .text_color(rgb(muted()))
-                        .child(format!("v{version} · {}", state)),
+                        .flex()
+                        .gap(t.d(4.))
+                        .child(
+                            div()
+                                .text_size(t.fs(10.5))
+                                .text_color(rgb(muted()))
+                                .child(format!("v{version} 状态")),
+                        )
+                        .child(div().text_size(t.fs(10.5)).text_color(rgb(color)).child(state)),
                 )
                 .child(
                     div()

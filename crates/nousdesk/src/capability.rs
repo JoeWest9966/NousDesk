@@ -135,6 +135,17 @@ pub fn vendor_label(vendor: Option<&str>) -> &str {
     }
 }
 
+/// 插件行 / 详情页里「启用 / 未启用」那句文案。口径只有这一份：`Module::enabled`
+/// 是引擎自报的运行时状态，客户端不另算、不加开关、不轮询；UI 只把它当作
+/// `状态` 后面的那个值贴上去。
+pub fn module_state_label(enabled: bool) -> &'static str {
+    if enabled {
+        "启用"
+    } else {
+        "未启用"
+    }
+}
+
 /// 模块名比对用的一把尺：只留字母数字、降小写。`Nous_Device` / `nous_device` /
 /// `nous-device` 归一后是同一个词；中文、空格、标点一律不算数（模块名本来就不许有）。
 fn flatten(name: &str) -> String {
@@ -556,6 +567,31 @@ mod tests {
         assert_eq!(vendor_label(Some("nous")), "nous");
         assert_eq!(vendor_label(Some("")), "—");
         assert_eq!(vendor_label(None), "—");
+    }
+
+    /// #19 插件页的状态只有这一份文案：列表行与详情都消费它，UI 里不许再写
+    /// `if module.enabled { "启用" } else { "未启用" }`。
+    #[test]
+    fn module_state_label_is_enabled_or_not() {
+        assert_eq!(module_state_label(true), "启用");
+        assert_eq!(module_state_label(false), "未启用");
+    }
+
+    /// #19 插件页把 `·` 分隔的字段改成了显式 `标签 值`。这四根分隔点被人在源码里
+    /// 加回来（`v0.1.3 · 启用`、`端点 · 34`、`已登记 · capability.rs`、`状态 · 启用`）
+    /// 就该红：口径是「字段名 + 空格 + 值」，不是拿点糊成一句。
+    #[test]
+    fn plugin_page_has_no_dot_separated_labels() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("settings.rs");
+        let src = std::fs::read_to_string(&path).unwrap();
+        for needle in ["· 合同", "端点 · ", "已登记 · ", "状态 · "] {
+            assert!(
+                !src.contains(needle),
+                "settings.rs 里还有 `{needle}`，插件页的字段要写成 `标签 值`"
+            );
+        }
     }
 
     /// 这些中文是 Desk 自己的页面名（导航 / 左列），不是插件名 —— 插件列表与详情
