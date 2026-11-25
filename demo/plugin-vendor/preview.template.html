@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NousDesk · 关于 → 插件 · 副标题＝供应商（mono 皮）</title>
+<style>
+__FONTS__
+:root {
+  /* mono 皮（crates/nousdesk/src/theme.rs → Skin::MONO）：纯黑底、白字、白线、直角 */
+  --bg: #000000; --panel: #000000; --panel-alt: #0a0a0a;
+  --text: #ffffff; --text-2: #d2d2d2; --muted: #b0b0b0; --faint: #8a8a8a;
+  --line: #ffffff; --line-soft: #2a2a2a; --hover: #141414; --selected: #1f1f1f;
+  --accent: #ffffff; --accent-soft: #1a1a1a; --accent-fg: #ffffff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: Inter, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", sans-serif;
+  background: #0b0b0b; color: var(--text); font-size: 12.5px;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+.mono { font-family: JBMono, ui-monospace, monospace; }
+::selection { background: #ffffff; color: #000000; }
+
+/* ── demo 切换（不进产品） ───────────────────────────── */
+.picker {
+  position: fixed; right: 18px; bottom: 18px; z-index: 90;
+  display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: #111111; border: 1px solid var(--line-soft);
+  font-size: 11.5px;
+}
+.picker .lbl { color: var(--faint); padding: 5px 8px 5px 6px; letter-spacing: .04em; }
+.picker button {
+  border: 0; background: transparent; color: var(--text-2); cursor: pointer;
+  padding: 5px 11px; font: inherit; letter-spacing: .02em;
+}
+.picker button:hover { background: var(--hover); }
+.picker button.on { background: #ffffff; color: #000000; }
+
+.stage { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 46px 24px 30px; gap: 22px; }
+.win {
+  width: 1120px; height: 720px; flex: none; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line-soft);
+  box-shadow: 0 34px 90px #000000cc;
+}
+.titlebar {
+  height: 38px; flex: none; display: flex; align-items: center; padding: 0 10px 0 14px;
+  background: var(--bg); border-bottom: 1px solid var(--line-soft);
+}
+.titlebar .brand { font-size: 11.5px; color: var(--muted); letter-spacing: .06em; }
+.titlebar .wbtns { margin-left: auto; display: flex; }
+.titlebar .wbtns i {
+  width: 34px; height: 26px; display: grid; place-items: center; font-style: normal;
+  font-size: 9px; color: var(--muted);
+}
+.head {
+  height: 48px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 22px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.head .back { color: var(--text-2); font-size: 12px; display: flex; align-items: center; gap: 7px; }
+.head .back .ar { color: var(--faint); }
+.head .ttl { font-size: 13px; font-weight: 500; }
+.head .sp { flex: 1; }
+.head .hint { font-size: 11px; color: var(--faint); }
+
+.body { flex: 1; min-height: 0; display: flex; }
+.nav { width: 170px; flex: none; border-right: 1px solid var(--line-soft); padding: 12px 8px; display: flex; flex-direction: column; gap: 1px; }
+.nav a {
+  display: block; padding: 7px 10px; color: var(--muted); font-size: 12px; text-decoration: none;
+}
+.nav a:hover { background: var(--hover); color: var(--text); }
+.nav a.on { background: var(--accent-soft); color: var(--accent-fg); font-weight: 600; }
+
+.content { flex: 1; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.chead { display: flex; align-items: baseline; gap: 10px; }
+.chead h1 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: .01em; }
+.chead .sub { font-size: 11px; color: var(--faint); }
+
+.plugins { flex: 1; min-height: 0; display: flex; border-top: 1px solid var(--line-soft); }
+.plist { width: 292px; flex: none; border-right: 1px solid var(--line-soft); overflow: auto; padding: 6px 0; }
+.prow {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px 7px 8px; cursor: pointer; color: var(--text);
+}
+.prow:hover { background: var(--hover); }
+.prow.on { background: var(--accent-soft); }
+.prow .sq { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #ffffff; }
+.prow .sq.off { background: var(--faint); }
+.prow .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.prow .nm { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .vnd { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .right { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.prow .ver { font-size: 10.5px; color: var(--muted); }
+.prow .eps { font-size: 10px; color: var(--faint); }
+
+/* 变体 C：供应商做成弱胶囊 */
+body[data-variant="C"] .prow .vnd {
+  align-self: flex-start; padding: 0 4px; border: 1px solid var(--line-soft);
+  font-size: 9.5px; line-height: 15px; color: var(--muted);
+}
+/* 变体 D：供应商与模块名同一行，副标题空出来放状态 */
+.prow .nm .dim { color: var(--faint); display: inline-block; width: 50px; margin-right: 10px; }
+body[data-variant="D"] .prow .vnd { color: var(--faint); }
+
+.detail { flex: 1; min-width: 0; overflow: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.dhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.dhead .lt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dhead h2 { margin: 0; font-size: 15px; font-weight: 500; }
+.dhead .dv { font-size: 10.5px; color: var(--muted); }
+.docbtn {
+  flex: none; padding: 4px 9px; border: 1px solid var(--line-soft); background: transparent;
+  color: var(--text-2); font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.docbtn:hover { background: var(--hover); }
+.dsub { display: flex; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.facts { display: flex; flex-direction: column; gap: 6px; }
+.fact { display: flex; gap: 10px; font-size: 11.5px; }
+.fact .k { width: 72px; flex: none; color: var(--faint); }
+.fact .v { color: var(--text-2); }
+.fact .v.mono { font-size: 11px; }
+.epsbox { display: flex; flex-direction: column; gap: 1px; }
+.epsbox .ttl { font-size: 10px; color: var(--faint); padding-bottom: 2px; }
+.ep { display: flex; gap: 8px; font-size: 11px; }
+.ep .m { width: 42px; flex: none; color: var(--faint); }
+.ep .p { color: var(--text-2); }
+.desc { font-size: 10.5px; color: var(--faint); line-height: 1.5; }
+
+.why { width: 1120px; display: flex; gap: 18px; font-size: 12px; color: var(--text-2); line-height: 1.65; }
+.why .k { flex: none; width: 78px; color: var(--faint); letter-spacing: .04em; }
+.why b { font-weight: 500; color: var(--text); }
+</style>
+</head>
+<body data-variant="A">
+<div class="stage">
+  <div class="win">
+    <div class="titlebar">
+      <span class="brand">NOUSDESK</span>
+      <span class="wbtns"><i>—</i><i>□</i><i>✕</i></span>
+    </div>
+    <div class="head">
+      <span class="back"><span class="ar">←</span> 返回聊天</span>
+      <span class="ttl">设置</span>
+      <span class="sp"></span>
+      <span class="hint mono">GET /v1/capabilities · contract 1</span>
+    </div>
+    <div class="body">
+      <nav class="nav">
+        <a href="#">外观</a><a href="#">快捷键</a><a href="#">连接</a>
+        <a href="#">能力</a><a href="#">关于</a>
+        <a href="#" class="on">插件</a>
+      </nav>
+      <div class="content">
+        <div class="chead"><h1>插件</h1><span class="sub">引擎报什么就显示什么 · 加插件不用改客户端</span></div>
+        <div class="plugins">
+          <div class="plist" id="rows"></div>
+          <div class="detail" id="detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="why"><span class="k">这套想干什么</span><span id="why"></span></div>
+</div>
+
+<div class="picker">
+  <span class="lbl">副标题方案</span>
+  <button data-variant="A" class="on">A 纯供应商</button>
+  <button data-variant="B">B 出品方·供应商</button>
+  <button data-variant="C">C 供应商胶囊</button>
+  <button data-variant="D">D 同行弱化</button>
+</div>
+
+<script>
+// 真实数据形状：GET /v1/capabilities → modules[]（vendor 由内核 plugin.toml 生成）
+const MODULES = [
+  { name: "sessions", vendor: "nous", version: "0.6.7", enabled: true, kind: "编译期", layer: "app", required: "是", crate: "nous-sessions", eps: [["GET","/v1/sessions"],["POST","/v1/sessions"]],
+    desc: "pi 本体（#44 落地），承载最小轮次与取消收敛" },
+  { name: "env", vendor: "nous", version: "0.2.4", enabled: true, kind: "编译期", layer: "platform", required: "是", crate: "nous-env", eps: [["GET","/v1/fs/dirs"]],
+    desc: "契约；实现见 env-local / env-ssh。四条私库路径一处解析，unit 不写" },
+  { name: "repo", vendor: "nous", version: "0.5.1", enabled: true, kind: "编译期", layer: "platform", required: "是", crate: "nous-repo", eps: [["POST","/v1/repos/commit"]],
+    desc: "唯一的 git 进程调用面；四条私库路径解析沿用 env" },
+  { name: "data-manager", vendor: "data", version: "0.4.0", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "data-data-manager", eps: [["GET","/v1/stats/usage"],["GET","/v1/stats/tasks"],["GET","/v1/stats/db"]],
+    desc: "归口监控六屏；与 --check 共读口，tasks 现算" },
+  { name: "Element_Models", vendor: "element", version: "0.2.0", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "element-models", eps: [["GET","/v1/models/elements"]],
+    desc: "盘上真相在 nous-elements；解析 / 合并 / 投影是纯函数" },
+  { name: "elements", vendor: "nous", version: "0.3.2", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "nous-elements", eps: [["GET","/v1/elements"]],
+    desc: "元素库（组 / 包）：一份 JSON 一个元素" },
+  { name: "presets", vendor: null, version: "0.1.9", enabled: true, kind: "编译期", layer: "app", required: "否", crate: "—", eps: [["GET","/v1/presets"]],
+    desc: "数据根 NOUS_PRESETS；段清单读 <root>/sections.json" },
+  { name: "triggers", vendor: null, version: "0.2.1", enabled: true, kind: "运行时外挂", layer: "app", required: "否", crate: "—", eps: [["GET","/v1/triggers"]],
+    desc: "#57/#58 落地；调度节拍归 dispatcher" },
+  { name: "archive", vendor: null, version: "0.1.2", enabled: false, kind: "编译期", layer: "app", required: "否", crate: "—", eps: [],
+    desc: "面板时代归档端点；Rust 版只落地了真删 + 墓碑" },
+];
+
+const DASH = "—";
+let selected = 3;
+
+const vendorText = (m, v) => {
+  if (!m.vendor) return DASH;                 // 老引擎 / 没有 plugin.toml：如实给破折号，不编 nous
+  return v === "B" ? `出品方 · ${m.vendor}` : m.vendor;
+};
+
+function rowHtml(m, i, v) {
+  const on = i === selected;
+  const nameCell = v === "D"
+    ? `<span class="nm"><span class="dim mono">${m.vendor || DASH}</span> <span class="mono">${m.name}</span></span>
+       <span class="vnd">${m.enabled ? "启用" : "未启用"}</span>`
+    : `<span class="nm mono">${m.name}</span>
+       <span class="vnd ${m.vendor ? "mono" : ""}">${vendorText(m, v)}</span>`;
+  return `<div class="prow ${on ? "on" : ""}" onclick="pick(${i})">
+    <span class="sq ${m.enabled ? "" : "off"}"></span>
+    <span class="txt">${nameCell}</span>
+    <span class="right"><span class="ver mono">v${m.version} · ${m.enabled ? "启用" : "未启用"}</span>
+    <span class="eps">${m.eps.length} 端点</span></span>
+  </div>`;
+}
+
+function render() {
+  const v = document.body.dataset.variant;
+  document.getElementById("rows").innerHTML = MODULES.map((m, i) => rowHtml(m, i, v)).join("");
+  const m = MODULES[selected];
+  const dv = v === "B" ? `出品方 · ${m.vendor || DASH}` : (m.vendor || DASH);
+  document.getElementById("detail").innerHTML = `
+    <div class="dhead">
+      <div class="lt"><h2 class="mono">${m.name}</h2><div class="dv ${m.vendor ? "mono" : ""}">${dv}</div></div>
+      <button class="docbtn">读文档</button>
+    </div>
+    <div class="dsub"><span>${m.enabled ? "启用" : "未启用"}</span><span>·</span><span class="mono">v${m.version}</span><span>·</span><span>合同 v1</span></div>
+    <div class="facts">
+      <div class="fact"><span class="k">类型</span><span class="v">${m.kind}</span></div>
+      <div class="fact"><span class="k">层</span><span class="v">${m.layer}</span></div>
+      <div class="fact"><span class="k">必需</span><span class="v">${m.required}</span></div>
+      <div class="fact"><span class="k">来源 crate</span><span class="v mono">${m.crate}</span></div>
+      <div class="fact"><span class="k">客户端登记</span><span class="v">已登记 · capability.rs</span></div>
+    </div>
+    <div class="epsbox"><div class="ttl">端点 · ${m.eps.length}</div>
+      ${m.eps.map(([k,p]) => `<div class="ep"><span class="m mono">${k}</span><span class="p mono">${p}</span></div>`).join("")}
+    </div>
+    <div class="desc">${m.desc}</div>`;
+}
+
+const WHY = {
+  A: "<b>纯供应商</b> —— 第二行只有 <span class='mono'>nous</span> / <span class='mono'>data</span> 这种出品方原文，用 mono 字体、10px、muted。没有 plugin.toml 的模块给 <span class='mono'>—</span>，行高不变、列表不跳。最省事，也最像「目录 <span class='mono'>crates/&lt;vendor&gt;/&lt;module&gt;</span>」的直接投影。",
+  B: "<b>出品方 · 供应商</b> —— 同一个值加中文前缀，一眼知道这一行是什么，代价是多 4 个字宽，窄窗口里容易截断。",
+  C: "<b>供应商胶囊</b> —— 供应商做成 1px 边框的小胶囊，和正文区分得更狠；信息层级最清楚，但列表行多了一个框，密度略高。",
+  D: "<b>同行弱化</b> —— 供应商挪到模块名前面当弱前缀，副标题空出来放启用状态。省一行高度、多塞几行，但「谁出品」变成读名字时的附带信息，不独立成行。",
+};
+
+function pick(i) { selected = i; render(); }
+
+function setVariant(v) {
+  document.body.dataset.variant = v;
+  document.querySelectorAll(".picker button").forEach(x => x.classList.toggle("on", x.dataset.variant === v));
+  document.getElementById("why").innerHTML = WHY[v];
+  render();
+}
+
+document.querySelectorAll(".picker button").forEach(b => b.addEventListener("click", () => setVariant(b.dataset.variant)));
+document.getElementById("why").innerHTML = WHY.A;
+render();
+</script>
+</body>
+</html>
