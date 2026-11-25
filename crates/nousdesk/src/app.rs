@@ -3554,8 +3554,49 @@ impl Desktop {
     /// 正好满足 `decisions.md` 那条「浮层至少两条出口」，本文件不另造浮层和开合状态。
     /// 现在菜单里只有一项（New Manual = 从零配的盘面）；以后加「从模板起 / 复制这条」
     /// 只加 `.item(...)`，不用改这段的骨架。
-    fn render_new_chat_button(&self, cx: &mut Context<Self>) -> AnyElement {
-        let weak = cx.weak_entity();
+    /// 搜索框下面那一行：四颗纯图标按钮。
+    ///
+    /// 外观定自 `demo/chat-btns-bot/preview.html` 的第 1 套（用户 2026-11-25 拍的）：
+    /// 30×30 透明方块、24px 图标、只在 hover 时给一层浅底，平时不画底色、不画边框。
+    /// 前两颗用 `template_icons` 里现成的那两枚芯片（跟模板页的分段按钮同一份源码，
+    /// 不重画），后两颗在 `list_action_icons`。
+    ///
+    /// **右端不挂总数**：搜索框右端已经在报数（搜索时是命中数、平时是总数），
+    /// 同一串数字隔 10px 再写一遍读起来像 bug。demo 里那个「149 条」只是占位。
+    ///
+    /// **按钮干什么还没定**（2026-11-25 先落外观），所以四颗都还没挂 `on_click`。
+    fn render_list_actions(&self) -> AnyElement {
+        let action = |id: &'static str, svg: &'static [u8]| {
+            div()
+                .id(ElementId::Name(id.into()))
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(t().d(30.))
+                .flex_none()
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child(
+                    Icon::empty()
+                        .data(svg)
+                        .with_size(Size::Size(t().d(24.)))
+                        .text_color(rgb(t().p.text_2)),
+                )
+        };
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(t().d(6.))
+            .px(t().d(12.))
+            .pb(t().d(8.))
+            .child(action("list-act-session", crate::template_icons::SESSION))
+            .child(action("list-act-ultimate", crate::template_icons::ULTIMATE))
+            .child(action("list-act-lift", crate::list_action_icons::JACK))
+            .child(action("list-act-rack", crate::list_action_icons::RACK))
+            .into_any_element()
+    }
+
+    fn render_new_chat_button(&self, cx: &mut Context<Self>) -> AnyElement {        let weak = cx.weak_entity();
         // 菜单实体是**打开那次**才建的（gpui-kit 用 keyed state 缓存），所以这个
         // 「有没有选中会话」的判定跟着那一次打开走，不会卡在首帧的值上。
         let has_sel = self.selected.is_some();
@@ -3975,6 +4016,8 @@ impl Desktop {
                     )
                     .child(self.render_new_chat_button(cx)),
             )
+            // 搜索框下面那一行：四颗图标按钮。
+            .child(self.render_list_actions())
             // 连引擎中 / 连不上才占一行；正常时这行根本不存在（计数已经进了搜索框）。
             .children(
                 self.status_line(cx)

@@ -32,6 +32,7 @@ mod elements;
 mod elements_tests;
 mod fonts;
 mod live;
+mod list_action_icons;
 mod md;
 mod nav_ui;
 #[cfg(test)]
