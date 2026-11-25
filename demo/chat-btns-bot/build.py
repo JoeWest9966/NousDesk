@@ -317,9 +317,14 @@ def _row(cls, items, on=0):
 
 
 PLANS["1"] = (
-    "机甲线稿",
-    "细 1.6px 硬边线画机械件：机器人头 / 信号头 / 千斤顶 / 机柜。和 rail 图标同一套线稿语言。",
-    _row("v1", [_ico("head"), _ico("alert"), _ico("jack"), _ico("rack")]),
+    "机甲线稿 + 段药丸",
+    "前两颗换成模板页顶部那两个段切换药丸（Session-Template / Ultimate-Template），后两颗仍是机甲图标。",
+    '<div class="btnrow v1">'
+    '<div class="sg2"><button class="sg on">Session-Template</button>'
+    '<button class="sg">Ultimate-Template</button></div>'
+    f'<button class="bb">{_ico("jack")}</button>'
+    f'<button class="bb">{_ico("rack")}</button>'
+    "</div>",
 )
 
 PLANS["2"] = (
@@ -362,10 +367,18 @@ CSS_PLANS = """
 .cnt{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;padding-right:2px}
 
 /* 1–5 共用方块底 */
-.v1 .bb,.v2 .bb,.v3 .bb,.v4 .bb,.v5 .bb{width:30px;height:30px;color:var(--text2)}
+.v1 .bb,.v2 .bb,.v3 .bb,.v4 .bb,.v5 .bb{width:30px;height:30px;color:var(--text2);flex:none}
 .v1 .bb.on,.v2 .bb.on,.v3 .bb.on,.v4 .bb.on,.v5 .bb.on{background:var(--text);color:#fff}
 .v1 .bb:hover:not(.on),.v2 .bb:hover:not(.on),.v3 .bb:hover:not(.on),
 .v4 .bb:hover:not(.on),.v5 .bb:hover:not(.on){background:var(--hover);color:var(--text)}
+
+/* 段切换药丸（照 templates.rs 的 segments：底座 line 色、选中 panel 色、圆角 9/7） */
+.sg2{display:flex;flex-direction:row;gap:2.1px;padding:3.15px;border-radius:0;
+  background:var(--hover);flex:1 1 0;min-width:0}
+.btnrow .sg{display:block;text-align:center;flex:1 1 0;min-width:0;padding:4.2px 2.6px;
+  border-radius:0;font-size:9.5px;line-height:1.3;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;color:var(--muted);letter-spacing:-0.2px}
+.btnrow .sg.on{background:var(--panel);color:var(--text)}
 
 /* 6 机械键帽 */
 .v6{gap:5.25px}
