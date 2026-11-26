@@ -69,6 +69,9 @@ impl Feature {
     /// 不往里塞「同义词」—— 引擎报的名字只有一份真相，这里记的是历史名。
     pub fn module_aliases(self) -> &'static [&'static str] {
         match self {
+            // 引擎改名窗口期：`skills` → `Skill`（端点 `/v1/skills*` 不变）；
+            // 老内核还报 `skills` 时不能把技能页灰掉。
+            Self::Skills => &["skills"],
             // 引擎 0.1.35 之前（`Nous_Extend` 之前）报的是 `ext`。
             Self::Ext => &["ext"],
             _ => &[],
@@ -82,7 +85,7 @@ impl Feature {
             Self::Archive => "archive",
             Self::Combos => "combos",
             Self::Triggers => "triggers",
-            Self::Skills => "skills",
+            Self::Skills => "skill",
             Self::Prompts => "prompts",
             Self::Selection => "selection",
             Self::Device => "device",
@@ -564,6 +567,12 @@ mod tests {
         assert!(module_matches("Nous_Sessions", Feature::Sessions));
         // 归一化只看字母数字：大小写与下划线不敏感。
         assert!(module_matches("Data_Manager", Feature::Stats));
+        // 技能模块改名 `skills` → `Skill`：新全名与旧名都要认（旧名走别名，不是 flatten 的复数归一）。
+        assert!(module_matches("Skill", Feature::Skills));
+        assert!(module_matches("Nous_Skill", Feature::Skills));
+        assert!(module_matches("skills", Feature::Skills), "改名窗口期：老内核报 skills 也不许灰掉");
+        // flatten 只降小写、滤标点，不做词干/复数归一：别名表之外的形变一律不认。
+        assert!(!module_matches("skillz", Feature::Skills));
         // 但**包名形态**（`nous-device`）不是模块名，不认 —— 引擎报的是 `Nous_Device`，
         // 认了就等于把包名当身份，规则 12 的三样东西又糊回一起了。
         assert!(!module_matches("nous-device", Feature::Device));
@@ -822,7 +831,7 @@ mod tests {
             "contract": 1,
             "server": { "name": "nous", "version": "0.1.3" },
             "modules": [
-                { "name": "skills", "enabled": true, "endpoints": ["GET /v1/skills"] },
+                { "name": "Skill", "enabled": true, "endpoints": ["GET /v1/skills"] },
                 { "name": "prompts", "enabled": true, "endpoints": ["GET /v1/prompts"] },
                 { "name": "Nous_Extend", "enabled": false,
                   "reason": { "code": "frozen", "message": "扩展运行时已冻结" } },

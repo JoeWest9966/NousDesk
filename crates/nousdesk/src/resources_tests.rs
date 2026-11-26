@@ -309,7 +309,7 @@ mod write_tests {
             "contract": 1,
             "server": { "name": "nous", "version": "0.1.3" },
             "modules": [
-                { "name": "skills", "enabled": true, "endpoints": ["GET /v1/skills"] },
+                { "name": "Skill", "enabled": true, "endpoints": ["GET /v1/skills"] },
                 { "name": "prompts", "enabled": true, "endpoints": ["GET /v1/prompts"] },
                 { "name": "Nous_Extend", "enabled": false,
                   "reason": { "code": "frozen", "message": "扩展运行时已冻结" } },
@@ -327,7 +327,7 @@ mod write_tests {
     #[test]
     fn declared_write_endpoints_are_enabled() {
         let mut modules = Vec::new();
-        for (name, segment) in [("skills", "skills"), ("prompts", "prompts"), ("Nous_Extend", "extensions")] {
+        for (name, segment) in [("Skill", "skills"), ("prompts", "prompts"), ("Nous_Extend", "extensions")] {
             modules.push(serde_json::json!({
                 "name": name,
                 "enabled": true,
