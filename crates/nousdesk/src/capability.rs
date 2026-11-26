@@ -71,6 +71,8 @@ impl Feature {
         match self {
             // 引擎 0.1.35 之前（`Nous_Extend` 之前）报的是 `ext`。
             Self::Ext => &["ext"],
+            // 引擎 0.1.40 之前（`Trigger_Core` 之前）报的是 `triggers`。
+            Self::Triggers => &["triggers"],
             _ => &[],
         }
     }
@@ -81,7 +83,7 @@ impl Feature {
             Self::Presets => "presets",
             Self::Archive => "archive",
             Self::Combos => "combos",
-            Self::Triggers => "triggers",
+            Self::Triggers => "core",
             Self::Skills => "skills",
             Self::Prompts => "prompts",
             Self::Selection => "selection",
@@ -655,6 +657,22 @@ mod tests {
         assert!(!module_matches("extend", Feature::Elements));
     }
 
+    /// 引擎把 `triggers` 改名 `Trigger_Core`（换供应商 Trigger，规则 12）之后，
+    /// 「触发器」这一块不许因为名字对不上就整块灰掉 —— 门是能力判定，不是命名口味。
+    #[test]
+    fn trigger_core_module_rename_keeps_the_feature_visible() {
+        for reported in ["Trigger_Core", "triggers"] {
+            assert!(
+                module_matches(reported, Feature::Triggers),
+                "引擎报 {reported} 时「触发器」要认得出来"
+            );
+            assert_eq!(module_feature(reported), Some(Feature::Triggers));
+        }
+        // 别名只给触发器：`core` 不能顺带认成别的功能面。
+        assert!(!module_matches("Trigger_Core", Feature::Skills));
+        assert!(!module_matches("core", Feature::Sessions));
+    }
+
     #[test]
     fn registered_feature_names_cover_all_desktop_modules() {
         let all = [
@@ -826,7 +844,7 @@ mod tests {
                 { "name": "prompts", "enabled": true, "endpoints": ["GET /v1/prompts"] },
                 { "name": "Nous_Extend", "enabled": false,
                   "reason": { "code": "frozen", "message": "扩展运行时已冻结" } },
-                { "name": "triggers", "enabled": true,
+                { "name": "Trigger_Core", "enabled": true,
                   "endpoints": ["GET /v1/triggers", "POST /v1/triggers/{code}/fire"] },
             ],
             "runtime": { "provider": { "kind": "faux" } }
