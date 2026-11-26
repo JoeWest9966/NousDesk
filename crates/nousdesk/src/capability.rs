@@ -63,6 +63,18 @@ impl Feature {
         }
     }
 
+    /// 这个功能面在引擎清单里**曾经 / 也可能**叫的名字。
+    ///
+    /// 只给改名窗口期用：桌面端与引擎是两条发布线，升级先后不该让入口整块灰掉。
+    /// 不往里塞「同义词」—— 引擎报的名字只有一份真相，这里记的是历史名。
+    pub fn module_aliases(self) -> &'static [&'static str] {
+        match self {
+            // 引擎 0.1.35 之前（`Nous_Extend` 之前）报的是 `ext`。
+            Self::Ext => &["ext"],
+            _ => &[],
+        }
+    }
+
     pub fn module_name(self) -> &'static str {
         match self {
             Self::Sessions => "sessions",
@@ -75,7 +87,7 @@ impl Feature {
             Self::Selection => "selection",
             Self::Device => "device",
             Self::Stats => "data-manager",
-            Self::Ext => "ext",
+            Self::Ext => "extend",
             Self::Elements => "elements",
         }
     }
@@ -161,15 +173,17 @@ fn flatten(name: &str) -> String {
 /// 而 Desk 登记的是短名（`device`）。所以比**全名**，再比**尾段**（`_` 之后那段）。
 /// 两条都不中就是没登记 —— 不猜、不降级。
 pub fn module_matches(reported: &str, feature: Feature) -> bool {
-    let want = flatten(feature.module_name());
-    if flatten(reported) == want {
-        return true;
-    }
-    reported
-        .rsplit('_')
-        .next()
-        .map(flatten)
-        .is_some_and(|tail| tail == want)
+    // 两个方向都要认，还要认**别名**：`Nous_Extend` 是 0.1.35 起引擎报的全名，
+    // 而它之前叫 `ext` —— 桌面端与引擎是两条发布线，客户端先升级不能把整块功能灰掉。
+    // 别名只用来匹配，`module_name()` 仍是「当前应该叫什么」。
+    let reported_full = flatten(reported);
+    let reported_tail = reported.rsplit('_').next().map(flatten);
+    std::iter::once(feature.module_name())
+        .chain(feature.module_aliases().iter().copied())
+        .any(|name| {
+            let want = flatten(name);
+            reported_full == want || reported_tail.as_deref() == Some(want.as_str())
+        })
 }
 
 /// 从引擎模块名找客户端登记的 `Feature`。`env` 这类引擎侧模块
@@ -520,7 +534,7 @@ mod tests {
                   "reason": { "code": "disabled_by_manifest", "message": "发行版没装" } },
                 { "name": "triggers", "enabled": false,
                   "reason": { "code": "needs_credentials", "message": "要先配凭证" } },
-                { "name": "ext", "enabled": false,
+                { "name": "Nous_Extend", "enabled": false,
                   "reason": { "code": "frozen", "message": "扩展运行时已冻结" } },
             ],
             "runtime": { "provider": { "configured": false, "kind": "real", "message": "没凭证" } }
@@ -622,6 +636,25 @@ mod tests {
 
     /// #18 + #12 插件页：每个登记模块都能从 Feature 找到；恢复分支多出的 `env`
     /// 是「未登记」的真实样本，UI 必须照实列出而不是过滤掉。
+    /// 引擎 0.1.35 起 `ext` 改名 `Nous_Extend`（内核规则 12「逐个改成全名」）。
+    ///
+    /// 桌面端与引擎是两条发布线：客户端先升级时线上还是老引擎（报 `ext`），
+    /// 引擎先升级时客户端还是老客户端。两种错配都**不许**把「扩展」整块灰掉 ——
+    /// 门是能力判定，不是命名口味。
+    #[test]
+    fn renaming_the_engine_module_does_not_grey_the_feature_out() {
+        for reported in ["Nous_Extend", "ext"] {
+            assert!(
+                module_matches(reported, Feature::Ext),
+                "引擎报 {reported} 时「扩展」要认得出来"
+            );
+            assert_eq!(module_feature(reported), Some(Feature::Ext));
+        }
+        // 改名窗口期不扩散：别的功能面没有别名，`extend` 也不能被认成技能之类。
+        assert!(!module_matches("Nous_Extend", Feature::Skills));
+        assert!(!module_matches("extend", Feature::Elements));
+    }
+
     #[test]
     fn registered_feature_names_cover_all_desktop_modules() {
         let all = [
@@ -686,7 +719,7 @@ mod tests {
             "contract": 1,
             "server": { "name": "nous", "version": "0.1.10" },
             "modules": [
-                { "name": "ext", "enabled": true, "endpoints": ["GET /v1/repos/:repo/archive"] },
+                { "name": "Nous_Extend", "enabled": true, "endpoints": ["GET /v1/repos/:repo/archive"] },
             ],
             "runtime": { "provider": { "kind": "faux" } }
         })).unwrap();
@@ -791,7 +824,7 @@ mod tests {
             "modules": [
                 { "name": "skills", "enabled": true, "endpoints": ["GET /v1/skills"] },
                 { "name": "prompts", "enabled": true, "endpoints": ["GET /v1/prompts"] },
-                { "name": "ext", "enabled": false,
+                { "name": "Nous_Extend", "enabled": false,
                   "reason": { "code": "frozen", "message": "扩展运行时已冻结" } },
                 { "name": "triggers", "enabled": true,
                   "endpoints": ["GET /v1/triggers", "POST /v1/triggers/{code}/fire"] },
