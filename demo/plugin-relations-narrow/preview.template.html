@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NousDesk · 插件关系图 · 窄窗三套（mono 皮）</title>
+<style>
+__FONTS__
+:root {
+  /* mono 皮（crates/nousdesk/src/theme.rs → Skin::MONO） */
+  --bg: #000000; --panel: #000000; --panel-alt: #0a0a0a;
+  --text: #ffffff; --text-2: #d2d2d2; --muted: #b0b0b0; --faint: #8a8a8a;
+  --line: #ffffff; --line-soft: #2a2a2a; --hover: #141414; --selected: #1f1f1f;
+  --accent-soft: #1a1a1a; --accent-fg: #ffffff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: Inter, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", sans-serif;
+  background: #0b0b0b; color: var(--text); font-size: 12.5px;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+.mono { font-family: JBMono, ui-monospace, monospace; }
+::selection { background: #fff; color: #000; }
+
+/* ── demo 控件（不进产品） ─────────────────────────── */
+.picker {
+  position: fixed; right: 16px; bottom: 16px; z-index: 90;
+  display: flex; flex-direction: column; gap: 3px; padding: 5px;
+  background: #111111; border: 1px solid var(--line-soft); font-size: 11.5px;
+}
+.picker .row { display: flex; align-items: center; gap: 2px; }
+.picker .lbl { color: var(--faint); padding: 4px 8px 4px 4px; letter-spacing: .04em; white-space: nowrap; }
+.picker button {
+  border: 0; background: transparent; color: var(--text-2); cursor: pointer;
+  padding: 4px 9px; font: inherit; letter-spacing: .02em; white-space: nowrap;
+}
+.picker button:hover { background: var(--hover); }
+.picker button.on { background: #ffffff; color: #000000; }
+
+.stage { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 26px 20px 120px; gap: 14px; }
+.cap { width: 100%; max-width: 1200px; display: flex; gap: 14px; font-size: 11.5px; color: var(--muted); }
+.cap .k { flex: none; width: 84px; color: var(--faint); letter-spacing: .04em; }
+.cap b { font-weight: 500; color: var(--text); }
+.frame { transform-origin: top center; }
+
+.win {
+  display: flex; flex-direction: column; height: 720px;
+  background: var(--panel); border: 1px solid var(--line-soft);
+  box-shadow: 0 34px 90px #000000cc;
+}
+.titlebar {
+  height: 38px; flex: none; display: flex; align-items: center; padding: 0 10px 0 14px;
+  background: var(--bg); border-bottom: 1px solid var(--line-soft);
+}
+.titlebar .brand { font-size: 11.5px; color: var(--muted); letter-spacing: .06em; }
+.titlebar .wbtns { margin-left: auto; display: flex; }
+.titlebar .wbtns i {
+  width: 34px; height: 26px; display: grid; place-items: center; font-style: normal;
+  font-size: 9px; color: var(--muted);
+}
+.head { height: 48px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 22px; border-bottom: 1px solid var(--line-soft); }
+.head .back { color: var(--text-2); font-size: 12px; display: flex; align-items: center; gap: 7px; }
+.head .back .ar { color: var(--faint); }
+.head .ttl { font-size: 13px; font-weight: 500; }
+.head .sp { flex: 1; }
+.head .hint { font-size: 11px; color: var(--faint); }
+
+.body { flex: 1; min-height: 0; display: flex; }
+.nav { width: 170px; flex: none; border-right: 1px solid var(--line-soft); padding: 12px 8px; display: flex; flex-direction: column; gap: 1px; }
+.nav a { display: block; padding: 7px 10px; color: var(--muted); font-size: 12px; text-decoration: none; }
+.nav a:hover { background: var(--hover); color: var(--text); }
+.nav a.on { background: var(--accent-soft); color: var(--accent-fg); font-weight: 600; }
+
+.content { flex: 1; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+body[data-sm="1"] .content { padding: 14px; }
+.chead { display: flex; align-items: baseline; gap: 10px; }
+.chead h1 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: .01em; }
+.chead .sub { font-size: 11px; color: var(--faint); }
+body[data-sm="1"] .chead .sub { display: none; }
+
+.plugins { flex: 1; min-height: 0; display: flex; border-top: 1px solid var(--line-soft); }
+.plist { flex: none; border-right: 1px solid var(--line-soft); overflow: auto; padding: 6px 0; }
+.plist .cnt { padding: 4px 10px 8px; font-size: 11.5px; color: var(--faint); }
+.prow { position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 8px; cursor: pointer; }
+.prow:hover { background: var(--hover); }
+.prow.on { background: var(--accent-soft); }
+.prow .sq { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #fff; }
+.prow .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.prow .nm { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .vnd { align-self: flex-start; padding: 0 4px; border: 1px solid var(--line-soft); font-size: 9.5px; line-height: 15px; color: var(--muted); }
+.prow .right { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.prow .ver { font-size: 10.5px; color: var(--muted); }
+
+.detail { flex: 1; min-width: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+body[data-sm="1"] .detail { padding: 0; }
+.backrow { display: flex; align-items: center; gap: 8px; padding: 2px 0 4px; }
+.backrow .b { color: var(--text-2); font-size: 12px; cursor: pointer; padding: 2px 6px 2px 0; }
+.backrow .b:hover { background: var(--hover); }
+
+.dhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.dhead h2 { margin: 0; font-size: 15px; font-weight: 500; }
+.dhead .dv { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+.docbtn { flex: none; padding: 4px 9px; border: 1px solid var(--line-soft); background: transparent; color: var(--text-2); font: inherit; font-size: 11.5px; cursor: pointer; }
+.docbtn:hover { background: var(--hover); }
+.facts { display: flex; flex-direction: column; gap: 6px; }
+.fact { display: flex; gap: 10px; font-size: 11.5px; }
+.fact .k { width: 72px; flex: none; color: var(--faint); }
+.fact .v { color: var(--text-2); }
+.desc { font-size: 10.5px; color: var(--faint); line-height: 1.5; }
+
+/* ── 图（02，大屏原样） ─────────────────────────── */
+.graph { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.graph svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.graph .col { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 4px; flex: none; }
+.graph .col.right { align-items: flex-end; }
+.graph .col .cap { font-size: 10px; color: var(--faint); letter-spacing: .03em; margin-bottom: 2px; }
+.graph .col.right .cap { text-align: right; }
+.graph .hub { position: relative; z-index: 1; flex: none; text-align: center; padding: 8px 10px; border: 1px solid var(--line); background: var(--panel-alt); }
+.graph .hub .hn { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
+.graph .hub .hv { font-size: 10px; color: var(--faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+.graph .node {
+  position: relative; z-index: 1; padding: 1px 7px; border: 1px solid var(--line-soft);
+  background: var(--panel); color: var(--text-2); font: inherit; font-size: 11px;
+  cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+}
+.graph .node:hover { border-color: var(--line); color: var(--text); background: var(--hover); }
+.graph .more { font-size: 10px; color: var(--faint); }
+.gsum { display: flex; gap: 10px; font-size: 11px; color: var(--muted); }
+
+/* ── M1 缩列：同一张图，列变窄、每侧 4 个 ─────────── */
+body[data-narrow="M1"] .graph .node { max-width: 90px; }
+body[data-w-md="1"][data-narrow="M1"] .graph .node { max-width: 90px; }
+
+/* ── M2 竖排：三段上下堆叠，箭头给方向 ──────────── */
+.vstack { display: flex; flex-direction: column; gap: 0; }
+.vstack .seg { padding: 6px 0; }
+.vstack .seg .cap { font-size: 10px; color: var(--faint); letter-spacing: .03em; margin-bottom: 4px; }
+.vstack .seg .cap b { color: var(--muted); font-weight: 500; }
+.vstack .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.vstack .chip {
+  padding: 1px 7px; border: 1px solid var(--line-soft); background: transparent;
+  color: var(--text-2); font: inherit; font-size: 11px; cursor: pointer; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vstack .chip:hover { border-color: var(--line); color: var(--text); background: var(--hover); }
+.vstack .arrow { display: flex; align-items: center; gap: 8px; padding: 2px 0 2px 0; font-size: 10px; color: var(--faint); }
+.vstack .arrow .ln { flex: 1; height: 1px; background: var(--line-soft); }
+.vstack .self { border: 1px solid var(--line); background: var(--panel-alt); padding: 8px 10px; display: flex; align-items: baseline; gap: 10px; }
+.vstack .self .hn { font-size: 12.5px; }
+.vstack .self .hv { font-size: 10px; color: var(--faint); }
+.vstack .none { font-size: 11px; color: var(--faint); }
+
+/* ── M3 横滑：图不缩，容器横着滑 ───────────────── */
+.hscroll { overflow-x: auto; overflow-y: hidden; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); padding: 2px 0; }
+.hscroll .graph { min-width: 480px; width: 100%; }
+.hscroll .hint { font-size: 10px; color: var(--faint); padding: 4px 0; }
+
+.nogno { font-size: 11px; color: var(--faint); line-height: 1.6; }
+
+.why { width: 100%; max-width: 1200px; display: flex; gap: 14px; font-size: 12px; color: var(--text-2); line-height: 1.65; }
+.why .k { flex: none; width: 84px; color: var(--faint); letter-spacing: .04em; }
+.why b { font-weight: 500; color: var(--text); }
+</style>
+</head>
+<body data-narrow="M1" data-sm="0" data-w-md="0">
+<div class="stage">
+  <div class="cap"><span class="k">现在看的是</span><span id="cap"></span></div>
+  <div class="frame" id="frame">
+    <div class="win" id="win">
+      <div class="titlebar">
+        <span class="brand">NOUSDESK</span>
+        <span class="wbtns"><i>—</i><i>□</i><i>✕</i></span>
+      </div>
+      <div class="head">
+        <span class="back"><span class="ar">←</span> 返回聊天</span>
+        <span class="ttl">设置</span>
+        <span class="sp"></span>
+        <span class="hint mono" id="hint">GET /v1/modules/graph</span>
+      </div>
+      <div class="body">
+        <nav class="nav">
+          <a href="#">外观</a><a href="#">快捷键</a><a href="#">连接</a>
+          <a href="#">能力</a><a href="#">关于</a><a href="#" class="on">插件</a>
+        </nav>
+        <div class="content">
+          <div class="chead"><h1>插件</h1><span class="sub">引擎报什么就显示什么 · 加插件不用改客户端</span></div>
+          <div class="plugins">
+            <div class="plist" id="list">
+              <div class="cnt" id="cnt"></div>
+              <div id="rows"></div>
+            </div>
+            <div class="detail" id="detail"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="why"><span class="k">这套想干什么</span><span id="why"></span></div>
+</div>
+
+<div class="picker">
+  <div class="row">
+    <span class="lbl">窗口宽</span>
+    <button data-w="1200" class="on">1200</button>
+    <button data-w="1024">1024</button>
+    <button data-w="980">980</button>
+    <button data-w="900">900</button>
+    <button data-w="880">880</button>
+    <button data-w="760">760</button>
+  </div>
+  <div class="row">
+    <span class="lbl">窄窗方案</span>
+    <button data-n="M1" class="on">M1 缩列</button>
+    <button data-n="M2">M2 竖排</button>
+    <button data-n="M3">M3 横滑</button>
+  </div>
+  <div class="row">
+    <span class="lbl">引擎</span>
+    <button data-g="1" class="on">有 graph</button>
+    <button data-g="0">老引擎</button>
+  </div>
+</div>
+
+<script>
+const MODULES = __DATA__;
+const byCrate = new Map(MODULES.map(m => [m.crate, m.name]));
+const OUT = new Map(), IN = new Map(), MISS = new Map();
+let edgeCount = 0;
+for (const m of MODULES) { OUT.set(m.name, []); IN.set(m.name, []); }
+for (const m of MODULES) {
+  for (const r of m.requires) {
+    const t = byCrate.get(r);
+    if (t) { OUT.get(m.name).push(t); IN.get(t).push(m.name); edgeCount++; }
+    else { if (!MISS.has(m.name)) MISS.set(m.name, []); MISS.get(m.name).push(r); }
+  }
+}
+for (const l of [...OUT.values(), ...IN.values()]) l.sort((a, b) => a.localeCompare(b));
+
+const S = { w: 1200, narrow: "M1", graph: true, selected: MODULES.findIndex(m => m.name === "Extend") };
+if (S.selected < 0) S.selected = 0;
+
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const sm = () => S.w < 900;          // settings.rs: viewport < 900 → 单栏
+const md = () => S.w >= 900 && S.w < 1000;  // 最挤的一档：列表 268 + 详情 ≈ 462
+
+function rowHtml(m, i) {
+  return `<div class="prow ${i === S.selected ? "on" : ""}" data-pick="${i}">
+    <span class="sq"></span>
+    <span class="txt"><span class="nm mono">${esc(m.name)}</span><span class="vnd mono">${esc(m.vendor || "—")}</span></span>
+    <span class="right"><span class="ver mono">v${esc(m.version)}</span></span>
+  </div>`;
+}
+
+function nodeBtn(n, extra = "") {
+  return `<button class="node mono ${extra}" data-go="${esc(n)}">${esc(n)}</button>`;
+}
+
+// 大屏 / M1：同一张图，列宽按可用宽度定
+function graphHtml(m) {
+  const out = OUT.get(m.name), inn = IN.get(m.name);
+  const cap = md() ? 4 : 6;
+  const colW = md() ? 90 : 132, hubW = md() ? 148 : 168;
+  const col = (list, side, title) => `
+    <div class="col ${side}" style="width:${colW}px">
+      <div class="cap">${title}</div>
+      ${list.slice(0, cap).map(n => nodeBtn(n)).join("")}
+      ${list.length > cap ? `<div class="more">+${list.length - cap}</div>` : ""}
+    </div>`;
+  return `
+    <div class="graph" id="graph">
+      <svg class="lines" id="lines"></svg>
+      ${col(out, "left", `依赖 ${out.length}`)}
+      <div class="hub" style="width:${hubW}px"><div class="hn mono">${esc(m.name)}</div><div class="hv mono">${esc(m.crate)}</div></div>
+      ${col(inn, "right", `被依赖 ${inn.length}`)}
+    </div>
+    <div class="gsum"><span class="mono">依赖 ${out.length} · 被依赖 ${inn.length}</span><span>· 点名字换模块</span></div>`;
+}
+
+// M2：竖排三段
+function verticalHtml(m) {
+  const out = OUT.get(m.name), inn = IN.get(m.name), miss = MISS.get(m.name) || [];
+  const chips = l => l.length
+    ? `<div class="chips">${l.map(n => `<button class="chip mono" data-go="${esc(n)}">${esc(n)}</button>`).join("")}</div>`
+    : `<div class="none">plugin.toml 没声明</div>`;
+  return `<div class="vstack">
+    <div class="seg"><div class="cap">依赖 <b>${out.length}</b>${miss.length ? ` · ${miss.length} 个包没有对应模块` : ""}</div>${chips(out)}</div>
+    <div class="arrow"><span>↓</span><span class="ln"></span><span>往下走</span></div>
+    <div class="seg"><div class="self"><span class="hn mono">${esc(m.name)}</span><span class="hv mono">${esc(m.crate)}</span></div></div>
+    <div class="arrow"><span>↑</span><span class="ln"></span><span>往上看</span></div>
+    <div class="seg"><div class="cap">被依赖 <b>${inn.length}</b></div>${chips(inn)}</div>
+  </div>`;
+}
+
+// M3：图不缩，横滑
+function scrollHtml(m) {
+  return `<div class="hscroll">${graphHtml(m)}</div><div class="hint">← 窄窗放不下时横向滑动，字形不缩、名字不截 →</div>`;
+}
+
+function relHtml(m) {
+  if (!S.graph) return `<div class="nogno">这个引擎没有 <span class="mono">/v1/modules/graph</span> —— 关系这一块整块不出现，不拿「空」冒充「没有依赖」。</div>`;
+  // 大屏（>=1000）一律是大屏原图；只有挤的那两档才切窄窗方案。
+  if (md() || sm()) {
+    if (S.narrow === "M2") return verticalHtml(m);
+    if (S.narrow === "M3") return scrollHtml(m);
+  }
+  return graphHtml(m);
+}
+
+function render() {
+  const m = MODULES[S.selected];
+  document.documentElement.style.setProperty("--w", S.w + "px");
+  document.getElementById("win").style.width = S.w + "px";
+  document.body.dataset.sm = sm() ? "1" : "0";
+  document.body.dataset.wMd = md() ? "1" : "0";
+  document.body.dataset.narrow = S.narrow;
+
+  const listW = sm() ? 0 : 268;  // settings.rs：非单栏一律 268，不随宽度涨
+  document.getElementById("list").style.width = listW + "px";
+  document.getElementById("list").style.display = sm() ? "none" : "";
+  document.getElementById("detail").style.padding = sm() ? "0" : "16px 18px 16px 34px";
+
+  document.getElementById("rows").innerHTML = MODULES.map((m, i) => rowHtml(m, i)).join("");
+  document.getElementById("cnt").textContent = `${MODULES.length} 个模块 · ${edgeCount} 条边`;
+  document.getElementById("hint").textContent = S.graph ? "GET /v1/modules/graph" : "没有关系图端点";
+
+  const back = sm() ? `<div class="backrow"><span class="b" data-back="1">← 插件</span></div>` : "";
+  document.getElementById("detail").innerHTML = `
+    ${back}
+    <div class="dhead">
+      <div><h2 class="mono">${esc(m.name)}</h2><div class="dv mono">${esc(m.vendor || "—")}</div></div>
+      <button class="docbtn">读文档</button>
+    </div>
+    <div class="facts">
+      <div class="fact"><span class="k">状态</span><span class="v">启用</span></div>
+      <div class="fact"><span class="k">版本</span><span class="v mono">v${esc(m.version)}</span></div>
+      <div class="fact"><span class="k">层</span><span class="v">${esc(m.layer)}</span></div>
+      <div class="fact"><span class="k">来源 crate</span><span class="v mono">${esc(m.crate)}</span></div>
+    </div>
+    <div class="desc">${esc(m.desc)}</div>
+    ${relHtml(m)}`;
+
+  scaleToFit();
+  drawLines();
+  // M3 在放得下的档不装「能横滑」的样子，免得骗人
+  const hs = document.querySelector("#detail .hscroll");
+  if (hs) {
+    const hint = hs.nextElementSibling;
+    if (hs.scrollWidth <= hs.clientWidth + 1 && hint) hint.textContent = `这一档放得下（${hs.clientWidth}px），不用滑`;
+  }
+  const det = document.getElementById("detail");
+  const cs = getComputedStyle(det);
+  const innerW = det.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  document.getElementById("cap").innerHTML = capText(innerW);
+}
+
+function capText(detailW) {
+  const mode = sm() ? "单栏（详情独占，带「← 插件」）" : "两栏（列表 268 ＋ 详情）";
+  const strategy = sm() || md() ? S.narrow : "大屏原图（＝你已挑的 02）";
+  return `窗口 <b>${S.w}px</b> · ${mode} · 详情内宽 <b>≈${Math.round(detailW)}px</b> · 这一档用 <b>${strategy}</b>`;
+}
+
+function drawLines() {
+  const g = document.getElementById("graph"), svg = document.getElementById("lines");
+  if (!g || !svg) return;
+  const box = g.getBoundingClientRect(), hub = g.querySelector(".hub").getBoundingClientRect();
+  const k = box.width / (g.offsetWidth || box.width); // transform:scale 校正
+  const hy = (hub.top + hub.height / 2 - box.top) / k;
+  const seg = [];
+  for (const side of ["left", "right"]) {
+    const col = g.querySelector(`.col.${side}`);
+    if (!col) continue;
+    for (const n of col.querySelectorAll(".node")) {
+      const r = n.getBoundingClientRect();
+      const y = (r.top + r.height / 2 - box.top) / k;
+      const x1 = (side === "left" ? r.right - box.left : r.left - box.left) / k;
+      const x2 = (side === "left" ? hub.left - box.left : hub.right - box.left) / k;
+      const mx = (x1 + x2) / 2;
+      seg.push(`<path d="M${x1},${y} H${mx} V${hy} H${x2}" fill="none" stroke="#2a2a2a"/>`);
+    }
+  }
+  svg.innerHTML = seg.join("");
+}
+
+// 把大窗口缩到看得全（只缩显示，不改布局）
+function scaleToFit() {
+  const fr = document.getElementById("frame");
+  const s = Math.min(1, (window.innerWidth - 60) / S.w);
+  fr.style.transform = `scale(${s})`;
+  fr.style.height = (720 * s) + "px";
+  fr.style.width = (S.w * s) + "px";
+  fr.style.marginBottom = (720 * s - 720) + "px";
+}
+
+const WHY = {
+  M1: "<b>M1 缩列</b> —— 还是同一张图，窄的那一档把两侧列压到 90px、每侧只放 4 个（多的写 <span class='mono'>+N</span>），hub 缩到 148px，中间照旧连线。大屏拿到完整 6 个、长名字不截；940–999 这一段自动降档。优点是「图还是图」，用户不用学第二种看法，代价是 <span class='mono'>AboutME_ModuleRelationshipNetwork</span> 这种长名字被省略号切掉。",
+  M2: "<b>M2 竖排</b> —— 窄窗放弃左右并置，改成 依赖 → 本模块 → 被依赖 三段上下排，胶囊横着流，方向靠 <span class='mono'>↓ / ↑</span> 和一条细线说。没有连线、不需要宽度，最窄 400 也放得下，长名字能整行显示。代价是「枢纽感」弱了 —— 从图退回到清单。",
+  M3: "<b>M3 横滑</b> —— 图一个像素都不缩，放不下就让这块容器横向滑动，名字永远完整。好处是「同一张图两种屏一个样子」，代价是窄窗里用户要发现「这里能滑」，藏起来的右半边容易被当成不存在；而且滚动手势会和设置页的竖向滚动打架。",
+};
+
+function pick(i) { S.selected = i; render(); }
+
+document.addEventListener("click", e => {
+  if (e.target.closest("[data-back]")) return;
+  const go = e.target.closest("[data-go]");
+  if (go) { const i = MODULES.findIndex(m => m.name === go.dataset.go); if (i >= 0) pick(i); return; }
+  const p = e.target.closest("[data-pick]");
+  if (p) pick(+p.dataset.pick);
+});
+
+document.querySelectorAll("[data-w]").forEach(b => b.addEventListener("click", () => {
+  S.w = +b.dataset.w;
+  document.querySelectorAll("[data-w]").forEach(x => x.classList.toggle("on", +x.dataset.w === S.w));
+  render();
+}));
+document.querySelectorAll("[data-n]").forEach(b => b.addEventListener("click", () => {
+  S.narrow = b.dataset.n;
+  document.querySelectorAll("[data-n]").forEach(x => x.classList.toggle("on", x.dataset.n === S.narrow));
+  document.getElementById("why").innerHTML = WHY[S.narrow];
+  render();
+}));
+document.querySelectorAll("[data-g]").forEach(b => b.addEventListener("click", () => {
+  S.graph = b.dataset.g === "1";
+  document.querySelectorAll("[data-g]").forEach(x => x.classList.toggle("on", (x.dataset.g === "1") === S.graph));
+  render();
+}));
+
+document.getElementById("why").innerHTML = WHY.M1;
+render();
+window.addEventListener("resize", scaleToFit);
+</script>
+</body>
+</html>

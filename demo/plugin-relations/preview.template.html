@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NousDesk · 关于 → 插件 · 模块关系（mono 皮）</title>
+<style>
+__FONTS__
+:root {
+  /* mono 皮（crates/nousdesk/src/theme.rs → Skin::MONO）：纯黑底、白字、白线、直角 */
+  --bg: #000000; --panel: #000000; --panel-alt: #0a0a0a;
+  --text: #ffffff; --text-2: #d2d2d2; --muted: #b0b0b0; --faint: #8a8a8a;
+  --line: #ffffff; --line-soft: #2a2a2a; --hover: #141414; --selected: #1f1f1f;
+  --accent: #ffffff; --accent-soft: #1a1a1a; --accent-fg: #ffffff;
+  --warn: #e8c07a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: Inter, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", sans-serif;
+  background: #0b0b0b; color: var(--text); font-size: 12.5px;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+.mono { font-family: JBMono, ui-monospace, monospace; }
+::selection { background: #ffffff; color: #000000; }
+
+/* ── demo 切换（不进产品） ───────────────────────────── */
+.picker {
+  position: fixed; right: 18px; bottom: 18px; z-index: 90;
+  display: flex; align-items: center; gap: 14px; padding: 4px 6px;
+  background: #111111; border: 1px solid var(--line-soft);
+  font-size: 11.5px;
+}
+.picker .grp { display: flex; align-items: center; gap: 2px; }
+.picker .lbl { color: var(--faint); padding: 5px 8px 5px 4px; letter-spacing: .04em; }
+.picker button {
+  border: 0; background: transparent; color: var(--text-2); cursor: pointer;
+  padding: 5px 10px; font: inherit; letter-spacing: .02em;
+}
+.picker button:hover { background: var(--hover); }
+.picker button.on { background: #ffffff; color: #000000; }
+
+.stage { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 46px 24px 30px; gap: 22px; }
+.win {
+  width: 1120px; height: 740px; flex: none; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line-soft);
+  box-shadow: 0 34px 90px #000000cc;
+}
+.titlebar {
+  height: 38px; flex: none; display: flex; align-items: center; padding: 0 10px 0 14px;
+  background: var(--bg); border-bottom: 1px solid var(--line-soft);
+}
+.titlebar .brand { font-size: 11.5px; color: var(--muted); letter-spacing: .06em; }
+.titlebar .wbtns { margin-left: auto; display: flex; }
+.titlebar .wbtns i {
+  width: 34px; height: 26px; display: grid; place-items: center; font-style: normal;
+  font-size: 9px; color: var(--muted);
+}
+.head {
+  height: 48px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 22px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.head .back { color: var(--text-2); font-size: 12px; display: flex; align-items: center; gap: 7px; }
+.head .back .ar { color: var(--faint); }
+.head .ttl { font-size: 13px; font-weight: 500; }
+.head .sp { flex: 1; }
+.head .hint { font-size: 11px; color: var(--faint); }
+
+.body { flex: 1; min-height: 0; display: flex; }
+.nav { width: 170px; flex: none; border-right: 1px solid var(--line-soft); padding: 12px 8px; display: flex; flex-direction: column; gap: 1px; }
+.nav a {
+  display: block; padding: 7px 10px; color: var(--muted); font-size: 12px; text-decoration: none;
+}
+.nav a:hover { background: var(--hover); color: var(--text); }
+.nav a.on { background: var(--accent-soft); color: var(--accent-fg); font-weight: 600; }
+
+.content { flex: 1; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.chead { display: flex; align-items: baseline; gap: 10px; }
+.chead h1 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: .01em; }
+.chead .sub { font-size: 11px; color: var(--faint); }
+
+.plugins { flex: 1; min-height: 0; display: flex; border-top: 1px solid var(--line-soft); }
+.plist { width: 292px; flex: none; border-right: 1px solid var(--line-soft); overflow: auto; padding: 6px 0; }
+.plist .cnt { padding: 4px 10px 8px; font-size: 11.5px; color: var(--faint); }
+.prow {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px 7px 8px; cursor: pointer; color: var(--text);
+}
+.prow:hover { background: var(--hover); }
+.prow.on { background: var(--accent-soft); }
+.prow .sq { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #ffffff; }
+.prow .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.prow .nm { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .vnd {
+  align-self: flex-start; padding: 0 4px; border: 1px solid var(--line-soft);
+  font-size: 9.5px; line-height: 15px; color: var(--muted);
+}
+.prow .right { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.prow .ver { font-size: 10.5px; color: var(--muted); }
+.prow .deg { font-size: 10px; color: var(--faint); letter-spacing: .02em; }
+.prow .deg b { font-weight: 500; color: var(--text-2); }
+body[data-variant="C"] .prow .ver { display: none; }
+body[data-variant="C"] .prow .deg { font-size: 10.5px; }
+
+.detail { flex: 1; min-width: 0; overflow: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.dhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.dhead .lt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dhead h2 { margin: 0; font-size: 15px; font-weight: 500; }
+.dhead .dv { font-size: 10.5px; color: var(--muted); }
+.docbtn {
+  flex: none; padding: 4px 9px; border: 1px solid var(--line-soft); background: transparent;
+  color: var(--text-2); font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.docbtn:hover { background: var(--hover); }
+.facts { display: flex; flex-direction: column; gap: 6px; }
+.fact { display: flex; gap: 10px; font-size: 11.5px; }
+.fact .k { width: 72px; flex: none; color: var(--faint); }
+.fact .v { color: var(--text-2); }
+.fact .v.mono { font-size: 11px; }
+.desc { font-size: 10.5px; color: var(--faint); line-height: 1.5; }
+
+/* ── 关系块（方案 01） ─────────────────────────────── */
+.rel { display: flex; flex-direction: column; gap: 4px; }
+.rel .lbl { font-size: 10px; color: var(--faint); letter-spacing: .03em; }
+.rel .lbl b { font-weight: 500; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  padding: 1px 7px; border: 1px solid var(--line-soft); background: transparent;
+  color: var(--text-2); font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.chip.mono { font-size: 11px; }
+.chip:hover { background: var(--hover); color: var(--text); border-color: var(--line); }
+.chip.miss { color: var(--faint); border-style: dashed; cursor: default; }
+.rel .none { font-size: 11px; color: var(--faint); }
+
+/* ── 迷你图（方案 02） ────────────────────────────── */
+.graph { position: relative; height: 216px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.graph svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.graph .col { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 4px; width: 132px; }
+.graph .col.right { align-items: flex-end; }
+.graph .col .cap { font-size: 10px; color: var(--faint); letter-spacing: .03em; margin-bottom: 2px; }
+.graph .col.right .cap { text-align: right; }
+.graph .hub {
+  position: relative; z-index: 1; flex: none; width: 168px; text-align: center;
+  padding: 8px 10px; border: 1px solid var(--line); background: var(--panel-alt);
+}
+.graph .hub .hn { font-size: 12.5px; }
+.graph .hub .hv { font-size: 10px; color: var(--faint); margin-top: 2px; }
+.graph .node {
+  position: relative; z-index: 1; padding: 1px 7px; border: 1px solid var(--line-soft);
+  background: var(--panel); color: var(--text-2); font: inherit; font-size: 11px;
+  cursor: pointer; max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.graph .node:hover { border-color: var(--line); color: var(--text); background: var(--hover); }
+.graph .more { font-size: 10px; color: var(--faint); }
+.gsum { display: flex; gap: 10px; font-size: 11px; color: var(--muted); }
+
+/* ── 关系表（方案 03） ────────────────────────────── */
+table.rel2 { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+table.rel2 th {
+  text-align: left; font-weight: 400; font-size: 10px; color: var(--faint);
+  padding: 2px 6px 4px; border-bottom: 1px solid var(--line-soft); letter-spacing: .03em;
+}
+table.rel2 td { padding: 4px 6px; border-bottom: 1px solid var(--line-soft); color: var(--text-2); }
+table.rel2 tr:last-child td { border-bottom: 0; }
+table.rel2 tr[data-go] { cursor: pointer; }
+table.rel2 tr[data-go]:hover td { background: var(--hover); color: var(--text); }
+table.rel2 td.dir { width: 52px; color: var(--faint); }
+table.rel2 td.layer { width: 56px; color: var(--faint); }
+table.rel2 td.n { color: var(--text); }
+
+.nogno { font-size: 11px; color: var(--faint); }
+
+.why { width: 1120px; display: flex; gap: 18px; font-size: 12px; color: var(--text-2); line-height: 1.65; }
+.why .k { flex: none; width: 78px; color: var(--faint); letter-spacing: .04em; }
+.why b { font-weight: 500; color: var(--text); }
+</style>
+</head>
+<body data-variant="A" data-nograph="0">
+<div class="stage">
+  <div class="win">
+    <div class="titlebar">
+      <span class="brand">NOUSDESK</span>
+      <span class="wbtns"><i>—</i><i>□</i><i>✕</i></span>
+    </div>
+    <div class="head">
+      <span class="back"><span class="ar">←</span> 返回聊天</span>
+      <span class="ttl">设置</span>
+      <span class="sp"></span>
+      <span class="hint mono">GET /v1/capabilities · GET /v1/modules/graph</span>
+    </div>
+    <div class="body">
+      <nav class="nav">
+        <a href="#">外观</a><a href="#">快捷键</a><a href="#">连接</a>
+        <a href="#">能力</a><a href="#">关于</a>
+        <a href="#" class="on">插件</a>
+      </nav>
+      <div class="content">
+        <div class="chead"><h1>插件</h1><span class="sub">引擎报什么就显示什么 · 加插件不用改客户端</span></div>
+        <div class="plugins">
+          <div class="plist">
+            <div class="cnt" id="cnt"></div>
+            <div id="rows"></div>
+          </div>
+          <div class="detail" id="detail"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="why"><span class="k">这套想干什么</span><span id="why"></span></div>
+</div>
+
+<div class="picker">
+  <span class="lbl">关系怎么摆</span>
+  <span class="grp">
+    <button data-variant="A" class="on">01 两列清单</button>
+    <button data-variant="B">02 迷你图</button>
+    <button data-variant="C">03 角标＋表格</button>
+  </span>
+  <span class="lbl">引擎</span>
+  <span class="grp">
+    <button data-nograph="0" class="on">有 /v1/modules/graph</button>
+    <button data-nograph="1">老引擎（没有这张图）</button>
+  </span>
+</div>
+
+<script>
+// 真实数据：内核仓 crates/*/*/plugin.toml（32 个模块 / 97 条 crate 边，2026-11-26）。
+// `requires` 是包名，模块段的名字由各插件自己的 crate 名对上（= GET /v1/modules/graph 的 nodes.crate）。
+const MODULES = __DATA__;
+
+const byCrate = new Map(MODULES.map(m => [m.crate, m.name]));
+const OUT = new Map(), IN = new Map(), MISS = new Map();
+let edgeCount = 0;
+for (const m of MODULES) { OUT.set(m.name, []); IN.set(m.name, []); }
+for (const m of MODULES) {
+  for (const r of m.requires) {
+    const t = byCrate.get(r);
+    if (t) { OUT.get(m.name).push(t); IN.get(t).push(m.name); edgeCount++; }
+    else { if (!MISS.has(m.name)) MISS.set(m.name, []); MISS.get(m.name).push(r); }
+  }
+}
+for (const l of [...OUT.values(), ...IN.values()]) l.sort((a, b) => a.localeCompare(b));
+const layerOf = n => (MODULES.find(m => m.name === n) || {}).layer || "?";
+const noGraph = () => document.body.dataset.nograph === "1";
+
+let selected = MODULES.findIndex(m => m.name === "Extend");
+if (selected < 0) selected = 0;
+
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+function chip(name, { mono = false, go = true } = {}) {
+  const cls = "chip" + (mono ? " mono" : "");
+  return go
+    ? `<button class="${cls}" data-go="${esc(name)}">${esc(name)}</button>`
+    : `<span class="${cls} miss" title="不在 capabilities 里">${esc(name)}</span>`;
+}
+
+function rowHtml(m, i) {
+  const on = i === selected;
+  const showDeg = document.body.dataset.variant === "C" && !noGraph();
+  const deg = !showDeg ? "" :
+    `<span class="deg mono">↑<b>${OUT.get(m.name).length}</b> ↓<b>${IN.get(m.name).length}</b></span>`;
+  return `<div class="prow ${on ? "on" : ""}" data-pick="${i}">
+    <span class="sq"></span>
+    <span class="txt">
+      <span class="nm mono">${esc(m.name)}</span>
+      <span class="vnd mono">${esc(m.vendor || "—")}</span>
+    </span>
+    <span class="right"><span class="ver mono">v${esc(m.version)} · 启用</span>${deg}</span>
+  </div>`;
+}
+
+function depsHtml(m) {
+  const out = OUT.get(m.name), inn = IN.get(m.name), miss = MISS.get(m.name) || [];
+  if (noGraph()) return `<div class="nogno">这个引擎没有 /v1/modules/graph —— 关系这一块整块不出现，也不拿「空」冒充「没有依赖」。</div>`;
+  const empty = `<span class="none">plugin.toml 没声明依赖</span>`;
+  return `
+    <div class="rel">
+      <div class="lbl">依赖 <b>${out.length}</b>${miss.length ? ` · 另有 <b>${miss.length}</b> 个包没有对应模块` : ""}</div>
+      <div class="chips">${out.length ? out.map(n => chip(n, { mono: true })).join("") : empty}${miss.map(n => chip(n, { mono: true, go: false })).join("")}</div>
+    </div>
+    <div class="rel">
+      <div class="lbl">被依赖 <b>${inn.length}</b></div>
+      <div class="chips">${inn.length ? inn.map(n => chip(n, { mono: true })).join("") : `<span class="none">没有模块声明依赖它</span>`}</div>
+    </div>`;
+}
+
+function graphHtml(m) {
+  if (noGraph()) return depsHtml(m);
+  const out = OUT.get(m.name), inn = IN.get(m.name);
+  const CAP = 6;
+  const col = (list, side, cap) => `
+    <div class="col ${side}">
+      <div class="cap">${cap}</div>
+      ${list.slice(0, CAP).map(n => `<button class="node mono" data-go="${esc(n)}">${esc(n)}</button>`).join("")}
+      ${list.length > CAP ? `<div class="more">+${list.length - CAP}</div>` : ""}
+    </div>`;
+  return `
+    <div class="graph" id="graph">
+      <svg class="lines" id="lines"></svg>
+      ${col(out, "left", `依赖 ${out.length}`)}
+      <div class="hub">
+        <div class="hn mono">${esc(m.name)}</div>
+        <div class="hv mono">${esc(m.crate)}</div>
+      </div>
+      ${col(inn, "right", `被依赖 ${inn.length}`)}
+    </div>
+    <div class="gsum">
+      <span class="mono">依赖 ${out.length} · 被依赖 ${inn.length}</span>
+      <span>· 点旁边的名字换模块</span>
+    </div>`;
+}
+
+function tableHtml(m) {
+  if (noGraph()) return depsHtml(m);
+  const rows = [
+    ...OUT.get(m.name).map(n => [n, "依赖"]),
+    ...IN.get(m.name).map(n => [n, "被依赖"]),
+  ].sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
+  const miss = MISS.get(m.name) || [];
+  if (!rows.length) return `<div class="rel"><div class="none">plugin.toml 没声明依赖，也没有模块依赖它。</div></div>`;
+  return `<table class="rel2">
+    <thead><tr><th>模块</th><th>方向</th><th>层</th><th>它自己依赖</th></tr></thead>
+    <tbody>${rows.map(([n, d]) => `<tr data-go="${esc(n)}">
+      <td class="n mono">${esc(n)}</td>
+      <td class="dir">${d}</td>
+      <td class="layer mono">${esc(layerOf(n))}</td>
+      <td class="mono">${OUT.get(n).length}</td>
+    </tr>`).join("")}</tbody>
+  </table>
+  ${miss.length ? `<div class="rel"><div class="lbl">没有对应模块的包</div><div class="chips">${miss.map(n => chip(n, { mono: true, go: false })).join("")}</div></div>` : ""}`;
+}
+
+function render() {
+  const v = document.body.dataset.variant;
+  document.getElementById("rows").innerHTML = MODULES.map((m, i) => rowHtml(m, i)).join("");
+  document.getElementById("cnt").textContent = noGraph()
+    ? `${MODULES.length} 个模块 · 引擎没报关系图`
+    : `${MODULES.length} 个模块 · ${edgeCount} 条依赖边`;
+
+  const m = MODULES[selected];
+  const rel = v === "B" ? graphHtml(m) : v === "C" ? tableHtml(m) : depsHtml(m);
+  const extra = v === "C" ? "" : rel;
+  const body = v === "C" ? rel
+    : `<div class="relwrap">${extra}</div>`;
+  document.getElementById("detail").innerHTML = `
+    <div class="dhead">
+      <div class="lt"><h2 class="mono">${esc(m.name)}</h2><div class="dv mono">${esc(m.vendor || "—")}</div></div>
+      <button class="docbtn">读文档</button>
+    </div>
+    <div class="facts">
+      <div class="fact"><span class="k">状态</span><span class="v">启用</span></div>
+      <div class="fact"><span class="k">版本</span><span class="v mono">v${esc(m.version)}</span></div>
+      <div class="fact"><span class="k">层</span><span class="v">${esc(m.layer)}</span></div>
+      <div class="fact"><span class="k">来源 crate</span><span class="v mono">${esc(m.crate)}</span></div>
+    </div>
+    <div class="desc">${esc(m.desc)}</div>
+    ${body}`;
+
+  if (v === "B" && !noGraph()) requestAnimationFrame(drawLines);
+}
+
+// 迷你图的连线：布局量完再画（不写死坐标，换模块 / 换字宽都不会错位）
+function drawLines() {
+  const g = document.getElementById("graph");
+  const svg = document.getElementById("lines");
+  if (!g || !svg) return;
+  const box = g.getBoundingClientRect();
+  const hub = g.querySelector(".hub").getBoundingClientRect();
+  const hy = hub.top + hub.height / 2 - box.top;
+  const seg = [];
+  for (const side of ["left", "right"]) {
+    const col = g.querySelector(`.col.${side}`);
+    if (!col) continue;
+    for (const n of col.querySelectorAll(".node")) {
+      const r = n.getBoundingClientRect();
+      const y = r.top + r.height / 2 - box.top;
+      const x1 = side === "left" ? r.right - box.left : r.left - box.left;
+      const x2 = side === "left" ? hub.left - box.left : hub.right - box.left;
+      const mx = (x1 + x2) / 2;
+      seg.push(`<path d="M${x1},${y} H${mx} V${hy} H${x2}" fill="none" stroke="#2a2a2a"/>`);
+    }
+  }
+  svg.innerHTML = seg.join("");
+}
+
+const WHY = {
+  A: "<b>01 两列清单</b> —— 详情里加「依赖 / 被依赖」两行胶囊，名字可点，点了就跳到那个模块。最省地方，跟现有 <span class='mono'>状态 / 版本 / 层 / crate</span> 那几条同一个骨架；代价是「谁被 16 个模块依赖」这种事读不出来，只能一个个点。",
+  B: "<b>02 迷你图</b> —— 名字下方一张 216px 的小图：选中模块在中，左依赖、右被依赖，线连过去、两侧可点。关系「长什么样」一眼可见（枢纽一眼是枢纽），每侧最多 6 个、多的写 +N；代价是比清单多吃 200px 竖向空间，窄窗要折。",
+  C: "<b>03 角标＋表格</b> —— 列表每行右侧多一行 <span class='mono'>↑2 ↓11</span>，不点进去也能看出谁是枢纽；详情里换成一张表（模块 / 方向 / 层 / 它自己的依赖数），行可点。信息最全、扫读最快，代价是列表每行多 14px 高，一屏能看到的模块从 9 行掉到 8 行。",
+};
+
+function pick(i) { selected = i; render(); }
+
+document.addEventListener("click", e => {
+  const go = e.target.closest("[data-go]");
+  if (go) { const i = MODULES.findIndex(m => m.name === go.dataset.go); if (i >= 0) pick(i); return; }
+  const p = e.target.closest("[data-pick]");
+  if (p) pick(+p.dataset.pick);
+});
+
+function setVariant(v) {
+  document.body.dataset.variant = v;
+  document.querySelectorAll(".picker [data-variant]").forEach(x => x.classList.toggle("on", x.dataset.variant === v));
+  document.getElementById("why").innerHTML = WHY[v];
+  render();
+}
+
+document.querySelectorAll(".picker [data-variant]").forEach(b => b.addEventListener("click", () => setVariant(b.dataset.variant)));
+document.querySelectorAll("[data-nograph]").forEach(b => b.addEventListener("click", () => {
+  document.body.dataset.nograph = b.dataset.nograph;
+  document.querySelectorAll("[data-nograph]").forEach(x => x.classList.toggle("on", x.dataset.nograph === b.dataset.nograph));
+  render();
+}));
+
+document.getElementById("why").innerHTML = WHY.A;
+render();
+window.addEventListener("resize", () => { if (document.body.dataset.variant === "B") drawLines(); });
+</script>
+</body>
+</html>

@@ -380,6 +380,8 @@ pub struct Desktop {
     pub(crate) about_detail_open: bool,
     /// 插件页的文档阅读列（方案 03「右滑阅读」）。缓存与状态在 `plugin_doc.rs`。
     pub(crate) plugin_doc: crate::plugin_doc::PluginDoc,
+    /// 插件页的「关系」块（`GET /v1/modules/graph`）。只拉一次，状态在 `plugin_graph.rs`。
+    pub(crate) plugin_graph: crate::plugin_graph::PluginGraph,
     /// 当前主题。启动时从 `theme.toml` 读进 `theme::ActiveSkin` 这个 Global；
     /// 这里留一份只是给设置页判断「哪张卡片在选中态」用。
     /// **渲染层不读这个字段**，一律 `crate::theme::cur()` 取帧内快照。
@@ -579,7 +581,7 @@ impl Desktop {
                 .default_value(conn.host.clone())
         });
         // 调试用：启动就直接打开某个浮层，省得每次手点。
-        // `NOUS_DESKTOP_OPEN=menu` / `=settings` / `=templates` / `=resources` / `=elements`，
+        // `NOUS_DESKTOP_OPEN=menu` / `=settings` / `=plugins` / `=templates` / `=resources` / `=elements`，
         // 别的值（包括不设）就是正常启动。
         let open_at_start = std::env::var("NOUS_DESKTOP_OPEN").unwrap_or_default();
         // `/` 面板的 ↑↓ / ↵ / Esc 要在**输入框组件之前**拿到。
@@ -1145,7 +1147,8 @@ impl Desktop {
             menu_open: open_at_start == "menu",
             preset_pick: false,
             copying: false,
-            settings_open: open_at_start == "settings",
+            // `=plugins`：直接开在「关于 → 插件」（验关系块用，跟 `=settings` 同一个钩子）。
+            settings_open: matches!(open_at_start.as_str(), "settings" | "plugins"),
             // `NOUS_DESKTOP_OPEN=editor`：列表一拉回来就打开第一条的编辑器（验编辑器用）。
             auto_editor: open_at_start == "editor",
             auto_newcat: match open_at_start.as_str() {
@@ -1153,11 +1156,20 @@ impl Desktop {
                 "newcat2" => 2,
                 _ => 0,
             },
-            settings_tab: crate::settings::SettingsTab::Connection,
-            about_tab: crate::settings::AboutTab::Overview,
+            settings_tab: if open_at_start == "plugins" {
+                crate::settings::SettingsTab::About
+            } else {
+                crate::settings::SettingsTab::Connection
+            },
+            about_tab: if open_at_start == "plugins" {
+                crate::settings::AboutTab::Plugins
+            } else {
+                crate::settings::AboutTab::Overview
+            },
             about_selected: None,
             about_detail_open: false,
             plugin_doc: crate::plugin_doc::PluginDoc::default(),
+            plugin_graph: crate::plugin_graph::PluginGraph::default(),
             theme_name: crate::theme::ThemeName::load(),
             sound: crate::sound::Prefs::load(),
             settings_msg: None,
@@ -1313,6 +1325,8 @@ impl Desktop {
         self.caps = None;
         self.route_count = None;
         self.route_drift.clear();
+        // 关系图属于某个引擎 release，换引擎就得重新拉。
+        self.plugin_graph.reset();
         cx.notify();
 
         let cfg = self.conn.clone();

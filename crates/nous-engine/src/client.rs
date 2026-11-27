@@ -8,7 +8,7 @@ use futures_util::Stream;
 use serde::Serialize;
 use url::Url;
 
-use crate::capabilities::Capabilities;
+use crate::capabilities::{Capabilities, ModuleGraph};
 use crate::sse::{SseError, SseEvent};
 use crate::elements::{
     ElementFile, ElementKind, ElementList, ElementPush, ElementReceipt, Elements,
@@ -153,6 +153,15 @@ impl EngineClient {
     pub async fn plugin_readme(&self, name: &str) -> Result<PluginReadme, EngineError> {
         let path = format!("v1/plugins/{name}/readme", name = urlencoding(name));
         let resp = self.http.get(self.url(&path)?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/modules/graph`：模块级依赖图（只读，构建期内嵌在内核产物里）。
+    ///
+    /// 老引擎没有这条端点 → axum 的空 404（`EngineError::Engine { status: 404, message:
+    /// "" }`），调用方据此把整块关系**不显示**，而不是画一张「谁都不依赖谁」的假图。
+    pub async fn module_graph(&self) -> Result<ModuleGraph, EngineError> {
+        let resp = self.http.get(self.url("v1/modules/graph")?).send().await?;
         self.json(resp).await
     }
 
@@ -1335,6 +1344,7 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("GET", "v1/device"),
     ("GET", "v1/capabilities"),
     ("GET", "v1/plugins/:name/readme"),
+    ("GET", "v1/modules/graph"),
     ("GET", "v1/models"),
     ("PUT", "v1/default"),
     ("GET", "v1/skills"),

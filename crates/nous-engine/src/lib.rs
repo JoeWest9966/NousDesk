@@ -27,7 +27,9 @@ pub mod sse;
 pub mod triggers;
 pub mod types;
 
-pub use capabilities::{Capabilities, Module, Provider, Reason, ReasonCode, Runtime, Server};
+pub use capabilities::{
+    Capabilities, GraphEdge, Module, ModuleGraph, Provider, Reason, ReasonCode, Runtime, Server,
+};
 
 /// `GET /v1/_routes` 的回包。未知字段原样收在 `extra`；死路径不靠它做功能判定。
 #[derive(Debug, Clone, serde::Deserialize)]
