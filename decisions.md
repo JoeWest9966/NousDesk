@@ -1747,3 +1747,21 @@ SVG + `Icon::data`。反悔点：如果哪天段名缩写或列宽加大，图�
 折线在真机上和卡片对不齐（只能人眼验），退到「hub 两侧各一条短横线 + 竖直 rail」的
 纯 div 画法，几何常量不动；③ 如果用户改口要 M1，把 `relation_column` 换回
 `relation_graph` 一份实现即可，`plugin_graph.rs` 一行不用动。
+
+**CI 按提交出包：推 main 就挂一份带 sha 的包到滚动预发布 `ci`**（2026-11-27）
+
+**决定**：`.github/workflows/linux.yml` 在**每次推 main** 时把这次的包按提交号改名
+（`nousdesk-<sha8>-linux-x64.tar.gz` / `nousdesk_<sha8>_amd64.deb` / `.sha256`），上传到
+滚动预发布 `ci`，只留最近 5 份；打 `v*` tag 的流程一个字没动（永久 Release + 正式版本号）。
+`workflow_dispatch` 加了个 `rolling` 开关，用来在分支上验这条上传路径。
+
+**为什么**：改一屏界面想在某台机器上看一眼，不该为它发一个 `v0.9.42`。跟内核仓
+（`Nous` 的 `docs/decisions.md` 同一条）对齐：**能部署的最小单位是一次整仓构建的产物**，
+所以产物只能按提交取，不能按模块取。
+
+**deb 的 Version 字段仍是 `Cargo.toml` 的版本**（文件名带 sha 只为对应提交）：
+同版本 `dpkg -i` 覆盖装是允许的，所以 `ci` 的 deb 装出来跟正式版同版本号 —— 这是刻意的，
+免得「CI 产物偷偷占了版本号」。
+
+**反悔点**：① `ci` 里只留 5 份，回滚更久远的那一版就得自己编 —— 要改就改保留数；
+② 如果 GitHub 上传限速让出包变慢，退路是只传 tar.gz（21M）不传 deb，`ci` 那一步删两行即可。
