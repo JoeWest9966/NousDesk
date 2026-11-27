@@ -107,6 +107,8 @@ token = "…"            # 可选；也可放 ~/.config/nousdesk/token（0600）
 - **未知字段用 `serde_json::Value` 收着原样透传**，不许 `deny_unknown_fields`。
 - **协议是哑的。** 客户端只转发 `/v1/*`，不加业务字段、不在客户端算状态。类型变化先改
   `crates/nous-engine`，UI 层一行 HTTP 都不许碰。
+- **开发机/部署机的地址不进文档、不进脚本。** 那台机器常换：地址由用户每次会话给，
+  脚本只认环境变量或参数。照文档复制一个 IP 就跑不起来 —— 那种文档是负债。
 - **只吃 `gpui-kit` 的重导出。** 别在自己的 `Cargo.toml` 里再写一条 `gpui-pre`。
 - **能力判定只有一处。** 哪个入口灰掉、为什么灰，全在 `crates/nousdesk/src/capability.rs`
   （`Feature` → `probe_path`/`module_name` → `gate`）；UI 只消费 `disabled_reason()`，

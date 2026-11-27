@@ -118,6 +118,25 @@ NOUS_HOST=http://192.168.1.7:4789 scripts/package-linux.sh   # 顺手把宿主�
 | `dist/nousdesk_<版本>_amd64.deb` | `sudo apt install ./…deb`：装到 `/usr/bin/nousdesk`，带 `.desktop` 菜单项和 hicolor 图标 |
 
 打 tag `v*` 时 `.github/workflows/linux.yml` 跑同一份脚本并把两个包发到 Release；手动 `workflow_dispatch` 也能出包（不发 Release）。
+
+### 按提交取货（不想等冷编译）
+
+推 main 时 CI 会自动出一份**按提交号命名**的包，挂到滚动预发布 `ci`（只留最近 5 份）：
+
+```sh
+gh release view ci                                   # 最近 5 个提交的包
+gh release download ci -p 'nousdesk-<sha8>*'
+```
+
+急着要某一份时不用等 CI（它是 4 核，一轮 11–15 分钟）：本机/开发机出包后
+
+```sh
+scripts/package-linux.sh && scripts/publish-ci.sh     # 编 + 挂到 ci（同名覆盖）
+scripts/publish-ci.sh --dry-run                       # 只看要干什么
+```
+
+两条路**落同一个名字**，所以先后到无所谓；`ci` 里的是「某个提交」，没有版本号语义 ——
+版本只认 `v*` 的 Release。
 包里不带宿主地址：不给 `NOUS_HOST` 就带一份 `desktop.toml.example`，内网地址不进公共产物。
 
 ## 结构
