@@ -99,6 +99,8 @@ pub const DEAD_PATHS: &[DeadPath] = &[
 /// 路由模板统一写 `{id}` / `{section}` 形态，与 capabilities 的 endpoints 一致。
 pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/plugins/{name}/readme"),
+    // 内核 `AboutME_ModuleRelationshipNetwork`：模块级依赖图（Desk 插件页「关系」）。
+    ("GET", "v1/modules/graph"),
     ("GET", "v1/sessions"),
     ("GET", "v1/unread"),
     ("POST", "v1/read/{id}"),
@@ -396,9 +398,10 @@ mod tests {
         // 数字改一次就要问一次「为什么」：这条断言是防「夹具被悄悄裁掉一半」的。
         assert_eq!(
             fixture["routes"].as_array().unwrap().len(),
-            163,
+            164,
             "0.1.21 真路由器整份重抓：0.1.15 的 139 + 触发器工程面 13 + 垃圾站 2 + 元素库 7 + 锁 1；\
-             2026-11-24 并入插件 README 端点 1 条（内核 docs/plugin-readme 分支，手加，部署后复核）"
+             2026-11-24 并入插件 README 端点 1 条（内核 docs/plugin-readme 分支，手加，部署后复核）；\
+             2026-11-27 并入 AboutME 关系网的 GET /v1/modules/graph（手加，部署后复核）"
         );
         assert!(fixture["_provenance"].get("commit").is_some());
     }

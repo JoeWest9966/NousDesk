@@ -1,0 +1,412 @@
+[
+{
+"name": "AboutME_ModuleRelationshipNetwork",
+"vendor": "AboutME",
+"version": "0.1.0",
+"layer": "app",
+"crate": "aboutme-module-relationship-network",
+"desc": "模块关系网插件",
+"requires": [
+"nous-routes"
+]
+},
+{
+"name": "archive",
+"vendor": "Data",
+"version": "0.2.1",
+"layer": "app",
+"crate": "data-archive",
+"desc": "应用层 archive 模块",
+"requires": [
+"nous-durable",
+"nous-routes"
+]
+},
+{
+"name": "data-manager",
+"vendor": "Data",
+"version": "0.4.0",
+"layer": "app",
+"crate": "data-data-manager",
+"desc": "应用层 data-manager 模块",
+"requires": [
+"nous-chord",
+"nous-durable",
+"nous-routes",
+"nous-store"
+]
+},
+{
+"name": "Models",
+"vendor": "Element",
+"version": "0.3.0",
+"layer": "app",
+"crate": "element-models",
+"desc": "models 插件",
+"requires": [
+"nous-elements",
+"nous-env",
+"nous-repo",
+"nous-routes",
+"nous-runtime"
+]
+},
+{
+"name": "Extend",
+"vendor": "Library",
+"version": "0.10.0",
+"layer": "app",
+"crate": "library-extend",
+"desc": "扩展监管",
+"requires": [
+"nous-durable",
+"nous-ext-sdk",
+"nous-repo",
+"nous-routes"
+]
+},
+{
+"name": "Skill",
+"vendor": "Library",
+"version": "0.4.0",
+"layer": "app",
+"crate": "library-skill",
+"desc": "Skill 插件",
+"requires": [
+"nous-env",
+"nous-repo",
+"nous-routes"
+]
+},
+{
+"name": "ai",
+"vendor": "Nous",
+"version": "0.2.2",
+"layer": "platform",
+"crate": "nous-ai",
+"desc": "Unified multi-provider LLM types + streaming. 冻结自 pi-rust@v0.24.2 的 rpi-ai",
+"requires": [
+"nous-ai-types",
+"nous-telemetry"
+]
+},
+{
+"name": "ai-types",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "kernel",
+"crate": "nous-ai-types",
+"desc": "nous-ai 的纯半",
+"requires": []
+},
+{
+"name": "chord",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "kernel",
+"crate": "nous-chord",
+"desc": "chord 的 context / json / delta / sqlite 语义层",
+"requires": []
+},
+{
+"name": "combos",
+"vendor": "Nous",
+"version": "0.2.7",
+"layer": "app",
+"crate": "nous-combos",
+"desc": "combos 插件",
+"requires": [
+"nous-dispatcher",
+"nous-durable",
+"nous-repo",
+"nous-routes"
+]
+},
+{
+"name": "Device",
+"vendor": "Nous",
+"version": "0.11.0",
+"layer": "app",
+"crate": "nous-device",
+"desc": "device 插件",
+"requires": [
+"nous-routes"
+]
+},
+{
+"name": "dispatcher",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "app",
+"crate": "nous-dispatcher",
+"desc": "#73",
+"requires": [
+"nous-chord",
+"nous-durable",
+"nous-store"
+]
+},
+{
+"name": "documents",
+"vendor": "Nous",
+"version": "0.4.2",
+"layer": "app",
+"crate": "nous-documents",
+"desc": "应用层 documents 模块",
+"requires": [
+"nous-durable"
+]
+},
+{
+"name": "durable",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "kernel",
+"crate": "nous-durable",
+"desc": "durable 的语义自己写",
+"requires": [
+"nous-ai-types",
+"nous-chord",
+"nous-wire"
+]
+},
+{
+"name": "elements",
+"vendor": "Nous",
+"version": "0.3.1",
+"layer": "app",
+"crate": "nous-elements",
+"desc": "Nous 元素库（组 / 包）",
+"requires": [
+"nous-env",
+"nous-repo",
+"nous-routes"
+]
+},
+{
+"name": "env",
+"vendor": "Nous",
+"version": "0.3.3",
+"layer": "platform",
+"crate": "nous-env",
+"desc": "ExecutionEnv 契约",
+"requires": [
+"nous-chord",
+"nous-routes"
+]
+},
+{
+"name": "env-ssh",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "platform",
+"crate": "nous-env-ssh",
+"desc": "ExecutionEnv 的 SSH 远端实现",
+"requires": [
+"nous-env"
+]
+},
+{
+"name": "ext-probe",
+"vendor": "Nous",
+"version": "0.2.2",
+"layer": "dev",
+"crate": "nous-ext-probe",
+"desc": "判据执行器",
+"requires": [
+"library-extend",
+"nous-durable",
+"nous-ext-sdk",
+"nous-server",
+"nous-wire"
+]
+},
+{
+"name": "ext-sdk",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "platform",
+"crate": "nous-ext-sdk",
+"desc": "扩展作者面",
+"requires": []
+},
+{
+"name": "fixture",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "dev",
+"crate": "nous-fixture",
+"desc": "读 fixtures/agent.sqlite，往 stdout 打 /v1/sessions 形状的 JSON（verify.sh 第 2 段的对象）",
+"requires": [
+"nous-durable"
+]
+},
+{
+"name": "presets-admin",
+"vendor": "Nous",
+"version": "0.3.4",
+"layer": "app",
+"crate": "nous-presets-admin",
+"desc": "模板管理（Nous_PresetsAdmin）",
+"requires": [
+"nous-device",
+"nous-env",
+"nous-prompts",
+"nous-repo",
+"nous-routes",
+"nous-store"
+]
+},
+{
+"name": "Nous_Prompts",
+"vendor": "Nous",
+"version": "0.4.0",
+"layer": "app",
+"crate": "nous-prompts",
+"desc": "提示词目录只读扫描与纯 render()（#72）",
+"requires": [
+"nous-env",
+"nous-repo",
+"nous-routes"
+]
+},
+{
+"name": "repo",
+"vendor": "Nous",
+"version": "0.7.0",
+"layer": "platform",
+"crate": "nous-repo",
+"desc": "#75",
+"requires": [
+"nous-env",
+"nous-routes"
+]
+},
+{
+"name": "routes",
+"vendor": "Nous",
+"version": "0.3.0",
+"layer": "platform",
+"crate": "nous-routes",
+"desc": "插件自带端点的契约",
+"requires": []
+},
+{
+"name": "runtime",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "platform",
+"crate": "nous-runtime",
+"desc": "Embeddable model catalog, credential resolution and provider execution bindings",
+"requires": [
+"nous-ai"
+]
+},
+{
+"name": "server",
+"vendor": "Nous",
+"version": "0.4.0",
+"layer": "app",
+"crate": "nous-server",
+"desc": "wire.md 的端点层",
+"requires": [
+"aboutme-module-relationship-network",
+"data-archive",
+"data-data-manager",
+"element-models",
+"library-extend",
+"library-skill",
+"nous-ai",
+"nous-combos",
+"nous-device",
+"nous-dispatcher",
+"nous-durable",
+"nous-elements",
+"nous-env",
+"nous-env-ssh",
+"nous-presets-admin",
+"nous-prompts",
+"nous-repo",
+"nous-routes",
+"nous-runtime",
+"nous-sessions",
+"nous-store",
+"nous-telemetry",
+"nous-tools",
+"nous-wire",
+"trigger-core"
+]
+},
+{
+"name": "sessions",
+"vendor": "Nous",
+"version": "0.8.0",
+"layer": "app",
+"crate": "nous-sessions",
+"desc": "最小轮次（pi 本体）+ 会话的读投影 / 写命令 / /v1/sessions* 端点",
+"requires": [
+"nous-ai",
+"nous-device",
+"nous-durable",
+"nous-routes",
+"nous-wire"
+]
+},
+{
+"name": "store",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "platform",
+"crate": "nous-store",
+"desc": "Nous 自己的库（nous.db）",
+"requires": []
+},
+{
+"name": "telemetry",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "platform",
+"crate": "nous-telemetry",
+"desc": "Telemetry span/event contracts (noop default). 冻结自 pi-rust@v0.24.2 的 rpi-telemetry",
+"requires": []
+},
+{
+"name": "tools",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "platform",
+"crate": "nous-tools",
+"desc": "Built-in agent tools (read/write/edit/bash/grep/find/ls) — frozen port of rpi-tools@v0.24.2, with tools depending only on nous-ai + nous-env",
+"requires": [
+"nous-ai",
+"nous-env"
+]
+},
+{
+"name": "wire",
+"vendor": "Nous",
+"version": "0.2.0",
+"layer": "kernel",
+"crate": "nous-wire",
+"desc": "wire.md 的 Rust 投影",
+"requires": []
+},
+{
+"name": "Trigger_Core",
+"vendor": "Trigger",
+"version": "0.2.0",
+"layer": "app",
+"crate": "trigger-core",
+"desc": "触发器",
+"requires": [
+"nous-ai",
+"nous-dispatcher",
+"nous-durable",
+"nous-repo",
+"nous-routes",
+"nous-sessions",
+"nous-store",
+"nous-tools"
+]
+}
+]

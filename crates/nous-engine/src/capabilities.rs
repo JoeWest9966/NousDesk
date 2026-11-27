@@ -59,6 +59,45 @@ pub struct Module {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// `GET /v1/modules/graph` 的回包：模块级的 crate 依赖图（内核
+/// `AboutME_ModuleRelationshipNetwork` 插件把它当**只读投影**发出来）。
+///
+/// 三条边界，别在这里越过去：
+/// 1. **只表达 crate 边**（`plugin.toml [requires]`）。语义依赖（「Extend 要靠 env 给
+///    路径」）内核里没有字段，这边也不许「大概补一条」。
+/// 2. 边的两端是**模块全名**（与 `Capabilities::modules[].name` 同一套字面量）；
+///    `via` 才是被用到的包名。名字 → 中文之类的事在客户端一张表都没有（规则 9）。
+/// 3. `unmapped` 是「被依赖、但没有对应模块」的包名清单 —— 图不完整时要说出来，
+///    不能静默丢。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleGraph {
+    /// 生成本图的引擎版本（构建期内嵌的那份清单对应的 release）。
+    #[serde(default)]
+    pub generated_for: String,
+    #[serde(default)]
+    pub nodes: Vec<String>,
+    #[serde(default)]
+    pub edges: Vec<GraphEdge>,
+    #[serde(default)]
+    pub unmapped: Vec<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct GraphEdge {
+    /// 依赖方（模块全名）。
+    pub from: String,
+    /// 被依赖方（模块全名）。
+    pub to: String,
+    /// 这条边来自哪个包名（`plugin.toml [requires]` 的键）。老引擎可能没有 → 空串。
+    #[serde(default)]
+    pub via: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
 /// `reason.code` 四值封闭；未知值不解析成第五个变体 —— 老客户端不该因为服务端加了
 /// 一个 code 就崩。未知值按「不可用 + 显示 message」处理，分支只在 `capability.rs` 里。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

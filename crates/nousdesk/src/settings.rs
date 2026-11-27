@@ -140,6 +140,8 @@ impl Desktop {
         self.settings_msg = None;
         // 文档跟着引擎版本走：关掉设置页就把缓存清了，换引擎重连后不会读到上一版的正文。
         self.plugin_doc.reset();
+        // 关系图同理：图是「某个引擎 release 的产物」，跨引擎不能复用。
+        self.plugin_graph.reset();
         cx.notify();
     }
 
@@ -352,7 +354,7 @@ impl Desktop {
 
     // ── 设置页（右栏整页） ──────────────────────────────────
 
-    pub(crate) fn render_settings(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_settings(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex()
             .flex_col()
@@ -453,16 +455,17 @@ impl Desktop {
             .into_any_element()
     }
 
-    fn settings_pane(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    fn settings_pane(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         // 窄窗（半屏）时右栏只剩一百多像素：内边距收一收，别让「卡片最小宽 + 内边距」
         // 又把页面撑出窗口（坑.md 57）。
         let narrow = window.viewport_size().width.as_f32() < 900.;
+        let viewport_w = window.viewport_size().width.as_f32();
         let pad = if narrow { t().d(14.) } else { t().d(22.) };
         let body: AnyElement = match self.settings_tab {
             SettingsTab::Connection => self.connection_pane(cx),
             SettingsTab::Theme => self.theme_pane(cx),
             SettingsTab::Sound => self.sound_pane(cx),
-            SettingsTab::About => self.about_pane(narrow, cx),
+            SettingsTab::About => self.about_pane(narrow, viewport_w, cx),
         };
 
         div()
@@ -854,7 +857,7 @@ impl Desktop {
     }
 
     /// 关于页：顶部二级 segmented + 概览 / 插件两页（demo 01）。
-    fn about_pane(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn about_pane(&mut self, narrow: bool, viewport_w: f32, cx: &mut Context<Self>) -> AnyElement {
         let t = t();
         let module_count = self.caps.as_ref().map(|c| c.modules.len()).unwrap_or(0);
         let head = div()
@@ -907,7 +910,7 @@ impl Desktop {
 
         let body = match self.about_tab {
             AboutTab::Overview => self.about_overview(),
-            AboutTab::Plugins => self.about_plugins(narrow, cx),
+            AboutTab::Plugins => self.about_plugins(narrow, viewport_w, cx),
         };
         div()
             .flex()
@@ -1009,8 +1012,11 @@ impl Desktop {
     }
 
     /// 插件页：左列表 + 右详情；窄窗退化成互斥的两屏（详情顶部「← 插件」）。
-    fn about_plugins(&self, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn about_plugins(&mut self, narrow: bool, viewport_w: f32, cx: &mut Context<Self>) -> AnyElement {
         let t = t();
+        // 关系图只拉一次；进插件页才拉（不在启动路径上白花一次往返）。
+        // 先拉再借 `caps`：`ensure` 要 `&mut self`，`caps` 一借住就没法再借。
+        self.ensure_plugin_graph(cx);
         let Some(caps) = self.caps.as_ref() else {
             return div()
                 .text_size(t.fs(11.5))
@@ -1057,7 +1063,8 @@ impl Desktop {
         let pane = if self.plugin_doc.opened() == Some(module.name.as_str()) {
             self.plugin_reader(module, cx)
         } else {
-            self.about_plugin_detail(module, caps, narrow, cx)
+            let pane_w = plugin_pane_width(viewport_w, narrow);
+            self.about_plugin_detail(module, caps, narrow, pane_w, cx)
         };
         if narrow {
             pane
@@ -1112,6 +1119,146 @@ impl Desktop {
             });
         })
         .detach();
+    }
+
+    /// 关系图只请求一次。状态机在 `plugin_graph.rs`（不碰 UI、不碰 HTTP）。
+    ///
+    /// 挂在渲染路径上：进插件页才拉一次，不在启动路径上白花一个往返；`begin()` 抢不到
+    /// 代次就什么都不做（在路上 / 已有结论）。
+    fn ensure_plugin_graph(&mut self, cx: &mut Context<Self>) {
+        let Some(epoch) = self.plugin_graph.begin() else {
+            return;
+        };
+        let Some(engine) = self.engine.clone() else {
+            self.plugin_graph.fail(epoch, "没连上引擎".into());
+            return;
+        };
+        let Some(handle) = crate::TOKIO.get().cloned() else {
+            self.plugin_graph.fail(epoch, "tokio 没起".into());
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let got = handle
+                .spawn(async move { engine.module_graph().await })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match got {
+                    Ok(result) => this.plugin_graph.finish(epoch, result),
+                    Err(e) => this.plugin_graph.fail(epoch, format!("任务挂了：{e}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 「关系」块：它依赖谁 / 谁依赖它。
+    ///
+    /// 大屏画 02 迷你图（左依赖 / 中本模块 / 右被依赖，连线走 canvas）；挤的那两档
+    /// 换 M2 竖排（`依赖 ↓ 本模块 ↑ 被依赖`）。判据只有 `graph_fits()` 一条。
+    ///
+    /// 没有这张图（老引擎 404）就**整块不出现** —— 不拿「空」冒充「没有依赖」。
+    fn plugin_relations(
+        &self,
+        module: &nous_engine::Module,
+        narrow: bool,
+        pane_w: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use crate::plugin_graph::State;
+        let t = t();
+        let name = module.name.as_str();
+        let label = |extra: String| {
+            div()
+                .flex()
+                .items_baseline()
+                .gap(t.d(8.))
+                .child(div().text_size(t.fs(10.)).text_color(rgb(faint())).child("关系"))
+                .child(div().text_size(t.fs(10.5)).text_color(rgb(muted())).child(extra))
+        };
+
+        match self.plugin_graph.state() {
+            State::Idle | State::Loading => {
+                label("读依赖图…".into()).into_any_element()
+            }
+            // 老引擎没有这条端点：整块不出现，也不解释 —— 老引擎用户不需要知道新端点。
+            State::NoEndpoint => div().into_any_element(),
+            State::Failed(msg) => div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(t.d(10.))
+                .p(t.d(8.))
+                .rounded(t.r(5.))
+                .bg(rgb(t.p.warn_soft))
+                .child(
+                    div()
+                        .min_w(t.d(0.))
+                        .text_size(t.fs(11.))
+                        .text_color(rgb(t.p.text_2))
+                        .child(format!("关系图没拉到：{msg}")),
+                )
+                .child(
+                    div()
+                        .id(ElementId::Name("about-graph-retry".into()))
+                        .flex_none()
+                        .px(t.d(8.))
+                        .py(t.d(3.))
+                        .rounded(t.r(4.))
+                        .border(t.d(1.))
+                        .border_color(rgb(t.p.line_soft))
+                        .text_size(t.fs(11.))
+                        .text_color(rgb(t.p.text_2))
+                        .hover(|h| h.bg(rgb(t.p.line_soft)))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.ensure_plugin_graph(cx);
+                            cx.notify();
+                        }))
+                        .child("重试"),
+                )
+                .into_any_element(),
+            State::Ready(rel) => {
+                // 图比 capabilities 旧 / 新：这个模块不在图里。说实话，不画空图。
+                if !rel.contains(name) {
+                    return label(format!(
+                        "这张图里没有这个模块（引擎 {} 生成的图）",
+                        if rel.generated_for.is_empty() {
+                            "未知版本"
+                        } else {
+                            rel.generated_for.as_str()
+                        }
+                    ))
+                    .into_any_element();
+                }
+                let deps = rel.deps(name);
+                let inn = rel.dependents(name);
+                let mut body = div().flex().flex_col().gap(t.d(6.));
+                body = body.child(label(format!(
+                    "依赖 {} · 被依赖 {}",
+                    deps.len(),
+                    inn.len()
+                )));
+                if !rel.unmapped.is_empty() {
+                    body = body.child(
+                        div()
+                            .text_size(t.fs(10.))
+                            .text_color(rgb(faint()))
+                            .child(format!(
+                                "另有 {} 个包没有对应模块：{}",
+                                rel.unmapped.len(),
+                                rel.unmapped.join("、")
+                            )),
+                    );
+                }
+                let wide = !narrow && graph_fits(pane_w);
+                body = if wide {
+                    body.child(relation_graph(module, deps, inn, cx))
+                } else {
+                    body.child(relation_column(module, deps, inn, cx))
+                };
+                body.into_any_element()
+            }
+        }
     }
 
     /// 插件文档阅读列（demo 03）：**替换**右栏，左边的模块列表还在。
@@ -1245,6 +1392,7 @@ impl Desktop {
         module: &nous_engine::Module,
         caps: &nous_engine::Capabilities,
         narrow: bool,
+        pane_w: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = t();
@@ -1393,6 +1541,9 @@ impl Desktop {
             );
         }
         detail = detail.child(eps);
+        // 关系（它依赖谁 / 谁依赖它）：大屏画图，挤的那两档换竖排 —— 见
+        // `demo/plugin-relations/`（02 迷你图）与 `demo/plugin-relations-narrow/`（M2 竖排）。
+        detail = detail.child(self.plugin_relations(module, narrow, pane_w, cx));
 
         if narrow {
             div()
@@ -1997,6 +2148,350 @@ fn doc_notice(
     box_.into_any_element()
 }
 
+// ── 模块关系图（插件页详情）──────────────────────────────────────────────
+//
+// 大屏是 demo `plugin-relations` 的 02 迷你图；挤的两档是 demo `plugin-relations-narrow`
+// 的 M2 竖排。几何量全部在这里写死一份 —— canvas 画线用的是**同一组常量**，
+// 不是二次测量（测量要等布局，画线等不到）。
+
+/// 图里两侧列的宽（`t.d` 之前的值）。
+const G_COL: f32 = 132.;
+/// 中间那块「本模块」的宽。
+const G_HUB: f32 = 168.;
+/// 每个节点一行的高、行间隙。
+const G_ROW: f32 = 19.;
+const G_GAP: f32 = 4.;
+/// 每侧最多画几个，多的写 `+N`。
+const G_MAX: usize = 6;
+/// 图的最小可用宽：两列 + hub + 两个 8px 缝。
+const G_MIN: f32 = G_COL * 2. + G_HUB + 16.;
+
+/// 插件页详情右栏能用的宽度（内容宽，不含内边距）。
+///
+/// 骨架的真值都在 `about_plugins` / `settings_pane` 里：导航 170、内容内边距 22
+/// （窄窗 14）、列表 268、详情的左边线 1 + 左内边距 18。**这是一个估算**：它只用来
+/// 决定「图画不画得下」，不影响布局本身（布局由 flex 说了算）。
+pub(crate) fn plugin_pane_width(viewport_w: f32, narrow: bool) -> f32 {
+    plugin_pane_width_at(viewport_w, narrow, t().density)
+}
+
+/// 同上，但密度是显式参数（单测用得上：判据不能跟着当前皮漂）。
+pub(crate) fn plugin_pane_width_at(viewport_w: f32, narrow: bool, density: f32) -> f32 {
+    let chrome = if narrow {
+        170. + 2. * 14.
+    } else {
+        170. + 2. * 22. + 268. + 1. + 18.
+    };
+    (viewport_w - chrome * density).max(0.)
+}
+
+/// 这点宽度放得下 02 那张图吗。960–1000 这条缝最常见（两栏都在、详情只有四百多）。
+///
+/// 两边都乘密度：图里的 132/168 也是走 `t.d()`，所以判据要跟皮一起缩，
+/// 否则密度 1.05 的皮会被判成「放得下」而实际差十几像素。
+pub(crate) fn graph_fits(pane_w: f32) -> bool {
+    graph_fits_at(pane_w, t().density)
+}
+
+pub(crate) fn graph_fits_at(pane_w: f32, density: f32) -> bool {
+    pane_w >= (G_MIN + 12.) * density
+}
+
+/// 一个可点的模块胶囊（点了换到那个模块）。
+fn rel_chip(name: &str, height: Option<f32>, cx: &mut Context<Desktop>) -> AnyElement {
+    let t = t();
+    let id = format!("rel-chip-{name}");
+    let click_name = name.to_string();
+    div()
+        .id(ElementId::Name(id.into()))
+        .flex()
+        .items_center()
+        .flex_none()
+        .max_w_full()
+        .when_some(height, |el, h| el.h(px(h)))
+        .px(t.d(7.))
+        .when(height.is_none(), |el| el.py(t.d(1.)))
+        .border(t.d(1.))
+        .border_color(rgb(t.p.line_soft))
+        .text_size(t.fs(11.))
+        .font_family("JetBrainsMono")
+        .text_color(rgb(t.p.text_2))
+        .hover(|h| h.bg(rgb(t.p.line_soft)).text_color(rgb(t.p.text)))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.about_selected = Some(click_name.clone());
+            this.about_detail_open = true;
+            cx.notify();
+        }))
+        .child(div().min_w(t.d(0.)).truncate().child(name.to_string()))
+        .into_any_element()
+}
+
+/// 本模块那块（图中间 / 竖排中间同一副长相）。
+fn rel_hub(module: &nous_engine::Module, width: Option<f32>) -> AnyElement {
+    let t = t();
+    div()
+        .flex()
+        .flex_col()
+        .gap(t.d(2.))
+        .flex_none()
+        .when_some(width, |el, w| el.w(px(w)))
+        .px(t.d(10.))
+        .py(t.d(8.))
+        .border(t.d(1.))
+        .border_color(rgb(t.p.line))
+        .bg(rgb(t.p.panel_alt))
+        .child(
+            div()
+                .min_w(t.d(0.))
+                .truncate()
+                .text_size(t.fs(12.5))
+                .font_family("JetBrainsMono")
+                .child(module.name.clone()),
+        )
+        .child(
+            div()
+                .min_w(t.d(0.))
+                .truncate()
+                .text_size(t.fs(10.))
+                .text_color(rgb(faint()))
+                .font_family("JetBrainsMono")
+                .child(module.crate_name.clone().unwrap_or_else(|| "—".into())),
+        )
+        .into_any_element()
+}
+
+/// canvas 画线要的那点几何量。
+#[derive(Clone, Copy)]
+struct Fan {
+    col: f32,
+    hub: f32,
+    row: f32,
+    gap: f32,
+    shown_l: usize,
+    rows_l: usize,
+    shown_r: usize,
+    rows_r: usize,
+}
+
+/// 02 迷你图：左依赖 / 中本模块 / 右被依赖，折线在 hub 的左右两侧汇成一条竖线。
+fn relation_graph(
+    module: &nous_engine::Module,
+    deps: &[crate::plugin_graph::Edge],
+    dependents: &[crate::plugin_graph::Edge],
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
+    let t = t();
+    let row = f32::from(t.d(G_ROW));
+    let gap = f32::from(t.d(G_GAP));
+    let col = f32::from(t.d(G_COL));
+    let hub = f32::from(t.d(G_HUB));
+    let shown_l = deps.len().min(G_MAX);
+    let shown_r = dependents.len().min(G_MAX);
+    let rows_l = shown_l + usize::from(deps.len() > G_MAX);
+    let rows_r = shown_r + usize::from(dependents.len() > G_MAX);
+    let rows = rows_l.max(rows_r).max(1);
+    // 只有一行时也留出 hub 的高度，不然中间那块会顶出图外。
+    let h = (rows as f32 * (row + gap) - gap).max(f32::from(t.d(44.)));
+
+    let column = |edges: &[crate::plugin_graph::Edge],
+                  shown: usize,
+                  left: bool,
+                  cx: &mut Context<Desktop>| {
+        let mut c = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .gap(px(gap))
+            .w(px(col))
+            .h(px(h))
+            .justify_center()
+            .when(left, |el| el.items_start())
+            .when(!left, |el| el.items_end());
+        if shown == 0 {
+            c = c.child(
+                div()
+                    .text_size(t.fs(10.))
+                    .text_color(rgb(faint()))
+                    .child(if left { "没声明依赖" } else { "没人依赖它" }),
+            );
+        }
+        for edge in edges.iter().take(shown) {
+            c = c.child(rel_chip(&edge.module, Some(row), cx));
+        }
+        if edges.len() > G_MAX {
+            c = c.child(
+                div()
+                    .text_size(t.fs(10.))
+                    .text_color(rgb(faint()))
+                    .child(format!("+{}", edges.len() - G_MAX)),
+            );
+        }
+        c
+    };
+
+    let fan = Fan {
+        col,
+        hub,
+        row,
+        gap,
+        shown_l,
+        rows_l,
+        shown_r,
+        rows_r,
+    };
+    let wire = rgb(t.p.line_soft);
+    let lines = div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .w_full()
+        .h_full()
+        .child(
+            canvas(
+                move |_, _, _| fan,
+                move |bounds, fan, window, _| {
+                    // `paint_path` 吃绝对坐标：canvas 原点不一定是 (0,0)（坑 34）。
+                    let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+                    let (w, h) = (
+                        f32::from(bounds.size.width),
+                        f32::from(bounds.size.height),
+                    );
+                    let at = |x: f32, y: f32| point(px(ox + x), px(oy + y));
+                    let hub_x0 = (w - fan.hub) / 2.;
+                    let hub_x1 = hub_x0 + fan.hub;
+                    let hub_y = h / 2.;
+                    let step = fan.row + fan.gap;
+                    let col_h = |rows: usize| {
+                        if rows == 0 {
+                            0.
+                        } else {
+                            rows as f32 * step - fan.gap
+                        }
+                    };
+                    let mid_y = |rows: usize, i: usize| {
+                        (h - col_h(rows)) / 2. + i as f32 * step + fan.row / 2.
+                    };
+
+                    // 左边：从胶囊右沿横到中线，竖着落到 hub 中线，再横进 hub。
+                    let mx_l = (fan.col + hub_x0) / 2.;
+                    for i in 0..fan.shown_l {
+                        let y = mid_y(fan.rows_l, i);
+                        let mut b = PathBuilder::stroke(px(1.));
+                        b.move_to(at(fan.col, y));
+                        b.line_to(at(mx_l, y));
+                        b.line_to(at(mx_l, hub_y));
+                        b.line_to(at(hub_x0, hub_y));
+                        if let Ok(path) = b.build() {
+                            window.paint_path(path, wire);
+                        }
+                    }
+                    // 右边：镜像。
+                    let mx_r = (hub_x1 + (w - fan.col)) / 2.;
+                    for i in 0..fan.shown_r {
+                        let y = mid_y(fan.rows_r, i);
+                        let mut b = PathBuilder::stroke(px(1.));
+                        b.move_to(at(hub_x1, hub_y));
+                        b.line_to(at(mx_r, hub_y));
+                        b.line_to(at(mx_r, y));
+                        b.line_to(at(w - fan.col, y));
+                        if let Ok(path) = b.build() {
+                            window.paint_path(path, wire);
+                        }
+                    }
+                },
+            )
+            .size_full(),
+        );
+
+    div()
+        .relative()
+        .w_full()
+        .h(px(h))
+        .child(lines)
+        .child(
+            div()
+                .relative()
+                .flex()
+                .items_center()
+                .justify_between()
+                .h_full()
+                .child(column(deps, shown_l, true, cx))
+                .child(rel_hub(module, Some(hub)))
+                .child(column(dependents, shown_r, false, cx)),
+        )
+        .into_any_element()
+}
+
+/// M2 竖排：`依赖 ↓ 本模块 ↑ 被依赖`。窄窗（<900 单栏）和挤的两档都用这套。
+fn relation_column(
+    module: &nous_engine::Module,
+    deps: &[crate::plugin_graph::Edge],
+    dependents: &[crate::plugin_graph::Edge],
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
+    let t = t();
+    let seg = |title: String,
+               edges: &[crate::plugin_graph::Edge],
+               empty: &'static str,
+               cx: &mut Context<Desktop>| {
+        let mut s = div().flex().flex_col().gap(t.d(5.)).child(
+            div()
+                .text_size(t.fs(10.))
+                .text_color(rgb(faint()))
+                .child(title),
+        );
+        if edges.is_empty() {
+            s = s.child(
+                div()
+                    .text_size(t.fs(11.))
+                    .text_color(rgb(faint()))
+                    .child(empty),
+            );
+        } else {
+            s = s.child(
+                div().flex().flex_wrap().gap(t.d(4.)).children(
+                    edges
+                        .iter()
+                        .map(|e| rel_chip(&e.module, None, cx))
+                        .collect::<Vec<_>>(),
+                ),
+            );
+        }
+        s
+    };
+    let arrow = |glyph: &'static str, hint: &'static str| {
+        div()
+            .flex()
+            .items_center()
+            .gap(t.d(8.))
+            .py(t.d(3.))
+            .child(div().text_size(t.fs(10.)).text_color(rgb(faint())).child(glyph))
+            .child(div().h(t.d(1.)).flex_1().bg(rgb(t.p.line_soft)))
+            .child(div().text_size(t.fs(10.)).text_color(rgb(faint())).child(hint))
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .min_w(t.d(0.))
+        .child(seg(
+            format!("依赖 {}", deps.len()),
+            deps,
+            "plugin.toml 没声明依赖",
+            cx,
+        ))
+        .child(arrow("↓", "往下走"))
+        .child(rel_hub(module, None))
+        .child(arrow("↑", "往上看"))
+        .child(seg(
+            format!("被依赖 {}", dependents.len()),
+            dependents,
+            "没有模块声明依赖它",
+            cx,
+        ))
+        .into_any_element()
+}
+
 fn plugin_meta(label: &'static str, value: String) -> AnyElement {
     let t = t();
     div()
@@ -2156,7 +2651,10 @@ fn reveal_config() {
 #[cfg(test)]
 mod tests {
     // 不 `use super::*`：gpui 重导出的宏再展开一层会撞递归上限。
-    use super::{default_model_row, device_facts, CONFIG_PATH_HINT, device_field_owners};
+    use super::{
+        CONFIG_PATH_HINT, default_model_row, device_facts, device_field_owners, graph_fits,
+        graph_fits_at, plugin_pane_width, plugin_pane_width_at,
+    };
     use nous_engine::types::{Device, ModelRef, Models};
 
     fn device() -> Device {
@@ -2243,4 +2741,31 @@ mod tests {
         assert!(!CONFIG_PATH_HINT.contains('%'));
         assert!(CONFIG_PATH_HINT.contains("NOUS_DESKTOP_CONFIG"));
     }
+    /// 详情右栏宽度这条估算得跟骨架对得上，否则「980 到底画图还是竖排」会随手改。
+    ///
+    /// 密度两个极端都钉住：mono（1.05）下 980 那档只剩 ~454，判「放不下」→ 竖排；
+    /// 默认皮（1.0）下同一档有 479，够 460 的图 → 画图。这就是 demo 里看到的那条缝。
+    #[test]
+    fn 关系图放不放得下按详情宽算() {
+        // 两栏骨架：170 + 44 + 268 + 1 + 18 = 501；单栏：170 + 28 = 198。
+        assert_eq!(plugin_pane_width_at(1200., false, 1.), 699.);
+        assert_eq!(plugin_pane_width_at(880., true, 1.), 682.);
+        assert!(plugin_pane_width_at(700., false, 1.) < plugin_pane_width_at(700., true, 1.));
+
+        // mono（density 1.05）：980 是最挤的一档，画不下 → 竖排。
+        assert!(!graph_fits_at(plugin_pane_width_at(980., false, 1.05), 1.05));
+        // 默认皮（density 1.0）：同一档反而放得下，所以判据必须带密度。
+        assert!(graph_fits_at(plugin_pane_width_at(980., false, 1.), 1.));
+        // 1024 / 1200 两种皮都画图；单栏（<900）宽度富裕，画图也不挤。
+        for density in [1., 1.05] {
+            assert!(graph_fits_at(plugin_pane_width_at(1024., false, density), density));
+            assert!(graph_fits_at(plugin_pane_width_at(1200., false, density), density));
+            assert!(graph_fits_at(plugin_pane_width_at(880., true, density), density));
+        }
+        // 真实皮取的就是 `t().density`（单测里没开帧 → 默认皮）。
+        let density = crate::theme::cur().density;
+        assert_eq!(plugin_pane_width(1200., false), plugin_pane_width_at(1200., false, density));
+        assert_eq!(graph_fits(600.), graph_fits_at(600., density));
+    }
+
 }
