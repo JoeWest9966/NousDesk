@@ -207,20 +207,6 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("GET", "v1/stats/conversation/{id}"),
     ("GET", "v1/stats/cost"),
     ("GET", "v1/stats/health"),
-    // Nous#90：documents 没有产品面（内容真相只有四个私库，见 decisions 2026-11-21）。
-    // Desk 不再调用；这些条目等引擎侧下线后整块删除。
-    ("GET", "v1/documents/{kind}"),
-    ("GET", "v1/documents/{kind}/{section}/{name}"),
-    ("PUT", "v1/documents/{kind}/{section}/{name}"),
-    ("POST", "v1/documents/{kind}/{section}"),
-    ("POST", "v1/documents/{kind}/{section}/{name}/rename"),
-    ("POST", "v1/documents/{kind}/{section}/{name}/publish"),
-    ("POST", "v1/documents/{kind}/{section}/{name}/reload"),
-    ("GET", "v1/documents/{kind}/{section}/{name}/validate"),
-    ("GET", "v1/documents/{kind}/{section}/{name}/history"),
-    ("GET", "v1/documents/{kind}/{section}/{name}/history/diff"),
-    ("GET", "v1/documents/{kind}/{section}/{name}/pending"),
-    ("GET", "v1/documents/{kind}/{section}/{name}/pending/diff"),
     // 服务端 presets 新契约路由（#60 / Desk#11）：夹具 12 条 + sections + order。
     // `PUT /v1/presets/{section}/order` 夹具里也在，之前 ENGINE_ROUTES 漏抄，补上。
     ("GET", "v1/presets/model"),
@@ -710,7 +696,7 @@ mod source_literal_audit {
                                 .map(move |kind| template.replace("{repo}", kind))
                                 .collect()
                         }
-                    } else if path.contains("{}") && !path.starts_with("v1/documents/")
+                    } else if path.contains("{}")
                         && !path.strip_prefix(concat!("v1/presets", "/")).is_some_and(|_| true) {
                         // `format!("/v1/{}/publish", kind.repo().key())`：{} 是资源仓。
                         let template = path.clone();
@@ -723,8 +709,6 @@ mod source_literal_audit {
                         ["skills", "prompts", "extensions"].into_iter()
                             .map(move |kind| template.replace("{op}", kind))
                             .collect()
-                    } else if path.contains("{}") && path.starts_with("v1/documents/") {
-                        vec![path.replace("{}", "{name}")]
                     } else if path.contains("{}") && path.strip_prefix(concat!("v1/presets", "/")).is_some_and(|_| true) {
                         ["archive", "restore", "purge"].into_iter()
                             .map(|op| path.replace("{}", op)).collect()
@@ -745,15 +729,9 @@ mod source_literal_audit {
                                 p == &expanded || p.strip_prefix(&expanded).is_some_and(|t| t.starts_with('/'))
                             })
                             || family.as_ref().is_some_and(|template| {
-                                // `{tail}` 是任意尾段：client 清单里的 documents 12 条
-                                // 都属这一族；账本里其它泛化模板按字面精确匹配。
-                                if template == "v1/documents/{kind}/{tail}" {
-                                    client_paths.iter().chain(fixture_paths.iter())
-                                        .any(|p| p.starts_with("v1/documents/{kind}/{section}"))
-                                } else {
-                                    fixture_paths.iter().chain(dead_paths.iter()).chain(client_paths.iter())
-                                        .any(|p| p == template)
-                                }
+                                // `{tail}` 是路径末段的泛化模板：账本里按字面精确匹配。
+                                fixture_paths.iter().chain(dead_paths.iter()).chain(client_paths.iter())
+                                    .any(|p| p == template)
                             })
                             // `{{op}}` 在 format! 里是字面 `{op}` 模板（资源仓三族）。
                             || expanded.contains("{{op}}") && ["skills", "prompts", "extensions"].iter()
