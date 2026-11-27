@@ -77,7 +77,8 @@ NousDesk（你的桌面）──HTTP + Bearer token──▶ nous-app（j1900:47
 1. **这不是网页。** 没有 `package.json` / vite / 前端 bundle：加了脚手架，宿主会当它是网站
    spawn 起来、给空白页、崩了留墓碑。别为此加。
 2. **构建/测试在 Linux 上做。** headless 机器（ssh 进去的、CI）没 `DISPLAY` 就只跑
-   `cargo check` / `clippy` / `test`；看得见的东西去自己的桌面上跑。
+   `cargo check` / `clippy` / `test`；看得见的东西去自己的桌面上跑。**编译本身也丢给专用开发机**，
+   见「编译机」一节（本机资源少，只负责对话与验收）。
 3. **地址只有一个来源。** `desktop.toml` 的 `host`，没有第二个。禁止把引擎路径写进代码常量、
    禁止再拼 `/p/<board>/<block>/…` —— `board` / `block` / `resolve` 那一套在 2026-11-18
    随旧面板一起没了（`#8`）。功能有没有，问 `GET /v1/capabilities`，不猜。
@@ -194,6 +195,36 @@ DISPLAY=:99 import -window root /tmp/shot.png
 
 这台机器的全局 `CARGO_TARGET_DIR` 指向仓外，产物不在项目的 `target/` 里 —— 跑脚本一律
 `env -u CARGO_TARGET_DIR`，跑产物就写绝对路径。
+
+## 编译机（cargo check / test / clippy / 构建 一律在那台跑）
+
+**本机只负责对话与验收**，资源少；Rust 编译一律丢给专用开发机（32 核 / 64G / Debian 13）。
+
+- **ssh 目标每次都从用户当轮的提示里取**（形如 `…@cnb.space`），**机器号会变**：不写死、
+  不缓存到任何文件、不猜上一轮的地址。提示里没给 = 先问，别在本机跑编译。
+- **盘要挑工作区**：那台机器根分区 256G、工作区 512G（挂 `/workspace`）。仓、`target`、日志、
+  bundle 全放 `/workspace/<名字>`，别往 `/root` / `/tmp` 落大文件。
+- **工具链与缓存**：`export PATH=/workspace/cargo/bin:$PATH RUSTUP_HOME=/workspace/rustup
+  CARGO_HOME=/workspace/cargo CARGO_TARGET_DIR=/workspace/target-desk`（首次可能要先
+  `rustup component add clippy`）。
+- **怎么送代码**（那台机器没凭据、也不 pull 我们的工作树）：
+
+  ```bash
+  git bundle create /tmp/desk-$主题.bundle $分支 origin/main main   # 带上被引用的 ref，否则 clone 全空
+  scp /tmp/desk-$主题.bundle <开发机>:/workspace/
+  ssh <开发机> 'cd /workspace && rm -rf desk-$主题 && git clone -q desk-$主题.bundle desk-$主题 \
+    && cd desk-$主题 && git checkout -q $分支'
+  ```
+
+  只出 demo 的 HTML / 跑纯静态断言不必送——那些不需要编译器。
+- **跑长任务别占着终端**：`nohup cargo test --workspace > /workspace/x.log 2>&1 &`，然后
+  分段 `tail` 轮询；一次 `ssh` 挂着等十几分钟会被中途掐断。
+- **结果要回来**：`test result: FAILED` / `^error` 的行数、`mismatched=` 的条数，抄进汇报；
+  没跑通的别写成「绿」。
+- **清理**：本机 `/opt/*/target` 只是缓存（可重建），别留在本机；那台机器的
+  `/workspace/target-*` 也一样，告一段落就删。
+- **看得见的东西还是在本机验**：`cargo run` / 截图 / 中文输入法 / 剪贴板 / 窗口装饰 —— 本机
+  有 Wayland 桌面，那台没有。编译在远端，验收在本机。
 
 ## 置顶的真相
 
