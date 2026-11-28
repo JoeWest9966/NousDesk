@@ -308,6 +308,25 @@ async fn main() {
         format!("{roster_json}"),
     );
 
+    // 元素库（rail 第四个图标）：2026-11-27 引擎模块全名 `elements` → `Element_Core`。
+    // Desk 的门只有一道 —— 清单里**有一个 enabled 模块声明 `GET /v1/elements`**。
+    // 名字对不上时桌面端只会静默灰掉那颗图标（点了没反应、连 tooltip 都没有），
+    // 协议层却到处 200。所以把「谁声明的」打出来，并钉住 enabled。
+    let elements_modules: Vec<_> = caps
+        .modules
+        .iter()
+        .filter(|m| m.endpoints.iter().any(|e| e == "GET /v1/elements"))
+        .collect();
+    assert_line(
+        elements_modules.len() == 1 && elements_modules[0].enabled,
+        "capabilities.elements.enabled",
+        elements_modules
+            .iter()
+            .map(|m| format!("{} enabled={}", m.name, m.enabled))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+
     assert_line(
         caps.runtime.provider.kind == "faux",
         "capabilities.provider.faux",
