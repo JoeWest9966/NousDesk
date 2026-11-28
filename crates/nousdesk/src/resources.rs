@@ -28,6 +28,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
@@ -53,6 +54,49 @@ const ARROW_UP_RIGHT: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewB
 /// 分支在仓片 meta 行里最多占几个字符（300px 列 + 10px mono）。超了走中间省略，
 /// 完整值进 tooltip。18 能让 `feat/skills-upstream-source` 变成 `feat/skills…source`。
 const BRANCH_MAX_CHARS: usize = 18;
+
+/// 能交给系统浏览器打开的 URL：**只认 http/https**，且必须有主机段。
+///
+/// 这条纯函数是那个 ↗ 的唯一判据 —— 引擎回什么就开什么等于让远端替我们决定
+/// `xdg-open` 的 argv（`file:` / `javascript:` / 空串都该被挡在门外）。
+/// 返回 `None` 时 UI 不打开、也不弹「已打开」。
+pub(crate) fn external_url(raw: &str) -> Option<String> {
+    let url = raw.trim();
+    if url.is_empty() || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return None;
+    }
+    let lower = url.to_ascii_lowercase();
+    let rest = if lower.starts_with("https://") {
+        &url[8..]
+    } else if lower.starts_with("http://") {
+        &url[7..]
+    } else {
+        return None;
+    };
+    // `https://` / `https:///x` / `https://?q` 都没有主机，不是链接。
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if host.is_empty() {
+        return None;
+    }
+    Some(url.to_string())
+}
+
+/// 用系统默认浏览器打开一个链接。返回 false = 连进程都没起来（`xdg-open` 不在、
+/// 被策略挡住）；进程起来了不代表浏览器真显示出来了，那一步不归我们管。
+///
+/// `spawn` 只传 argv、不过 shell，URL 里的 `&` / `?` 不会被二次解释。
+fn open_external(url: &str) -> bool {
+    let Some(url) = external_url(url) else {
+        return false;
+    };
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("explorer").arg(&url).spawn();
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open").arg(&url).spawn();
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open").arg(&url).spawn();
+    spawned.is_ok()
+}
 
 /// 三个段，平铺：技能 / 提示词 / 扩展。
 ///
@@ -745,6 +789,22 @@ impl Desktop {
         .detach();
     }
 
+    /// ↗ 圆按钮：把这一段的远端仓在系统浏览器里打开。
+    ///
+    /// 只在 `status.remote` 存在时才画这个按钮，所以这里收到的应该是引擎给的 origin URL；
+    /// 仍然再过一遍 `external_url` —— 远端字段是数据，不是信任状。打不开就说打不开，
+    /// 别假装点成功了（点下去没反应算 bug）。
+    fn open_repo_remote(&mut self, url: String, cx: &mut Context<Self>) {
+        if open_external(&url) {
+            return;
+        }
+        self.notify(
+            format!("打不开这个远端地址：{url}"),
+            crate::app::NoticeKind::Error,
+            cx,
+        );
+    }
+
     /// COPY 路径条：走现有剪贴板通道，提示里说清「复制的是引擎那台机器上的路径」——
     /// 免得用户以为复制的是自己桌面上的路径。
     fn copy_repo_path(&mut self, path: String, cx: &mut Context<Self>) {
@@ -1268,7 +1328,22 @@ fn repo_plaque(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
         );
     }
 
-    // 元信息：`分支 · N 处待发布`。分支超宽走中间省略（完整值在 status.branch 里）。
+    // 元信息：`分支 · N 处待发布`。分支超宽走中间省略，**完整值进 tooltip**
+    // （截断了才挂：没截断的 tooltip 是噪声）。
+    let truncated = branch_disp != full_branch;
+    let tip = full_branch.clone();
+    let mut branch_el = div()
+        .id(("res-repo-branch", idx))
+        .font_family("JetBrainsMono")
+        .text_color(rgb(muted()))
+        .child(branch_disp);
+    if truncated {
+        // `Div::tooltip` 要一个 view builder，不接字符串 —— 这就是 #23 当时没挂上的原因。
+        // 走 gpui-component 的 `Tooltip`（它自己是个 view，`build` 直接给 AnyView）。
+        branch_el = branch_el.tooltip(move |window, cx| {
+            Tooltip::new(tip.clone()).build(window, cx)
+        });
+    }
     let mut meta = div()
         .flex()
         .items_center()
@@ -1276,12 +1351,7 @@ fn repo_plaque(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
         .text_size(t().fs(10.))
         .text_color(rgb(muted()))
         .whitespace_nowrap()
-        .child(
-            div()
-                .font_family("JetBrainsMono")
-                .text_color(rgb(muted()))
-                .child(branch_disp),
-        );
+        .child(branch_el);
     if let Some(n) = count {
         meta = meta
             .child(div().text_color(rgb(t().p.text).opacity(0.4)).child("·"))
@@ -1317,10 +1387,12 @@ fn repo_plaque(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
         .pb(t().d(9.))
         .child(avatar)
         .child(body);
-    // 没有 remote 就不画那个 → 圆按钮（不猜、不降级）。
-    if status.remote.is_some() {
+    // 没有 remote 就不画那个 → 圆按钮（不猜、不降级）。有就真能点：系统浏览器打开。
+    if let Some(remote) = status.remote.clone().filter(|r| !r.is_empty()) {
+        let tip = remote.clone();
         top = top.child(
             div()
+                .id("res-repo-open")
                 .flex_none()
                 .flex()
                 .items_center()
@@ -1329,13 +1401,18 @@ fn repo_plaque(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
                 .rounded_full()
                 .border(t().d(1.))
                 .border_color(rgb(t().p.text).opacity(0.28))
+                .cursor_pointer()
                 .hover(|el| el.bg(rgb(t().p.hover)))
+                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
                 .child(
                     Icon::empty()
                         .data(ARROW_UP_RIGHT)
                         .with_size(Size::Size(t().d(12.)))
                         .text_color(rgb(t().p.text_2)),
-                ),
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.open_repo_remote(remote.clone(), cx);
+                })),
         );
     }
 
