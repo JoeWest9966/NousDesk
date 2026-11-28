@@ -45,6 +45,23 @@ printf '%s\n' '{"name":"native-one","version":"0.1.0","protocol":1,"file":"nativ
 printf '%s\n' '{"name":"old-js","version":"0.1.0","file":"index.js","entry":"default","sections":["preamble"]}' \
   > "$WORK/extend/old-js/nous.json"
 
+# 底部仓片（Desk#23）的三条判据要有真数据：把 extend 做成一个 git 仓 ——
+# 分支 `feat/probe`（非 main）、**不加 remote**、脏。再放 2 处内容改动
+# （dirty-a / dirty-b）+ 2 个仓级文件（artifacts/、deleted-extensions.json），
+# 后两个必须被 `pending_unit_count` 排除，所以「处」= 2。
+git -C "$WORK/extend" init -q
+git -C "$WORK/extend" config user.email probe@nous.local
+git -C "$WORK/extend" config user.name probe
+git -C "$WORK/extend" config commit.gpgsign false
+git -C "$WORK/extend" add -A
+git -C "$WORK/extend" commit -qm seed
+git -C "$WORK/extend" checkout -q -b feat/probe
+mkdir -p "$WORK/extend/dirty-a" "$WORK/extend/dirty-b" "$WORK/extend/artifacts"
+printf 'x\n' > "$WORK/extend/dirty-a/index.js"
+printf 'x\n' > "$WORK/extend/dirty-b/index.js"
+printf 'x\n' > "$WORK/extend/artifacts/keep.txt"
+printf '%s\n' '[]' > "$WORK/extend/deleted-extensions.json"
+
 # 元素库判据：删除必须**真的从私库盘上消失**。种子是一个临时 git 私库 ——
 # 引擎写一次提交一次，仓不在或没配 user 就会 500，所以这里把 user 也配好。
 mkdir -p "$WORK/elements/groups" "$WORK/elements/packages"
@@ -119,7 +136,8 @@ done
 # 资源页（扩展段）的三份读面：清单分档、类别词表、归档区、变体表。
 # 少一条就是「页面照常打开、那一行永远没有」——这种静默最费劲，所以钉死。
 for assert_name in ext.items.kind.native ext.items.kind.legacy_js \
-                  ext.categories.200 ext.archive.200 ext.variants.200; do
+                  ext.categories.200 ext.archive.200 ext.variants.200 \
+                  repo.status.branch.non_main repo.status.no_remote repo.pending.extend_count; do
   grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
     || { echo "FAIL: 扩展段少了一条断言：$assert_name"; exit 1; }
 done

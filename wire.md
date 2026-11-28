@@ -762,6 +762,15 @@ UI 入口在 `resource_write.rs`，形状在 `resource.rs`。
 - **`GET /v1/repos/{repo}/archive` 四个仓共用**（`presets` / `skills` / `prompts` / `extend`，
   0.1.10 新增）：返回 `.archive/` 下的目录名。写面（`archive` / `restore` / `purge`）
   一直在，缺的就是这条读 —— 没有它，「归档」等于「再也看不见」。
+- **仓片（Desk#23）：`GET /v1/repos/{repo}/status` + `GET /v1/repos/{repo}/pending`**
+  （`repo` = `skills` / `prompts` / `extend`，三个内容仓共用）。
+  - `status` → `{root, head, branch, ahead, behind, dirty, locked}`。**`remote` 是软依赖**：
+    内核补上才有；缺字段 = 没远端 = 客户端不画 ↗。`head` / `branch` 可能是 `null`。
+  - `pending` → `{units:[{name, state, aheadCommits, paths}]}`，按**顶层目录 / 文件**分组。
+    `state` ∈ `tracked` / `untracked` / `unpushed`。「N 处待发布」用它数；扩展要扣仓级文件
+    （`artifacts/`、`deleted-extensions.json`、`categories.json`、`index.json`，见
+    `nous-engine::resource::REPO_LEVEL_NAMES`）。
+  - 客户端类型：`nous-engine::resource::{RepoStatus, RepoPending, RepoPendingUnit}`（未知字段透传）。
 
 **规矩**：往这张表里加一条 = 客户端多了一处没有字段合同的调用。要么先在本文件写清形状，
 要么确认它是整包转发并且在 `types.rs` 里有类型 —— 两者都没有的话，别加。

@@ -156,6 +156,14 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("POST", "v1/extensions/duplicate"),
     ("GET", "v1/repos/extend/variants"),
     ("GET", "v1/repos/extend/archive"),
+    // 底部仓片（Desk#23）：每段的 git 状态 / 待提交单元。内核路由是 `{repo}` 模板，
+    // 这里按客户端真会打的字面量逐仓登记（skills / prompts / extend）。
+    ("GET", "v1/repos/skills/status"),
+    ("GET", "v1/repos/prompts/status"),
+    ("GET", "v1/repos/extend/status"),
+    ("GET", "v1/repos/skills/pending"),
+    ("GET", "v1/repos/prompts/pending"),
+    ("GET", "v1/repos/extend/pending"),
     // 仓级生命周期：三个内容仓共用一套路由，仓名写在路径里而不是 `{repo}` 模板 ——
     // 台账要的是「客户端真会打的这一条」。
     ("POST", "v1/repos/extend/archive"),

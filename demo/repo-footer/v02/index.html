@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NousDesk · 02 播放条 · 加本地路径 · 9 个变体</title>
+<style>
+@font-face { font-family: Inter; src: url(../fonts/inter-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: JBMono; src: url(../fonts/jetbrainsmono-400.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+
+/* ── MONO 皮（theme.rs Palette::MONO） ──────────────────────────── */
+:root {
+  --bg:#000; --panel:#000; --panel-alt:#0a0a0a; --surface:#0a0a0a;
+  --text:#fff; --text2:#d2d2d2; --muted:#b0b0b0; --faint:#8a8a8a;
+  --line:#fff; --soft:#2a2a2a;
+  --hover:#141414; --selected:#1f1f1f;
+  --accent:#fff; --accent-soft:#1a1a1a; --accent-fg:#fff;
+  --warn:#fff; --danger:#ff4d4d; --ok:#fff;
+  --sidebar:#000; --sidebar-idle:#6b6b6b;
+  --btn-bg:#fff; --btn-fg:#000;
+  --h1:rgba(255,255,255,.14); --h2:rgba(255,255,255,.28); --h3:rgba(255,255,255,.55);
+  --ink-dim:rgba(255,255,255,.45); --ink-mid:rgba(255,255,255,.68);
+}
+body[data-skin="default"] {
+  --bg:#f7f7f7; --panel:#fff; --panel-alt:#fafafa; --surface:#f6f6f6;
+  --text:#1a1a1a; --text2:#333; --muted:#999; --faint:#aaa;
+  --line:#e6e6e6; --soft:#eee;
+  --hover:#f2f2f2; --selected:#d9d9d9;
+  --accent:#07c160; --accent-soft:#e8f7ee; --accent-fg:#0a7a3f;
+  --warn:#c77700; --danger:#d32f2f; --ok:#079c50;
+  --sidebar:#2e2e2e; --sidebar-idle:#9a9a9a;
+  --btn-bg:#07c160; --btn-fg:#fff;
+  --h1:rgba(0,0,0,.12); --h2:rgba(0,0,0,.22); --h3:rgba(0,0,0,.45);
+  --ink-dim:rgba(0,0,0,.42); --ink-mid:rgba(0,0,0,.66);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { background:#0a0b0c; }
+body { color:#e7e9ea; padding:30px 34px 70px;
+  font: 400 13px/1.5 Inter, "Noto Sans CJK SC", "Source Han Sans SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+
+/* ── 画册外壳 ─────────────────────────────────────────────────── */
+header { max-width: 1180px; margin-bottom: 20px; }
+h1 { font-size: 15px; font-weight: 600; }
+h1 span { color:#7c848a; font-weight: 400; }
+.lede { margin-top: 8px; font-size: 12px; line-height: 1.8; color:#98a0a6; max-width: 940px; }
+.lede b { color:#e7e9ea; font-weight: 600; }
+.lede code { font:500 11.5px/1 JBMono,ui-monospace,monospace; color:#c8cfd4;
+  background:#15181b; border:1px solid #22262a; border-radius:4px; padding:2px 5px; }
+.bar { display:flex; align-items:center; gap:9px; margin-top:16px; flex-wrap:wrap; }
+.bar .lab { font:500 9px/1 JBMono,monospace; color:#6f777d; letter-spacing:.18em; text-transform:uppercase; }
+.bar button { font:inherit; font-size:11px; color:#a8b0b6; background:#141719; border:1px solid #23272b;
+  border-radius:999px; padding:4px 12px; cursor:pointer; transition:.14s; }
+.bar button:hover { color:#e7e9ea; border-color:#33383d; }
+.bar button.on { color:#0a0b0c; background:#d6dde2; border-color:#d6dde2; font-weight:600; }
+h2.sec { display:flex; align-items:baseline; gap:10px; font-size:12px; font-weight:600; color:#e7e9ea; margin:34px 0 0; }
+h2.sec span { color:#6f777d; font-weight:400; font-size:11px; }
+h2.sec em { font:500 9px/1 JBMono,monospace; color:#4d555b; letter-spacing:.18em; font-style:normal; }
+
+/* ── 整页舞台 ─────────────────────────────────────────────────── */
+.stage { width:1092px; height:722px; margin-top:14px; overflow:hidden; }
+.window { width:1240px; height:820px; background:var(--bg); color:var(--text);
+  transform:scale(.88); transform-origin:top left; display:flex; flex-direction:column;
+  box-shadow:0 0 0 1px #262a2e, 0 18px 50px rgba(0,0,0,.55); border-radius:6px; overflow:hidden; }
+.titlebar { flex:none; height:38px; display:flex; align-items:center; padding:0 14px; border-bottom:1px solid var(--soft); }
+.titlebar .t { font-size:12px; }
+.titlebar .sp { flex:1; }
+.titlebar .wbtn { width:26px; height:20px; display:grid; place-items:center; color:var(--muted); font-size:11px; }
+.wbody { flex:1; display:flex; min-height:0; }
+.rail { width:60px; flex:none; background:var(--sidebar); display:flex; flex-direction:column; align-items:center; padding-top:14px; gap:4px; }
+.rail .ic { width:34px; height:34px; display:grid; place-items:center; border-radius:6px; color:var(--sidebar-idle); }
+.rail .ic.on { color:#f0f0f0; }
+.rail .ic svg { width:16px; height:16px; }
+.rail .sp { flex:1; }
+.tree { width:248px; flex:none; border-right:1px solid var(--line); display:flex; flex-direction:column; padding:12px 0 0; }
+.tree .h { padding:0 16px; font-size:12px; }
+.tree .segs { display:flex; margin-top:12px; }
+.tree .seg { flex:1; padding:7px 0 7px 16px; font-size:12px; color:var(--muted); }
+.tree .seg.on { background:var(--accent-soft); color:var(--accent-fg); }
+.tree .cat { margin-top:12px; padding:6px 16px 6px 30px; font-size:12px; color:var(--text2); display:flex; gap:8px; }
+.tree .cat .n { color:var(--muted); }
+.tree .cat.dim { color:var(--muted); }
+.listcol { width:300px; flex:none; border-right:1px solid var(--line); display:flex; flex-direction:column; background:var(--panel); position:relative; }
+.listtop { display:flex; align-items:center; padding:10px 12px 0; }
+.listtop .t { font-size:12px; }
+.listtop .sp { flex:1; }
+.newbtn { font:inherit; font-size:11px; line-height:1; padding:5px 9px; border-radius:3px; border:0;
+  background:var(--btn-bg); color:var(--btn-fg); cursor:pointer; }
+.search { margin:10px 10px 8px; height:26px; border-radius:6px; background:var(--surface);
+  display:flex; align-items:center; gap:6px; padding:0 8px; }
+.search .i { color:var(--faint); font-size:12px; }
+.search .q { font-size:11.5px; color:var(--faint); }
+.search .n { margin-left:auto; font-size:11px; color:var(--muted); }
+.row { padding:7px 12px 8px; border-bottom:1px solid var(--soft); cursor:pointer; }
+.row:hover { background:var(--hover); }
+.row.on { background:var(--selected); }
+.row .l1 { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.row .nm { font-size:12.5px; }
+.row .chip { flex:none; font-size:10px; color:var(--muted); }
+.row .chip.warn { color:var(--warn); }
+.row .sm { margin-top:3px; font-size:11px; line-height:16px; color:var(--muted);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fill { flex:1; }
+.detail { flex:1; padding:18px 24px; font-size:12px; color:var(--muted); }
+
+/* ══ 02 播放条族（共用骨架） ═════════════════════════════════════ */
+.foot { position:relative; background:var(--panel); border-top:1px solid var(--soft); }
+.foot button { font:inherit; border:0; background:transparent; color:inherit; cursor:pointer; padding:0; }
+.foot .mono { font-family:JBMono, ui-monospace, monospace; font-variant-numeric:tabular-nums; }
+.lab9 { font:500 9px/1 Inter,sans-serif; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-dim); }
+.arrow { width:10px; height:10px; stroke:currentColor; fill:none; stroke-width:1.6;
+  stroke-linecap:round; stroke-linejoin:round; transition:transform .12s ease; }
+
+/* 头像位：真头像来了就是 <img>，没有就用 GitHub mark */
+.av { position:relative; width:28px; height:28px; flex:none; border:1px solid var(--h2);
+  border-radius:6px; display:grid; place-items:center; color:var(--text2); background:var(--panel); }
+.av svg.mark { width:16px; height:16px; fill:currentColor; }
+.av img { width:100%; height:100%; border-radius:5px; object-fit:cover; }
+/* 脏的那一下：头像右下角一颗白点（有 dot 才画） */
+.av.dot::after { content:""; position:absolute; right:-2px; bottom:-2px; width:5px; height:5px;
+  border-radius:50%; background:var(--text); box-shadow:0 0 0 2px var(--panel); }
+
+.bd { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.bd .nm { font-size:12.5px; font-weight:500; color:var(--text); letter-spacing:.01em;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.bd .meta { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--ink-dim);
+  white-space:nowrap; overflow:hidden; }
+.bd .meta .m { font-family:JBMono,monospace; }
+.bd .meta .sep { color:var(--h3); }
+.bd .meta .warn { color:var(--text2); }
+.go { margin-left:auto; flex:none; width:26px; height:26px; border-radius:50%; border:1px solid var(--h2);
+  display:grid; place-items:center; color:var(--text2); transition:.12s; }
+.go:hover { background:var(--text); border-color:var(--text); color:var(--panel); }
+.go:hover .arrow { transform:translate(1px,-1px); }
+.path { font:500 9.5px/1.35 JBMono,monospace; color:var(--ink-dim); letter-spacing:0;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.path .at { color:var(--ink-mid); }
+
+/* ── 00 原样（你选的 02，不带路径） ───────────────────────────── */
+.v0 { display:flex; gap:11px; align-items:center; padding:10px 12px; }
+.v0 .bd { gap:3px; }
+
+/* ── 01 三行（路径第三行） ─────────────────────────────────────── */
+.v1 { display:flex; gap:11px; align-items:flex-start; padding:10px 12px 10px 12px; }
+.v1 .bd { gap:3px; padding-top:1px; }
+.v1 .path { margin-top:1px; }
+.v1 .go { margin-top:1px; }
+
+/* ── 02 路径右贴（两行，路径在右） ─────────────────────────────── */
+.v2 { display:grid; grid-template-columns:28px minmax(0,1fr) auto; column-gap:11px;
+  row-gap:2px; padding:10px 12px; align-items:center; }
+.v2 .av { grid-row:1 / span 2; }
+.v2 .nm { grid-column:2; font-size:12.5px; font-weight:500; }
+.v2 .pt { grid-column:3; grid-row:1; font:500 9px/1 JBMono,monospace; color:var(--ink-dim);
+  max-width:106px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
+.v2 .mt { grid-column:2; display:flex; gap:5px; font-size:10px; color:var(--ink-dim); align-items:center; }
+.v2 .go { grid-column:3; grid-row:2; justify-self:end; width:22px; height:22px; }
+.v2 .go .arrow { width:9px; height:9px; }
+
+/* ── 03 路径条（下方独立一段 + COPY） ──────────────────────────── */
+.v3 .top { display:flex; gap:11px; align-items:center; padding:10px 12px 9px; }
+.v3 .bar3 { display:flex; align-items:center; gap:6px; padding:5px 8px 6px 12px;
+  border-top:1px solid var(--h1); }
+.v3 .bar3 .path { flex:1; min-width:0; }
+.v3 .copy { flex:none; font:500 8.5px/1 Inter,sans-serif; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--ink-dim); padding:2px 0; }
+.v3 .copy:hover { color:var(--text); }
+
+/* ── 10 三段对照（同一组件 × 三份数据，缩小排列） ─────────────── */
+.t3 { padding:5px 0 6px; }
+.t3 .v3 + .v3 { border-top:1px solid var(--h1); }
+.t3 .v3 .top { padding:6px 10px 5px; gap:9px; }
+.t3 .v3 .bar3 { padding:3px 8px 3px 10px; }
+.t3 .v3 .av { width:22px; height:22px; border-radius:5px; }
+.t3 .v3 .av svg.mark { width:12px; height:12px; }
+.t3 .v3 .bd .nm { font-size:11.5px; }
+.t3 .v3 .bd .meta { font-size:9px; }
+.t3 .v3 .path { font-size:8.5px; }
+.t3 .v3 .go { width:20px; height:20px; }
+.t3 .v3 .copy { font-size:7.5px; }
+
+
+/* ── 04 路径折叠：收起 / 悬停展开（两格并排展示） ──────────────── */
+.v4 { display:flex; gap:11px; align-items:center; padding:10px 12px; }
+.v4 .bd { gap:3px; }
+.v4 .short { display:flex; align-items:center; gap:5px; }
+.v4 .short .tick { width:8px; height:8px; border:1px solid var(--ink-dim); border-radius:2px; flex:none; }
+.v4.open { align-items:flex-start; padding-bottom:9px; }
+.v4.open .wrap { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.v4.open .pt { display:flex; align-items:center; gap:5px; margin-top:1px; }
+.v4.open .pt .copy { margin-left:auto; font:500 8px/1 Inter,sans-serif; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink-dim); }
+.v4.open .pt .copy:hover { color:var(--text); }
+
+/* ── 05 面包屑 ─────────────────────────────────────────────────── */
+.v5 { display:flex; gap:11px; align-items:flex-start; padding:10px 12px; }
+.v5 .bd { gap:3px; }
+.crumbs { display:flex; align-items:center; gap:4px; margin-top:1px;
+  font:500 9.5px/1 JBMono,monospace; color:var(--ink-dim); }
+.crumbs .c { color:var(--ink-dim); }
+.crumbs .c:hover { color:var(--text); text-decoration:underline; text-underline-offset:2px; }
+.crumbs .c.last { color:var(--text2); }
+.crumbs .s { color:var(--h3); }
+
+/* ── 06 右侧双读数（LOCAL / REMOTE） ───────────────────────────── */
+.v6 { display:flex; gap:11px; align-items:center; padding:10px 12px; }
+.v6 .bd { gap:3px; }
+.v6 .bd { min-width:96px; }
+.v6 .read { margin-left:auto; flex:none; width:108px; display:flex; flex-direction:column;
+  gap:4px; align-items:flex-end; }
+.v6 .read .r { display:flex; align-items:baseline; gap:5px; max-width:100%; }
+.v6 .read .k { flex:none; width:9px; text-align:center; font:500 8px/1 JBMono,monospace;
+  color:rgba(255,255,255,.34); }
+body[data-skin="default"] .v6 .read .k { color:rgba(0,0,0,.34); }
+.v6 .read .val { font:500 8.5px/1 JBMono,monospace; color:var(--ink-mid); max-width:92px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
+.v6 .read .val:hover { color:var(--text); }
+.v6 .go { margin-left:7px; width:24px; height:24px; }
+
+/* ── 07 双徽标（GitHub + 本地盘角标） ──────────────────────────── */
+.v7 { display:flex; gap:11px; align-items:flex-start; padding:10px 12px; }
+.v7 .av { margin-top:1px; }
+.v7 .av .local { position:absolute; right:-5px; bottom:-5px; width:13px; height:13px; border-radius:50%;
+  background:var(--panel); border:1px solid var(--h2); display:grid; place-items:center;
+  color:var(--text2); font-size:7px; }
+.v7 .bd { gap:3px; }
+.v7 .path { margin-top:1px; }
+
+/* ── 08 上下两段卡（路径段换底） ───────────────────────────────── */
+.v8 .top { display:flex; gap:11px; align-items:center; padding:10px 12px 9px; }
+.v8 .pathsec { display:flex; align-items:center; gap:6px; padding:6px 10px 7px 12px;
+  background:var(--panel-alt); border-top:1px solid var(--h1); }
+.v8 .pathsec .path { flex:1; min-width:0; }
+.v8 .pathsec .lab9 { flex:none; }
+.v8 .pathsec .copy { flex:none; color:var(--ink-dim); font:500 8.5px/1 Inter,sans-serif;
+  letter-spacing:.14em; text-transform:uppercase; }
+.v8 .pathsec .copy:hover { color:var(--text); }
+
+/* ── 09 头像位对照（引擎给 avatar 换这个） ─────────────────────── */
+.v9 { display:flex; gap:11px; align-items:flex-start; padding:10px 12px; }
+.v9 .av { border-radius:999px; overflow:hidden; }
+.v9 .av img { border-radius:999px; }
+.v9 .bd { gap:3px; }
+.v9 .path { margin-top:1px; }
+.avph { width:28px; height:28px; display:block; }
+
+/* ── 方案按钮 + 缩略网格 ─────────────────────────────────────── */
+.picks { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; max-width:1180px; }
+.picks button { font:inherit; font-size:10.5px; color:#98a0a6; background:#141719; border:1px solid #23272b;
+  border-radius:4px; padding:3px 8px; cursor:pointer; transition:.12s; }
+.picks button:hover { color:#e7e9ea; border-color:#33383d; }
+.picks button.on { background:#d6dde2; color:#0a0b0c; border-color:#d6dde2; font-weight:600; }
+.grid { display:flex; flex-wrap:wrap; gap:34px 28px; margin-top:18px; align-items:flex-start; }
+.cell { width:300px; }
+.thumbscreen { width:300px; overflow:hidden; box-shadow:0 0 0 1px #1d2226; background:var(--bg); }
+figcaption { margin-top:11px; }
+.cap-h { display:flex; align-items:baseline; gap:8px; font-size:12px; font-weight:600; color:#e7e9ea; }
+.cap-h b { font:500 9px/1 JBMono,monospace; color:#5f676d; letter-spacing:.1em; }
+.cap-h i { font-style:normal; font-size:9px; font-weight:400; color:#6f777d; letter-spacing:.1em; text-transform:uppercase; }
+.cap p { margin-top:5px; font-size:10.5px; line-height:1.75; color:#8a9298; }
+.cap p.h { color:#6f777d; }
+.cap p.h em { font-style:normal; color:#c9a227; }
+.cap p.h em.ok { color:#5aa77a; }
+.shot { margin-top:14px; max-width:1180px; }
+.shot img { display:block; width:100%; max-width:1000px; box-shadow:0 0 0 1px #262a2e; border-radius:4px; }
+.shot figcaption { font-size:10.5px; color:#7c848a; margin-top:7px; }
+#toast { position:fixed; left:50%; bottom:26px; transform:translate(-50%,14px); opacity:0;
+  background:#1b1f22; color:#e7e9ea; border:1px solid #2b3034; border-radius:8px; padding:8px 14px;
+  font-size:11.5px; pointer-events:none; transition:.18s; box-shadow:0 10px 30px rgba(0,0,0,.5); max-width:80vw; z-index:9; }
+#toast.on { opacity:1; transform:translate(-50%,0); }
+.notes { max-width:1180px; margin-top:42px; border-top:1px solid #1d2226; padding-top:20px; }
+.notes h3 { font-size:12px; font-weight:600; color:#e7e9ea; margin-bottom:8px; }
+.notes p, .notes li { font-size:11.5px; line-height:1.9; color:#8a9298; }
+.notes ul { margin:6px 0 16px 16px; }
+.notes code { font:500 11px/1 JBMono,monospace; color:#c8cfd4; background:#15181b;
+  border:1px solid #22262a; border-radius:4px; padding:1px 5px; }
+.notes b { color:#e7e9ea; font-weight:600; }
+.notes .warnb { color:#c9a227; }
+</style>
+</head>
+<body data-skin="mono">
+
+<header>
+  <h1>02 播放条 · 加本地路径 + GitHub 图标 <span>16 格 · MONO 皮</span></h1>
+  <p class="lede">
+    你选了 <b>02</b>：28px 方框徽标 + 两行 + 26px 圆按钮。这一轮只做两件事：
+    <b>头像位</b>（现在没有仓库头像 → GitHub mark；有 avatar 时换 <code>&lt;img&gt;</code>）
+    和 <b>本地路径怎么摆</b>（9 个变体就是 9 种摆法，00 是原样基线）。
+    骨架、字号照真机：列表 300、仓名 12.5、元信息 10、路径 9.5 mono。
+  </p>
+  <div class="bar">
+    <span class="lab">Skin</span>
+    <button data-skin-set="mono" class="on">MONO（你现在用的）</button>
+    <button data-skin-set="default">默认皮（白）</button>
+    <span style="width:14px"></span>
+    <span class="lab">Truth</span>
+    <a href="#shot" style="font-size:11px;color:#a8b0b6">页底真产物截图</a>
+  </div>
+</header>
+
+<h2 class="sec"><em>Stage</em> 整页 <span>点编号换变体，看它长在列表底部时什么样</span></h2>
+<div class="stage"><div class="window">
+  <div class="titlebar"><span class="t">NousDesk</span><span class="sp"></span>
+    <span class="wbtn">–</span><span class="wbtn">□</span><span class="wbtn">×</span></div>
+  <div class="wbody">
+    <div class="rail">
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.2A2.2 2.2 0 0 1 5.2 4h13.6A2.2 2.2 0 0 1 21 6.2v8.6a2.2 2.2 0 0 1-2.2 2.2H9.5L5 20.5V17h.2A2.2 2.2 0 0 1 3 14.8Z"/></svg></div>
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 4.8-9 4.8-9-4.8L12 3Z"/><path d="m3 13 9 4.8 9-4.8"/></svg></div>
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.8"/><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5"/><path d="M12 7.5a4.5 4.5 0 1 0 4.5 4.5"/></svg></div>
+      <div class="ic on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 8 4.4v9.2L12 21l-8-4.4V7.4L12 3Z"/><path d="m4 7.4 8 4.4 8-4.4M12 11.8V21"/></svg></div>
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v3.4M12 16.6V20M4 12h3.4M16.6 12H20M6.3 6.3l2.4 2.4M15.3 15.3l2.4 2.4M17.7 6.3l-2.4 2.4M8.7 15.3l-2.4 2.4"/></svg></div>
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v6c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V6"/><path d="M4.5 12v6c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-6"/></svg></div>
+      <div class="sp"></div>
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></div>
+    </div>
+    <div class="tree" id="bigTree"></div>
+    <div class="listcol" id="bigList"></div>
+    <div class="detail">选一行看详情。新建 / 编辑 / 发布都在这一页，不用切到别的窗口。</div>
+  </div>
+</div></div>
+<div class="picks" id="picks"></div>
+
+<h2 class="sec"><em>Sheets</em> 16 格 <span>每格是那 300px 的列表列，底部是被挑的仓片</span></h2>
+<div class="grid" id="grid"></div>
+
+<h2 class="sec" id="shot"><em>Truth</em> 真机对照 <span>Xvfb + 真产物 + faux 引擎，2026-11-28</span></h2>
+<figure class="shot">
+  <img src="../desk-real.png" alt="真实 NousDesk 资源页（MONO 皮）">
+  <figcaption>真 Desk 现在跑出来的样子（同一套种子数据）。底部那一行现在是空的。</figcaption>
+</figure>
+
+<section class="notes">
+  <h3>关于头像（这条先说清楚）</h3>
+  <p>
+    引擎的 <code>GET /v1/repos/{repo}/status</code> 现在只有
+    <code>{root, head, branch, ahead, behind, dirty, locked}</code> —— <b>没有 remote，也没有 avatar</b>。
+    所以 DEMO 里的徽标一律是 <b>GitHub mark 图标</b>（内联 SVG）。
+    等内核补了 <code>remote</code>，客户端可以从 <code>github.com/&lt;owner&gt;.png</code> 拿仓库头像；
+    09 号就是「有头像时」的样子（占位图，不是真图），位置和尺寸与 01–08 完全一致，
+    到时候只换 <code>.av</code> 里的内容，布局一行都不用改。
+  </p>
+  <h3>本地路径的 9 种摆法</h3>
+  <ul>
+    <li><b>00 原样</b>：你选的那条，不加路径 —— 只当尺子。</li>
+    <li><b>01 三行</b>：路径当第三行（最直白，代价 +14px 高）。</li>
+    <li><b>02 路径右贴</b>：路径挤到第一行右侧，高度不变；300px 里只剩 106px 给路径，会省略。</li>
+    <li><b>03 路径条</b>：下方独立一段 + COPY，路径和动作配对，最清楚，代价 +20px。</li>
+    <li><b>04 折叠</b>：平时只露尾段，悬停展开完整路径 + COPY（两格画了两态）。最省，多一层状态。</li>
+    <li><b>05 面包屑</b>：<code>⌂ / opt / Nous-skills</code> 分节，可点某一节复制。好看，但点中哪节会误触。</li>
+    <li><b>06 右侧双读数</b>：LOCAL / REMOTE 竖排 9px 读数，像仪器。信息最密，字最小。</li>
+    <li><b>07 双徽标</b>：GitHub mark + 右下角「本地盘」小圆标，路径第三行。语义最全（远端 + 本地）。</li>
+    <li><b>08 换底路径段</b>：路径段用 <code>#0a0a0a</code> 换底，视觉上「这是另一层信息」。</li>
+    <li><b>09 头像位</b>：01 的布局，只把图标换成圆形头像 —— 验「有 avatar 时」不会挤。</li>
+  </ul>
+  <h3>我的推荐</h3>
+  <p>
+    <b>03 路径条</b>：上段是 02 原样（头像 + 仓名 + 分支 / 待发布 + 圆按钮），下段是
+    <code>/opt/Nous-skills</code> + COPY，一条 hairline 隔开。理由：路径是「排查时才要」的信息，
+    不该挤在两行里跟仓名抢宽度；而 COPY 是它唯一的动作，摆在一起才不用猜。
+    <br>次选 <b>04 折叠</b>：极简派的答案，但「路径默认不显示」和你要的「要有本地路径」差半个身位。
+  </p>
+</section>
+
+<div id="toast"></div>
+
+<script>
+/* ── 真数据（j1900，2026-11-28 实测） ─────────────────────────── */
+const R = { owner:'JoeWest9966', name:'Nous-skills', root:'/opt/Nous-skills',
+  branch:'main', head:'a2adba9', pend:2, url:'https://github.com/JoeWest9966/Nous-skills' };
+const REPOS = {
+  skills:  { name:'Nous-skills',  root:'/opt/Nous-skills',  branch:'main', pend:2,
+             url:'https://github.com/JoeWest9966/Nous-skills' },
+  prompts: { name:'Nous-prompts', root:'/opt/Nous-prompts', branch:'main', pend:5,
+             url:'https://github.com/JoeWest9966/Nous-prompts' },
+  /* 扩展仓现在就在特性分支上；「5 处」只数扩展目录（artifacts/ 与 deleted-extensions.json 不算） */
+  /* 故意**不给 url**：引擎 status 里没有 remote —— 所以扩展这条不画 ↗，就是降级后的真样子 */
+  extend:  { name:'Nous-extend',  root:'/opt/Nous-extend',
+             branch:'feat/skills-upstream-source', pend:5 },
+};
+
+const ROWS = [
+  { n:'code-review',         d:'审查从某个点以来的改动：标准 + 规格两条轴，别只夸好' },
+  { n:'deep-dive',           d:'针对一个技术问题做深挖：先列假设，再找反证，最后给结论和代价' },
+  { n:'draft-weekly',        d:'把这几天的会议、邮件、聊天整理成一份周报', chip:'未提交', chipCls:'warn' },
+  { n:'incident-postmortem', d:'事故复盘：时间线、根因、修复、以及下一次不会再发生的那一条' },
+  { n:'scratch-notes',       d:'随手记：临时想法、半截结论、以后可能要捡回来的东西' },
+  { n:'tdd',                 d:'测试先行：先写会红的测试，再写到绿' },
+];
+
+/* 提示词：单值（一条会话只带一条），所以有「默认」chip；未提交的照引擎真状态 */
+const ROWS_PROMPTS = [
+  { n:'smart-ass',    d:'默认模板 · 每轮都带', chip:'默认' },
+  { n:'one-sentence', d:'一句话说清', chip:'' },
+  { n:'demo-weekly',  d:'周报模板（未提交）', chip:'未提交', chipCls:'warn' },
+  { n:'demo-diary',   d:'日记（未提交）', chip:'未提交', chipCls:'warn' },
+  { n:'demo-diagram', d:'画图（未提交）', chip:'未提交', chipCls:'warn' },
+];
+/* 扩展：核心三条装 / 卸被 403 挡回来，所以标「核心」；123 是加载失败的旧 TS 扩展 */
+const ROWS_EXT = [
+  { n:'nous',    d:'agent 在 Nous 里的自我介绍 + 当前工作目录', chip:'核心' },
+  { n:'prompts', d:'扫提示词私库，把选中的那条渲染进系统提示词', chip:'核心' },
+  { n:'skills',  d:'扫技能仓，把选中的技能渲染成 <available_skills>', chip:'核心' },
+  { n:'test',    d:'探针扩展', chip:'未提交', chipCls:'warn' },
+  { n:'123',     d:'旧的 TS 扩展（待归档）', chip:'加载失败', chipCls:'bad' },
+];
+
+const GH = `<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.09.68-.22.68-.48v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.57 2.34 1.12 2.91.85.09-.66.35-1.12.63-1.38-2.22-.26-4.55-1.14-4.55-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.05.36.32.68.94.68 1.9v2.82c0 .27.18.58.69.48A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>`;
+const ARROW = `<svg class="arrow" viewBox="0 0 12 12"><path d="M3.5 8.5 8.5 3.5M8.5 3.5H4.6M8.5 3.5v3.9"/></svg>`;
+const AVPH = `<svg class="avph" viewBox="0 0 28 28"><rect width="28" height="28" rx="14" fill="currentColor" opacity=".16"/><circle cx="14" cy="11" r="4.2" fill="currentColor" opacity=".5"/><path d="M5.5 25c0-4.8 3.8-7.6 8.5-7.6s8.5 2.8 8.5 7.6" fill="currentColor" opacity=".5"/></svg>`;
+const T = (m) => `data-toast="${m.replace(/"/g, '&quot;')}"`;
+const meta = `<span class="m">${R.branch}</span><span class="sep">·</span><span class="warn">${R.pend} 处待发布</span>`;
+
+/* 三段各自的树栏：段按钮三个都画（数字=各段条目数），只变高亮；下面两行随段变 */
+const TREES = {
+  skills:  { on:0, cats:[['未分类',6],['隐藏（模型看不见）',1]] },
+  prompts: { on:1, cats:[['未分类',5],['默认',null,'smart-ass']] },
+  extend:  { on:2, cats:[['启用中',5],['加载失败',1]] },
+};
+function treeHtml(seg) {
+  const t = TREES[seg] || TREES.skills;
+  const segs = [['技能',6],['提示词',5],['扩展',5]]
+    .map(([n, c], i) => `<div class="seg${i === t.on ? ' on' : ''}">${n}  ${c}</div>`).join('');
+  const cats = t.cats.map(([label, n, val]) =>
+    `<div class="cat">${label}<span class="n">${n === null ? val : n}</span></div>`).join('');
+  return `<div class="h">资源</div><div class="segs">${segs}</div>${cats}`;
+}
+
+/* 03 的仓片本体：上段（头像 + 仓名 + 分支/待发布 + 圆按钮）+ 路径条（路径 + COPY）。
+   `branchDisp` 只影响显示，`branch` 是完整值（进 title）。
+   `url` 缺省 = 没有 remote → **不画**那个圆按钮（不猜、不降级）。 */
+function plaque(o, cls = '') {
+  const dot = o.pend ? ' dot' : '';
+  const go = o.url ? `<button class="go" ${T('打开 ' + o.url)}>${ARROW}</button>` : '';
+  return `<div class="foot v3${cls}">
+    <div class="top"><span class="av${dot}">${GH}</span>
+      <div class="bd"><div class="nm">${o.name}</div>
+        <div class="meta"><span class="m" title="${o.branch}">${o.branchDisp || o.branch}</span>
+          <span class="sep">·</span><span class="warn">${o.pend} 处待发布</span></div></div>
+      ${go}</div>
+    <div class="bar3"><span class="path">${o.root}</span>
+      <button class="copy" ${T('复制 ' + o.root)}>Copy</button></div>
+  </div>`;
+}
+
+function listCol(foot, opt = {}) {
+  const head = opt.head || '技能';
+  const search = opt.search || '搜技能：名字 / 描述';
+  const count = opt.count ?? 6;
+  const rows = (opt.rows || ROWS).slice(0, opt.limit || 9).map((x) => {
+    const chip = x.chip ? `<span class="chip ${x.chipCls || ''}">${x.chip}</span>` : '';
+    return `<div class="row"><div class="l1"><span class="nm">${x.n}</span>${chip}</div>
+      <div class="sm">${x.d}</div></div>`;
+  }).join('');
+  return `<div class="listtop"><span class="t">${head}</span><span class="sp"></span>
+      <button class="newbtn">＋ 新建</button></div>
+    <div class="search"><span class="i">⌕</span><span class="q">${search}</span><span class="n">${count}</span></div>
+    <div>${rows}</div><div class="fill"></div>${foot}`;
+}
+
+/* ── 9 个变体 ──────────────────────────────────────────────────── */
+const CELLS = [
+
+{ no:'00', title:'原样（基线）', tag:'as chosen', h:'50px',
+  cap:'你选的 02 原样：头像 + 仓名 + 分支/待发布 + 圆按钮。下面 9 个都是往这条上加本地路径的摆法，拿它当尺子。',
+  dep:'依赖：<em>remote（缺）</em> + status（有）；高度 <em>50</em>',
+  foot: `<div class="foot v0">
+    <span class="av dot">${GH}</span>
+    <div class="bd"><div class="nm">${R.name}</div><div class="meta">${meta}</div></div>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'01', title:'三行', tag:'path as 3rd line', h:'62px',
+  cap:'路径当第三行：9.5px mono、dim、整行可点（复制）。最直白，代价是比原版高 14px。',
+  dep:'依赖：<em class="ok">root（有）</em>；高度 <em>62</em>',
+  foot: `<div class="foot v1">
+    <span class="av dot">${GH}</span>
+    <div class="bd"><div class="nm">${R.name}</div><div class="meta">${meta}</div>
+      <button class="path" ${T('复制 ' + R.root)}>${R.root}</button></div>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'02', title:'路径右贴', tag:'right aligned', h:'50px',
+  cap:'高度不变（和原版一样 50px）：路径挤到第一行右侧，第二行只留分支和待发布。300px 里路径只剩 106px，会省略。',
+  dep:'依赖：<em class="ok">root（有）</em>；高度 <em>50</em>（不变）',
+  foot: `<div class="foot v2">
+    <span class="av dot">${GH}</span>
+    <span class="nm">${R.name}</span>
+    <button class="pt" ${T('复制 ' + R.root)}>${R.root}</button>
+    <span class="mt">${meta}</span>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'03', title:'路径条', tag:'path bar + copy', h:'70px',
+  cap:'上段是 02 原样，下段独立一条：路径 + COPY，一条 14% hairline 隔开。路径不跟仓名抢宽度。',
+  dep:'依赖：<em class="ok">root（有）</em>；高度 <em>70</em>',
+  foot: plaque(REPOS.skills) },
+
+{ no:'04', title:'折叠（收起）', tag:'collapsed', h:'50px',
+  cap:'平时只露尾段（前面一个 8px 空框 = 「本地」标记），悬停才展开完整路径。最省视觉。',
+  dep:'依赖：<em class="ok">root（有）</em>；高度 <em>50</em>',
+  foot: `<div class="foot v4">
+    <span class="av dot">${GH}</span>
+    <div class="bd"><div class="nm">${R.name}</div><div class="meta">${meta}</div>
+      <div class="short"><span class="tick"></span><span class="path">…/Nous-skills</span></div></div>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'04b', title:'折叠（展开）', tag:'expanded', h:'62px',
+  cap:'同一套的悬停态：露出完整路径 + COPY。收起 / 展开只差一行，不跳位置。',
+  dep:'依赖：<em class="ok">root（有）</em>；高度 <em>62</em>',
+  foot: `<div class="foot v4 open">
+    <span class="av dot">${GH}</span>
+    <div class="wrap"><div class="nm">${R.name}</div><div class="meta">${meta}</div>
+      <div class="pt"><span class="path">${R.root}</span>
+        <button class="copy" ${T('复制 ' + R.root)}>Copy</button></div></div>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'05', title:'面包屑', tag:'breadcrumb', h:'62px',
+  cap:'路径拆成 ⌂ / opt / Nous-skills 三节，每节可点（点到哪节复制哪节），末节亮一档。',
+  dep:'依赖：<em class="ok">root（有）</em>；高度 <em>62</em>',
+  foot: `<div class="foot v5">
+    <span class="av dot">${GH}</span>
+    <div class="bd"><div class="nm">${R.name}</div><div class="meta">${meta}</div>
+      <div class="crumbs"><button class="c" data-toast="复制 /">⌂</button><span class="s">/</span>
+        <button class="c" data-toast="复制 /opt/">opt</button><span class="s">/</span>
+        <button class="c last" data-toast="复制 /opt/Nous-skills">Nous-skills</button></div></div>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'06', title:'右侧双读数', tag:'local / remote', h:'52px',
+  cap:'左：头像 + 仓名 + 分支。右：两行读数，⌂ = 本地路径、↗ = 远端，8.5px mono。信息最密的一套。',
+  dep:'依赖：<em>remote（缺）</em> + root（有）；高度 <em>52</em>',
+  foot: `<div class="foot v6">
+    <span class="av dot">${GH}</span>
+    <div class="bd"><div class="nm">${R.name}</div><div class="meta">${meta}</div></div>
+    <div class="read">
+      <div class="r"><span class="k" title="本地路径">⌂</span><button class="val" ${T('复制 ' + R.root)}>/opt/Nous-skills</button></div>
+      <div class="r"><span class="k" title="远端">↗</span><button class="val" ${T('打开 ' + R.url)}>…/Nous-skills</button></div>
+    </div>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'07', title:'双徽标', tag:'github + local', h:'62px',
+  cap:'GitHub mark 主徽标，右下角一枚 13px「本地盘」小圆标；路径第三行。语义最全：这个仓既是远端的、也在本地。',
+  dep:'依赖：<em>remote（缺）</em> + root（有）；高度 <em>62</em>',
+  foot: `<div class="foot v7">
+    <span class="av dot">${GH}<span class="local" title="本地私库">⌂</span></span>
+    <div class="bd"><div class="nm">${R.name}</div><div class="meta">${meta}</div>
+      <button class="path" ${T('复制 ' + R.root)}>${R.root}</button></div>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'08', title:'换底路径段', tag:'inset band', h:'70px',
+  cap:'路径段换成 #0a0a0a 底（比列表深一档），左边一个 LOCAL 标签。视觉上「这是另一层信息」，不用线也能分开。',
+  dep:'依赖：<em class="ok">root（有）</em>；高度 <em>70</em>',
+  foot: `<div class="foot v8">
+    <div class="top"><span class="av dot">${GH}</span>
+      <div class="bd"><div class="nm">${R.name}</div><div class="meta">${meta}</div></div>
+      <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button></div>
+    <div class="pathsec"><span class="lab9">Local</span>
+      <span class="path">${R.root}</span>
+      <button class="copy" ${T('复制 ' + R.root)}>Copy</button></div>
+  </div>` },
+
+{ no:'09', title:'头像位（已砍）', tag:'dropped', h:'62px',
+  cap:'<b style="color:#c9a227">已砍</b> —— 不做头像抓取（不请求 github.com、不做缓存/回落）。这一格只留作记录：真要做的话布局会是这样。',
+  dep:'依赖：<em>avatar（缺，现在是占位）</em> + root（有）；高度 <em>62</em>',
+  foot: `<div class="foot v9">
+    <span class="av dot">${AVPH}</span>
+    <div class="bd"><div class="nm">${R.name}</div><div class="meta">${meta}</div>
+      <button class="path" ${T('复制 ' + R.root)}>${R.root}</button></div>
+    <button class="go" ${T('打开 ' + R.url)}>${ARROW}</button>
+  </div>` },
+
+{ no:'10a', seg:'skills', title:'技能页（真数据）', tag:'skills', h:'70',
+  cap:'技能段原样：列表行是 6 条真技能，底部就是技能仓的仓片。',
+  dep:'依赖：<em class="ok">status + 清单 tracked（有）</em>',
+  rows: ROWS, head:'技能', search:'搜技能：名字 / 描述', count:6,
+  foot: plaque(REPOS.skills) },
+
+{ no:'10b', seg:'prompts', title:'提示词页（真数据）', tag:'prompts', h:'70',
+  cap:'切到提示词段：列表行换成 5 条真提示词（「默认」= settings.json 的 default），底部换成提示词仓。同一个组件，一行调用点的差别。',
+  dep:'依赖：<em class="ok">status + 清单 tracked（有）</em>',
+  rows: ROWS_PROMPTS, head:'提示词', search:'搜提示词：名字 / 摘要', count:5,
+  foot: plaque(REPOS.prompts) },
+
+{ no:'10c', seg:'extend', title:'扩展页（真数据）', tag:'extend', h:'70',
+  cap:'切到扩展段：行换成扩展（核心三条 / 未提交 / 加载失败），仓片换成 extend。分支是 feat/skills-upstream-source，而且**没有 ↗** —— 它没有 remote。',
+  dep:'依赖：<em class="ok">status（有）</em>；「5 处」只数扩展目录',
+  rows: ROWS_EXT, head:'扩展', search:'搜扩展：名字 / 说明', count:5,
+  foot: plaque(REPOS.extend) },
+
+{ no:'11', title:'长分支 · 中间省略', tag:'ellipsis mid', h:'70',
+  cap:'扩展的 feat/skills-upstream-source：留头留尾、中间省略。看得出是特性分支，也看得出末尾；完整值进 title。',
+  dep:'依赖：<em class="ok">status（有）</em>',
+  foot: plaque({ ...REPOS.extend, branchDisp: 'feat/skills…source' }) },
+
+{ no:'12', title:'长分支 · 尾部省略', tag:'ellipsis tail', h:'70',
+  cap:'尾部省略，只留开头。最省事，但两个同前缀的 feat 分支会长得一样。',
+  dep:'依赖：<em class="ok">status（有）</em>',
+  foot: plaque({ ...REPOS.extend, branchDisp: 'feat/skills-upst…' }) },
+
+{ no:'13', title:'长分支 · 只留前缀', tag:'prefix only', h:'70',
+  cap:'只显示 feat/…（说明「不在主干」就够了），完整值进 title。最干净，代价是看不出具体哪个分支。',
+  dep:'依赖：<em class="ok">status（有）</em>',
+  foot: plaque({ ...REPOS.extend, branchDisp: 'feat/…' }) },
+];
+
+/* ── 渲染 ─────────────────────────────────────────────────────── */
+const bigList = document.getElementById('bigList');
+const grid = document.getElementById('grid');
+const picks = document.getElementById('picks');
+
+function putBig(i) {
+  const c = CELLS[i];
+  document.getElementById('bigTree').innerHTML = treeHtml(c.seg || 'skills');
+  bigList.innerHTML = listCol(c.foot, { limit: 6, rows: c.rows, head: c.head, search: c.search, count: c.count });
+  [...picks.children].forEach((b, k) => b.classList.toggle('on', k === i));
+}
+picks.innerHTML = CELLS.map((c, i) =>
+  `<button data-pick="${i}" class="${i === 0 ? 'on' : ''}">${c.no} ${c.title}</button>`).join('');
+grid.innerHTML = CELLS.map((c) => `<figure class="cell">
+  <div class="thumbscreen">${listCol(c.foot, { limit: 4, rows: c.rows, head: c.head, search: c.search, count: c.count })}</div>
+  <figcaption class="cap">
+    <div class="cap-h"><b>${c.no}</b>${c.title}<i>${c.tag}</i></div>
+    <p>${c.cap}</p><p class="h">${c.dep}</p>
+  </figcaption></figure>`).join('');
+putBig(0);
+/* ?pick=10c 直接定位到某一格（截图/验收用） */
+const _pick = new URLSearchParams(location.search).get('pick');
+if (_pick) {
+  const i = CELLS.findIndex(c => c.no === _pick);
+  if (i >= 0) putBig(i);
+}
+
+/* ── 交互 ─────────────────────────────────────────────────────── */
+const toast = document.getElementById('toast');
+let timer = null;
+const say = (m) => { toast.textContent = m; toast.classList.add('on');
+  clearTimeout(timer); timer = setTimeout(() => toast.classList.remove('on'), 2200); };
+if (location.hash === '#default') {
+  document.body.dataset.skin = 'default';
+  document.querySelectorAll('[data-skin-set]')
+    .forEach(b => b.classList.toggle('on', b.dataset.skinSet === 'default'));
+}
+document.addEventListener('click', (e) => {
+  const pick = e.target.closest('[data-pick]');
+  if (pick) { putBig(+pick.dataset.pick); return; }
+  const t = e.target.closest('[data-toast]');
+  if (t) { say(t.dataset.toast); return; }
+  const skin = e.target.closest('[data-skin-set]');
+  if (skin) {
+    document.body.dataset.skin = skin.dataset.skinSet;
+    document.querySelectorAll('[data-skin-set]').forEach(b => b.classList.toggle('on', b === skin));
+  }
+});
+</script>
+</body>
+</html>

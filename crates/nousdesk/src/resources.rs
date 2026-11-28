@@ -28,13 +28,14 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_kit::component::{Icon, Sizable as _};
+use gpui_kit::component::{Icon, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use nous_engine::types::{
     ExtCategories, Extensions, Prompt, Prompts, RepoArchive, RepoVariants, Skill, Skills, TrashList,
 };
+use nous_engine::{ellipsis_middle, pending_unit_count, Repo, RepoPending, RepoStatus};
 
 use crate::app::Desktop;
 use crate::category::{CatNode, build_tree, is_under};
@@ -42,6 +43,16 @@ use crate::category::{CatNode, build_tree, is_under};
 fn t() -> crate::theme::Skin {
     crate::theme::cur()
 }
+
+/// 底部仓片的徽标：GitHub mark（内联 SVG，填色版）。不请求 github.com、不抓头像。
+const GH_MARK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.09.68-.22.68-.48v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.57 2.34 1.12 2.91.85.09-.66.35-1.12.63-1.38-2.22-.26-4.55-1.14-4.55-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.05.36.32.68.94.68 1.9v2.82c0 .27.18.58.69.48A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>"##;
+
+/// 有远端时那个圆按钮里的箭头（右上）。
+const ARROW_UP_RIGHT: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5 8.5 3.5M8.5 3.5H4.6M8.5 3.5v3.9"/></svg>"##;
+
+/// 分支在仓片 meta 行里最多占几个字符（300px 列 + 10px mono）。超了走中间省略，
+/// 完整值进 tooltip。18 能让 `feat/skills-upstream-source` 变成 `feat/skills…source`。
+const BRANCH_MAX_CHARS: usize = 18;
 
 /// 三个段，平铺：技能 / 提示词 / 扩展。
 ///
@@ -71,6 +82,15 @@ impl Section {
             Self::Skills => 0,
             Self::Prompts => 1,
             Self::Extensions => 2,
+        }
+    }
+
+    /// 这一段对应的私库（`/v1/repos/{repo}/*` 用的仓名）。
+    pub(crate) fn repo(self) -> Repo {
+        match self {
+            Self::Skills => Repo::Skills,
+            Self::Prompts => Repo::Prompts,
+            Self::Extensions => Repo::Extensions,
         }
     }
 }
@@ -168,6 +188,19 @@ impl ResCol {
     }
 }
 
+/// 一个段的仓探针（底部仓片用）：`status` 画仓名 / 分支 / 路径 / 脏点 / ↗，
+/// `pending` 算「N 处待发布」。两样分开存：一份挂了只降级它自己那一半。
+///
+/// **切换段才拉、拉到就缓存** —— 不一次 join 三个 status。`loading` / `failed`
+/// 一起管住「正在拉」与「拉失败不再自动重拉」；`force` 由刷新 / 写操作触发。
+#[derive(Default)]
+pub(crate) struct RepoProbe {
+    pub(crate) status: Option<RepoStatus>,
+    pub(crate) pending: Option<RepoPending>,
+    pub(crate) loading: bool,
+    pub(crate) failed: bool,
+}
+
 /// 这一页的全部状态。**只有这一页持有**，不塞进 `Desktop`。
 pub(crate) struct ResourceState {
     pub(crate) section: Section,
@@ -183,6 +216,8 @@ pub(crate) struct ResourceState {
     /// 垃圾站（`GET /v1/extensions/trash`）：卸载过、还没真删的源码目录。
     /// 没有它，「卸载」和「扔掉」在界面上是同一个按钮 —— 点了就再也找不回来。
     pub(crate) ext_trash: Option<TrashList>,
+    /// 三个段各自的仓探针（status + pending），按段槽位存。底部仓片读它。
+    pub(crate) probe: [RepoProbe; 3],
     /// 三个 tab 各自的类别筛选，切来切去能回到原来那一行。
     cat: [Option<String>; 3],
     /// 三段各自的搜索框。**各存一份**，切段时词还在（跟 `cat` 同款语义）。
@@ -236,6 +271,7 @@ impl ResourceState {
             ext_archive: None,
             ext_cats: None,
             ext_trash: None,
+            probe: Default::default(),
             cat: [None, None, None],
             search: [
                 box_for("搜技能：名字 / 描述"),
@@ -590,6 +626,8 @@ impl Desktop {
     /// 已经拉过且没强制就不重来 —— 跟 `load_console` 一个口径；右栏没拿到之前
     /// 不该因每帧重拉把引擎打爆。引擎还没连上时只写一句话，不启动轮询。
     pub(crate) fn load_resources(&mut self, force: bool, cx: &mut Context<Self>) {
+        // 底部仓片：跟着刷新 / 写操作失效，并且只在当前段拉 —— 不一次 join 三个 status。
+        self.ensure_repo_probe(force, cx);
         if self.resources.loading {
             return;
         }
@@ -654,7 +692,68 @@ impl Desktop {
         self.resources.section = section;
         self.resources.selected = None;
         self.load_resources(false, cx);
+        // 列表清单可能已经 hydrated（load_resources 提前返回），但仓片还得拉新的那一段。
+        self.ensure_repo_probe(false, cx);
         cx.notify();
+    }
+
+    /// 当前段的仓探针：没拉过就拉一次（status + pending 并发），已有就吃缓存。
+    /// `force` 把三段的缓存全清掉、只重拉当前段（写操作 / 手动刷新走这条）。
+    /// 拉失败只标记 `failed`，不挡列表 —— 仓片自己降级成一行文案。
+    fn ensure_repo_probe(&mut self, force: bool, cx: &mut Context<Self>) {
+        let idx = self.resources.section.slot();
+        if force {
+            for p in self.resources.probe.iter_mut() {
+                *p = RepoProbe::default();
+            }
+        }
+        if self.resources.probe[idx].loading || self.resources.probe[idx].status.is_some() {
+            return;
+        }
+        if self.resources.probe[idx].failed && !force {
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let repo = self.resources.section.repo();
+        let key = repo.repo_key().to_string();
+        self.resources.probe[idx].loading = true;
+        self.resources.probe[idx].failed = false;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let (status, pending) = tokio::join!(
+                engine.repo_status(&key),
+                engine.repo_pending(&key),
+            );
+            let _ = this.update(cx, |this, cx| {
+                let p = &mut this.resources.probe[idx];
+                p.loading = false;
+                match status {
+                    Ok(s) => p.status = Some(s),
+                    Err(e) => {
+                        p.failed = true;
+                        log::warn!("仓状态拉不到（{key}）：{e}");
+                    }
+                }
+                if let Ok(pen) = pending {
+                    p.pending = Some(pen);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// COPY 路径条：走现有剪贴板通道，提示里说清「复制的是引擎那台机器上的路径」——
+    /// 免得用户以为复制的是自己桌面上的路径。
+    fn copy_repo_path(&mut self, path: String, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.clone()));
+        self.notify(
+            format!("已复制引擎那台机器上的路径：{path}"),
+            crate::app::NoticeKind::Info,
+            cx,
+        );
     }
 
     pub(crate) fn resource_cat(&mut self, cat: Option<String>, cx: &mut Context<Self>) {
@@ -1086,6 +1185,209 @@ fn trash_row(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
         .into_any_element()
 }
 
+/// 资源页中间列底部的仓片（三段共用一套）。
+///
+/// 形态照 `demo/repo-footer/v02` 的 03：上段是 GitHub mark、仓名、`分支 · N 处待发布`、
+/// 以及「有 remote 才有」的 ↗；下段一条 hairline 隔开的路径条 + COPY。高约 70。
+/// 三段只差数据：仓名 / 分支 / 路径 / 处数。
+fn repo_plaque(r: &ResourceState, cx: &mut Context<Desktop>) -> AnyElement {
+    let idx = r.section.slot();
+    let repo = r.section.repo();
+    let probe = &r.probe[idx];
+
+    // status 拉失败：只降级这一行，不挡列表（列表照常可看）。
+    if probe.failed {
+        return div()
+            .flex_none()
+            .border_t(t().d(1.))
+            .border_color(rgb(t().p.line_soft))
+            .px(t().d(12.))
+            .py(t().d(9.))
+            .text_size(t().fs(10.))
+            .text_color(rgb(muted()))
+            .child("仓状态暂时拿不到")
+            .into_any_element();
+    }
+    let Some(status) = probe.status.as_ref() else {
+        // 还没拉回来：先不占位（拉到就出来，不闪一个空壳）。
+        return div().into_any_element();
+    };
+
+    // 仓名：取仓根本地路径的末段（`/opt/Nous-skills` → `Nous-skills`），取不到用段标签。
+    let name = status
+        .root
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| repo.label().to_string());
+
+    let full_branch = status
+        .branch
+        .clone()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "—".to_string());
+    let branch_disp = ellipsis_middle(&full_branch, BRANCH_MAX_CHARS);
+    let count = probe
+        .pending
+        .as_ref()
+        .map(|p| pending_unit_count(repo, &p.units));
+
+    // 徽标：28 方框 + 16px GitHub mark；脏时右下角一颗白点。
+    let mut avatar = div()
+        .relative()
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(t().d(28.))
+        .rounded(t().r(6.))
+        .border(t().d(1.))
+        .border_color(rgb(t().p.text).opacity(0.28))
+        .bg(rgb(t().p.panel))
+        .child(
+            Icon::empty()
+                .data(GH_MARK)
+                .with_size(Size::Size(t().d(16.)))
+                .text_color(rgb(t().p.text_2)),
+        );
+    if status.dirty {
+        avatar = avatar.child(
+            div()
+                .absolute()
+                .bottom(t().d(-2.))
+                .right(t().d(-2.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(t().d(9.))
+                .rounded_full()
+                .bg(rgb(t().p.panel))
+                .child(div().size(t().d(5.)).rounded_full().bg(rgb(t().p.text))),
+        );
+    }
+
+    // 元信息：`分支 · N 处待发布`。分支超宽走中间省略（完整值在 status.branch 里）。
+    let mut meta = div()
+        .flex()
+        .items_center()
+        .gap(t().d(5.))
+        .text_size(t().fs(10.))
+        .text_color(rgb(muted()))
+        .whitespace_nowrap()
+        .child(
+            div()
+                .font_family("JetBrainsMono")
+                .text_color(rgb(muted()))
+                .child(branch_disp),
+        );
+    if let Some(n) = count {
+        meta = meta
+            .child(div().text_color(rgb(t().p.text).opacity(0.4)).child("·"))
+            .child(
+                div()
+                    .text_color(rgb(t().p.text_2))
+                    .child(format!("{n} 处待发布")),
+            );
+    }
+
+    let body = div()
+        .flex_1()
+        .min_w(t().d(0.))
+        .flex()
+        .flex_col()
+        .gap(t().d(3.))
+        .child(
+            div()
+                .truncate()
+                .text_size(t().fs(12.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(rgb(text_color()))
+                .child(name),
+        )
+        .child(meta);
+
+    let mut top = div()
+        .flex()
+        .items_center()
+        .gap(t().d(11.))
+        .px(t().d(12.))
+        .pt(t().d(10.))
+        .pb(t().d(9.))
+        .child(avatar)
+        .child(body);
+    // 没有 remote 就不画那个 → 圆按钮（不猜、不降级）。
+    if status.remote.is_some() {
+        top = top.child(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(t().d(26.))
+                .rounded_full()
+                .border(t().d(1.))
+                .border_color(rgb(t().p.text).opacity(0.28))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child(
+                    Icon::empty()
+                        .data(ARROW_UP_RIGHT)
+                        .with_size(Size::Size(t().d(12.)))
+                        .text_color(rgb(t().p.text_2)),
+                ),
+        );
+    }
+
+    // 下段路径条：`/opt/Nous-skills` + COPY，一条 14% hairline 隔开。
+    let path = status.root.clone();
+    let copy_path = path.clone();
+    let bar = div()
+        .flex()
+        .items_center()
+        .gap(t().d(6.))
+        .pl(t().d(12.))
+        .pr(t().d(8.))
+        .pt(t().d(5.))
+        .pb(t().d(6.))
+        .border_t(t().d(1.))
+        .border_color(rgb(t().p.text).opacity(0.14))
+        .child(
+            div()
+                .flex_1()
+                .min_w(t().d(0.))
+                .truncate()
+                .text_size(t().fs(9.5))
+                .font_family("JetBrainsMono")
+                .text_color(rgb(muted()))
+                .child(path),
+        )
+        .child(
+            div()
+                .id("res-repo-copy")
+                .flex_none()
+                .cursor_pointer()
+                .text_size(t().fs(8.5))
+                .text_color(rgb(muted()))
+                .hover(|el| el.text_color(rgb(text_color())))
+                .child("COPY")
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.copy_repo_path(copy_path.clone(), cx);
+                })),
+        );
+
+    div()
+        .flex_none()
+        .flex()
+        .flex_col()
+        .border_t(t().d(1.))
+        .border_color(rgb(t().p.line_soft))
+        .bg(rgb(t().p.panel))
+        .child(top)
+        .child(bar)
+        .into_any_element()
+}
+
 fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyElement {
     let r = &desk.resources;
     let slot = r.slot();
@@ -1361,7 +1663,7 @@ fn render_list(desk: &Desktop, cx: &mut Context<Desktop>, narrow: bool) -> AnyEl
             }
         }
     }
-    list.child(body).into_any_element()
+    list.child(body).child(repo_plaque(r, cx)).into_any_element()
 }
 
 /// 哪一段在画占位（决定「在等什么」那句话）。

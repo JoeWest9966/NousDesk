@@ -65,6 +65,10 @@ pub use elements::{
     ElementResolved, Elements,
 };
 pub use pins::{PinClient, PinError, pin_paths};
-pub use resource::{NewExtension, NewPrompt, NewSkill, Repo, ResourceFile, ResourceFileEntry, ResourceFiles, SaveFile};
+pub use resource::{
+    ellipsis_middle, is_repo_level_file, pending_unit_count, NewExtension, NewPrompt, NewSkill, Repo,
+    RepoPending, RepoPendingUnit, RepoStatus, ResourceFile, ResourceFileEntry, ResourceFiles, SaveFile,
+    REPO_LEVEL_NAMES,
+};
 pub use sse::{Change, SseError, SseEvent};
 pub use triggers::TriggerClient;

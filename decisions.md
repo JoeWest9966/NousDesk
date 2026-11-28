@@ -1806,3 +1806,32 @@ SVG + `Icon::data`。反悔点：如果哪天段名缩写或列宽加大，图�
 **反悔点**：若拖拽在真桌面（Wayland）上不顺（ghost/落点线画不出来、触控板误触），
 就砍掉拖拽只留 `▲▼`（`▲▼` 是无障碍路径，也照样能排）；反过来如果用户觉得行式太挤，
 回 `demo/` 出两版密度稿。
+
+## 2026-11-28 · 资源页中间列底部仓片：三段共用一个 `repo_plaque`（Desk#23）
+
+资源页三段（技能 / 提示词 / 扩展）的中间列底部原来是空的，现在放同一个仓片：这一段是哪个私库、
+在哪台机的哪个目录、脏不脏、有几处待发布。设计过了 demo（`demo/repo-footer/v02` 的 03 路径条 +
+11 长分支中间省略），落成一个函数 `repo_plaque()`，三段只差数据（仓名 / 分支 / 路径 / 处数）。
+
+**为什么一个组件而不是三份**：三段的形态逐像素相同，差别只在「仓名 / 分支 / 路径 / 处数怎么算」。
+写三份等于三处一起改、三处一起漂；一个函数 + 三份数据，改版式只动一处。分支超宽走**中间省略**
+（前缀留 2/3、后缀留 1/3，完整值进 tooltip），因为 `feat/skills-upstream-source` 在 300px 放不下，
+中间省略既看得出是 `feat/` 又看得出 `source`（尾部省略会让同前缀分支长得一样）。
+
+**「处」的口径**：`处数 = GET /v1/repos/{repo}/pending` 的 `units` 条数；**扩展**要扣掉仓级簿记文件
+（`artifacts/`、`deleted-extensions.json`、`categories.json`、`index.json`），它们不是可发布的内容单元。
+名单只在 `nous-engine::resource::REPO_LEVEL_NAMES` 写一次，`pending_unit_count()` 统一算，单测钉住。
+对齐 j1900 真数据：skills `main` 2 处、prompts `main` 5 处、extend `feat/skills-upstream-source` 5 处
+（raw 7 条 − artifacts − deleted-extensions.json）。技能 / 提示词的 roster `tracked` 从 Nous#71 起恒
+`null`，所以处数只能走 pending，别拿 `tracked==false` 数（那会永远 0）。
+
+**无 remote 不画 ↗**：`GET /v1/repos/{repo}/status` 现在只回 `{root, head, branch, ahead, behind, dirty,
+locked}`，`remote` 是软依赖（内核补了才有）。缺字段 = 没远端 = **不画**那个 → 圆按钮（不猜、不降级）；
+`remote` 出现后再画，点击行为留空实现（等内核票）。`RepoStatus.remote` 收 `Option<String>`，透传未知字段。
+
+**拉取**：切段只拉**当前段**的 `status` + `pending`（缓存；刷新 / 写操作 `force` 失效重拉），不一次
+`join` 三个 status。status 拉失败只把仓片降级成一行「仓状态暂时拿不到」，不挡列表。
+
+**反悔点**：① 若内核哪天给了 `avatar` 而不是 GitHub mark，只换 `.av` 里的图标内容，布局不动；
+② 若「处」的口径要扩展到技能 / 提示词也扣仓级文件，只改 `pending_unit_count` 一处并补单测；
+③ 若真桌面觉得 70 高太占，回 demo 出「折叠（04）」那套（收起只露尾段，悬停展开）。
