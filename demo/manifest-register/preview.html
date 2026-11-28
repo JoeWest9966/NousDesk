@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>一个插件该怎么算「登记」—— AboutME 关系网那件事</title>
+<style>
+:root{
+  --bg:#000; --fg:#eee; --dim:#8d8d8d; --faint:#5b5b5b; --ghost:#3a3a3a;
+  --line:#2a2a2a; --line2:#161616; --sel:#131313;
+  --vend:#d97757; --vend-dim:#3a2018; --vend-bg:#170e0a;
+  --warn:#d9a54a; --warn-dim:#3a2c10; --warn-bg:#191308;
+  --ok:#6aa47a; --ok-dim:#22331f; --bad:#c2534a; --bad-dim:#2e1512;
+  --mono:"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#000;color:var(--fg);
+  font:14px/1.75 "Inter",-apple-system,"Segoe UI","Noto Sans CJK SC","PingFang SC",sans-serif;
+  -webkit-font-smoothing:antialiased}
+body{padding:44px 0 100px}
+.wrap{width:1000px;margin:0 auto;padding:0 20px}
+.mono{font-family:var(--mono)}
+
+/* ── 抬头 ── */
+.hero{margin-bottom:44px;border-left:2px solid var(--vend);padding-left:18px}
+.hero .kicker{font:11px/1.6 var(--mono);letter-spacing:1.2px;color:var(--vend);margin-bottom:10px}
+.hero h1{margin:0 0 14px;font-size:27px;font-weight:600;letter-spacing:-.2px;line-height:1.35}
+.hero p{margin:0;color:var(--dim);font-size:14px;max-width:74ch}
+.hero code{font-family:var(--mono);font-size:12.5px;background:#151515;color:#d8d8d8;
+  padding:1px 5px;border-radius:2px}
+
+/* ── 幕 ── */
+.act{margin:0 0 46px}
+.act > h2{display:flex;align-items:baseline;gap:12px;margin:0 0 6px;font-size:17px;font-weight:600}
+.act > h2 .no{font:11px/1 var(--mono);color:var(--ghost);letter-spacing:1px;flex:none;
+  border:1px solid var(--line);padding:3px 6px;border-radius:2px}
+.act > .sub{margin:0 0 20px 0;padding-left:44px;color:var(--dim);font-size:13px;max-width:76ch}
+.act > .body{padding-left:44px}
+@media(max-width:760px){ .act>.sub,.act>.body{padding-left:0} .wrap{padding:0 14px} }
+
+/* ── 卡片 ── */
+.card{border:1px solid var(--line);background:#070707;padding:16px 18px;margin:0 0 14px}
+.card h3{margin:0 0 8px;font-size:13.5px;font-weight:600;color:var(--fg)}
+.card p{margin:0 0 8px;font-size:13px;color:var(--dim)}
+.card p:last-child{margin-bottom:0}
+.card code{font-family:var(--mono);font-size:12px;color:#cfcfcf}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 14px}
+@media(max-width:820px){ .two{grid-template-columns:1fr} }
+.opt{border:1px solid var(--line);background:#070707;padding:16px 18px;position:relative}
+.opt.a{border-color:#2f4a35;background:#06100a}
+.opt.b{border-color:#4a2f2f;background:#100808}
+.opt .tag{font:10px/1 var(--mono);letter-spacing:1px;padding:3px 7px;border-radius:2px;
+  display:inline-block;margin-bottom:10px}
+.opt.a .tag{color:var(--ok);border:1px solid var(--ok-dim);background:#0b1a0f}
+.opt.b .tag{color:var(--bad);border:1px solid var(--bad-dim);background:#1a0b0b}
+.opt h3{margin:0 0 10px;font-size:14px;font-weight:600}
+.opt ul{margin:0;padding-left:17px;font-size:12.5px;color:var(--dim);line-height:1.85}
+.opt ul li::marker{color:var(--ghost)}
+.opt .verdict{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--fg)}
+
+/* ── 清单盒子（第 1 幕） ── */
+.lists{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 16px}
+@media(max-width:820px){ .lists{grid-template-columns:1fr} }
+.lst{border:1px solid var(--line);background:#080808;padding:12px 13px}
+.lst .nm{font-family:var(--mono);font-size:11px;color:var(--dim);margin-bottom:4px}
+.lst .n{font-family:var(--mono);font-size:26px;line-height:1.2;color:var(--fg)}
+.lst .n small{font-size:11px;color:var(--faint);margin-left:5px}
+.lst .say{font-size:11.5px;color:var(--faint);margin-top:7px;line-height:1.65}
+.lst.hit{border-color:#2f4a35}
+.lst.miss{border-color:#4a2f2f}
+.lst .flag{font:10px/1 var(--mono);padding:2px 6px;float:right;border-radius:2px}
+.lst.hit .flag{color:var(--ok);border:1px solid var(--ok-dim)}
+.lst.miss .flag{color:var(--bad);border:1px solid var(--bad-dim)}
+
+/* ── 表格 ── */
+table{border-collapse:collapse;width:100%;font-size:12.5px;margin:0 0 14px}
+th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+th{background:#0d0d0d;color:var(--dim);font-weight:500;font-size:11.5px}
+td{color:var(--dim)}
+td b{color:var(--fg);font-weight:500}
+td.mono,th.mono{font-family:var(--mono);font-size:11.5px}
+
+/* ── Desk 插件页缩影 ── */
+.mock{border:1px solid var(--line);background:#000;overflow:hidden;margin:0 0 10px;width:100%}
+.mock .bar{display:flex;align-items:baseline;gap:16px;padding:8px 14px;
+  border-bottom:1px solid var(--line2);font-size:11px;color:var(--faint)}
+.mock .bar b{font-family:var(--mono);font-weight:400;color:var(--fg);font-size:12px}
+.mock .bar .sp{flex:1}
+.mock .cols{display:grid;grid-template-columns:1fr 1fr}
+@media(max-width:760px){ .mock .cols{grid-template-columns:1fr} }
+.mock .left{border-right:1px solid var(--line2);padding:8px 0}
+.mock .right{padding:12px 16px}
+.row{display:flex;align-items:center;gap:8px;padding:5px 14px;font-size:11.5px}
+.row .nm{font-family:var(--mono);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:#e4e4e4}
+.row .vend{font-size:8.5px;color:var(--vend);border:1px solid var(--vend-dim);
+  background:var(--vend-bg);padding:0 4px;line-height:12px;flex:none}
+.row .meta{font-family:var(--mono);font-size:9.5px;color:var(--faint);flex:none}
+.row.hi{background:#101010}
+.row.lib .nm{color:var(--dim)}
+.row.warn .nm{color:var(--warn)}
+.sec{font-size:9.5px;color:var(--ghost);letter-spacing:.6px;padding:8px 14px 3px;
+  border-top:1px solid var(--line2);margin-top:4px;display:flex;justify-content:space-between}
+.sec span:last-child{font-family:var(--mono)}
+.dh{font-size:15px;font-weight:600;margin:0 0 2px}
+.dsub{font-size:10px;color:var(--faint);margin:0 0 12px;font-family:var(--mono)}
+.kv{display:grid;grid-template-columns:74px 1fr;gap:3px 8px;font-size:11px}
+.kv .k{color:var(--faint)}
+.kv .v{color:var(--fg)}
+.kv .v.m{font-family:var(--mono);font-size:10.5px}
+.kv .v.x{color:var(--ghost)}
+.note{font-size:10.5px;color:var(--faint);margin-top:9px;padding-left:8px;
+  border-left:2px solid var(--line);line-height:1.7}
+.note.bad{border-left-color:#4a2f2f;color:#c99}
+.note.ok{border-left-color:#2f4a35;color:#9c9}
+
+/* ── 时间线 ── */
+.tl{position:relative;margin:0 0 16px;padding-left:24px}
+.tl::before{content:"";position:absolute;left:5px;top:6px;bottom:6px;width:1px;background:var(--line)}
+.tl .it{position:relative;margin-bottom:18px}
+.tl .it::before{content:"";position:absolute;left:-24px;top:6px;width:11px;height:11px;
+  border-radius:50%;background:#000;border:1px solid var(--ghost)}
+.tl .it.now::before{border-color:var(--ok);background:var(--ok)}
+.tl .it .v{font-family:var(--mono);font-size:11px;color:var(--ghost);margin-bottom:3px}
+.tl .it .t{font-size:13px;color:var(--fg);margin-bottom:3px}
+.tl .it .d{font-size:12px;color:var(--dim);line-height:1.7}
+.tl .it .d code{font-family:var(--mono);font-size:11px;color:#c9c9c9}
+
+/* ── 结论条 ── */
+.callout{border:1px solid #2f4a35;background:#06100a;padding:18px 20px;margin:0 0 14px}
+.callout h3{margin:0 0 10px;font-size:14px;color:var(--ok)}
+.callout p{margin:0 0 9px;font-size:13px;color:#c8d8cc;line-height:1.8}
+.callout p:last-child{margin:0}
+.callout code{font-family:var(--mono);font-size:12px;background:#0b1a0f;color:#a8c9b0;padding:1px 4px}
+.ask{border-left:2px solid var(--vend);padding:14px 0 14px 18px;margin:26px 0 0}
+.ask h3{margin:0 0 8px;font-size:14px;color:var(--fg)}
+.ask p{margin:0 0 7px;font-size:13px;color:var(--dim);line-height:1.8}
+.ask .choice{margin-top:12px;font-size:13px}
+.ask .choice div{padding:5px 0;color:var(--dim)}
+.ask .choice b{color:var(--fg)}
+.ask .choice .code{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+
+.fn{font-size:11.5px;color:var(--ghost);border-top:1px solid var(--line2);padding-top:12px;margin-top:30px}
+</style></head>
+<body>
+<div class="wrap">
+
+<!-- ══ 抬头 ══ -->
+<div class="hero">
+  <div class="kicker">插件页收尾 · 待拍的第二件事</div>
+  <h1>一个插件该怎么算「登记」<br>—— <span class="mono" style="font-size:23px">AboutME_ModuleRelationshipNetwork</span> 那件事</h1>
+  <p>这条插件负责给 Desk 的关系图提供数据：<code>GET /v1/modules/graph</code> 一直能打到 200。
+  但很长一段时间里，引擎的三份清单都不认它。下面六幕把这个矛盾讲清楚，最后只剩下一个小决定要你拍。</p>
+</div>
+
+<!-- ══ 第 1 幕 ══ -->
+<div class="act">
+  <h2><span class="no">01</span>先说「登记」是什么</h2>
+  <p class="sub">引擎里不是一份清单，是三份。三份各管一件事，但要求同一个名字在里面出现。</p>
+  <div class="body">
+    <div class="lists">
+      <div class="lst">
+        <div class="nm">MANIFEST</div>
+        <div class="n">16<small>行</small></div>
+        <div class="say">手写的表：这台引擎<b>承认</b>哪些模块。<br>版本 / 层 / 必需 / 来源 crate 都在这。</div>
+      </div>
+      <div class="lst">
+        <div class="nm">/v1/capabilities</div>
+        <div class="n">16<small>个</small></div>
+        <div class="say">运行时投影：客户端（Desk）<b>读的就是这份</b>。<br>插件页列什么，全看它。</div>
+      </div>
+      <div class="lst">
+        <div class="nm">/v1/_routes</div>
+        <div class="n">169<small>条</small></div>
+        <div class="say">真实装进 Router 的端点清单。<br>三处读口共用一份声明，不许抄第二遍。</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>三份的关系，一句话</h3>
+      <p><code>MANIFEST</code> 是<b>唯一的手写真相</b>；<code>capabilities</code> 和 <code>_routes</code> 都是从它
+      加上各插件自己的 <code>routes()</code> 算出来的。<b>名字在 MANIFEST 里，就等于「登记了」。</b></p>
+      <p>所以「补登记」和「不登记」指的是同一件事：<b>要不要在 <code>MANIFEST</code> 里给它加一行。</b></p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 第 2 幕 ══ -->
+<div class="act">
+  <h2><span class="no">02</span>它曾经的处境：能打到，但没人认</h2>
+  <p class="sub">这是真正的矛盾 —— 不是「没做完」，是「做完了但没上户口」。</p>
+  <div class="body">
+    <div class="lists">
+      <div class="lst hit">
+        <div class="nm">端点本身</div>
+        <div class="n">200<small>OK</small><span class="flag">能打到</span></div>
+        <div class="say"><code>curl /v1/modules/graph</code> 返回 31 节点 / 96 条边，<br>Desk 插件页的关系图就是靠它画的。</div>
+      </div>
+      <div class="lst miss">
+        <div class="nm">MANIFEST</div>
+        <div class="n">15<small>行</small><span class="flag">没有</span></div>
+        <div class="say">表里 15 行，逐行数过去没有它。</div>
+      </div>
+      <div class="lst miss">
+        <div class="nm">capabilities / _routes</div>
+        <div class="n">—<span class="flag">没有</span></div>
+        <div class="say">因为是从 MANIFEST 算的，<br>上游没有，这里自然也没有。</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>这个矛盾在 Desk 上长什么样</h3>
+      <p>Desk 的插件页要「把 31 个插件都列出来」。它拿两份原料分类：</p>
+      <p>① <code>capabilities.modules</code> 里有的 → <b>模块</b>（有版本、有端点、点得开详情）<br>
+         ② 只在关系图的 <code>nodes</code> 里、caps 里没有的 → <b>库</b>（依赖层，没有端点）</p>
+      <p>于是 <code>AboutME</code> 掉进了第 ② 类。可<b>它不是库</b> —— 库按定义不提供端点，它有一条真端点。
+      客户端要么把它谎报成「库」，要么单独标一个「未登记」。Desk 选了后者（就是你已经批准的那段补账）。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 第 3 幕 ══ -->
+<div class="act">
+  <h2><span class="no">03</span>两个选项，各自会变成什么样</h2>
+  <p class="sub">左边是修根，右边是藏矛盾。两边都画出来，你自己看。</p>
+  <div class="body">
+    <div class="two">
+      <div class="opt a">
+        <div class="tag">A · 补登记</div>
+        <h3>在 MANIFEST 加一行</h3>
+        <ul>
+          <li><code>MANIFEST</code> 15 → 16 行</li>
+          <li><code>capabilities.modules</code> 15 → 16</li>
+          <li>端点数跟着涨（它自带的那几条）</li>
+          <li>Desk 统计行自动跟着变，不用改客户端</li>
+          <li>要同步改 4 处：<code>MANIFEST</code>、两个测试断言里的 <code>15</code>、一个逐字快照 json</li>
+        </ul>
+        <div class="verdict">结果：<b style="color:var(--ok)">名实相符</b>。它成为第 16 个模块，有版本、有层、有端点，Desk 那段临时补账自动失效。</div>
+      </div>
+      <div class="opt b">
+        <div class="tag">B · 明确不登记</div>
+        <h3>写一句「这是内部端点」</h3>
+        <ul>
+          <li>引擎一行不改</li>
+          <li>Desk 删掉 <code>UNREGISTERED</code> 常量</li>
+          <li>它并进「库」那一段 → 显示「依赖层 · 库 17」</li>
+          <li>详情里写「库 · 零端点」</li>
+        </ul>
+        <div class="verdict">结果：<b style="color:var(--bad)">一句假话</b>。它不是库，却显示「库 · 零端点」；而且以后再有插件自带端点却不进清单，你就没有规则判它算什么。</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;color:var(--dim);margin:22px 0 10px;font-weight:500">A 之后，插件页长这样（真实数据渲染）</h3>
+    <div class="mock">
+      <div class="bar">
+        <span>概览</span><span><b>插件 16</b></span>
+        <span class="sp"></span>
+        <span>16 个模块 · 16 启用 · 0 未启用 · 169 端点</span>
+      </div>
+      <div class="cols">
+        <div class="left">
+          <div class="row hi"><span class="nm">AboutME_ModuleRelationshipNe…</span><span class="vend">AboutME</span><span class="meta">v0.2.0 · 2 端点</span></div>
+          <div class="row"><span class="nm">sessions</span><span class="vend">Nous</span><span class="meta">v0.8.0 · 17</span></div>
+          <div class="row"><span class="nm">env</span><span class="vend">Nous</span><span class="meta">v0.3.3 · 1</span></div>
+          <div class="row"><span class="nm">repo</span><span class="vend">Nous</span><span class="meta">v0.7.0 · 30</span></div>
+          <div class="row"><span class="nm">presets</span><span class="vend">Nous</span><span class="meta">v0.1.42 · 13</span></div>
+          <div class="row"><span class="nm">Device</span><span class="vend">Nous</span><span class="meta">v0.11.0 · 9</span></div>
+          <div class="sec"><span>依赖层 · 库</span><span>16</span></div>
+          <div class="row lib"><span class="nm">routes</span><span class="meta">库 · 零端点</span></div>
+          <div class="row lib"><span class="nm">durable</span><span class="meta">库 · 零端点</span></div>
+        </div>
+        <div class="right">
+          <div class="dh">AboutME_ModuleRelationshipNetwork</div>
+          <div class="dsub">AboutME · aboutme-module-relationship-network</div>
+          <div class="kv">
+            <span class="k">状态</span><span class="v">启用</span>
+            <span class="k">版本</span><span class="v m">0.2.0</span>
+            <span class="k">类型</span><span class="v">编译期</span>
+            <span class="k">层</span><span class="v">app</span>
+            <span class="k">必需</span><span class="v">否</span>
+            <span class="k">来源 crate</span><span class="v m">aboutme-module-relationship-network</span>
+            <span class="k">客户端登记</span><span class="v">已登记</span>
+          </div>
+          <div class="note ok">端点 2：<br>GET /v1/modules/graph<br>GET /v1/modules/updates</div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;color:var(--dim);margin:22px 0 10px;font-weight:500">B 之后，它会掉进库那一段 —— 而且说的是假话</h3>
+    <div class="mock">
+      <div class="bar">
+        <span>概览</span><span><b>插件 15</b></span>
+        <span class="sp"></span>
+        <span>15 个模块 · 15 启用 · 0 未启用 · 167 端点</span>
+      </div>
+      <div class="cols">
+        <div class="left">
+          <div class="row"><span class="nm">sessions</span><span class="vend">Nous</span><span class="meta">v0.8.0 · 17</span></div>
+          <div class="row"><span class="nm">env</span><span class="vend">Nous</span><span class="meta">v0.3.3 · 1</span></div>
+          <div class="row"><span class="nm">Device</span><span class="vend">Nous</span><span class="meta">v0.11.0 · 9</span></div>
+          <div class="sec"><span>依赖层 · 库</span><span>17</span></div>
+          <div class="row lib"><span class="nm">routes</span><span class="meta">库 · 零端点</span></div>
+          <div class="row lib"><span class="nm">durable</span><span class="meta">库 · 零端点</span></div>
+          <div class="row lib hi"><span class="nm">AboutME_ModuleRelationshipNe…</span><span class="meta">库 · 零端点</span></div>
+        </div>
+        <div class="right">
+          <div class="dh">AboutME_ModuleRelationshipNetwork</div>
+          <div class="dsub">— · aboutme-module-relationship-network</div>
+          <div class="kv">
+            <span class="k">状态</span><span class="v x">—</span>
+            <span class="k">版本</span><span class="v x">—</span>
+            <span class="k">类型</span><span class="v">依赖（库）</span>
+            <span class="k">层</span><span class="v x">—</span>
+            <span class="k">必需</span><span class="v x">—</span>
+            <span class="k">来源 crate</span><span class="v m">aboutme-…</span>
+            <span class="k">客户端登记</span><span class="v">库（无入口）</span>
+          </div>
+          <div class="note bad">「库不提供端点」—— 可它明明有 2 条端点，<br>Desk 正在拿它画关系图。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 第 4 幕 ══ -->
+<div class="act">
+  <h2><span class="no">04</span>不过 —— 事情已经发生了</h2>
+  <p class="sub">我在准备这段解释时去查了真机，发现不用你拍了：A 已经被另一条线做完了，而且部署上去了。</p>
+  <div class="body">
+    <div class="tl">
+      <div class="it">
+        <div class="v">0.1.41 · 曾经</div>
+        <div class="t">能打到，但三份清单都不认</div>
+        <div class="d">15 个模块 / 165 条端点。Desk 插件页最后一条是「未登记 1」（就是你批准的那段补账）。</div>
+      </div>
+      <div class="it">
+        <div class="v">提交 9f453fb</div>
+        <div class="t">「关系网补进 MANIFEST —— 端点早就能打、注册表里一直没有它」</div>
+        <div class="d">另一条线（#94「插件版本更新提示」）做这件事时顺手补的。理由和我的建议一模一样：
+          <code>MANIFEST</code> 加一行 + 三个断言/快照同步。</div>
+      </div>
+      <div class="it now">
+        <div class="v">0.1.42 · 现在 j1900 上跑的就是这个</div>
+        <div class="t">16 个模块 / 169 条端点，AboutME 是 v0.2.0、2 条端点</div>
+        <div class="d">真机 <code>/v1/capabilities</code> 实测：
+          <code>AboutME_ModuleRelationshipNetwork 0.2.0 → ['GET /v1/modules/graph', 'GET /v1/modules/updates']</code>。
+          第二条第就是 #94 新加的「模块版本更新」端点。</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>所以第二件事实际上不用选了</h3>
+      <p>答案已经是 <b>A</b>，而且已经落到引擎里、已经部署到 j1900。你不需要再拍「补登记还是不登记」。</p>
+      <p>但这次顺带多出一个<b>新的小问题</b>，见下一幕。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 第 5 幕 ══ -->
+<div class="act">
+  <h2><span class="no">05</span>现在留下的那个小决定</h2>
+  <p class="sub">Desk 里那段「未登记」补账，删还是留。</p>
+  <div class="body">
+    <div class="card">
+      <h3>背景：那段补账现在是什么状态</h3>
+      <p>它是这样工作的：<b>「图里有这个名字、但 capabilities 里没有」→ 标成「未登记」</b>。</p>
+      <p>连 <b>0.1.42</b>（新引擎）时：AboutME 已经在 capabilities 里了，所以第一个条件就不成立，
+        补账<b>永远不会触发</b> —— 它变成一行死代码。</p>
+      <p>连 <b>0.1.41</b>（老引擎）时：AboutME 还是不在 caps 里，补账<b>仍然有用</b> ——
+        没有它，AboutME 就会掉进「库」那一段，显示「库 · 零端点」，也就是 B 方案那句假话。</p>
+    </div>
+    <table>
+      <thead><tr><th>选</th><th>连 0.1.42（新引擎）</th><th>连 0.1.41（老引擎）</th><th>代价</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>留</b>（不改）</td>
+          <td>死代码，永远不触发，不影响显示</td>
+          <td>显示「未登记 1」，是对的</td>
+          <td>代码里多一个常量 + 3 条测试，注释里要写明为什么留</td>
+        </tr>
+        <tr>
+          <td><b>删</b></td>
+          <td>干净，显示不变（它本来就是模块）</td>
+          <td>AboutME 掉进「库 17」，显示「库 · 零端点」——<b>假话</b></td>
+          <td>要么放弃支持 0.1.41，要么接受老引擎上有个小谎</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card">
+      <h3>我的看法</h3>
+      <p><b>留。</b>一句话：它现在是<b>向后兼容</b>，不是补数据 —— 你已经把 j1900 升到 0.1.42 了，
+      但有人拿旧版 Desk 连 0.1.41 引擎时，这行常量是唯一能让界面说真话的东西。</p>
+      <p>做法：不改逻辑，只把注释改成「引擎 0.1.42 起已登记，这里保留为老引擎兜底；某天确定不再支持
+      0.1.41 就整块删掉」。成本为零，收益是不说谎。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 第 6 幕 ══ -->
+<div class="act">
+  <h2><span class="no">06</span>要你拍的，就这一句</h2>
+  <div class="body">
+    <div class="callout">
+      <h3>原来问你的问题，已经不用答了</h3>
+      <p>「AboutME 补登记还是不登记」→ <b>已经是补登记，且已部署</b>（引擎 0.1.42，16 模块 / 169 端点）。</p>
+      <p>我不需要再另开票做那 4 处同步 —— 别人做完了。</p>
+    </div>
+    <div class="ask">
+      <h3>现在只剩这个：Desk 那段「未登记」补账怎么处理？</h3>
+      <p>它是「图里有、capabilities 里没有 → 标未登记」的一条兜底规则，对新引擎已失效、对老引擎仍有用。</p>
+      <div class="choice">
+        <div><b>① 留着当向后兼容</b> —— 我把注释改成「老引擎兜底」，逻辑一行不动 <span class="code">（我的建议）</span></div>
+        <div><b>② 删掉</b> —— 只支持 0.1.42 以上的引擎，老引擎上 AboutME 会显示成「库」</div>
+        <div><b>③ 先不动</b> —— 等 Desk 下次发版再说</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="fn">
+  数据来源：j1900 真机 <span class="mono">GET /v1/capabilities</span>（引擎 0.1.42 · 16 模块 · 169 端点）+
+  内核仓 <span class="mono">origin/main</span> 的 <span class="mono">meta.rs</span> /
+  <span class="mono">capabilities_shapes.rs</span> / 快照 json（16 行 · 16 模块）。
+  第 3 幕两张插件页是照 Desk 真实骨架与真数据渲染的示意，不是截图。
+</div>
+
+</div>
+</body></html>
