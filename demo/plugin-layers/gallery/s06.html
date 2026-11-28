@@ -1,113 +1,53 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>06 · 依赖矩阵</title><link rel="stylesheet" href="base.css">
+<title>06 · 两段可折叠</title><link rel="stylesheet" href="shell.css">
 <style>
-body{display:flex;flex-direction:column}
-.wrap{flex:1;overflow:auto;padding:18px 24px}
-.mx{display:grid;grid-template-columns:158px 1fr;gap:0;width:max-content}
-.corner{font-size:10px;color:var(--faint);align-self:end;padding:0 8px 6px 0;text-align:right}
-.cols{display:flex}
-.cols .c{width:21px;height:150px;position:relative}
-.cols .c span{position:absolute;left:15px;bottom:4px;transform:rotate(-68deg);transform-origin:left bottom;
-  font-family:var(--mono);font-size:9px;color:var(--faint);white-space:nowrap}
-.cols .c.lib span{color:#4a4a4a}
-.rows{display:flex;flex-direction:column}
-.rl{height:21px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;
-  font-size:10.5px;color:var(--dim);white-space:nowrap;cursor:pointer}
-.rl.mod{color:var(--fg)}
-.rl.lib{color:#5f5f5f}
-.rl.unl{color:var(--warn)}
-.rl:hover{background:var(--sel)}
-.grid{display:grid}
-.cell{width:21px;height:21px;border:1px solid #0d0d0d;position:relative}
-.cell.on{background:#2a2a2a}
-.cell.on.mod{background:#d9d9d9}
-.cell.on.unl{background:var(--warn)}
-.cell.hl{box-shadow:inset 0 0 0 1px #fff}
-.cell:hover{outline:1px solid #888}
-.legend{margin-top:16px;display:flex;gap:22px;font-size:10.5px;color:var(--faint);flex-wrap:wrap}
-.legend i{display:inline-block;width:11px;height:11px;margin-right:6px;vertical-align:-2px;border:1px solid #0d0d0d}
-.tip{position:fixed;pointer-events:none;background:#111;border:1px solid var(--line);
-  padding:3px 7px;font-family:var(--mono);font-size:10.5px;color:var(--fg);display:none;z-index:9}
+.sec{cursor:pointer;user-select:none}
+.sec .tw{font-family:var(--mono);font-size:9px;color:var(--faint);margin-right:5px}
 </style></head><body>
-<div class="bar"><span class="no">06</span><b>依赖矩阵</b>
-  <span class="thesis">主张：关系是一张表 —— 行依赖列，涂满的格子就是「枢纽」；不用读文字，扫一眼就知道 routes 和 durable 撑着多少人。</span>
-  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
-
-<div class="wrap scroll">
-  <div class="mx">
-    <div class="corner">被依赖方 →<br>依赖方 ↓</div>
-    <div class="cols" id="cols"></div>
-    <div id="rl" class="rows"></div>
-    <div class="grid" id="grid"></div>
-  </div>
-  <div class="legend">
-    <span><i style="background:#d9d9d9"></i>端点模块 → 依赖</span>
-    <span><i style="background:#2a2a2a"></i>库 → 依赖</span>
-    <span><i style="background:var(--warn)"></i>未登记</span>
-    <span>点行名 / 列名高亮整行整列；悬停格子看「谁依赖谁」</span>
-  </div>
-</div>
-<div class="tip" id="tip"></div>
-
-<script src="data.js"></script>
+<script src="data.js"></script><script src="shell.js"></script>
 <script>
-const D0 = window.D;
-const order = [...D0.nodes].sort((a,b)=>{
-  const rk = n => n.kind==='module'?0 : n.kind==='unlisted'?1 : 2;
-  if (rk(a)!==rk(b)) return rk(a)-rk(b);
-  if (a.kind==='module') return b.endpoints-a.endpoints || a.name.localeCompare(b.name);
-  return b.dependents.length-a.dependents.length || a.name.localeCompare(b.name);
-});
-const nameOf = n => n.name, byName = new Map(D0.nodes.map(n=>[n.name,n]));
+const S = Shell;
+let cur = 'sessions';
+let openMod = true, openLib = true;
+const mods = S.D.nodes.filter(n=>n.kind==='module').sort((a,b)=>b.n-a.n);
+const libs = S.D.nodes.filter(n=>n.kind==='lib').sort((a,b)=>b.dependents.length-a.dependents.length);
+const unl = S.D.nodes.filter(n=>n.kind==='unlisted');
 
-const colsEl = document.getElementById('cols'), rlEl = document.getElementById('rl'),
-      grid = document.getElementById('grid'), tip = document.getElementById('tip');
+S.mount({no:'06', title:'两段可折叠',
+  thesis:'默认两段都展开；点标题能折叠。库多的时候不占列表 —— 但默认不藏，藏了用户就以为没有。'}, api => {
 
-order.forEach(n=>{
-  const c = document.createElement('div');
-  c.className = 'c ' + n.kind;
-  const short = n.name.length > 17 ? n.name.slice(0,16)+'…' : n.name;
-  c.innerHTML = `<span title="${n.name}">${short}</span>`;
-  c.onclick = ()=>hlCol(n.name);
-  colsEl.appendChild(c);
+  const head = (t,n,open) => `<div class="sec" data-sec="${t}">
+    <span><span class="tw">${open?'−':'+'}</span>${t}</span><span class="n">${n}</span></div>`;
 
-  const r = document.createElement('div');
-  r.className = 'rl ' + n.kind;
-  r.textContent = n.name;
-  r.onclick = ()=>hlRow(n.name);
-  rlEl.appendChild(r);
-});
+  function left(){
+    return head('端点模块', mods.length, openMod)
+      + (openMod ? mods.map(n=>S.li(n,{extraClass:n.name===cur?'on':''})).join('') : '')
+      + head('依赖层 · 库', libs.length, openLib)
+      + (openLib ? libs.map(n=>S.li(n,{meta:`v${n.version} <span style="color:#5b5b5b">库 · 零端点</span>`,
+          extraClass:n.name===cur?'on':''})).join('') : '')
+      + (unl.length ? head('未登记', unl.length, true)
+        + unl.map(n=>S.li(n,{meta:`v${n.version} <span style="color:#d9a54a">1 端点 · 未登记</span>`,
+            extraClass:n.name===cur?'on':''})).join('') : '');
+  }
 
-grid.style.gridTemplateColumns = `repeat(${order.length},21px)`;
-grid.style.gridTemplateRows = `repeat(${order.length},21px)`;
-const cells = [];
-order.forEach((from, i)=>{
-  order.forEach((to, j)=>{
-    const c = document.createElement('div');
-    c.className = 'cell';
-    const has = from.deps.includes(to.name);
-    if (has) c.classList.add('on', from.kind);
-    c.dataset.i = i; c.dataset.j = j; c.dataset.f = from.name; c.dataset.t = to.name;
-    c.onmouseenter = () => {
-      tip.style.display='block'; tip.textContent = `${from.name} → ${to.name}`;
-    };
-    c.onmousemove = e => { tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px'; };
-    c.onmouseleave = () => { tip.style.display='none'; };
-    grid.appendChild(c); cells.push(c);
+  function right(){
+    const n = S.by.get(cur);
+    return S.head(n) + S.ledger(n) + (n.kind==='lib'
+      ? `<div class="note">折叠只是列表的排法；详情不受影响。</div>` : S.eps(n,8)) + S.rel(n);
+  }
+
+  function paint(){
+    api.cols.innerHTML = `<div class="list scroll">${left()}</div><div class="detail scroll">${right()}</div>`;
+  }
+  api.cols.addEventListener('click', e=>{
+    const s = e.target.closest('.sec');
+    if (s) {
+      if (s.dataset.sec === '端点模块') openMod = !openMod;
+      else if (s.dataset.sec === '依赖层 · 库') openLib = !openLib;
+      paint(); return;
+    }
   });
+  api.onPick(name=>{ cur=name; paint(); });
+  paint();
 });
-
-function clear(){ cells.forEach(c=>c.classList.remove('hl'));
-  document.querySelectorAll('.rl').forEach(x=>x.style.background=''); }
-function hlRow(name){
-  clear();
-  const i = order.findIndex(n=>n.name===name);
-  cells.filter(c=>+c.dataset.i===i).forEach(c=>c.classList.add('hl'));
-  rlEl.children[i].style.background = 'var(--sel2)';
-}
-function hlCol(name){
-  clear();
-  const j = order.findIndex(n=>n.name===name);
-  cells.filter(c=>+c.dataset.j===j).forEach(c=>c.classList.add('hl'));
-}
 </script></body></html>

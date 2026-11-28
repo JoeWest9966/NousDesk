@@ -1,0 +1,122 @@
+/* 真实 Desk 骨架（按 j1900 0.9.41 截图量出来的尺寸）
+   窗口 940×1130；标题栏 21 / 头部 50 / 导航 217 / 内容 723；插件页 列表 292 + 详情 431 */
+:root{
+  --bg:#000; --fg:#eee; --dim:#8d8d8d; --faint:#5b5b5b;
+  --line:#2a2a2a; --line2:#151515; --sel:#131313; --sel2:#1d1d1d;
+  --vend:#d97757; --vend-dim:#3a2018; --vend-bg:#170e0a;
+  --warn:#d9a54a; --warn-dim:#3a2c10; --bad:#c2534a; --ok:#6aa47a;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#000;color:var(--fg);
+  font:12px/1.5 "Inter",-apple-system,"Segoe UI","Noto Sans CJK SC","PingFang SC",sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:var(--dim);text-decoration:none}
+a:hover{color:var(--fg)}
+.mono{font-family:var(--mono)}
+
+/* 画布外的说明条（不属于 Desk） */
+.stage{min-height:100%;padding:18px 0 26px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.banner{width:940px;display:flex;align-items:baseline;gap:12px;font-size:11.5px;color:var(--dim)}
+.banner .no{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.6px}
+.banner b{font-size:13px;color:var(--fg);font-weight:600}
+.banner .sp{flex:1}
+.banner a.back{font-size:11px;border:1px solid var(--line);padding:1px 7px;color:var(--faint)}
+
+/* ── 窗口 ── */
+.win{width:940px;height:1130px;border:1px solid #1e1e1e;display:flex;flex-direction:column;
+  background:#000;overflow:hidden;flex:none}
+.tb{height:21px;flex:none;display:flex;align-items:center;padding:0 10px;font-size:9.5px;
+  color:#6a6a6a;border-bottom:1px solid var(--line2)}
+.tb .sp{flex:1}
+.tb i{display:inline-block;width:7px;height:7px;border:1px solid #3a3a3a;margin-left:6px}
+.head{height:50px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;
+  border-bottom:1px solid var(--line)}
+.head .bk{font-size:11.5px;color:var(--dim)}
+.head .ttl{font-size:12.5px;color:var(--fg)}
+.body{flex:1;display:flex;min-height:0}
+
+/* 设置导航 */
+.nav{width:217px;flex:none;border-right:1px solid var(--line);padding:10px 0;overflow:auto}
+.nav .it{padding:7px 18px;font-size:12px;color:var(--dim);cursor:pointer}
+.nav .it:hover{background:var(--sel);color:var(--fg)}
+.nav .it.on{color:var(--fg);background:var(--sel2)}
+
+/* 内容列 */
+.pane{flex:1;display:flex;flex-direction:column;min-width:0}
+.tabs{height:36px;flex:none;display:flex;gap:20px;align-items:center;padding:0 20px;
+  border-bottom:1px solid var(--line2)}
+.tabs .t{font-size:12px;color:var(--dim);cursor:pointer;padding:2px 0;border-bottom:2px solid transparent}
+.tabs .t.on{color:var(--fg);border-bottom-color:var(--fg)}
+.tabs .t .n{font-family:var(--mono);font-size:10px;color:var(--faint);margin-left:5px}
+.statline{flex:none;padding:7px 20px;font-size:10.5px;color:var(--dim);
+  border-bottom:1px solid var(--line2);display:flex;gap:14px;align-items:baseline}
+.statline b{font-family:var(--mono);color:var(--fg);font-weight:400}
+.statline .sp{flex:1}
+.cols{flex:1;display:flex;min-height:0}
+
+/* ── 左列表（292）── */
+.list{width:292px;flex:none;border-right:1px solid var(--line);overflow:auto}
+.li{padding:7px 14px 8px;border-bottom:1px solid var(--line2);cursor:pointer}
+.li:hover{background:var(--sel)}
+.li.on{background:var(--sel2)}
+.li .l1{display:flex;align-items:center;gap:8px;min-width:0}
+.li .nm{font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .vend{flex:none;font-size:9px;color:var(--vend);border:1px solid var(--vend-dim);
+  background:var(--vend-bg);padding:0 5px;line-height:13px}
+.li .l2{display:flex;justify-content:flex-end;gap:12px;font-size:9.5px;color:var(--faint);
+  margin-top:3px;font-family:var(--mono)}
+.li .l2 .on{color:var(--ok)}
+.li.lib .nm{color:var(--dim)}
+.li.unl .nm{color:var(--warn)}
+.li .flag{flex:none;font-size:8.5px;border:1px dashed #3a3a3a;color:var(--faint);padding:0 4px}
+.sec{position:sticky;top:0;background:#050505;border-bottom:1px solid var(--line);
+  padding:5px 14px;font-size:9.5px;color:var(--faint);letter-spacing:.5px;
+  display:flex;justify-content:space-between;z-index:2}
+.sec .n{font-family:var(--mono)}
+
+/* ── 右详情（431）── */
+.detail{flex:1;overflow:auto;padding:13px 18px 26px;min-width:0}
+.dt-h{display:flex;align-items:flex-start;gap:10px}
+.dt-h .nm{font-size:15.5px;font-weight:600;word-break:break-all;flex:1;min-width:0}
+.dt-h .doc{flex:none;font-size:10.5px;color:var(--dim);border:1px solid var(--line);padding:1px 8px}
+.dt-vend{margin:7px 0 12px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.pill{font-size:9.5px;border:1px solid var(--line);padding:0 5px;line-height:15px;color:var(--dim)}
+.pill.v{font-family:var(--mono)}
+.pill.mod{color:#ddd;border-color:#3d3d3d}
+.pill.lib{color:var(--faint);border-style:dashed}
+.pill.unl{color:var(--warn);border-color:var(--warn-dim);background:var(--warn-dim)}
+.pill.ok{color:var(--ok);border-color:#22331f}
+
+.kv{display:grid;grid-template-columns:86px 1fr;gap:5px 10px;font-size:11px;margin-bottom:6px}
+.kv .k{color:var(--faint)}
+.kv .v{color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.kv .v.mono{font-family:var(--mono);font-size:10.5px}
+
+.eps{margin-top:10px;border-top:1px solid var(--line2);padding-top:8px}
+.eps .e{display:flex;gap:8px;font-family:var(--mono);font-size:10px;color:var(--dim);
+  padding:1.5px 0;white-space:nowrap;overflow:hidden}
+.eps .e b{color:var(--faint);font-weight:400;width:34px;flex:none}
+.eps .e span{overflow:hidden;text-overflow:ellipsis}
+
+.note{margin-top:10px;border-left:2px solid var(--line);padding-left:9px;font-size:10.5px;
+  color:var(--faint);line-height:1.6}
+.empty{font-size:10.5px;color:var(--faint);padding:2px 0}
+
+/* 关系块 */
+.rel{margin-top:14px;border-top:1px solid var(--line);padding-top:9px}
+.rel .rh{display:flex;justify-content:space-between;font-size:10px;color:var(--faint);
+  letter-spacing:.4px;margin-bottom:7px}
+.rel .rh .n{font-family:var(--mono);color:var(--dim)}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{font-family:var(--mono);font-size:10px;border:1px solid var(--line);padding:1px 6px;
+  cursor:pointer;color:var(--fg)}
+.chip:hover{background:var(--line)}
+.chip.lib{color:var(--dim);border-style:dashed}
+.chip.unl{color:var(--warn);border-color:var(--warn-dim)}
+.chip.dead{color:var(--bad);border-style:dotted}
+
+.scroll::-webkit-scrollbar{width:8px;height:8px}
+.scroll::-webkit-scrollbar-thumb{background:#222;border:2px solid #000}
+.scroll::-webkit-scrollbar-track{background:#000}

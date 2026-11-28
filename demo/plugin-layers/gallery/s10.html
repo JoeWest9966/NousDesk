@@ -1,163 +1,87 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>10 · 目录页重构（搜索 + 筛选 + 排序）</title><link rel="stylesheet" href="base.css">
+<title>10 · 搜索 + 排序（目录化）</title><link rel="stylesheet" href="shell.css">
 <style>
-body{display:flex;flex-direction:column}
-.tools{flex:none;border-bottom:1px solid var(--line);padding:14px 22px 12px;display:flex;
-  flex-direction:column;gap:10px}
-.line1{display:flex;gap:10px;align-items:center}
-.search{flex:1;display:flex;align-items:center;gap:8px;border:1px solid var(--line);
-  padding:6px 10px;max-width:560px}
-.search span{font-family:var(--mono);color:var(--faint);font-size:11px}
-.search input{flex:1;background:transparent;border:0;outline:0;color:var(--fg);
-  font:inherit;font-size:12.5px}
-.search input::placeholder{color:#444}
-.sorts{display:flex;gap:6px;align-items:center;font-size:10.5px;color:var(--faint)}
-.sorts button{padding:2px 8px;border:1px solid transparent;background:transparent;color:var(--dim);
-  font:inherit;font-size:11px;cursor:pointer}
+.tools{flex:none;border-bottom:1px solid var(--line2);padding:7px 12px;display:flex;flex-direction:column;gap:6px}
+.srch{display:flex;align-items:center;gap:6px;border:1px solid var(--line);padding:3px 7px}
+.srch i{font-style:normal;color:var(--faint);font-family:var(--mono);font-size:10px}
+.srch input{flex:1;background:transparent;border:0;outline:0;color:var(--fg);font:inherit;font-size:11px}
+.srch input::placeholder{color:#3f3f3f}
+.sorts{display:flex;gap:5px;align-items:center;font-size:9.5px;color:var(--faint)}
+.sorts button{padding:0 7px;border:1px solid transparent;background:transparent;color:var(--dim);
+  font:inherit;font-size:10px;cursor:pointer}
 .sorts button.on{color:#000;background:var(--fg)}
-.line2{display:flex;gap:7px;align-items:center}
-.f{padding:2px 10px;border:1px solid var(--line);background:transparent;color:var(--dim);
-  font:inherit;font-size:11.5px;cursor:pointer}
-.f.on{background:var(--sel2);color:var(--fg);border-color:#4a4a4a}
-.f .n{font-family:var(--mono);font-size:9.5px;opacity:.65;margin-left:4px}
-.count{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-left:auto}
-.body{flex:1;display:flex;min-height:0}
-.list{flex:1;overflow:auto;min-width:0}
-.r{display:grid;grid-template-columns:190px 1fr 54px 62px;gap:12px;align-items:center;
-  padding:8px 22px;border-bottom:1px solid var(--line2);cursor:pointer}
-.r:hover{background:var(--sel)}
-.r.on{background:var(--sel2)}
-.r .nm{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.r.lib .nm{color:var(--dim)}
-.r.unl .nm{color:var(--warn)}
-.r .desc{font-size:10.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.r .e{font-family:var(--mono);font-size:10.5px;color:var(--dim);text-align:right}
-.r .in{font-family:var(--mono);font-size:10.5px;color:var(--faint);text-align:right}
-.det{width:330px;flex:none;border-left:1px solid var(--line);padding:18px 18px;overflow:auto}
-.det .nm{font-size:16px;font-weight:600;word-break:break-all}
-.det .pills{display:flex;gap:5px;flex-wrap:wrap;margin:8px 0 12px}
-.sec{font-size:9.5px;color:var(--faint);letter-spacing:.5px;margin:14px 0 6px}
-.kv{font-size:11.5px;color:var(--dim)}
-.kv div{display:flex;justify-content:space-between;gap:10px;padding:2px 0;border-bottom:1px solid var(--line2)}
-.kv b{font-weight:400;font-family:var(--mono);color:var(--fg)}
-.chips{display:flex;flex-wrap:wrap;gap:4px}
-.chip{font-family:var(--mono);font-size:10px;border:1px solid var(--line);padding:1px 6px;cursor:pointer}
-.chip:hover{background:var(--line)}
-.chip.lib{color:var(--faint);border-style:dashed}
-.nores{padding:50px;text-align:center;color:var(--faint)}
+.cnt{font-family:var(--mono);font-size:9.5px;color:var(--faint);margin-left:auto}
+.list{display:flex;flex-direction:column}
+.list .rows{flex:1;overflow:auto}
 </style></head><body>
-<div class="bar"><span class="no">10</span><b>目录页重构</b>
-  <span class="thesis">主张：插件页升级成「目录」—— 搜索、按类型筛、按端点数或被依赖数排；31 个全在库里，只是默认按「有没有端点」分组。</span>
-  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
-
-<div class="tools">
-  <div class="line1">
-    <label class="search"><span>⌕</span>
-      <input id="q" placeholder="搜模块名 / crate / 出品方 / 描述…"></label>
-    <div class="sorts">排序
-      <button data-s="ep" class="on">端点数</button>
-      <button data-s="in">被依赖</button>
-      <button data-s="name">名字</button>
-    </div>
-  </div>
-  <div class="line2">
-    <button class="f on" data-k="all">全部<span class="n" id="n-all"></span></button>
-    <button class="f" data-k="module">端点模块<span class="n" id="n-mod"></span></button>
-    <button class="f" data-k="lib">库<span class="n" id="n-lib"></span></button>
-    <button class="f" data-k="unlisted">未登记<span class="n" id="n-unl"></span></button>
-    <span class="count" id="count"></span>
-  </div>
-</div>
-
-<div class="body">
-  <div class="list scroll" id="list"></div>
-  <aside class="det scroll" id="det"></aside>
-</div>
-
-<script src="data.js"></script>
+<script src="data.js"></script><script src="shell.js"></script>
 <script>
-const D0 = window.D;
-let k = 'all', sort = 'ep', q = '', cur = 'sessions';
-const list = document.getElementById('list'), det = document.getElementById('det');
-document.getElementById('n-all').textContent = D0.counts.all;
-document.getElementById('n-mod').textContent = D0.counts.modules;
-document.getElementById('n-lib').textContent = D0.counts.libs;
-document.getElementById('n-unl').textContent = D0.counts.unlisted;
+const S = Shell;
+let cur = 'sessions', q = '', sort = 'ep';
+const mods = S.D.nodes.filter(n=>n.kind==='module').sort((a,b)=>b.n-a.n);
+const libs = S.D.nodes.filter(n=>n.kind==='lib').sort((a,b)=>b.dependents.length-a.dependents.length);
 
-function filtered(){
-  let xs = D0.nodes.filter(n=>k==='all'||n.kind===k);
-  if (q.trim()) {
-    const s = q.trim().toLowerCase();
-    xs = xs.filter(n => [n.name,n.pkg,n.vendor,n.desc,n.layer]
-      .some(v => (v||'').toLowerCase().includes(s)));
+S.mount({no:'10', title:'搜索 + 排序（目录化）',
+  thesis:'插件页升级成目录：搜名字/crate/出品方，按端点数或被依赖数排。31 个全在，只是要能找。'}, api => {
+
+  function pick(){
+    let xs = [...S.D.nodes];
+    if (q.trim()) {
+      const s = q.trim().toLowerCase();
+      xs = xs.filter(n => [n.name,n.pkg,n.vendor,n.desc,n.layer]
+        .some(v=>(v||'').toLowerCase().includes(s)));
+    }
+    const cmp = {
+      ep: (a,b)=> b.n-a.n || b.dependents.length-a.dependents.length || a.name.localeCompare(b.name),
+      in: (a,b)=> b.dependents.length-a.dependents.length || b.n-a.n || a.name.localeCompare(b.name),
+      name: (a,b)=> a.name.localeCompare(b.name),
+    }[sort];
+    return xs.sort(cmp);
   }
-  const cmp = {
-    ep: (a,b)=> b.endpoints-a.endpoints || b.dependents.length-a.dependents.length || a.name.localeCompare(b.name),
-    in: (a,b)=> b.dependents.length-a.dependents.length || b.endpoints-a.endpoints || a.name.localeCompare(b.name),
-    name: (a,b)=> a.name.localeCompare(b.name),
-  }[sort];
-  return xs.sort(cmp);
-}
 
-function render(){
-  const xs = filtered();
-  document.getElementById('count').textContent = `${xs.length} / ${D0.counts.all} 个插件`;
-  list.innerHTML = '';
-  if (!xs.length) { list.innerHTML = '<div class="nores">没有匹配的插件</div>'; return; }
-  for (const n of xs) {
-    const r = document.createElement('div');
-    r.className = 'r ' + n.kind + (n.name===cur?' on':'');
-    r.innerHTML = `<span class="nm">${n.name}</span>
-      <span class="desc">${n.desc||''}</span>
-      <span class="e">${n.kind==='module'?n.endpoints+' ep':n.kind==='unlisted'?'1 ep?':'库'}</span>
-      <span class="in">↑${n.dependents.length} ↓${n.deps.length}</span>`;
-    r.onclick = ()=>{ cur=n.name; render(); };
-    list.appendChild(r);
+  function left(){
+    const xs = pick();
+    return `<div class="tools">
+        <label class="srch"><i>⌕</i><input id="q" value="${q}" placeholder="名字 / crate / 出品方 / 描述"></label>
+        <div class="sorts">排序
+          <button data-s="ep" class="${sort==='ep'?'on':''}">端点</button>
+          <button data-s="in" class="${sort==='in'?'on':''}">被依赖</button>
+          <button data-s="name" class="${sort==='name'?'on':''}">名字</button>
+          <span class="cnt">${xs.length} / ${S.D.counts.all}</span>
+        </div></div>
+      <div class="rows scroll">${xs.map(n=>{
+        const meta = n.kind==='module' ? `v${n.version} <span class="on">启用</span> ${n.n} 端点`
+          : n.kind==='unlisted' ? `v${n.version} <span style="color:#d9a54a">未登记</span>`
+          : `v${n.version} <span style="color:#5b5b5b">库 · ↑${n.dependents.length}</span>`;
+        return S.li(n,{meta, extraClass:n.name===cur?'on':''});
+      }).join('')}</div>`;
   }
-  detail();
-}
 
-function detail(){
-  const n = D0.nodes.find(x=>x.name===cur) || filtered()[0];
-  if (!n) { det.innerHTML=''; return; }
-  cur = n.name;
-  det.innerHTML = `<div class="nm">${n.name}</div>
-    <div class="pills"><span class="pill">${n.vendor}</span>
-      <span class="pill v">${n.version}</span><span class="num">${n.layer}</span>
-      <span class="pill ${n.kind==='module'?'mod':n.kind==='unlisted'?'unl':'lib'}">${
-        n.kind==='module'?n.endpoints+' 端点':n.kind==='unlisted'?'1 端点 · 未登记':'库 · 零端点'}</span></div>
-    <div class="dimtxt">${n.desc||''}</div>
-    <div class="sec">账本</div>
-    <div class="kv">
-      <div><span>crate</span><b>${n.pkg}</b></div>
-      <div><span>层</span><b>${n.layer}</b></div>
-      <div><span>版本</span><b>${n.version}</b></div>
-      <div><span>依赖</span><b>${n.deps.length}</b></div>
-      <div><span>被依赖</span><b>${n.dependents.length}</b></div>
-    </div>
-    ${n.note?`<div class="dimtxt" style="margin-top:10px">${n.note}</div>`:''}
-    <div class="sec">它依赖谁</div><div class="chips" id="c1"></div>
-    <div class="sec">谁依赖它</div><div class="chips" id="c2"></div>`;
-  const chip = name => {
-    const m = D0.nodes.find(x=>x.name===name);
-    const c = document.createElement('span');
-    c.className = 'chip ' + m.kind; c.textContent = name;
-    c.onclick = ()=>{ cur=name; render(); };
-    return c;
-  };
-  const c1=document.getElementById('c1'), c2=document.getElementById('c2');
-  n.deps.length ? n.deps.forEach(x=>c1.appendChild(chip(x))) : c1.innerHTML='<span class="dimtxt">没声明依赖</span>';
-  n.dependents.length ? n.dependents.forEach(x=>c2.appendChild(chip(x))) : c2.innerHTML='<span class="dimtxt">没人依赖它</span>';
-}
+  function right(){
+    const n = S.by.get(cur) || pick()[0];
+    if (!n) return '<div class="empty">没有匹配</div>';
+    return S.head(n) + S.ledger(n) + (n.kind==='lib'
+      ? `<div class="note">搜「durable」能搜到它 —— 虽然它没有端点，但它是 10 个模块的地基。</div>`
+      : S.eps(n,8)) + S.rel(n);
+  }
 
-document.getElementById('q').oninput = e => { q = e.target.value; render(); };
-document.querySelectorAll('.f').forEach(b=>b.onclick = ()=>{
-  document.querySelectorAll('.f').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on'); k=b.dataset.k; render();
+  function paint(keepFocus){
+    const pos = keepFocus ? (document.getElementById('q')||{}).selectionStart : null;
+    api.cols.innerHTML = `<div class="list">${left()}</div><div class="detail scroll">${right()}</div>`;
+    if (keepFocus) {
+      const el = document.getElementById('q');
+      if (el) { el.focus(); el.setSelectionRange(pos,pos); }
+    }
+  }
+
+  api.cols.addEventListener('input', e=>{
+    if (e.target.id === 'q') { q = e.target.value; paint(true); }
+  });
+  api.cols.addEventListener('click', e=>{
+    const b = e.target.closest('.sorts button');
+    if (b) { sort = b.dataset.s; paint(false); }
+  });
+  api.onPick(name=>{ cur=name; paint(false); });
+  paint(false);
 });
-document.querySelectorAll('.sorts button').forEach(b=>b.onclick = ()=>{
-  document.querySelectorAll('.sorts button').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on'); sort=b.dataset.s; render();
-});
-render();
 </script></body></html>

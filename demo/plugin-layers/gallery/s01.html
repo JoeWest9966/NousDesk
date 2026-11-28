@@ -1,117 +1,44 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>01 · 一张完整清单</title><link rel="stylesheet" href="base.css">
-<style>
-body{display:flex;flex-direction:column}
-.body{flex:1;display:flex;min-height:0}
-.main{flex:1;overflow:auto;padding:18px 22px}
-.stat{display:flex;gap:22px;align-items:baseline;margin-bottom:14px}
-.stat .v{font-family:var(--mono);font-size:20px}
-.stat .k{font-size:10px;color:var(--faint);margin-left:6px}
-.cols,.row{display:grid;grid-template-columns:210px 66px 62px 64px 58px 58px 1fr;
-  gap:8px;align-items:center;padding:7px 10px}
-.cols{font-size:10px;color:var(--faint);letter-spacing:.5px;border-bottom:1px solid var(--line);
-  position:sticky;top:-18px;background:#000;z-index:2}
-.row{border-bottom:1px solid var(--line2);cursor:pointer}
-.row:hover{background:var(--sel)}
-.row.on{background:var(--sel2)}
-.row .nm{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row.lib .nm{color:var(--dim)}
-.row.unl .nm{color:var(--warn)}
-.row .e{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right}
-.row .d{font-family:var(--mono);font-size:11px;color:var(--faint);text-align:right}
-.bar2{height:2px;background:var(--line2);grid-column:1/-1;margin:0}
-.detail{border-top:1px solid var(--line);padding:14px 18px;background:#050505;flex:none;
-  display:none;max-height:210px;overflow:auto}
-.detail.on{display:block}
-.detail h4{margin:0 0 8px;font-size:13px;font-weight:600}
-.detail .kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
-  gap:6px 18px;font-size:11.5px;margin-bottom:10px}
-.detail .kv b{display:block;font-size:9.5px;color:var(--faint);font-weight:400;letter-spacing:.4px}
-.chips{display:flex;flex-wrap:wrap;gap:5px}
-.chip{font-family:var(--mono);font-size:10.5px;border:1px solid var(--line);padding:1px 6px;
-  cursor:pointer;color:var(--fg)}
-.chip:hover{background:var(--line)}
-.chip.lib{color:var(--faint);border-style:dashed}
-</style></head><body>
-<div class="bar"><span class="no">01</span><b>一张完整清单</b>
-  <span class="thesis">主张：不新加「依赖层」这一栏 —— 31 个就排一个表，用徽标说清谁是端点模块、谁是库。</span>
-  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
-
-<div class="body">
-  <div class="main scroll" id="main"></div>
-  <div class="detail" id="detail"></div>
-</div>
-
-<script src="data.js"></script>
+<title>01 · 列表加一段「依赖层」</title><link rel="stylesheet" href="shell.css"></head><body>
+<script src="data.js"></script><script src="shell.js"></script>
 <script>
-const D0 = window.D;
-const main = document.getElementById('main'), det = document.getElementById('detail');
+const S = Shell;
 let cur = 'sessions';
 
-const st = D0.counts;
-main.innerHTML = `<div class="stat">
-  <div><span class="v">${st.all}</span><span class="k">插件总数</span></div>
-  <div><span class="v">${st.modules}</span><span class="k">端点模块</span></div>
-  <div><span class="v">${st.libs}</span><span class="k">库</span></div>
-  <div><span class="v">${st.unlisted}</span><span class="k">未登记</span></div>
-  <div><span class="v">${st.endpoints}</span><span class="k">端点</span></div>
-  <div><span class="v">${st.edges}</span><span class="k">依赖边</span></div>
-</div>
-<div class="cols"><span>模块</span><span>出品方</span><span>版本</span><span>层</span>
-  <span style="text-align:right">依赖</span><span style="text-align:right">被依赖</span>
-  <span style="text-align:right">端点</span></div>`;
+const mods = S.D.nodes.filter(n=>n.kind==='module')
+  .sort((a,b)=> b.n-a.n || a.name.localeCompare(b.name));
+const libs = S.D.nodes.filter(n=>n.kind==='lib')
+  .sort((a,b)=> b.dependents.length-a.dependents.length || a.name.localeCompare(b.name));
+const unl  = S.D.nodes.filter(n=>n.kind==='unlisted');
 
-const rows = document.createElement('div');
-// 一个表：端点模块在前（按端点数），库在后（按被依赖数），未登记夹在中间
-const order = [...D0.nodes].sort((a,b)=>{
-  const rk = n => n.kind==='module'?0 : n.kind==='unlisted'?1 : 2;
-  if (rk(a)!==rk(b)) return rk(a)-rk(b);
-  if (a.kind==='module') return b.endpoints-a.endpoints || a.name.localeCompare(b.name);
-  return b.dependents.length-a.dependents.length || a.name.localeCompare(b.name);
+S.mount({no:'01', title:'列表加一段「依赖层」',
+  thesis:'最小改动：列表下面多一段「依赖层 16」，点进去和模块同一套详情，只是没有端点。'}, api => {
+
+  function left(){
+    return S.sec('端点模块', mods.length)
+      + mods.map(n=>S.li(n,{extraClass:n.name===cur?'on':''})).join('')
+      + S.sec('依赖层 · 库', libs.length)
+      + libs.map(n=>S.li(n,{meta:`v${n.version} <span style="color:#5b5b5b">库 · 零端点</span>`,
+          extraClass:n.name===cur?'on':''})).join('')
+      + (unl.length? S.sec('未登记', unl.length)
+        + unl.map(n=>S.li(n,{meta:`v${n.version} <span style="color:#d9a54a">1 端点 · 未登记</span>`,
+            extraClass:n.name===cur?'on':''})).join('') : '');
+  }
+
+  function right(){
+    const n = S.by.get(cur);
+    return S.head(n) + S.ledger(n)
+      + (n.kind==='lib'
+          ? `<div class="note">库不提供端点：它只被别的模块依赖。判据 4 也禁止内核/平台层出现 <span class="mono">axum::</span> / <span class="mono">.route(</span>。</div>`
+          : S.eps(n, 8))
+      + S.rel(n);
+  }
+
+  function paint(){
+    api.cols.innerHTML = `<div class="list scroll">${left()}</div>
+      <div class="detail scroll">${right()}</div>`;
+  }
+  api.onPick(name=>{ cur=name; paint(); });
+  paint();
 });
-for (const n of order) {
-  const r = document.createElement('div');
-  r.className = 'row ' + n.kind + (n.name===cur?' on':'');
-  const ep = n.kind==='module' ? `<span class="e">${n.endpoints}</span>`
-           : n.kind==='unlisted' ? `<span class="e" style="color:var(--warn)">${n.endpoints}?</span>`
-           : `<span class="pill lib" style="justify-self:end">库</span>`;
-  r.innerHTML = `<span class="nm">${n.name}</span>
-    <span class="pill">${n.vendor}</span><span class="pill v">${n.version}</span>
-    <span class="num">${n.layer}</span>
-    <span class="d">${n.deps.length}</span><span class="d">${n.dependents.length}</span>${ep}`;
-  r.onclick = () => { cur = n.name; paint(); };
-  rows.appendChild(r);
-}
-main.appendChild(rows);
-
-function chip(name){
-  const n = D0.nodes.find(x=>x.name===name);
-  const c = document.createElement('span');
-  c.className = 'chip' + (n && n.kind==='lib'?' lib':'');
-  c.textContent = name;
-  c.onclick = () => { cur = name; paint(); };
-  return c;
-}
-
-function paint(){
-  [...rows.children].forEach((r,i)=>r.classList.toggle('on', order[i].name===cur));
-  const n = D0.nodes.find(x=>x.name===cur);
-  det.classList.add('on');
-  det.innerHTML = `<h4>${n.name} <span class="pill ${n.kind==='module'?'mod':n.kind==='unlisted'?'unl':'lib'}">${
-    n.kind==='module'?'端点模块':n.kind==='unlisted'?'未登记':'库 · 无端点'}</span></h4>
-  <div class="kv">
-    <div><b>来源 crate</b><span class="mono">${n.pkg}</span></div>
-    <div><b>层</b>${n.layer}</div>
-    <div><b>版本</b><span class="mono">${n.version}</span></div>
-    <div><b>端点</b>${n.kind==='module'?n.endpoints+' 条':'—（库不提供端点）'}</div>
-    <div><b>依赖 / 被依赖</b>${n.deps.length} / ${n.dependents.length}</div>
-  </div>
-  ${n.note?`<div class="dimtxt" style="margin-bottom:8px">${n.note}</div>`:''}
-  <div class="dimtxt" style="margin-bottom:4px">依赖</div><div class="chips" id="c1"></div>
-  <div class="dimtxt" style="margin:8px 0 4px">被依赖</div><div class="chips" id="c2"></div>`;
-  const c1 = document.getElementById('c1'), c2 = document.getElementById('c2');
-  n.deps.length ? n.deps.forEach(x=>c1.appendChild(chip(x))) : c1.innerHTML='<span class="dimtxt">没声明依赖</span>';
-  n.dependents.length ? n.dependents.forEach(x=>c2.appendChild(chip(x))) : c2.innerHTML='<span class="dimtxt">没人依赖它</span>';
-}
-paint();
 </script></body></html>

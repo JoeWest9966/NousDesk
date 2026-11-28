@@ -1,100 +1,48 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>02 · 左右两栏 + 连线</title><link rel="stylesheet" href="base.css">
-<style>
-body{display:flex;flex-direction:column}
-.wrap{flex:1;overflow:auto;padding:16px 0}
-.grid{display:grid;grid-template-columns:330px 1fr 330px;min-height:100%;position:relative}
-.col{padding:0 14px}
-.h{font-size:10px;color:var(--faint);letter-spacing:.6px;padding:0 6px 10px;
-  display:flex;justify-content:space-between;position:sticky;top:0;background:#000;z-index:2}
-.item{height:34px;display:flex;align-items:center;gap:7px;padding:0 7px;cursor:pointer;
-  border-left:2px solid transparent}
-.item:hover{background:var(--sel)}
-.item.hi{background:var(--sel2);border-left-color:var(--fg)}
-.item .nm{font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.item.lib .nm{color:var(--dim)}
-.item.unl .nm{color:var(--warn)}
-.item .n{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
-.mid{position:relative;min-width:0}
-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
-path.edge{fill:none;stroke:#3a3a3a;stroke-width:1}
-path.edge.hl{stroke:var(--fg);stroke-width:1.6}
-path.edge.ul{stroke:var(--warn);stroke-dasharray:3 3}
-.legend{margin-top:14px;text-align:center;font-size:10.5px;color:var(--faint);line-height:1.9}
-.legend span.k{display:inline-block;width:22px;height:1px;background:#3a3a3a;
-  vertical-align:middle;margin:0 5px}
-.legend span.k.hl{background:#fff;height:2px}
-</style></head><body>
-<div class="bar"><span class="no">02</span><b>左右两栏 + 真连线</b>
-  <span class="thesis">主张：不用文字说「谁依赖谁」—— 左边端点模块、右边库，中间把 96 条边真画出来；碰一行就点亮它的线。</span>
-  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
-
-<div class="wrap scroll">
-  <div class="grid">
-    <div class="col" id="left"></div>
-    <div class="mid" id="mid"><svg id="svg"></svg></div>
-    <div class="col" id="right"></div>
-  </div>
-  <div class="legend">
-    实线 = 已登记的依赖　<span class="k hl"></span>碰一下看它连到哪　<span class="k"></span>
-    <span style="color:var(--warn)">虚线 = 未登记模块</span>
-  </div>
-</div>
-
-<script src="data.js"></script>
+<title>02 · 统一 31 项 + 类型徽标</title><link rel="stylesheet" href="shell.css"></head><body>
+<script src="data.js"></script><script src="shell.js"></script>
 <script>
-const D0 = window.D, H = 34;
-const modules = D0.nodes.filter(n=>n.kind!=='lib')
-  .sort((a,b)=> (a.kind==='unlisted'?1:0)-(b.kind==='unlisted'?1:0) || b.endpoints-a.endpoints);
-const libs = D0.nodes.filter(n=>n.kind==='lib')
-  .sort((a,b)=> b.dependents.length-a.dependents.length || a.name.localeCompare(b.name));
+const S = Shell;
+let cur = 'sessions';
+const all = () => [...S.D.nodes].sort((a,b)=>{
+  const rk = n => n.kind==='module'?0 : n.kind==='unlisted'?1 : 2;
+  if (rk(a)!==rk(b)) return rk(a)-rk(b);
+  return a.kind==='module' ? (b.n-a.n || a.name.localeCompare(b.name))
+                           : (b.dependents.length-a.dependents.length || a.name.localeCompare(b.name));
+});
 
-const left = document.getElementById('left'), right = document.getElementById('right');
-left.innerHTML = `<div class="h"><span>端点模块</span><span class="num">${modules.length}</span></div>`;
-right.innerHTML = `<div class="h"><span>库 · 依赖层</span><span class="num">${libs.length}</span></div>`;
+S.mount({no:'02', title:'统一 31 项 + 类型徽标',
+  thesis:'不分段：31 个排一个列表，名字后面挂「库 / 未登记」小徽标，靠排序把端点模块放前面。'}, api => {
 
-const pos = {};
-modules.forEach((n,i)=>{ const y=i*H+H/2; pos[n.name]=y;
-  left.appendChild(rowEl(n,'left')); });
-libs.forEach((n,i)=>{ const y=i*H+H/2; pos[n.name]=y;
-  right.appendChild(rowEl(n,'right')); });
-
-function rowEl(n, side){
-  const d = document.createElement('div');
-  d.className = 'item ' + n.kind; d.dataset.name = n.name;
-  d.innerHTML = `<span class="nm">${n.name}</span>
-    ${n.kind==='module'?`<span class="n">${n.endpoints}</span>`:''}`;
-  d.onmouseenter = ()=>hi(n.name, true);
-  d.onmouseleave = ()=>hi(n.name, false);
-  return d;
-}
-
-const svg = document.getElementById('svg');
-const W = 260;
-function draw(){
-  const h = Math.max(modules.length, libs.length)*H + 20;
-  svg.setAttribute('viewBox', `0 0 ${W} ${h}`);
-  svg.style.height = h+'px';
-  let out = '';
-  for (const n of D0.nodes) {
-    for (const t of n.deps) {
-      const y1 = pos[n.name], y2 = pos[t];
-      if (y1===undefined||y2===undefined) continue;
-      const ul = n.kind==='unlisted'||D0.nodes.find(x=>x.name===t).kind==='unlisted';
-      const mx = W/2;
-      out += `<path class="edge${ul?' ul':''}" data-f="${n.name}" data-t="${t}"
-        d="M0 ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${W} ${y2}"/>`;
-    }
+  function left(){
+    return S.sec('全部插件', S.D.counts.all)
+      + all().map(n=>{
+          const flag = n.kind==='lib' ? '<span class="flag">库</span>'
+                     : n.kind==='unlisted' ? '<span class="flag" style="color:#d9a54a;border-color:#3a2c10">未登记</span>'
+                     : '';
+          const meta = n.kind==='module'
+            ? `v${n.version} <span class="on">状态 启用</span> ${n.n} 端点`
+            : n.kind==='unlisted'
+              ? `v${n.version} <span style="color:#d9a54a">1 端点 · 未登记</span>`
+              : `v${n.version} <span style="color:#5b5b5b">库 · 零端点</span>`;
+          return S.li(n,{flag, meta, extraClass:n.name===cur?'on':''});
+        }).join('');
   }
-  svg.innerHTML = out;
-}
-draw();
-function hi(name, on){
-  document.querySelectorAll('.item').forEach(el=>
-    el.classList.toggle('hi', on && (el.dataset.name===name ||
-      (D0.nodes.find(x=>x.name===name)||{deps:[],dependents:[]}).deps.includes(el.dataset.name) ||
-      (D0.nodes.find(x=>x.name===name)||{deps:[],dependents:[]}).dependents.includes(el.dataset.name))));
-  svg.querySelectorAll('path').forEach(p=>
-    p.classList.toggle('hl', on && (p.dataset.f===name || p.dataset.t===name)));
-}
+
+  function right(){
+    const n = S.by.get(cur);
+    return S.head(n) + S.ledger(n)
+      + (n.kind==='lib'
+          ? `<div class="note">这是一个库：零端点。它出现在这里是因为它是插件目录的一员（有 plugin.toml、有自己的版本线），不是因为它能被调用。</div>`
+          : S.eps(n, 9))
+      + S.rel(n);
+  }
+
+  function paint(){
+    api.cols.innerHTML = `<div class="list scroll">${left()}</div>
+      <div class="detail scroll">${right()}</div>`;
+  }
+  api.onPick(name=>{ cur=name; paint(); });
+  paint();
+});
 </script></body></html>

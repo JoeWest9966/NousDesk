@@ -1,83 +1,62 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>03 · 四层泳道</title><link rel="stylesheet" href="base.css">
+<title>03 · 列表上方加筛选</title><link rel="stylesheet" href="shell.css">
 <style>
-body{display:flex;flex-direction:column}
-.wrap{flex:1;overflow:auto;padding:0}
-.lanes{display:grid;grid-template-columns:repeat(4,minmax(250px,1fr));min-height:100%}
-.lane{border-right:1px solid var(--line);padding:0 0 30px;min-width:0}
-.lane:last-child{border-right:0}
-.lh{position:sticky;top:0;background:#050505;border-bottom:1px solid var(--line);
-  padding:10px 12px;z-index:2}
-.lh .t{font-family:var(--mono);font-size:11px;letter-spacing:.6px;color:var(--fg)}
-.lh .s{font-size:10px;color:var(--faint);margin-top:2px}
-.lh .n{float:right;font-family:var(--mono);font-size:11px;color:var(--dim)}
-.card{margin:8px 10px;border:1px solid var(--line);padding:9px 10px;cursor:pointer;position:relative}
-.card:hover{border-color:var(--dim);background:var(--sel)}
-.card.on{border-color:#fff;background:var(--sel2)}
-.card .top{display:flex;align-items:baseline;gap:6px}
-.card .nm{font-size:12.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
-.card .sub{font-size:10px;color:var(--faint);margin-top:3px;display:flex;gap:8px}
-.card.lib{border-style:dashed}
-.card.lib .nm{color:var(--dim);font-weight:400}
-.card.unl{border-color:var(--warn-dim)}
-.card .up{font-size:9.5px;color:var(--faint);margin-top:6px;line-height:1.5}
-.card .up b{color:var(--dim);font-weight:400}
-.card .bar{position:absolute;left:0;top:0;bottom:0;width:2px;background:#3a3a3a}
-.card.mod .bar{background:#e6e6e6}
-.card.unl .bar{background:var(--warn)}
-.legend{padding:10px 14px;font-size:10.5px;color:var(--faint);border-top:1px solid var(--line);
-  display:flex;gap:18px;flex-wrap:wrap}
+.filters{flex:none;display:flex;gap:6px;padding:7px 12px;border-bottom:1px solid var(--line2)}
+.filters button{padding:1px 9px;border:1px solid var(--line);background:transparent;color:var(--dim);
+  font:inherit;font-size:10.5px;cursor:pointer}
+.filters button.on{background:var(--sel2);color:var(--fg);border-color:#4a4a4a}
+.filters button i{font-family:var(--mono);font-size:9px;font-style:normal;opacity:.6;margin-left:4px}
+.cols>.list{display:flex;flex-direction:column;padding:0}
+.list .rows{flex:1;overflow:auto}
 </style></head><body>
-<div class="bar"><span class="no">03</span><b>四层泳道</b>
-  <span class="thesis">主张：按 layer 摆，一眼看出「谁在底下垫着」—— kernel 在左，app 在右，依赖只往左流。</span>
-  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
-
-<div class="wrap scroll"><div class="lanes" id="lanes"></div></div>
-<div class="legend">
-  <span>实线卡 = 端点模块</span><span>虚线卡 = 库（零端点）</span>
-  <span style="color:var(--warn)">琥珀条 = 有端点但没登记</span>
-  <span>卡内「↑N」= 被几个模块依赖</span>
-</div>
-
-<script src="data.js"></script>
+<script src="data.js"></script><script src="shell.js"></script>
 <script>
-const D0 = window.D;
-const LAYERS = [
-  {k:'kernel',  t:'kernel',  s:'最底层 · 谁都得踩'},
-  {k:'platform',t:'platform',s:'中间层 · 工具与契约'},
-  {k:'app',     t:'app',     s:'应用层 · 自带端点'},
-  {k:'dev',     t:'dev',     s:'只在开发/测试里'},
-];
-const lanes = document.getElementById('lanes');
-for (const L of LAYERS) {
-  const items = D0.nodes.filter(n=>n.layer===L.k)
-    .sort((a,b)=> (a.kind==='lib'?1:0)-(b.kind==='lib'?1:0) || b.endpoints-a.endpoints ||
-      b.dependents.length-a.dependents.length || a.name.localeCompare(b.name));
-  const el = document.createElement('div');
-  el.className = 'lane';
-  el.innerHTML = `<div class="lh"><span class="n">${items.length}</span>
-    <div class="t">${L.t}</div><div class="s">${L.s}</div></div>`;
-  for (const n of items) {
-    const c = document.createElement('div');
-    c.className = 'card ' + (n.kind==='module'?'mod':n.kind==='unlisted'?'unl':'lib');
-    c.innerHTML = `<div class="bar"></div>
-      <div class="top"><span class="nm">${n.name}</span>
-        <span class="pill v">${n.version}</span></div>
-      <div class="sub"><span>${n.vendor}</span><span class="mono">${n.pkg}</span></div>
-      <div class="sub">${n.kind==='module'?`<span class="pill mod">${n.endpoints} 端点</span>`
-        :n.kind==='unlisted'?`<span class="pill unl">1 端点 · 未登记</span>`
-        :`<span class="pill lib">库 · 无端点</span>`}</div>
-      <div class="up"><b>↑${n.dependents.length}</b> 被依赖 ·
-        <b>↓${n.deps.length}</b> 依赖
-        ${n.deps.length?`<span style="color:var(--faint)">（${n.deps.slice(0,3).join('、')}${n.deps.length>3?'…':''}）</span>`:''}</div>`;
-    c.onclick = () => {
-      document.querySelectorAll('.card.on').forEach(x=>x.classList.remove('on'));
-      c.classList.add('on');
-    };
-    el.appendChild(c);
+const S = Shell;
+let cur = 'sessions', k = 'all';
+const bag = S.D.counts;
+const order = xs => xs.sort((a,b)=>{
+  const rk = n => n.kind==='module'?0 : n.kind==='unlisted'?1 : 2;
+  if (rk(a)!==rk(b)) return rk(a)-rk(b);
+  return a.kind==='module' ? (b.n-a.n || a.name.localeCompare(b.name))
+                           : (b.dependents.length-a.dependents.length || a.name.localeCompare(b.name));
+});
+
+S.mount({no:'03', title:'列表上方加筛选',
+  thesis:'列表不动，只加一行「全部 31 / 端点模块 15 / 库 16」；库和模块共用一套卡片长相。',
+  statExtra:'<span style="color:#3f3f3f">— 库存 31 个插件</span>'}, api => {
+
+  const filters = () => `<div class="filters">
+    <button data-k="all" class="${k==='all'?'on':''}">全部<i>${bag.all}</i></button>
+    <button data-k="module" class="${k==='module'?'on':''}">端点模块<i>${bag.modules}</i></button>
+    <button data-k="lib" class="${k==='lib'?'on':''}">库<i>${bag.libs}</i></button>
+    <button data-k="unlisted" class="${k==='unlisted'?'on':''}">未登记<i>${bag.unlisted}</i></button>
+  </div>`;
+
+  function left(){
+    const xs = order(S.D.nodes.filter(n=>k==='all'||n.kind===k));
+    return filters() + `<div class="rows scroll">${xs.map(n=>{
+      const meta = n.kind==='module' ? `v${n.version} <span class="on">状态 启用</span> ${n.n} 端点`
+        : n.kind==='unlisted' ? `v${n.version} <span style="color:#d9a54a">1 端点 · 未登记</span>`
+        : `v${n.version} <span style="color:#5b5b5b">库 · 零端点</span>`;
+      return S.li(n,{meta, extraClass:n.name===cur?'on':''});
+    }).join('')}</div>`;
   }
-  if (!items.length) el.innerHTML += '<div class="dimtxt" style="padding:10px 14px">这一层没有模块</div>';
-  lanes.appendChild(el);
-}
+
+  function right(){
+    const n = S.by.get(cur);
+    return S.head(n) + S.ledger(n)
+      + (n.kind==='lib' ? `<div class="note">筛选到「库」时点进来，看到的还是同一套详情 —— 只是端点这一栏写「零端点」。</div>` : S.eps(n,9))
+      + S.rel(n);
+  }
+
+  function paint(){
+    api.cols.innerHTML = `<div class="list">${left()}</div><div class="detail scroll">${right()}</div>`;
+  }
+  api.cols.addEventListener('click', e=>{
+    const f = e.target.closest('.filters button');
+    if (f) { k = f.dataset.k; paint(); return; }
+  });
+  api.onPick(name=>{ cur=name; paint(); });
+  paint();
+});
 </script></body></html>

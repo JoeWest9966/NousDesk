@@ -1,139 +1,57 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>09 · 主从 + 行内指纹条</title><link rel="stylesheet" href="base.css">
+<title>09 · 统计行说全 vs tab 说全</title><link rel="stylesheet" href="shell.css">
 <style>
-body{display:flex;flex-direction:column}
-.hist{flex:none;border-bottom:1px solid var(--line);padding:12px 22px;
-  display:flex;align-items:flex-end;gap:2px;height:106px}
-.hist .b{flex:1;background:#2a2a2a;position:relative;min-width:3px}
-.hist .b.mod{background:#d0d0d0}
-.hist .b.unl{background:var(--warn)}
-.hist .b span{position:absolute;bottom:-15px;left:50%;transform:translateX(-50%);
-  font-family:var(--mono);font-size:8px;color:var(--faint);white-space:nowrap}
-.hist .cap{position:absolute;left:22px;top:8px;font-size:10px;color:var(--faint);letter-spacing:.5px}
-.body{flex:1;display:flex;min-height:0}
-.list{flex:1;overflow:auto;min-width:0}
-.hd,.r{display:grid;grid-template-columns:200px 52px 1fr 132px;gap:12px;align-items:center;
-  padding:0 22px;height:32px}
-.hd{font-size:9.5px;color:var(--faint);letter-spacing:.4px;border-bottom:1px solid var(--line);
-  position:sticky;top:0;background:#000;z-index:2;height:28px}
-.r{border-bottom:1px solid var(--line2);cursor:pointer}
-.r:hover{background:var(--sel)}
-.r.on{background:var(--sel2)}
-.r .nm{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.r.lib .nm{color:var(--dim)}
-.r.unl .nm{color:var(--warn)}
-.r .ep{font-family:var(--mono);font-size:10px;color:var(--faint);text-align:right}
-/* 指纹条：左半=被依赖(in)，右半=依赖(out)，中间一条竖线 */
-.fp{display:flex;align-items:center;gap:0;height:17px;position:relative}
-.fp .c{position:relative;flex:1;height:100%}
-.fp .c::before{content:"";position:absolute;top:50%;left:0;right:0;height:1px;background:#1c1c1c}
-.fp .c i{position:absolute;top:50%;height:9px;transform:translateY(-50%);background:#4a4a4a}
-.fp .c.in i{right:0;background:#cfcfcf}
-.fp .c.out i{left:0;background:#5a5a5a}
-.fp .mid{width:1px;height:17px;background:#3a3a3a;flex:none}
-.fp .v{position:absolute;top:-2px;font-family:var(--mono);font-size:8.5px;color:var(--faint)}
-.fp .c.in .v{right:3px}
-.fp .c.out .v{left:3px}
-.det{width:300px;flex:none;border-left:1px solid var(--line);padding:16px 16px;overflow:auto}
-.det h4{margin:0 0 4px;font-size:15px}
-.det .k{font-size:9.5px;color:var(--faint);letter-spacing:.4px;margin:12px 0 4px}
-.det .row2{font-size:11.5px;color:var(--dim);display:flex;justify-content:space-between;gap:8px}
-.det .row2 b{color:var(--fg);font-weight:400;font-family:var(--mono);font-size:11px}
-.chips{display:flex;flex-wrap:wrap;gap:4px}
-.chip{font-family:var(--mono);font-size:10px;border:1px solid var(--line);padding:1px 5px;cursor:pointer}
-.chip:hover{background:var(--line)}
-.chip.lib{color:var(--faint);border-style:dashed}
-.legend{padding:8px 22px;font-size:10px;color:var(--faint);border-top:1px solid var(--line);
-  display:flex;gap:20px}
-.legend i{display:inline-block;width:8px;height:8px;vertical-align:0;margin-right:5px}
+.statline .lib{color:#cfcfcf}
+.statline .unl{color:var(--warn)}
+.tabs .t .n.all{color:#8d8d8d}
 </style></head><body>
-<div class="bar"><span class="no">09</span><b>主从 + 行内指纹条</b>
-  <span class="thesis">主张：列表每行自带一条双向指纹（左 = 被谁用、右 = 用了谁），不用点开就能扫出「谁是地基、谁是孤岛」。</span>
-  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
-
-<div class="hist" id="hist"><div class="cap">31 个插件按「被依赖数」排开 —— 柱子越高越像地基</div></div>
-<div class="body">
-  <div class="list scroll">
-    <div class="hd"><span>插件</span><span style="text-align:right">端点</span>
-      <span>← 被依赖 &nbsp;&nbsp; 依赖 →</span><span style="text-align:right">层 / crate</span></div>
-    <div id="rows"></div>
-  </div>
-  <aside class="det scroll" id="det"></aside>
-</div>
-<div class="legend">
-  <span><i style="display:inline-block;background:#d0d0d0;width:8px;height:8px"></i>端点模块</span>
-  <span><i style="background:#4a4a4a;width:8px;height:8px"></i>库</span>
-  <span><i style="background:var(--warn);width:8px;height:8px"></i>未登记</span>
-  <span>条形长度按最大入度 16 / 最大出度 25 归一</span>
-</div>
-
-<script src="data.js"></script>
+<script src="data.js"></script><script src="shell.js"></script>
 <script>
-const D0 = window.D;
-const maxIn = Math.max(...D0.nodes.map(n=>n.dependents.length));
-const maxOut = Math.max(...D0.nodes.map(n=>n.deps.length));
-const order = [...D0.nodes].sort((a,b)=>b.dependents.length-a.dependents.length || b.endpoints-a.endpoints);
+const S = Shell;
 let cur = 'sessions';
-
-// ── 顶部直方图 ──
-const hist = document.getElementById('hist');
-const cap = hist.querySelector('.cap');
-order.forEach(n=>{
-  const b = document.createElement('div');
-  b.className = 'b ' + (n.kind==='module'?'mod':n.kind==='unlisted'?'unl':'');
-  b.style.height = (n.dependents.length/maxIn*68 + 4) + 'px';
-  b.title = `${n.name} · 被 ${n.dependents.length} 个模块依赖`;
-  b.innerHTML = `<span>${n.dependents.length>=4?n.dependents.length:''}</span>`;
-  b.onclick = ()=>{ cur=n.name; paint(); };
-  hist.appendChild(b);
+const all = [...S.D.nodes].sort((a,b)=>{
+  const rk = n => n.kind==='module'?0 : n.kind==='unlisted'?1 : 2;
+  if (rk(a)!==rk(b)) return rk(a)-rk(b);
+  return a.kind==='module' ? (b.n-a.n || a.name.localeCompare(b.name))
+                           : (b.dependents.length-a.dependents.length || a.name.localeCompare(b.name));
 });
 
-// ── 列表 ──
-const rowsEl = document.getElementById('rows');
-order.forEach(n=>{
-  const r = document.createElement('div');
-  r.className = 'r ' + n.kind + (n.name===cur?' on':'');
-  r.dataset.name = n.name;
-  r.innerHTML = `<span class="nm">${n.name}</span>
-    <span class="ep">${n.kind==='module'?n.endpoints:n.kind==='unlisted'?'1?':'—'}</span>
-    <span class="fp">
-      <span class="c in"><i style="width:${Math.round(n.dependents.length/maxIn*100)}%"></i>
-        <span class="v">${n.dependents.length||''}</span></span>
-      <span class="mid"></span>
-      <span class="c out"><i style="width:${Math.round(n.deps.length/maxOut*100)}%"></i>
-        <span class="v">${n.deps.length||''}</span></span>
-    </span>
-    <span class="ep">${n.layer} · ${n.pkg}</span>`;
-  r.onclick = ()=>{ cur=n.name; paint(); };
-  rowsEl.appendChild(r);
-});
+S.mount({no:'09', title:'统计行说全，tab 说全',
+  thesis:'不改结构，只让数字诚实：统计行补「16 库 · 1 未登记」，tab 从「插件 15」变成「插件 31」。',
+  tabs:[{label:'概览',on:false},{label:'插件',n:S.D.counts.all,on:true}],
+  statExtra:''}, api => {
 
-function paint(){
-  document.querySelectorAll('.r').forEach(r=>r.classList.toggle('on', r.dataset.name===cur));
-  const n = D0.nodes.find(x=>x.name===cur);
-  const det = document.getElementById('det');
-  det.innerHTML = `<h4>${n.name}</h4>
-    <div class="dimtxt">${n.kind==='module'?`端点模块 · ${n.endpoints} 条端点`
-      :n.kind==='unlisted'?`未登记（1 条端点，清单里没有它）`:`库 · 零端点`}</div>
-    <div class="k">基本信息</div>
-    <div class="row2"><span>crate</span><b>${n.pkg}</b></div>
-    <div class="row2"><span>出品方</span><b>${n.vendor}</b></div>
-    <div class="row2"><span>版本</span><b>${n.version}</b></div>
-    <div class="row2"><span>层</span><b>${n.layer}</b></div>
-    <div class="row2"><span>依赖 / 被依赖</span><b>${n.deps.length} / ${n.dependents.length}</b></div>
-    ${n.note?`<div class="dimtxt" style="margin-top:8px">${n.note}</div>`:''}
-    <div class="k">它依赖谁（${n.deps.length}）</div><div class="chips" id="c1"></div>
-    <div class="k">谁依赖它（${n.dependents.length}）</div><div class="chips" id="c2"></div>`;
-  const c1=document.getElementById('c1'), c2=document.getElementById('c2');
-  const chip = name => {
-    const m = D0.nodes.find(x=>x.name===name);
-    const c = document.createElement('span');
-    c.className = 'chip ' + m.kind; c.textContent = name;
-    c.onclick = ()=>{ cur=name; paint(); };
-    return c;
-  };
-  n.deps.length ? n.deps.forEach(x=>c1.appendChild(chip(x))) : c1.innerHTML='<span class="dimtxt">没声明依赖</span>';
-  n.dependents.length ? n.dependents.forEach(x=>c2.appendChild(chip(x))) : c2.innerHTML='<span class="dimtxt">没人依赖它</span>';
-}
-paint();
+  // 覆盖统计行文案
+  const sl = document.querySelector('.statline');
+  sl.innerHTML = `<span><b>${S.D.counts.all}</b> 个插件</span>
+    <span class="lib"><b>${S.D.counts.modules}</b> 端点模块</span>
+    <span class="lib"><b>${S.D.counts.libs}</b> 库</span>
+    <span class="unl"><b>${S.D.counts.unlisted}</b> 未登记</span>
+    <span><b>${S.D.counts.endpoints}</b> 端点</span>
+    <span class="sp"></span>
+    <span style="color:#3f3f3f">caps 的 modules 仍是 ${S.D.counts.capsModules} 个</span>`;
+
+  function left(){
+    return S.sec('全部插件', S.D.counts.all)
+      + all.map(n=>{
+        const meta = n.kind==='module' ? `v${n.version} <span class="on">启用</span> ${n.n} 端点`
+          : n.kind==='unlisted' ? `v${n.version} <span style="color:#d9a54a">1 端点 · 未登记</span>`
+          : `v${n.version} <span style="color:#5b5b5b">库 · 零端点</span>`;
+        return S.li(n,{meta, extraClass:n.name===cur?'on':''});
+      }).join('');
+  }
+
+  function right(){
+    const n = S.by.get(cur);
+    return S.head(n) + S.ledger(n) + (n.kind==='lib'
+      ? `<div class="note">「15 个模块 / 165 端点」说的是契约；「31 个插件」说的是仓库。两个数都对，只是问的问题不同。</div>`
+      : S.eps(n,8)) + S.rel(n);
+  }
+
+  function paint(){
+    api.cols.innerHTML = `<div class="list scroll">${left()}</div><div class="detail scroll">${right()}</div>`;
+  }
+  api.onPick(name=>{ cur=name; paint(); });
+  paint();
+});
 </script></body></html>
