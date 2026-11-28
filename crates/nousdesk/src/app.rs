@@ -374,7 +374,8 @@ pub struct Desktop {
     pub(crate) settings_tab: crate::settings::SettingsTab,
     /// 关于页的二级 tab（概览 / 插件）。
     pub(crate) about_tab: crate::settings::AboutTab,
-    /// 插件页当前选中的模块名（引擎模块名，不是显示名）。
+    /// 插件页当前选中的条目名（引擎模块名 / 依赖图的节点名，不是显示名）。
+    /// 可以是库（图里有、capabilities 里没有）—— 分类在 `plugin_page.rs`。
     pub(crate) about_selected: Option<String>,
     /// 窄窗时插件列表 → 详情的输入状态：详情开着时不画列表。
     pub(crate) about_detail_open: bool,

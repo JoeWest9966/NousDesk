@@ -39,6 +39,10 @@ pub struct Relations {
     pub dangling_edges: usize,
     out: BTreeMap<String, Vec<Edge>>,
     inn: BTreeMap<String, Vec<Edge>>,
+    /// 节点 → 提供它的包名。**不是新数据**：`via` 本来就是「被用到的那一端是哪个包」，
+    /// 所以任何一条入边都能反推出目标节点的包名。库的「来源 crate」靠它，
+    /// 因为 `capabilities` 里没有库的条目。没人依赖的节点没有入边 → 这里没有它。
+    packages: BTreeMap<String, String>,
 }
 
 impl Relations {
@@ -50,6 +54,7 @@ impl Relations {
         let mut inn: BTreeMap<String, Vec<Edge>> = BTreeMap::new();
         let mut dangling_edges = 0usize;
         let mut seen: BTreeSet<(&str, &str)> = BTreeSet::new();
+        let mut packages: BTreeMap<String, String> = BTreeMap::new();
 
         for edge in &graph.edges {
             // 自环没有意义（`cargo` 也不许），真出现就是清单写错了 —— 不索引，但算悬空。
@@ -61,6 +66,18 @@ impl Relations {
                 continue;
             }
             let via = edge.via.clone();
+            if !via.is_empty() {
+                // 同一个目标只会由一个包提供；真出现两个 `via`，取字典序最小的那个，
+                // 保证同样的图给同样的包名（快照比对不抖）。
+                packages
+                    .entry(edge.to.clone())
+                    .and_modify(|cur| {
+                        if via < *cur {
+                            *cur = via.clone();
+                        }
+                    })
+                    .or_insert_with(|| via.clone());
+            }
             out.entry(edge.from.clone()).or_default().push(Edge {
                 module: edge.to.clone(),
                 via: via.clone(),
@@ -87,6 +104,7 @@ impl Relations {
             dangling_edges,
             out,
             inn,
+            packages,
         }
     }
 
@@ -103,6 +121,12 @@ impl Relations {
     /// 谁依赖它（按模块名排序）。
     pub fn dependents(&self, name: &str) -> &[Edge] {
         self.inn.get(name).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// 这个节点是哪个包提供的（从入边的 `via` 反推）。
+    /// 只对「被至少一个模块依赖」的节点有值 —— 没人依赖的库拿不到，UI 显示 `—`。
+    pub fn package_of(&self, name: &str) -> Option<&str> {
+        self.packages.get(name).map(String::as_str)
     }
 }
 
@@ -224,6 +248,19 @@ mod tests {
         assert!(r.deps("sessions").is_empty());
         assert!(r.dependents("sessions").is_empty());
         assert!(r.contains("orphan"), "孤立节点也是节点");
+    }
+
+    #[test]
+    fn 包名从入边的_via_反推() {
+        let r = Relations::build(&graph());
+        // `via` 就是目标端提供的包名，入边能反推——库的「来源 crate」靠它。
+        assert_eq!(r.package_of("env"), Some("nous-env"));
+        assert_eq!(r.package_of("repo"), Some("nous-repo"));
+        assert_eq!(r.package_of("Extend"), Some("library-extend"));
+        // 没人依赖、也没有入边的节点：不知道就是不知道。
+        assert_eq!(r.package_of("orphan"), None);
+        // 悬空边的 `to` 不在 nodes 里 → 不算进包名表。
+        assert_eq!(r.package_of("ghost"), None);
     }
 
     #[test]
