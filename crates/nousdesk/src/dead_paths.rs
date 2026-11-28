@@ -127,12 +127,14 @@ pub const ENGINE_ROUTES: &[(&str, &str)] = &[
     ("PUT", "v1/skills/file"),
     ("POST", "v1/skills/create"),
     ("POST", "v1/skills/publish"),
+    ("POST", "v1/skills/duplicate"),
     ("GET", "v1/prompts"),
     ("GET", "v1/prompts/files"),
     ("GET", "v1/prompts/file"),
     ("PUT", "v1/prompts/file"),
     ("POST", "v1/prompts/create"),
     ("POST", "v1/prompts/publish"),
+    ("POST", "v1/prompts/duplicate"),
     ("GET", "v1/extensions"),
     // 元素库（Nous 侧 `crates/nous/server/src/elements.rs`）：两段 + 单条 + 写 + 补推。
     ("GET", "v1/elements"),
@@ -333,6 +335,7 @@ mod tests {
                     ("GET", "file"),
                     ("PUT", "file"),
                     ("POST", "publish"),
+                    ("POST", "duplicate"),
                 ]
                 .into_iter()
                 .map(move |(method, op)| (method, format!("v1/{kind}/{op}")))
@@ -394,9 +397,10 @@ mod tests {
         assert!(!captured.is_empty(), "夹具缺 _captured_at");
         assert!(!version.is_empty(), "夹具缺 _engine_version");
         // 数字改一次就要问一次「为什么」：这条断言是防「夹具被悄悄裁掉一半」的。
+        // 2026-11-28：并入 /v1/{skills,prompts}/duplicate 2 条（内核 feat/skill-prompt-duplicate）。
         assert_eq!(
             fixture["routes"].as_array().unwrap().len(),
-            166,
+            168,
             "0.1.21 真路由器整份重抓：0.1.15 的 139 + 触发器工程面 13 + 垃圾站 2 + 元素库 7 + 锁 1；\
              2026-11-24 并入插件 README 端点 1 条（内核 docs/plugin-readme 分支，手加，部署后复核）；\
              2026-11-27 并入 AboutME 关系网的 GET /v1/modules/graph（手加，部署后复核）；\

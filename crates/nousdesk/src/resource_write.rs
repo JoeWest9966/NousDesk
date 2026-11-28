@@ -1485,12 +1485,18 @@ impl Desktop {
         .detach();
     }
 
-    /// 复制：把源码根里的目录复制成 `<名字>-copy`（`POST /v1/extensions/duplicate`）。
+    /// 复制：把这条整目录复制成 `<名字>-copy`（`POST /v1/{kind}/duplicate`）。
     ///
-    /// 不起名、不弹表单：复制是「照着这条再开一份」的第一步，名字随时能改；
-    /// 多一层输入框只是把一次点击变成三次。重名由引擎挡住，原话照登。
-    pub(crate) fn resource_ext_duplicate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(reason) = self.resource_write_gate("POST", "/v1/extensions/duplicate") {
+    /// 三种仓共用一个动词、一个形状：技能 / 提示词走内核新加的 `duplicate_entry`，
+    /// 扩展走 `/v1/extensions/duplicate`。不起名、不弹表单：复制是「照着这条再开一份」
+    /// 的第一步，名字随时能改；多一层输入框只是把一次点击变成三次。重名由引擎挡住，原话照登。
+    pub(crate) fn resource_duplicate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(sel) = self.resources.selected.clone() else { return };
+        let kind = sel.kind_of();
+        let name = sel.name_of().to_string();
+        // `format!("/v1/{}/duplicate")`：`{}` 展开成三个仓名，三个目标端点都在活路由表里。
+        let gate_path = format!("/v1/{}/duplicate", kind.repo().key());
+        if let Some(reason) = self.resource_write_gate("POST", &gate_path) {
             self.notify(reason, NoticeKind::Error, cx);
             return;
         }
@@ -1498,21 +1504,27 @@ impl Desktop {
             self.notify("还没连上引擎", NoticeKind::Error, cx);
             return;
         };
-        let Some(sel) = self.resources.selected.clone() else { return };
-        let name = sel.name_of().to_string();
         let to = format!("{name}-copy");
 
         cx.spawn_in(window, async move |this, cx| {
             let Some(handle) = crate::TOKIO.get().cloned() else { return };
-            let (n, target) = (name.clone(), to.clone());
+            let (key, n, target) = (kind.repo().key().to_string(), name.clone(), to.clone());
             let res = handle
-                .spawn(async move { engine.ext_duplicate(&n, &target).await })
+                .spawn(async move {
+                    engine
+                        .resource_op(&key, "duplicate", &serde_json::json!({ "name": n, "to": target }))
+                        .await
+                })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 match res {
                     Ok(Ok(_)) => {
                         this.notify(format!("复制成 {to} —— 在仓库里，改完记得发布"), NoticeKind::Info, cx);
-                        this.resources.selected = Some(Selected::Ext(to.clone()));
+                        this.resources.selected = Some(match kind {
+                            Kind::Skill => Selected::Skill(to.clone()),
+                            Kind::Prompt => Selected::Prompt(to.clone()),
+                            Kind::Ext => Selected::Ext(to.clone()),
+                        });
                         this.load_resources(true, cx);
                     }
                     Ok(Err(e)) => this.notify(format!("{e}"), NoticeKind::Error, cx),

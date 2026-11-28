@@ -2097,25 +2097,6 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                     );
                 })),
         );
-        acts = acts.child(
-            div()
-                .id("res-act-duplicate")
-                .flex()
-                .items_center()
-                .justify_center()
-                .h(t().d(28.))
-                .px(t().d(10.))
-                .rounded(t().r(7.))
-                .border(t().d(1.))
-                .border_color(rgb(t().p.line))
-                .text_size(t().fs(11.5))
-                .text_color(rgb(t().p.text_2))
-                .hover(|el| el.bg(rgb(t().p.hover)))
-                .child("复制")
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.resource_ext_duplicate(window, cx);
-                })),
-        );
     }
     if file_backed {
     acts = acts.child(
@@ -2137,6 +2118,29 @@ fn render_detail(desk: &Desktop, cx: &mut Context<Desktop>) -> AnyElement {
                 this.resource_open_publish(cx);
             })),
     );
+    }
+    // 复制：三种条目共用（源码根里真有目录的档位）。方案 C：纯图标按钮，28px，
+    // 排在「发布」之后；语义靠 tooltip / aria 兜（图标是 IconName::Copy）。
+    if file_backed {
+        acts = acts.child(
+            div()
+                .id("res-act-duplicate")
+                .flex()
+                .items_center()
+                .justify_center()
+                .w(t().d(28.))
+                .h(t().d(28.))
+                .flex_shrink_0()
+                .rounded(t().r(7.))
+                .border(t().d(1.))
+                .border_color(rgb(t().p.line))
+                .text_color(rgb(t().p.text_2))
+                .hover(|el| el.bg(rgb(t().p.hover)))
+                .child(Icon::new(IconName::Copy).size(t().d(15.)))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.resource_duplicate(window, cx);
+                })),
+        );
     }
     head = head.child(acts);
     body = body.child(head);

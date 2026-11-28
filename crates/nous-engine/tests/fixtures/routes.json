@@ -339,6 +339,11 @@
       "path": "/v1/skills/publish"
     },
     {
+      "module": "skills",
+      "method": "POST",
+      "path": "/v1/skills/duplicate"
+    },
+    {
       "module": "prompts",
       "method": "GET",
       "path": "/v1/prompts/files"
@@ -362,6 +367,11 @@
       "module": "prompts",
       "method": "POST",
       "path": "/v1/prompts/publish"
+    },
+    {
+      "module": "prompts",
+      "method": "POST",
+      "path": "/v1/prompts/duplicate"
     },
     {
       "module": "ext",
