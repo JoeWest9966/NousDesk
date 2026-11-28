@@ -142,7 +142,8 @@ for assert_name in ext.items.kind.native ext.items.kind.legacy_js \
     || { echo "FAIL: 扩展段少了一条断言：$assert_name"; exit 1; }
 done
 
-for assert_name in stats.usage.200.totals archive.200.gens presets.enabled presets.roster.200 presets.roster.items.nonempty; do
+for assert_name in stats.usage.200.totals archive.200.gens presets.enabled presets.roster.200 presets.roster.items.nonempty \
+                  capabilities.elements.enabled; do
   grep -q "^ASSERT OK $assert_name" "$WORK/positive.log" \
     || { echo "FAIL: 缺了判据 4 的断言：$assert_name"; exit 1; }
 done

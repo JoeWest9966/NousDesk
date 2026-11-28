@@ -74,8 +74,12 @@ impl Feature {
             Self::Skills => &["skills"],
             // 引擎 0.1.35 之前（`Nous_Extend` 之前）报的是 `ext`。
             Self::Ext => &["ext"],
-            // 引擎 0.1.40 之前（`Trigger_Core` 之前）报的是 `triggers`。
-            Self::Triggers => &["triggers"],
+            // 引擎 0.1.40 之前（`Trigger_Core` 之前）报的是 `triggers`；
+            // 更早的 Desk 只登记过短名 `core`，一并留着当历史名。
+            Self::Triggers => &["triggers", "core"],
+            // 引擎 2026-11-27 把元素库模块全名 `elements` → `Element_Core`（规则 12）。
+            // 老内核仍报 `elements`，不能把元素库整页灰掉。
+            Self::Elements => &["elements"],
             _ => &[],
         }
     }
@@ -86,16 +90,27 @@ impl Feature {
             Self::Presets => "presets",
             Self::Archive => "archive",
             Self::Combos => "combos",
-            Self::Triggers => "core",
+            // 2026-11-27 引擎全名（`crates/Trigger/Core`）。以前登记的是短名 `core`。
+            Self::Triggers => "Trigger_Core",
             Self::Skills => "skill",
             Self::Prompts => "prompts",
             Self::Selection => "selection",
             Self::Device => "device",
             Self::Stats => "data-manager",
             Self::Ext => "extend",
-            Self::Elements => "elements",
+            // 2026-11-27 引擎全名（`crates/Element/Core`）。以前登记的是 `elements`。
+            // 同一个插件家族里 `Models`（`crates/Element/Models`，`/v1/models/elements`）
+            // 不是这一页 —— 它是编目，不是元素库本体。
+            Self::Elements => "Element_Core",
         }
     }
+
+    /// 全部已登记的功能面（唯一一份）。`module_feature()` 只扫它。
+    pub const ALL: &'static [Feature] = &[
+        Self::Sessions, Self::Presets, Self::Archive,
+        Self::Combos, Self::Triggers, Self::Skills, Self::Prompts,
+        Self::Selection, Self::Device, Self::Stats, Self::Ext, Self::Elements,
+    ];
 }
 
 /// 判定结果。`Unknown` = 清单里没有这个功能 → **不可用**，不做降级猜测。
@@ -172,36 +187,52 @@ fn flatten(name: &str) -> String {
         .collect()
 }
 
-/// 引擎报的模块名与客户端登记的 `Feature` 是不是同一个。
-///
-/// 两个方向都要认：`docs/plugins.md` 规则 12 之后引擎报的是全名（`Nous_Device`），
-/// 而 Desk 登记的是短名（`device`）。所以比**全名**，再比**尾段**（`_` 之后那段）。
-/// 两条都不中就是没登记 —— 不猜、不降级。
-pub fn module_matches(reported: &str, feature: Feature) -> bool {
-    // 两个方向都要认，还要认**别名**：`Nous_Extend` 是 0.1.35 起引擎报的全名，
-    // 而它之前叫 `ext` —— 桌面端与引擎是两条发布线，客户端先升级不能把整块功能灰掉。
-    // 别名只用来匹配，`module_name()` 仍是「当前应该叫什么」。
+/// Desk 登记的全部功能面。`module_feature` 只扫这一份；新增变体必须同时进来，
+/// 否则插件页会把它标成「未登记」，能力门也会一律 `Unknown`。
+pub const REGISTERED: &[Feature] = Feature::ALL;
+
+/// 引擎报的模块名与客户端登记的 `Feature` 的**全名**是不是同一个（含别名）。
+/// 归一化只看字母数字（`Element_Core` / `element-core` / `elementcore` 同一把尺）。
+fn full_matches(reported: &str, feature: Feature) -> bool {
     let reported_full = flatten(reported);
-    let reported_tail = reported.rsplit('_').next().map(flatten);
     std::iter::once(feature.module_name())
         .chain(feature.module_aliases().iter().copied())
-        .any(|name| {
-            let want = flatten(name);
-            reported_full == want || reported_tail.as_deref() == Some(want.as_str())
-        })
+        .any(|name| reported_full == flatten(name))
+}
+
+/// 只比**尾段**（`_` 之后那段）：规则 12 之后引擎报全名（`Nous_Device`），
+/// 而 Desk 登记的是短名（`device`）—— 供应商前缀可省。
+fn tail_matches(reported: &str, feature: Feature) -> bool {
+    let Some(tail) = reported.rsplit('_').next().map(flatten) else {
+        return false;
+    };
+    std::iter::once(feature.module_name())
+        .chain(feature.module_aliases().iter().copied())
+        .any(|name| tail == flatten(name))
+}
+
+/// 引擎报的模块名与客户端登记的 `Feature` 是不是同一个。
+///
+/// 答案是**全局唯一**的：一个引擎模块名只可能属于一个 Feature，而且与谁在清单里
+/// 先出现无关 —— 所以这里直接问 [`module_feature`]，不自己再比一次。
+pub fn module_matches(reported: &str, feature: Feature) -> bool {
+    module_feature(reported) == Some(feature)
 }
 
 /// 从引擎模块名找客户端登记的 `Feature`。`env` 这类引擎侧模块
 /// 没有 Desk 入口 → `None`，插件页照实列出并标「未登记」。
+///
+/// 两轮：**先全名、再尾段**。顺序不能反 —— `Element_Core` 的尾段也是 `core`，
+/// 先按尾段扫会把元素库认成触发器（2026-11-27 改名当天就是这样：元素库那颗图标
+/// 判成 `Unknown`，点了没反应）。尾段只在**唯一**时认可：两个功能都抢一段就认不出，
+/// 宁可未登记也不猜。
 pub fn module_feature(name: &str) -> Option<Feature> {
-    [
-        Feature::Sessions, Feature::Presets, Feature::Archive,
-        Feature::Combos, Feature::Triggers, Feature::Skills, Feature::Prompts,
-        Feature::Selection, Feature::Device, Feature::Stats, Feature::Ext,
-        Feature::Elements,
-    ]
-    .into_iter()
-    .find(|f| module_matches(name, *f))
+    if let Some(feature) = REGISTERED.iter().copied().find(|f| full_matches(name, *f)) {
+        return Some(feature);
+    }
+    let mut hits = REGISTERED.iter().copied().filter(|f| tail_matches(name, *f));
+    let first = hits.next()?;
+    hits.next().is_none().then_some(first)
 }
 
 /// `Module::endpoints` 里一条形如 `"GET /v1/sessions"` 的字符串拆成 (method, path)。
@@ -232,9 +263,21 @@ pub fn endpoint_disabled_reason(caps: &Capabilities, method: &str, path: &str) -
     }
 }
 
+/// 清单里属于**这一个**功能面的模块。
+///
+/// 不能用 `module_matches()` 直接 `find`：那是逐模块的局部判断，`Element_Core` 与
+/// `Trigger_Core` 的尾段都叫 `core`，谁先出现就归谁（真发生过：元素库与触发器互相
+/// 偷对方的 enabled / reason）。这里改成问「这个模块解析到哪个 Feature」，
+/// 与插件页、`module_feature()` 同一把尺。
+pub fn module_of(caps: &Capabilities, feature: Feature) -> Option<&Module> {
+    caps.modules
+        .iter()
+        .find(|m| module_feature(&m.name) == Some(feature))
+}
+
 /// 唯一的判定处。UI 里不许再写第二处 `if module_enabled(...)`。
 pub fn gate<'a>(caps: &'a Capabilities, feature: Feature) -> Gate<'a> {
-    match caps.modules.iter().find(|m| module_matches(&m.name, feature)) {
+    match module_of(caps, feature) {
         Some(Module { enabled: true, .. }) => Gate::Enabled,
         Some(Module {
             enabled: false,
@@ -578,7 +621,8 @@ mod tests {
         // 但**包名形态**（`nous-device`）不是模块名，不认 —— 引擎报的是 `Nous_Device`，
         // 认了就等于把包名当身份，规则 12 的三样东西又糊回一起了。
         assert!(!module_matches("nous-device", Feature::Device));
-        // 不许多认：元素库是 `Element_Models`，不是 `Nous_Elements`。
+        // 不许多认：元素库本体是 `Element_Core`，`Models`（编目，`/v1/models/elements`）不是它。
+        assert!(!module_matches("Models", Feature::Elements));
         assert!(!module_matches("Element_Models", Feature::Elements));
         assert!(!module_matches("Nous_Device", Feature::Elements));
         assert!(!module_matches("env", Feature::Device));
@@ -636,8 +680,14 @@ mod tests {
             (Feature::Device, "设备"),
             (Feature::Ext, "扩展"),
             (Feature::Stats, "数据监控"),
+            (Feature::Elements, "元素库"),
         ];
-        assert_eq!(all.len(), 11, "#18 的 10 个 Feature + #12 的 Stats（documents 已下线，Desk 不登记）");
+        assert_eq!(
+            all.len(),
+            Feature::ALL.len(),
+            "Feature::ALL 与这里的清单不一致（新增变体时两边同时补）"
+        );
+        assert_eq!(all.len(), 12, "#18 的 10 个 Feature + #12 的 Stats + 元素库（documents 已下线，Desk 不登记）");
         // engine 恢复分支多出的 `env` 没有 Desk 入口，不在 Feature 里；
         // 插件页照实列出所有模块，未登记的显式标注。
         for (feature, label) in all {
@@ -670,7 +720,7 @@ mod tests {
     /// 「触发器」这一块不许因为名字对不上就整块灰掉 —— 门是能力判定，不是命名口味。
     #[test]
     fn trigger_core_module_rename_keeps_the_feature_visible() {
-        for reported in ["Trigger_Core", "triggers"] {
+        for reported in ["Trigger_Core", "triggers", "core"] {
             assert!(
                 module_matches(reported, Feature::Triggers),
                 "引擎报 {reported} 时「触发器」要认得出来"
@@ -682,16 +732,137 @@ mod tests {
         assert!(!module_matches("core", Feature::Sessions));
     }
 
+    /// 引擎把元素库全名 `elements` 改成 `Element_Core`（2026-11-27，规则 12）之后，
+    /// 「元素库」不许整页灰掉 —— 也不许把同家族的 `Models` 认成元素库本体。
+    #[test]
+    fn element_core_module_rename_keeps_the_feature_visible() {
+        for reported in ["Element_Core", "elements"] {
+            assert!(
+                module_matches(reported, Feature::Elements),
+                "引擎报 {reported} 时「元素库」要认得出来"
+            );
+            assert_eq!(module_feature(reported), Some(Feature::Elements));
+        }
+        // 编目插件 `Models` 不是元素库本体：它没有 Desk 入口 → 未登记（照实列出）。
+        assert_eq!(module_feature("Models"), None);
+        assert!(!module_matches("Models", Feature::Elements));
+        assert!(!module_matches("element-models", Feature::Elements));
+        // `flatten` 滤掉标点，所以包名形态（`element-core`）与全名同一个词 —— 这是
+        // 立尺子时就知道的极限，不在这里假装能分开（引擎从不报包名）。
+        assert!(module_matches("element-core", Feature::Elements));
+    }
+
+    /// `Element_Core` 与 `Trigger_Core` 的尾段都是 `core`：两个模块同时在清单里时，
+    /// 谁也不能偷对方的 enabled / reason —— 判定必须看模块自己的名字，不看清单顺序。
+    #[test]
+    fn element_core_and_trigger_core_do_not_steal_each_others_gate() {
+        let caps: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.40" },
+            "modules": [
+                // 故意的逆序：先元素库、后触发器（清单顺序不该决定归属）。
+                { "name": "Element_Core", "enabled": false,
+                  "reason": { "code": "disabled_by_manifest", "message": "发行版没装元素库" },
+                  "endpoints": ["GET /v1/elements"] },
+                { "name": "Trigger_Core", "enabled": true, "endpoints": ["GET /v1/triggers"] },
+            ],
+            "runtime": { "provider": { "kind": "real" } }
+        }))
+        .unwrap();
+        assert_eq!(module_of(&caps, Feature::Triggers).map(|m| m.name.as_str()), Some("Trigger_Core"));
+        assert_eq!(module_of(&caps, Feature::Elements).map(|m| m.name.as_str()), Some("Element_Core"));
+        assert_eq!(gate(&caps, Feature::Triggers), Gate::Enabled);
+        match gate(&caps, Feature::Elements) {
+            Gate::Disabled { code, reason } => {
+                assert_eq!(code, ReasonCode::DisabledByManifest);
+                assert!(reason.message.contains("元素库"), "理由要取自己的：{reason:?}");
+            }
+            other => panic!("元素库该走自己的 disabled，不该偷触发器的：{other:?}"),
+        }
+        // 端点声明同理：元素库端点能认，触发器端点不跟着亮。
+        assert!(!endpoint_enabled(&caps, "GET", "/v1/elements"), "元素库模块关着就是关着");
+        assert!(endpoint_enabled(&caps, "GET", "/v1/triggers"));
+        assert!(!endpoint_enabled(&caps, "GET", "/v1/elements/push"));
+    }
+
+    /// 引擎 0.1.43（2026-11-27 改名后）的真实清单形状：元素库在 `Element_Core`，
+    /// 同家族的编目插件叫 `Models`。rail 那颗图标、`switch_tab` 的第二道闸、
+    /// 元素库的写端点都要跟着亮起来 —— 这就是「元素页打不开」那个现场的重现。
+    #[test]
+    fn elements_page_opens_against_the_current_engine_manifest() {
+        let caps: Capabilities = serde_json::from_value(serde_json::json!({
+            "contract": 1,
+            "server": { "name": "nous", "version": "0.1.43" },
+            "modules": [
+                { "name": "sessions", "enabled": true, "endpoints": ["GET /v1/sessions"] },
+                // 规则 12 之后的真实名字，顺序照引擎清单（模型在前、元素库在后）。
+                { "name": "Models", "enabled": true, "endpoints": ["GET /v1/models/elements"] },
+                { "name": "Element_Core", "enabled": true, "endpoints": [
+                    "GET /v1/elements", "GET /v1/elements/:kind",
+                    "GET /v1/elements/:kind/:id", "PUT /v1/elements/:kind/:id",
+                    "POST /v1/elements/:kind", "DELETE /v1/elements/:kind/:id",
+                    "POST /v1/elements/:kind/:id/lock", "POST /v1/elements/push"
+                ] },
+                { "name": "Trigger_Core", "enabled": true, "endpoints": ["GET /v1/triggers"] },
+            ],
+            "runtime": { "provider": { "kind": "real" } }
+        }))
+        .unwrap();
+
+        // 1. rail 那颗图标：`feature_enabled` = 点得动。
+        assert_eq!(gate(&caps, Feature::Elements), Gate::Enabled, "元素库入口不许再灰着");
+        assert_eq!(gate_for_path(&caps, "GET", "v1/elements"), Gate::Enabled);
+        // 2. 写面：锁 / 保存 / 补推 都得在 `endpoints` 里被认出来（否则按钮灰、理由乱）。
+        for (method, path) in [
+            ("GET", "v1/elements"),
+            ("GET", "v1/elements/{kind}/{id}"),
+            ("PUT", "v1/elements/{kind}/{id}"),
+            ("POST", "v1/elements/{kind}"),
+            ("DELETE", "v1/elements/{kind}/{id}"),
+            ("POST", "v1/elements/{kind}/{id}/lock"),
+            ("POST", "v1/elements/push"),
+        ] {
+            assert_eq!(feature_for_path(method, path), Some(Feature::Elements), "{method} {path} 归属跑偏");
+        }
+        for (method, path) in [
+            ("GET", "v1/elements"),
+            ("GET", "v1/elements/{kind}"),
+            ("PUT", "v1/elements/{kind}/{id}"),
+            ("POST", "v1/elements/{kind}/{id}/lock"),
+            ("POST", "v1/elements/push"),
+        ] {
+            assert_eq!(
+                endpoint_disabled_reason(&caps, method, path),
+                None,
+                "{method} {path} 引擎已声明，不该给灰理由"
+            );
+        }
+        // 3. 同家族的 `Models` 不为元素库做主：它未登记，也不能把别的功能面带亮。
+        assert_eq!(module_feature("Models"), None);
+        assert_ne!(gate(&caps, Feature::Elements), Gate::Unknown);
+        assert_eq!(gate(&caps, Feature::Triggers), Gate::Enabled);
+    }
+
     #[test]
     fn registered_feature_names_cover_all_desktop_modules() {
-        let all = [
-            Feature::Sessions, Feature::Presets, Feature::Archive,
-            Feature::Combos, Feature::Triggers, Feature::Skills, Feature::Prompts,
-            Feature::Selection, Feature::Device, Feature::Stats, Feature::Ext,
-        ];
-        let names: Vec<_> = all.iter().map(|f| f.module_name()).collect();
-        assert_eq!(names.len(), 11);
+        let names: Vec<_> = REGISTERED.iter().map(|f| f.module_name()).collect();
+        assert_eq!(REGISTERED.len(), Feature::ALL.len(), "REGISTERED 少登记了一个 Feature");
+        assert_eq!(names.len(), 12);
         assert_eq!(names.iter().filter(|n| **n == "env").count(), 0, "env 没有 Desk 入口");
+        // 当前的引擎全名（`docs/plugins.md` 规则 12）：改名的功能面要么登记全名，
+        // 要么把旧名放进 `module_aliases()`；两边都没有，入口就是灰的。
+        for (name, feature) in [
+            ("Trigger_Core", Feature::Triggers),
+            ("Element_Core", Feature::Elements),
+            ("Skill", Feature::Skills),
+            ("Device", Feature::Device),
+            ("Data_DataManager", Feature::Stats),
+            ("Data_Archive", Feature::Archive),
+            ("Nous_Prompts", Feature::Prompts),
+            ("Extend", Feature::Ext),
+        ] {
+            assert_eq!(module_feature(name), Some(feature), "{name} 没登记到 {feature:?}");
+        }
     }
 
     /// #18：端点清单只做字符串拆分，不猜语义。多空格 / 路径带空格都归一。

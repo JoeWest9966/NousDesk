@@ -1920,3 +1920,21 @@ builder —— 不改变元素形态，不用把一个 `div` 包成 `Button`。*
 **反悔点**：① 若将来要支持「在文件管理器里打开仓根」，那是另一个按钮、另一条 argv，
 别把它塞进 `external_url`（本地路径不是 URL，白名单会正确地拒绝它）；
 ② 若有人要求打开 `ssh://git@…` 形态，先想清楚系统默认处理程序会做什么，再改白名单。
+
+## 2026-11-28 · 能力门的模块名解析：先全名、再唯一尾段（`fix/elements-module-element-core`）
+
+**什么**：`Feature::module_name()` 跟引擎当前全名走（`Elements → Element_Core`、`Triggers → Trigger_Core`），
+旧名只进 `module_aliases()`；`module_feature()` 两轮解析 —— 先全名（含别名的全名），再尾段且**唯一**才认可；
+`gate()` / 新增的 `module_of()` 改成问「这个模块解析到哪个 Feature」，与插件页「已登记 / 未登记」同一把尺。
+
+**为什么**：引擎 2026-11-27 按规则 12 把 `elements` → `Element_Core`，Desk 只登记短名 → 整页 `Unknown`，
+图标静默灰掉（点了没反应、也没有理由）。同时 `Element_Core` 与 `Trigger_Core` 的尾段都是 `core`，
+原来 `gate()` 是「按清单顺序找第一个能匹配的模块」，于是元素库与触发器互相偷 enabled / reason。
+把「尾段唯一才认可」写进判定，等于把「两个功能抢一段」显式变成「认不出」，而不是悄悄选一个。
+
+**不这么做的代价**：往别名表里塞 `models` 会顺手把编目插件 `Models`（`/v1/models/elements`）认成元素库本体。
+`Models` 在 Desk 没有入口，就该保持「未登记」—— 别名只记历史名，不记「长得像」。
+
+**反悔点**：① 引擎第三次改名时别只往别名表里堆，顺手确认尾段有没有新的撞车；
+② 真出现两个同尾段又都不是误报（例：`Nous_Foo` / `Data_Foo`），那时才考虑「按 vendor 段配 Feature」，
+别提前把规则复杂化。

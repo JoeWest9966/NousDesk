@@ -455,6 +455,7 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 | `archived.purged` 改名 / 换语义 | 撕过的显示成「原件在」，会让人重复撕 |
 | `live` 没了 / 恒为 true | 「已捞回」和「无墓碑」颠倒，该给「打捞」的不给 |
 | `restore` 收 `gen` 改成收别的 | 打捞 400，归档库页点了没反应 |
+| 模块全名改名（`elements` → `Element_Core`、`Element_Models` → `Models`…） | 那个入口整块灰掉、点了没反应（`Gate::Unknown`），端点却全 200 —— Desk 只认 `Feature::module_name()` + `module_aliases()` |
 
 所以：启动时打 `GET /v1/device` 记引擎版本，About 里显示，出问题先对版本。
 
@@ -499,6 +500,10 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 ## 元素库（`/v1/elements*`，2026-11-23 起）
 
 一个元素 = 私库根（`NOUS_ELEMENTS`）下一个 JSON 文件：`groups/<id>.json` / `packages/<id>.json`。
+
+**模块名**（`/v1/capabilities` 的 `modules[].name`）：2026-11-27 由 `elements` 改成 **`Element_Core`**（规则 12，
+端点一条没动）。同家族的 `Models` 是编目插件（`GET /v1/models/elements`），**不是**这一页。Desk 认
+`Element_Core`，旧名 `elements` 留在 `Feature::Elements` 的别名表里 —— 客户端与引擎是两条发布线。
 
 | 端点 | 我们读的字段 |
 |---|---|
