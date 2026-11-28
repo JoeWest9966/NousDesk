@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use nous_engine::sse::SseEvent;
+use nous_engine::resource::{pending_unit_count, Repo};
 use nous_engine::types::{CreateSession, Entries};
 use nous_engine::{ElementKind, EngineClient, EngineError, PinClient, PinError, StatsClient};
 
@@ -624,6 +625,31 @@ async fn main() {
         true,
         "ext.variants.200",
         variants.family("extend").count(),
+    );
+
+    // ── 底部仓片：#23 的三条判据 ──────────────────────────────────────
+    //
+    // `scripts/check-desk.sh` 把 `$WORK/extend` 做成一个 git 仓：分支 `feat/probe`
+    // （非 main）、没有 remote、脏，且有 2 处内容改动 + 2 个仓级文件（artifacts /
+    // deleted-extensions.json）—— 后两个不许算进「处」。
+    let st = good.repo_status("extend").await.expect("extend status 可读");
+    assert_line(
+        st.branch.as_deref() == Some("feat/probe"),
+        "repo.status.branch.non_main",
+        format!("branch={:?}", st.branch),
+    );
+    assert_line(
+        st.remote.is_none(),
+        "repo.status.no_remote",
+        format!("remote={:?}", st.remote),
+    );
+    assert_line(st.dirty, "repo.status.dirty", st.dirty);
+    let pen = good.repo_pending("extend").await.expect("extend pending 可读");
+    let count = pending_unit_count(Repo::Extensions, &pen.units);
+    assert_line(
+        count == 2,
+        "repo.pending.extend_count",
+        format!("{count} 处（raw {} 个单元，含仓级文件）", pen.units.len()),
     );
 
     // ── 元素库：删除必须真的从私库盘上消失 ─────────────────────────

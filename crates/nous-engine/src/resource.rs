@@ -15,6 +15,117 @@
 
 use std::collections::HashMap;
 
+/// `GET /v1/repos/{repo}/status`：这一段私库在本机的 git 状态。
+///
+/// 内核目前回 `{root, head, branch, ahead, behind, dirty, locked}`；`remote` 是
+/// **软依赖**（内核补了才有），字段缺失 = 没有远端 —— 不猜、也不降级成「猜一个」。
+/// 未知字段一律透传，内核对 `RepoStatus` 加字段这边不跟着改。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct RepoStatus {
+    /// 仓根在本机的绝对路径（`/opt/Nous-skills` 这种）。路径条直接画它。
+    #[serde(default)]
+    pub root: String,
+    /// HEAD 短 sha。`null` = 仓读不了。
+    #[serde(default)]
+    pub head: Option<String>,
+    /// 当前分支名。分离头时也可能 `null`。
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub ahead: u32,
+    #[serde(default)]
+    pub behind: u32,
+    /// 有没有未提交改动。布尔，不是数字 —— 处数看 `pending`，别拿它当计数。
+    #[serde(default)]
+    pub dirty: bool,
+    #[serde(default)]
+    pub locked: bool,
+    /// `origin` 的 URL。内核补上后才存在；缺失 = 没有远端（不画 ↗）。
+    #[serde(default)]
+    pub remote: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/repos/{repo}/pending` 回包里 `units[]` 的一条：按**顶层目录 / 文件**
+/// 分组的一处待提交改动。`state` 是 `tracked` / `untracked` / `unpushed`。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPendingUnit {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub ahead_commits: u32,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `GET /v1/repos/{repo}/pending` 的回包：`{ units: [...] }`。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct RepoPending {
+    #[serde(default)]
+    pub units: Vec<RepoPendingUnit>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// 私库根下这些**顶层名**是仓级簿记文件，不是一条可发布的内容单元 ——
+/// 算「N 处待发布」时排除掉，否则扩展仓永远多算两三处。名单只在这里写一次。
+pub const REPO_LEVEL_NAMES: &[&str] = &[
+    "artifacts",
+    "deleted-extensions.json",
+    "categories.json",
+    "index.json",
+];
+
+/// 这个顶层名是不是仓级簿记文件（`artifacts/` 目录、几个索引 / 删除名单 JSON）。
+pub fn is_repo_level_file(name: &str) -> bool {
+    let name = name.trim().trim_end_matches('/');
+    REPO_LEVEL_NAMES.iter().any(|x| x.eq_ignore_ascii_case(name))
+}
+
+/// 一个仓有几「处」待发布：扩展只数内容目录（仓级文件不算），技能 / 提示词数全部单元。
+///
+/// 判据（j1900 真数据，2026-11）：skills `main` 2 处、prompts `main` 5 处、
+/// extend `feat/skills-upstream-source` 5 处（`pending` 原始 7 条，扣掉 `artifacts/`
+/// 与 `deleted-extensions.json` 两个仓级单元）。
+pub fn pending_unit_count(repo: Repo, units: &[RepoPendingUnit]) -> usize {
+    match repo {
+        Repo::Extensions => units.iter().filter(|u| !is_repo_level_file(&u.name)).count(),
+        Repo::Skills | Repo::Prompts => units.len(),
+    }
+}
+
+/// 中间省略：`max_chars` 个字符放不下时，保留前约 2/3、后约 1/3，中间换成 `…`。
+///
+/// 按**字符**数（不是字节）算，中文一个算一个。前缀留多、后缀留少，是因为
+/// 分支名开头（`feat/`）比结尾更能说明它是什么分支。
+/// `ellipsis_middle("feat/skills-upstream-source", 18) == "feat/skills…source"`。
+pub fn ellipsis_middle(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max_chars {
+        return text.to_string();
+    }
+    if max_chars == 1 {
+        return "…".to_string();
+    }
+    let keep = max_chars - 1;
+    let head = keep * 2 / 3;
+    let tail = keep - head;
+    let mut out = String::with_capacity(max_chars);
+    out.extend(&chars[..head]);
+    out.push('…');
+    out.extend(&chars[chars.len() - tail..]);
+    out
+}
+
 /// 文件列表里的一行。`size` 引擎给了就用，没给（比如目录占位）就空着。
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ResourceFileEntry {
@@ -270,5 +381,80 @@ mod tests {
         assert_eq!(Repo::Extensions.path(), "v1/extensions");
         assert_eq!("prompts".parse::<Repo>(), Ok(Repo::Prompts));
         assert!("prompt".parse::<Repo>().is_err());
+    }
+
+    /// 活样本：`GET /v1/repos/extend/status`（j1900，2026-11，尚无 remote）。
+    const STATUS: &str = r#"{"root":"/opt/Nous-extend","head":"07b9e0b","branch":"feat/skills-upstream-source","ahead":0,"behind":0,"dirty":true,"locked":false}"#;
+
+    #[test]
+    fn repo_status_parses_and_remote_defaults_none() {
+        let s: RepoStatus = serde_json::from_str(STATUS).unwrap();
+        assert_eq!(s.root, "/opt/Nous-extend");
+        assert_eq!(s.branch.as_deref(), Some("feat/skills-upstream-source"));
+        assert!(s.dirty);
+        assert_eq!(s.remote, None, "没有 remote 字段 = 没远端，不是错误");
+        // 内核以后补 remote / 加未知字段：这边要收得住。
+        let with_remote: RepoStatus = serde_json::from_str(
+            r#"{"root":"/opt/Nous-skills","branch":"main","dirty":false,"remote":"https://github.com/x/y","future":1}"#,
+        )
+        .unwrap();
+        assert_eq!(with_remote.remote.as_deref(), Some("https://github.com/x/y"));
+        assert_eq!(with_remote.extra["future"], 1);
+    }
+
+    /// 活样本：`GET /v1/repos/extend/pending`（j1900，2026-11）。
+    const EXT_PENDING: &str = r#"{"units":[
+        {"name":"123","state":"tracked","aheadCommits":0,"paths":["123/index.js"]},
+        {"name":"artifacts","state":"untracked","aheadCommits":0,"paths":["artifacts/"]},
+        {"name":"deleted-extensions.json","state":"untracked","aheadCommits":0,"paths":["deleted-extensions.json"]},
+        {"name":"nous","state":"tracked","aheadCommits":0,"paths":["nous/nous.json"]},
+        {"name":"prompts","state":"tracked","aheadCommits":0,"paths":["prompts/nous.json"]},
+        {"name":"skills","state":"tracked","aheadCommits":0,"paths":["skills/nous.json"]},
+        {"name":"test","state":"tracked","aheadCommits":0,"paths":["test/index.js"]}
+    ]}"#;
+
+    #[test]
+    fn repo_pending_parses_units() {
+        let p: RepoPending = serde_json::from_str(EXT_PENDING).unwrap();
+        assert_eq!(p.units.len(), 7);
+        assert_eq!(p.units[0].name, "123");
+        assert_eq!(p.units[0].state, "tracked");
+    }
+
+    /// 「处」的口径：扩展只数内容目录，仓级文件（artifacts / 三个 JSON）不算；
+    /// 技能 / 提示词数全部单元（j1900 真数据：skills 2、prompts 5）。
+    #[test]
+    fn pending_count_excludes_repo_level_files_only_for_extend() {
+        let ext: RepoPending = serde_json::from_str(EXT_PENDING).unwrap();
+        assert_eq!(pending_unit_count(Repo::Extensions, &ext.units), 5, "7 条扣掉 artifacts + deleted-extensions.json");
+        for level in ["artifacts", "artifacts/", "deleted-extensions.json", "categories.json", "index.json"] {
+            assert!(is_repo_level_file(level), "{level} 应是仓级文件");
+        }
+        assert!(!is_repo_level_file("nous"), "扩展目录不是仓级文件");
+
+        let skills = [
+            RepoPendingUnit {
+                name: "ask-matt".into(), state: "tracked".into(), ahead_commits: 0,
+                paths: vec![], extra: Default::default(),
+            },
+            RepoPendingUnit {
+                name: "index.json".into(), state: "tracked".into(), ahead_commits: 0,
+                paths: vec![], extra: Default::default(),
+            },
+        ];
+        // 技能段不套扩展的排除名单：index.json 也计入（对齐 j1900「skills 2 处」）。
+        assert_eq!(pending_unit_count(Repo::Skills, &skills), 2);
+    }
+
+    #[test]
+    fn ellipsis_middle_keeps_head_and_tail() {
+        assert_eq!(ellipsis_middle("main", 18), "main");
+        assert_eq!(ellipsis_middle("feat/skills-upstream-source", 18), "feat/skills…source");
+        // 刚好卡上限不截。
+        assert_eq!(ellipsis_middle("abcdefghijklmnopqr", 18), "abcdefghijklmnopqr");
+        // 中文按字符算，不按字节。
+        assert_eq!(ellipsis_middle("特性分支/很长的名字啊", 6), "特性分…字啊");
+        assert_eq!(ellipsis_middle("anything", 0), "");
+        assert_eq!(ellipsis_middle("abc", 1), "…");
     }
 }

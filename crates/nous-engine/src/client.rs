@@ -20,6 +20,7 @@ use crate::types::{
     RepoArchive, RepoVariants,
     SessionConfig, Sessions, Skills, Submission, Triggers, Unread,
 };
+use crate::resource::{RepoPending, RepoStatus};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -516,6 +517,24 @@ impl EngineClient {
         let v = Self::body_json(body)?;
         let url = self.url(&path)?;
         let resp = self.http.post(url).json(&v).send().await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/repos/{repo}/status`：这一段私库在本机的 git 状态（分支 / 脏 / 远端）。
+    ///
+    /// 仓名走 `repo_base`（`skills` / `prompts` / `extend`）。底部仓片用它画
+    /// 仓名 / 分支 / 路径条 / 脏点 / ↗（有 remote 才画）。
+    pub async fn repo_status(&self, repo: &str) -> Result<RepoStatus, EngineError> {
+        let base = repo_base(repo)?;
+        let resp = self.http.get(self.url(&format!("{base}/status"))?).send().await?;
+        self.json(resp).await
+    }
+
+    /// `GET /v1/repos/{repo}/pending`：按顶层单元分组的待提交改动（「N 处待发布」的来源）。
+    /// 仓级文件的排除口径在 `resource::pending_unit_count`，这里只取原始回包。
+    pub async fn repo_pending(&self, repo: &str) -> Result<RepoPending, EngineError> {
+        let base = repo_base(repo)?;
+        let resp = self.http.get(self.url(&format!("{base}/pending"))?).send().await?;
         self.json(resp).await
     }
 
@@ -1337,6 +1356,22 @@ impl EngineClient {
     }
 }
 
+/// 私库仓名 → `/v1/repos/…` 的路径前缀。**只在这里写字面量**：
+/// 台账扫描器按前缀认账（`v1/repos/skills` 能匹配 `v1/repos/skills/status`）。
+fn repo_base(repo: &str) -> Result<&'static str, EngineError> {
+    match repo {
+        "presets" => Ok("v1/repos/presets"),
+        "skills" => Ok("v1/repos/skills"),
+        "prompts" => Ok("v1/repos/prompts"),
+        "extend" => Ok("v1/repos/extend"),
+        other => Err(EngineError::Engine {
+            status: 400,
+            message: format!("未知私库：{other}"),
+            body: None,
+        }),
+    }
+}
+
 /// 引擎客户端会发的所有路径模板。只列路径字面量，不带 query / body。
 /// `Desk#13` 判据 1 的真相源：这里出现、却不在引擎路由也不在白名单的，
 /// 就是一条偷偷复活、必打 404 的死调用。
@@ -1382,6 +1417,13 @@ pub const CLIENT_PATHS: &[(&str, &str)] = &[
     ("POST", "v1/extensions/category"),
     ("GET", "v1/repos/extend/variants"),
     ("GET", "v1/repos/extend/archive"),
+    // 底部仓片（Desk#23）：每段的 git 状态 / 待提交单元。
+    ("GET", "v1/repos/skills/status"),
+    ("GET", "v1/repos/prompts/status"),
+    ("GET", "v1/repos/extend/status"),
+    ("GET", "v1/repos/skills/pending"),
+    ("GET", "v1/repos/prompts/pending"),
+    ("GET", "v1/repos/extend/pending"),
     ("POST", "v1/repos/skills/archive"),
     ("POST", "v1/repos/skills/restore"),
     ("POST", "v1/repos/skills/purge"),
