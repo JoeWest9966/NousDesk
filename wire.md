@@ -570,11 +570,23 @@ body `{"gen":"YYYYMMDD"}`（哪一份复印件，取自 `GET /v1/archive`）。
 - 库的详情不借用引擎版本冒充自己的版本，也不硬撑一份空端点列表 —— 写「库不提供端点」，
   真正的信息是关系图（它依赖谁 / 谁依赖它）。
 - 迷你图的三类节点：模块**实心**、库**空心**（虚线）、未登记琥珀。
-- `AboutME_ModuleRelationshipNetwork` 的 `GET /v1/modules/graph` 真能打到，但它既不在
-  `capabilities.modules`、也不在 `/v1/_routes` 的 165 条里 —— 客户端只能把名字记在
-  `plugin_page.rs` 的 `UNREGISTERED` 里单独标出来（**补账**，不是第二份模块名单）。
-  内核侧拍板「补登记」后这条自动失效（在 `capabilities` 里就是模块），
-  拍板「不登记」就删掉这张表并把这一段并入库。
+
+**「未登记」的来历与现状（2026-11-28）**：`AboutME_ModuleRelationshipNetwork` 的
+`GET /v1/modules/graph` 曾经「能打到但不进清单」—— 它在 `capabilities.modules` 和
+`/v1/_routes` 里都没有名字。内核侧已用**补登记**修掉（提交 `9f453fb`「关系网补进
+MANIFEST」）：引擎 **0.1.42** 起 `capabilities.modules` 是 16 个，它自带两条端点
+（`GET /v1/modules/graph` + `GET /v1/modules/updates`，`plugin.toml` 0.2.0）。
+
+`plugin_page.rs` 的 `UNREGISTERED` 那张表因此**只剩向后兼容的作用**：
+
+- 连 **0.1.42 及以后**：它在 `capabilities` 里，[`Index::build`] 的「在 caps 里就是模块」
+  先把它变成 `Kind::Module`，那张表**永远不触发**（死代码，但无害）。
+- 连 **0.1.41 及更早**：它仍不在 `capabilities` 里，那张表是唯一能让界面说真话的东西 ——
+  删掉它，`AboutME` 就会按「图里有、caps 里没有」掉进「库」那一段，显示「库 · 零端点」，
+  而它明明有端点。
+
+所以这条**不是补数据、是兜底**；确定不再支持 `0.1.41` 的那天，连同 `Kind::Unregistered`
+和列表「未登记」那一段一起删。
 
 **反悔点**：如果图的边开始被拿来做**功能判定**（「依赖没启用就灰入口」），这条就不能只是
 只读投影，得先在内核给语义依赖一个手写字段并对它做判据。如果模块数涨到几百、图过 MB，

@@ -1,9 +1,9 @@
 //! 插件页的条目分类、分段与「详情能看到什么」——纯函数，不碰 GPUI、不碰 HTTP。
 //!
 //! 两份原料，各管一半，别混：
-//! - `GET /v1/capabilities` 的 `modules[]`：**端点模块**（15 个）。有 enabled / vendor /
-//!   version / layer / crate / endpoints。列表里那个「15 个模块」统计行也只数这一份。
-//! - `GET /v1/modules/graph` 的 `nodes`：**全部插件**（31 个）。多出来的 17 个不在
+//! - `GET /v1/capabilities` 的 `modules[]`：**端点模块**（新引擎 16 个；`0.1.41` 及更老的是 15 个）。
+//!   有 enabled / vendor / version / layer / crate / endpoints。列表里那个「N 个模块」统计行也只数这一份。
+//! - `GET /v1/modules/graph` 的 `nodes`：**全部插件**（新引擎 31 个）。多出来的那些不在
 //!   capabilities 里，客户端没有它们的元数据 —— 只有名字，和边反查出来的包名。
 //!
 //! 所以这里只做三件事：
@@ -23,16 +23,26 @@ use nous_engine::{Capabilities, Module};
 
 use crate::plugin_graph::Relations;
 
-/// 自带端点、却没进 `capabilities.modules` 的插件名 —— **客户端暂时补的一笔账**。
+/// 自带端点、却没进 `capabilities.modules` 的插件名 —— **老引擎的兜底**，不是第二份模块名单。
 ///
 /// 为什么需要这张表：内核 `AboutME_ModuleRelationshipNetwork` 的 `GET /v1/modules/graph`
-/// 真能打到（200），但它既不在 `capabilities.modules` 里、也不在 `/v1/_routes` 的 165 条里，
+/// 真能打到（200），但它既不在 `capabilities.modules` 里、也不在 `/v1/_routes` 里，
 /// 只在关系图的 `nodes` 里露一个名字。于是「图里有、caps 里没有」这个推导条件分不出
-/// 「库」和「未登记的模块」——引擎侧没有任何一份清单能给出答案（#21 第三处，待拍板）。
+/// 「库」和「未登记的模块」——引擎侧没有任何一份清单能给出答案。
 ///
-/// **只在拍板之前存在**：`#21` 若走「补登记」，它会进 caps 的 modules，
-/// [`Index::build`] 的「在 caps 里就是模块」会把这条表压过去；若走「明确不登记」，
-/// 删掉这一行 + 把 `Kind::Unregistered` 的 `未登记琥珀` 一并去掉。
+/// **来历（2026-11-28 记）**：这个矛盾在内核里已经用「补登记」修掉了 ——
+/// `9f453fb`「关系网补进 MANIFEST」把 `AboutME_ModuleRelationshipNetwork` 加进了清单，
+/// 引擎 `0.1.42` 起 `capabilities.modules` 是 16 个、它自带两条端点
+/// （`GET /v1/modules/graph` + `GET /v1/modules/updates`）。
+///
+/// **那为什么还留着这行**：Desk 可以连 `0.1.41` 及更老的引擎（那版还没补登记）。
+/// 在那些引擎上，它是唯一能让界面说真话的东西 —— 删掉它，`AboutME` 就会按
+/// 「图里有、caps 里没有」掉进「库」那一段，显示「库 · 零端点」，而它明明有端点。
+/// 也就是说：**这行不是补数据，是向后兼容**。连新引擎时它永远不触发（`Index::build` 的
+/// 「在 caps 里就是模块」先把它压过去，所以它是死代码但无害）。
+///
+/// **什么时候删**：确定不再支持 `0.1.41` 引擎的那天，整块删掉 —— 连同
+/// [`Kind::Unregistered`] 和「未登记」那一段（UI 里 `settings.rs` 的 `section_head`）。
 const UNREGISTERED: &[&str] = &["AboutME_ModuleRelationshipNetwork"];
 
 /// 一个插件条目到底是什么。
