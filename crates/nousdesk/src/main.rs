@@ -44,6 +44,7 @@ mod plugin_graph;
 mod preset_confirm;
 mod preview;
 mod preset_menu;
+mod trigger_menu;
 mod rail_icons;
 mod template_icons;
 mod recent;

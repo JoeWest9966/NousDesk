@@ -91,7 +91,7 @@ fn avatar_bg() -> u32 { t().p.avatar }
 ///
 /// 实心 pill 在列表里出现两个以上就会花；纯文字又扫不到。描边是 demo 里挑的那一档
 /// （`demo/template-page/lifecycle.html` 组 ③ 方案 2）。
-fn status_pill(text: &str, color: u32) -> AnyElement {
+pub(crate) fn status_pill(text: &str, color: u32) -> AnyElement {
     // 外面套一层 `.flex().items_center()`：pill 的父级是列，列默认 `align_items: stretch`
     // 会把它拉成整行宽（踩过一次，看着像一块黄色横幅）。
     div()

@@ -8,9 +8,9 @@
     "commit": "feat/elements-lock 5467dcb 之后（0.1.21 + 元素库 /lock）",
     "host": "远程开发机 cnb.space（临时库 /tmp/eng-store，不是 j1900）",
     "environment": "faux 引擎 + /workspace/elements-fixture 私库（非 j1900 真数据）",
-    "route_count": 164,
+    "route_count": 166,
     "module_count": 15,
-    "patched": "2026-11-22：在 0.1.15 的 139 条上并入触发器工程面 13 条（Nous#95，139 → 152）。2026-11-23：并入 0.1.16 的垃圾站两条（GET /v1/extensions/trash、POST /v1/extensions/trash/purge，152 → 154）。 2026-11-23：元素库七条按真产物核对（154 → 161）；与直接抓 0.1.20 的 `_routes` 逐条相等。 2026-11-23：元素库加锁 `POST /v1/elements/{kind}/{id}/lock`（161 → 162），整份按真路由器重抓，不是手改一条。 2026-11-24：并入插件 README 端点 `GET /v1/plugins/{name}/readme`（内核 docs/plugin-readme 分支，162 → 163）。**这一条是手加的**：j1900 还没部署带该端点的产物，部署后要用真引擎 `/v1/_routes` 复核。 2026-11-27：并入内核 `AboutME_ModuleRelationshipNetwork` 的 `GET /v1/modules/graph`（163 → 164），同样**手加**、同样等部署后复核。"
+    "patched": "2026-11-22：在 0.1.15 的 139 条上并入触发器工程面 13 条（Nous#95，139 → 152）。2026-11-23：并入 0.1.16 的垃圾站两条（GET /v1/extensions/trash、POST /v1/extensions/trash/purge，152 → 154）。 2026-11-23：元素库七条按真产物核对（154 → 161）；与直接抓 0.1.20 的 `_routes` 逐条相等。 2026-11-23：元素库加锁 `POST /v1/elements/{kind}/{id}/lock`（161 → 162），整份按真路由器重抓，不是手改一条。 2026-11-24：并入插件 README 端点 `GET /v1/plugins/{name}/readme`（内核 docs/plugin-readme 分支，162 → 163）。**这一条是手加的**：j1900 还没部署带该端点的产物，部署后要用真引擎 `/v1/_routes` 复核。 2026-11-27：并入内核 `AboutME_ModuleRelationshipNetwork` 的 `GET /v1/modules/graph`（163 → 164），同样**手加**、同样等部署后复核。 2026-11-24：并入触发器排序面两条（GET/PUT /v1/trigger-projects/order，164 → 166），来自内核 feat/trigger-order，尚未在 j1900 上现抓 —— 上线后重抓整份覆盖这一条。"
   },
   "routes": [
     {
@@ -562,6 +562,16 @@
       "module": "triggers",
       "method": "POST",
       "path": "/v1/trigger-projects/category"
+    },
+    {
+      "module": "triggers",
+      "method": "GET",
+      "path": "/v1/trigger-projects/order"
+    },
+    {
+      "module": "triggers",
+      "method": "PUT",
+      "path": "/v1/trigger-projects/order"
     },
     {
       "module": "triggers",

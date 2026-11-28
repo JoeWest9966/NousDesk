@@ -5967,11 +5967,8 @@ impl Render for Desktop {
             .children(self.cfg_overlay(window, cx))
             // 「≡ 更多」菜单压在最上面（它自带一层点空白收起的罩子）。
             .children(self.menu_open.then(|| self.render_menu_overlay(cx)))
-            // 触发器：卡片右键菜单 / 保存冲突（挂在整窗，坐标才是窗口坐标）
-            .children(
-                (self.tab == Tab::Triggers && self.triggers.menu.is_some())
-                    .then(|| self.trigger_menu_overlay(cx)),
-            )
+            // 触发器：保存冲突（挂在整窗，坐标才是窗口坐标）。
+            // 行右键菜单走 gpui-kit 的 `ContextMenuExt`，不再往这一层挂浮层。
             .children(
                 (self.tab == Tab::Triggers && self.triggers.conflict.is_some())
                     .then(|| self.trigger_conflict_overlay(cx)),
@@ -5988,6 +5985,10 @@ impl Render for Desktop {
             .children(
                 (self.tab == Tab::Triggers && self.triggers.cat_del.is_some())
                     .then(|| self.cat_del_overlay(cx)),
+            )
+            .children(
+                (self.tab == Tab::Triggers && self.triggers.cat_pick.is_some())
+                    .then(|| self.cat_pick_overlay(cx)),
             )
             // 「重命名会话」（居中对话框）：压在菜单之上、撕原件之下
             .children(self.rename_overlay(window, cx))
