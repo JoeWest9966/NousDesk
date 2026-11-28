@@ -529,3 +529,46 @@ fn 扩展段菜单空垃圾站只有两项() {
         "有东西才出垃圾站，且带份数"
     );
 }
+
+/// ↗ 圆按钮只认 http/https：`xdg-open` 的 argv 不能让远端替我们决定。
+///
+/// 判据是**白名单**而不是黑名单 —— 新协议（`vscode://`、`file:`、`javascript:`）
+/// 默认落在「不开」那边，宁可少开一个，不能把 `file:/etc/shadow` 交给系统处理。
+#[test]
+fn 只有http链接才会被交给系统浏览器() {
+    use crate::resources::external_url;
+
+    // 正常形态：http / https，大小写不敏感，前后空白剃掉。
+    assert_eq!(
+        external_url("https://github.com/JoeWest9966/Nous-skills.git"),
+        Some("https://github.com/JoeWest9966/Nous-skills.git".into())
+    );
+    assert_eq!(
+        external_url("  http://192.168.1.7:4789/x?a=1&b=2  "),
+        Some("http://192.168.1.7:4789/x?a=1&b=2".into()),
+        "query 里的 & 原样留着，spawn 不过 shell"
+    );
+    assert_eq!(
+        external_url("HTTPS://GitHub.com/x"),
+        Some("HTTPS://GitHub.com/x".into()),
+        "协议大小写不敏感，但原串不改写"
+    );
+
+    // 不是 http/https 的一律不开。
+    assert_eq!(external_url(""), None);
+    assert_eq!(external_url("   "), None);
+    assert_eq!(external_url("file:///etc/shadow"), None);
+    assert_eq!(external_url("javascript:alert(1)"), None);
+    assert_eq!(external_url("vscode://file/tmp"), None);
+    assert_eq!(external_url("git@github.com:JoeWest9966/Nous-skills.git"), None, "scp 风格不是 URL");
+    assert_eq!(external_url("/opt/Nous-skills"), None, "本地路径不是远端");
+
+    // 没有主机段的不算链接（`https:///x` 交给 xdg-open 只会白开一个浏览器）。
+    assert_eq!(external_url("https://"), None);
+    assert_eq!(external_url("https:///x"), None);
+    assert_eq!(external_url("http://?q=1"), None);
+
+    // 带空白 / 控制字符的整串丢掉：那是拼错了，不是链接。
+    assert_eq!(external_url("https://a b.com"), None);
+    assert_eq!(external_url("https://a.com\nrm -rf /"), None);
+}
