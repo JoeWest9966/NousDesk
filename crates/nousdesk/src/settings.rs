@@ -1012,6 +1012,10 @@ impl Desktop {
     }
 
     /// 插件页：左列表 + 右详情；窄窗退化成互斥的两屏（详情顶部「← 插件」）。
+    ///
+    /// 列表分段、条目分类、行文案都在 `plugin_page.rs`（纯函数）；这里只负责摆。
+    /// 两段：`capabilities.modules`（端点模块，引擎顺序）+ 关系图里多出来的依赖层
+    /// （库按被依赖数降序，未登记单独一段）。点哪一条都是同一套详情。
     fn about_plugins(&mut self, narrow: bool, viewport_w: f32, cx: &mut Context<Self>) -> AnyElement {
         let t = t();
         // 关系图只拉一次；进插件页才拉（不在启动路径上白花一次往返）。
@@ -1025,20 +1029,48 @@ impl Desktop {
                 .into_any_element();
         };
 
-        // 选中项：未连上 / 模块被删掉时回落到第一条。
-        let selected = self
+        // 图没到 / 老引擎 404：库这一段不出现（`Index` 只有模块那一层）。
+        let rel = match self.plugin_graph.state() {
+            crate::plugin_graph::State::Ready(rel) => Some(rel),
+            _ => None,
+        };
+        let index = crate::plugin_page::Index::build(&caps.modules, rel);
+        let server_version = caps.server.version.as_str();
+
+        // 选中项：模块 / 库 / 未登记都按名字找；名字不在任何清单里（模块被删掉 / 换了
+        // 引擎）就回落到第一条模块。
+        let selected: Option<String> = self
             .about_selected
             .as_deref()
-            .and_then(|name| caps.modules.iter().position(|m| m.name == name))
-            .unwrap_or(0);
+            .filter(|name| index.kind(name).is_some())
+            .map(str::to_string)
+            .or_else(|| caps.modules.first().map(|m| m.name.clone()));
         let show_detail = !narrow || self.about_detail_open;
 
         let mut list = div().flex().flex_col().gap(t.d(2.));
-        if narrow && show_detail {
-            // 窄窗详情自己带「← 插件」，列表收起。
-        } else {
-            for (i, module) in caps.modules.iter().enumerate() {
-                list = list.child(plugin_row(module, &caps.server.version, i == selected, cx));
+        if !(narrow && show_detail) {
+            for module in &caps.modules {
+                let view = crate::plugin_page::View::module(module, server_version);
+                let on = selected.as_deref() == Some(view.name);
+                list = list.child(plugin_row(&view, on, cx));
+            }
+            // 依赖层：图里有、capabilities 里没有的条目。只在图拉到之后才出现 ——
+            // 不拿「空」冒充「没有库」。
+            for (title, names) in [
+                ("依赖层 · 库", index.libs()),
+                ("未登记", index.unregistered()),
+            ] {
+                if names.is_empty() {
+                    continue;
+                }
+                list = list.child(section_head(title, names.len()));
+                for name in names {
+                    let Some(view) = index.view(name, caps) else {
+                        continue;
+                    };
+                    let on = selected.as_deref() == Some(name.as_str());
+                    list = list.child(plugin_row(&view, on, cx));
+                }
             }
         }
         let list = div()
@@ -1059,12 +1091,23 @@ impl Desktop {
         if !show_detail {
             return list.into_any_element();
         }
-        let module = &caps.modules[selected];
-        let pane = if self.plugin_doc.opened() == Some(module.name.as_str()) {
-            self.plugin_reader(module, cx)
+        // 一个模块都没有（caps 空）：列表自己就是全部，不开详情，不 panic。
+        let Some(view) = selected
+            .as_deref()
+            .and_then(|name| index.view(name, caps))
+        else {
+            return list.into_any_element();
+        };
+        // 阅读列只给模块：库不发布 README（#21「不做」）。
+        let reading = view.has_readme() && self.plugin_doc.opened() == Some(view.name);
+        let pane = if reading {
+            match caps.modules.iter().find(|m| m.name == view.name) {
+                Some(module) => self.plugin_reader(module, cx),
+                None => return list.into_any_element(),
+            }
         } else {
             let pane_w = plugin_pane_width(viewport_w, narrow);
-            self.about_plugin_detail(module, caps, narrow, pane_w, cx)
+            self.about_plugin_detail(&view, &index, narrow, pane_w, cx)
         };
         if narrow {
             pane
@@ -1156,18 +1199,20 @@ impl Desktop {
     ///
     /// 大屏画 02 迷你图（左依赖 / 中本模块 / 右被依赖，连线走 canvas）；挤的那两档
     /// 换 M2 竖排（`依赖 ↓ 本模块 ↑ 被依赖`）。判据只有 `graph_fits()` 一条。
+    /// 图里的节点分三类（模块实心 / 库空心 / 未登记琥珀），分类走 `plugin_page.rs`。
     ///
     /// 没有这张图（老引擎 404）就**整块不出现** —— 不拿「空」冒充「没有依赖」。
     fn plugin_relations(
         &self,
-        module: &nous_engine::Module,
+        view: &crate::plugin_page::View<'_>,
+        index: &crate::plugin_page::Index,
         narrow: bool,
         pane_w: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         use crate::plugin_graph::State;
         let t = t();
-        let name = module.name.as_str();
+        let name = view.name;
         let label = |extra: String| {
             div()
                 .flex()
@@ -1218,10 +1263,10 @@ impl Desktop {
                 )
                 .into_any_element(),
             State::Ready(rel) => {
-                // 图比 capabilities 旧 / 新：这个模块不在图里。说实话，不画空图。
+                // 图比 capabilities 旧 / 新：这个条目不在图里。说实话，不画空图。
                 if !rel.contains(name) {
                     return label(format!(
-                        "这张图里没有这个模块（引擎 {} 生成的图）",
+                        "这张图里没有这个插件（引擎 {} 生成的图）",
                         if rel.generated_for.is_empty() {
                             "未知版本"
                         } else {
@@ -1252,9 +1297,9 @@ impl Desktop {
                 }
                 let wide = !narrow && graph_fits(pane_w);
                 body = if wide {
-                    body.child(relation_graph(module, deps, inn, cx))
+                    body.child(relation_graph(view, index, deps, inn, cx))
                 } else {
-                    body.child(relation_column(module, deps, inn, cx))
+                    body.child(relation_column(view, index, deps, inn, cx))
                 };
                 body.into_any_element()
             }
@@ -1389,28 +1434,31 @@ impl Desktop {
     /// 版本 = caps.server.version，类型 / 层 = —，crate / 说明 = —。
     fn about_plugin_detail(
         &self,
-        module: &nous_engine::Module,
-        caps: &nous_engine::Capabilities,
+        view: &crate::plugin_page::View<'_>,
+        index: &crate::plugin_page::Index,
         narrow: bool,
         pane_w: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        use crate::plugin_page::Kind;
         let t = t();
         let unknown = "—";
-        let version = module.version.as_deref().unwrap_or(&caps.server.version);
-        let kind = module.kind.as_deref().unwrap_or(unknown);
-        let layer = module.layer.as_deref().unwrap_or(unknown);
-        let required = match module.required {
+        let kind = view.kind;
+        // 库 / 未登记没有在 capabilities 里的版本：不给回落（回落会变成一句假话）。
+        let version = view.version.unwrap_or(unknown);
+        let type_field = view.type_field.unwrap_or(unknown);
+        let layer = view.layer.unwrap_or(unknown);
+        let required = match view.required {
             Some(true) => "是",
             Some(false) => "否",
             None => unknown,
         };
-        let crate_name = module.crate_name.as_deref().unwrap_or(unknown);
-        let description = module.description.as_deref().unwrap_or(unknown);
-        let registered = crate::capability::module_feature(module.name.as_str());
-        let label = crate::capability::plugin_title(module.name.as_str()).to_string();
+        let crate_name = view.crate_name.unwrap_or(unknown);
+        let registered = crate::capability::module_feature(view.name);
+        let label = crate::capability::plugin_title(view.name).to_string();
 
         // 状态文案只走 disabled_text()：不在这里写第二套 if enabled。
+        // 库不在 capabilities 里 → 没有状态（`—`），不是「未启用」。
         let reason = registered
             .and_then(|f| self.feature_gate(f))
             .map(|g| match g {
@@ -1424,33 +1472,40 @@ impl Desktop {
                 )),
             })
             .unwrap_or_else(|| {
-                if module.enabled {
+                if view.enabled == Some(true) {
                     None
                 } else {
-                    module.reason.as_ref().map(|r| {
-                        crate::capability::disabled_text(r.code, &r.message)
-                    })
+                    view.reason
+                        .map(|r| crate::capability::disabled_text(r.code, &r.message))
                 }
             });
-        let state = crate::capability::module_state_label(module.enabled);
+        let state = match view.enabled {
+            Some(on) => crate::capability::module_state_label(on),
+            None => unknown,
+        };
 
         // 方案 03：详情保持密度，文档走右上角这一颗 —— 点击后右栏换成阅读列。
-        let readme_btn = div()
-            .id(ElementId::Name("about-plugin-readme".into()))
-            .on_click(cx.listener({
-                let name = module.name.clone();
-                move |this, _: &ClickEvent, _, cx| this.open_plugin_doc(name.clone(), cx)
-            }))
-            .flex_none()
-            .px(t.d(9.))
-            .py(t.d(4.))
-            .rounded(t.r(5.))
-            .border(t.d(1.))
-            .border_color(rgb(t.p.line_soft))
-            .text_size(t.fs(11.5))
-            .text_color(rgb(t.p.text_2))
-            .hover(|h| h.bg(rgb(t.p.line_soft)))
-            .child("读文档");
+        // 库不发布 README（#21「不做」），所以只给模块这一颗；
+        // 未登记的模块也不给：引擎不认识它，点了只会得到「引擎不认识这个模块名」。
+        let readme_btn = view.has_readme().then(|| {
+            let name = view.name.to_string();
+            div()
+                .id(ElementId::Name("about-plugin-readme".into()))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.open_plugin_doc(name.clone(), cx)
+                }))
+                .flex_none()
+                .px(t.d(9.))
+                .py(t.d(4.))
+                .rounded(t.r(5.))
+                .border(t.d(1.))
+                .border_color(rgb(t.p.line_soft))
+                .text_size(t.fs(11.5))
+                .text_color(rgb(t.p.text_2))
+                .hover(|h| h.bg(rgb(t.p.line_soft)))
+                .child("读文档")
+                .into_any_element()
+        });
 
         let mut detail = div()
             .flex()
@@ -1474,12 +1529,12 @@ impl Desktop {
                                     .text_size(t.fs(10.5))
                                     .text_color(rgb(muted()))
                                     .child(
-                                        crate::capability::vendor_label(module.vendor.as_deref())
+                                        crate::capability::vendor_label(view.vendor)
                                             .to_string(),
                                     ),
                             ),
                     )
-                    .child(readme_btn),
+                    .when_some(readme_btn, |el, btn| el.child(btn)),
             )
             // #19：状态 / 版本拆成两行、左对齐上下堆叠，跟下面四条 meta 同一副骨架
             // （`标签 值`，不用 `·`）；合同版本在概览页 `kv("合同", …)` 已经有一处，这里不重复。
@@ -1497,53 +1552,86 @@ impl Desktop {
             );
         }
         detail = detail
-            .child(plugin_meta("类型", kind.to_string()))
+            .child(plugin_meta("类型", type_field.to_string()))
             .child(plugin_meta("层", layer.to_string()))
             .child(plugin_meta("必需", required.to_string()))
             .child(plugin_meta("来源 crate", crate_name.to_string()))
             .child(plugin_meta(
                 "客户端登记",
-                match registered {
-                    Some(_) => "已登记 capability.rs".to_string(),
-                    None => "未登记".to_string(),
+                match kind {
+                    Kind::Module => match registered {
+                        Some(_) => "已登记 capability.rs".to_string(),
+                        None => "未登记".to_string(),
+                    },
+                    // 库没有入口，也没什么可登记的：这不是漏项。
+                    Kind::Lib => "库（无入口）".to_string(),
+                    Kind::Unregistered => "未登记".to_string(),
                 },
-            ))
-            .child(
+            ));
+        if let Some(description) = view.description.filter(|d| !d.is_empty()) {
+            detail = detail.child(
                 div()
                     .text_size(t.fs(10.5))
                     .text_color(rgb(faint()))
                     .child(description.to_string()),
             );
+        }
 
+        // 端点：模块列清单；库**不硬撑一份空列表**，一句话说完，
+        // 真正的内容在下面那张关系图（它被谁用 / 它用谁）。
         let mut eps = div().flex().flex_col().gap(t.d(1.));
-        eps = eps.child(
-            div()
-                .text_size(t.fs(10.))
-                .text_color(rgb(faint()))
-                .child(format!("端点 {}", module.endpoints.len())),
-        );
-        for endpoint in &module.endpoints {
-            let (method, path) = crate::capability::split_endpoint(endpoint)
-                .unwrap_or((endpoint.as_str(), ""));
-            eps = eps.child(
-                div()
-                    .flex()
-                    .gap(t.d(8.))
-                    .text_size(t.fs(10.5))
-                    .child(
+        match kind {
+            Kind::Module => {
+                eps = eps.child(
+                    div()
+                        .text_size(t.fs(10.))
+                        .text_color(rgb(faint()))
+                        .child(format!("端点 {}", view.endpoints.len())),
+                );
+                for endpoint in view.endpoints {
+                    let (method, path) = crate::capability::split_endpoint(endpoint)
+                        .unwrap_or((endpoint.as_str(), ""));
+                    eps = eps.child(
                         div()
-                            .w(t.d(38.))
-                            .flex_none()
-                            .text_color(rgb(if method == "POST" { t.p.accent_fg } else { muted() }))
-                            .child(method.to_string()),
-                    )
-                    .child(div().text_color(rgb(t.p.text_2)).child(path.to_string())),
-            );
+                            .flex()
+                            .gap(t.d(8.))
+                            .text_size(t.fs(10.5))
+                            .child(
+                                div()
+                                    .w(t.d(38.))
+                                    .flex_none()
+                                    .text_color(rgb(if method == "POST" {
+                                        t.p.accent_fg
+                                    } else {
+                                        muted()
+                                    }))
+                                    .child(method.to_string()),
+                            )
+                            .child(div().text_color(rgb(t.p.text_2)).child(path.to_string())),
+                    );
+                }
+            }
+            Kind::Lib => {
+                eps = eps.child(
+                    div()
+                        .text_size(t.fs(10.5))
+                        .text_color(rgb(faint()))
+                        .child("库不提供端点"),
+                );
+            }
+            Kind::Unregistered => {
+                eps = eps.child(
+                    div()
+                        .text_size(t.fs(10.5))
+                        .text_color(rgb(t.p.warn))
+                        .child("端点没进引擎的清单（未登记）"),
+                );
+            }
         }
         detail = detail.child(eps);
         // 关系（它依赖谁 / 谁依赖它）：大屏画图，挤的那两档换竖排 —— 见
         // `demo/plugin-relations/`（02 迷你图）与 `demo/plugin-relations-narrow/`（M2 竖排）。
-        detail = detail.child(self.plugin_relations(module, narrow, pane_w, cx));
+        detail = detail.child(self.plugin_relations(view, index, narrow, pane_w, cx));
 
         if narrow {
             div()
@@ -2012,20 +2100,31 @@ fn field(label: &'static str, input: impl IntoElement) -> AnyElement {
 }
 
 /// 插件页的一行。点击选中并进入详情（窄窗由 `about_detail_open` 控制）。
-fn plugin_row(
-    module: &nous_engine::Module,
-    fallback_version: &str,
-    selected: bool,
-    cx: &mut Context<Desktop>,
-) -> AnyElement {
+///
+/// 模块和库走**同一副骨架**（名字 + vendor 胶囊；右边两行字），行高不跳：
+/// 模块右边是 `v{版本} 状态 {启用}` / `{n} 端点`，库是 `库` / `零端点` —
+/// 文案的判定全在 `plugin_page::row_meta`，这里只上色。
+fn plugin_row(view: &crate::plugin_page::View<'_>, selected: bool, cx: &mut Context<Desktop>) -> AnyElement {
+    use crate::plugin_page::Kind;
     let t = t();
-    let name = module.name.clone();
+    let name = view.name.to_string();
     let label = crate::capability::plugin_title(&name).to_string();
     // 方案 C：第二行是供应商胶囊；老引擎 / 没有 plugin.toml 的模块给「—」，行高不变。
-    let vendor = crate::capability::vendor_label(module.vendor.as_deref()).to_string();
-    let version = module.version.as_deref().unwrap_or(fallback_version);
-    let state = crate::capability::module_state_label(module.enabled);
-    let color = if module.enabled { t.p.ok } else { t.p.muted };
+    // 库不在 capabilities 里，没有 vendor → 也是「—」。
+    let vendor = crate::capability::vendor_label(view.vendor).to_string();
+    let meta = crate::plugin_page::row_meta(view);
+    // 圆点颜色：模块跟启用状态走；库是「没有状态」= faint；未登记用琥珀。
+    let color = match view.kind {
+        Kind::Module => {
+            if view.enabled == Some(true) {
+                t.p.ok
+            } else {
+                t.p.muted
+            }
+        }
+        Kind::Lib => t.p.faint,
+        Kind::Unregistered => t.p.warn,
+    };
     div()
         .id(ElementId::Name(format!("about-plugin-{name}").into()))
         .on_click(cx.listener({
@@ -2090,8 +2189,8 @@ fn plugin_row(
                 .gap(t.d(2.))
                 .flex_none()
                 .child(
-                    // #19：`v{version} 状态 {state}` —— 前两段 muted，值跟上那个圆点同色，
-                    // 读得出「这是引擎自报的一项状态」，不再拿 `·` 糊成一句。
+                    // #19：`v{版本} 状态 {值}` —— 标签 muted，值跟上那个圆点同色。
+                    // 库没有状态（不在 capabilities），上行只有「库」两个字。
                     div()
                         .flex()
                         .gap(t.d(4.))
@@ -2099,17 +2198,37 @@ fn plugin_row(
                             div()
                                 .text_size(t.fs(10.5))
                                 .text_color(rgb(muted()))
-                                .child(format!("v{version} 状态")),
+                                .child(meta.top_label),
                         )
-                        .child(div().text_size(t.fs(10.5)).text_color(rgb(color)).child(state)),
+                        .when_some(meta.top_value, |el, value| {
+                            el.child(div().text_size(t.fs(10.5)).text_color(rgb(color)).child(value))
+                        }),
                 )
                 .child(
                     div()
                         .text_size(t.fs(10.))
                         .text_color(rgb(faint()))
-                        .child(format!("{} 端点", module.endpoints.len())),
+                        .child(meta.bottom),
                 ),
         )
+        .into_any_element()
+}
+
+/// 列表分段标题：左边名字、右边条数（`依赖层 · 库` / `16`）。
+///
+/// 分段是「图里有、capabilities 里没有」的那一层 —— 数不是硬写的，是推导出来的。
+fn section_head(title: &'static str, count: usize) -> AnyElement {
+    let t = t();
+    div()
+        .flex()
+        .items_baseline()
+        .justify_between()
+        .gap(t.d(8.))
+        .pt(t.d(10.))
+        .pb(t.d(2.))
+        .px(t.d(8.))
+        .child(div().text_size(t.fs(10.5)).text_color(rgb(muted())).child(title))
+        .child(div().text_size(t.fs(10.)).text_color(rgb(faint())).child(count.to_string()))
         .into_any_element()
 }
 
@@ -2197,11 +2316,26 @@ pub(crate) fn graph_fits_at(pane_w: f32, density: f32) -> bool {
     pane_w >= (G_MIN + 12.) * density
 }
 
-/// 一个可点的模块胶囊（点了换到那个模块）。
-fn rel_chip(name: &str, height: Option<f32>, cx: &mut Context<Desktop>) -> AnyElement {
+/// 一个可点的插件胶囊（点了换到那个条目）。
+///
+/// 三类节点一眼分得开（票面钉死）：模块实心边框、库**空心**（虚线 + 更暗的字）、
+/// 未登记琥珀。同屏 31 个名字里有 17 个是库，不画空心就会被当成「点不开的模块」。
+fn rel_chip(
+    name: &str,
+    kind: Option<crate::plugin_page::Kind>,
+    height: Option<f32>,
+    cx: &mut Context<Desktop>,
+) -> AnyElement {
+    use crate::plugin_page::Kind;
     let t = t();
     let id = format!("rel-chip-{name}");
     let click_name = name.to_string();
+    let kind = kind.unwrap_or(Kind::Module);
+    let (border, text) = match kind {
+        Kind::Module => (t.p.line_soft, t.p.text_2),
+        Kind::Lib => (t.p.line_soft, t.p.faint),
+        Kind::Unregistered => (t.p.warn, t.p.warn),
+    };
     div()
         .id(ElementId::Name(id.into()))
         .flex()
@@ -2212,10 +2346,11 @@ fn rel_chip(name: &str, height: Option<f32>, cx: &mut Context<Desktop>) -> AnyEl
         .px(t.d(7.))
         .when(height.is_none(), |el| el.py(t.d(1.)))
         .border(t.d(1.))
-        .border_color(rgb(t.p.line_soft))
+        .border_color(rgb(border))
+        .when(kind == Kind::Lib, |el| el.border_dashed())
         .text_size(t.fs(11.))
         .font_family("JetBrainsMono")
-        .text_color(rgb(t.p.text_2))
+        .text_color(rgb(text))
         .hover(|h| h.bg(rgb(t.p.line_soft)).text_color(rgb(t.p.text)))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.about_selected = Some(click_name.clone());
@@ -2226,9 +2361,13 @@ fn rel_chip(name: &str, height: Option<f32>, cx: &mut Context<Desktop>) -> AnyEl
         .into_any_element()
 }
 
-/// 本模块那块（图中间 / 竖排中间同一副长相）。
-fn rel_hub(module: &nous_engine::Module, width: Option<f32>) -> AnyElement {
+/// 本模块 / 本库那块（图中间 / 竖排中间同一副长相）。
+///
+/// 第二行：模块用 capabilities 的 `crate`，库用包的 `via` 反推的包名；
+/// 两样都没有时给个种类字（`库` / `未登记`），不拿 `—` 把人扔在半空。
+fn rel_hub(view: &crate::plugin_page::View<'_>, width: Option<f32>) -> AnyElement {
     let t = t();
+    let subtitle = view.crate_name.unwrap_or_else(|| view.kind.type_text());
     div()
         .flex()
         .flex_col()
@@ -2246,7 +2385,7 @@ fn rel_hub(module: &nous_engine::Module, width: Option<f32>) -> AnyElement {
                 .truncate()
                 .text_size(t.fs(12.5))
                 .font_family("JetBrainsMono")
-                .child(module.name.clone()),
+                .child(view.name.to_string()),
         )
         .child(
             div()
@@ -2255,7 +2394,7 @@ fn rel_hub(module: &nous_engine::Module, width: Option<f32>) -> AnyElement {
                 .text_size(t.fs(10.))
                 .text_color(rgb(faint()))
                 .font_family("JetBrainsMono")
-                .child(module.crate_name.clone().unwrap_or_else(|| "—".into())),
+                .child(subtitle.to_string()),
         )
         .into_any_element()
 }
@@ -2275,7 +2414,8 @@ struct Fan {
 
 /// 02 迷你图：左依赖 / 中本模块 / 右被依赖，折线在 hub 的左右两侧汇成一条竖线。
 fn relation_graph(
-    module: &nous_engine::Module,
+    view: &crate::plugin_page::View<'_>,
+    index: &crate::plugin_page::Index,
     deps: &[crate::plugin_graph::Edge],
     dependents: &[crate::plugin_graph::Edge],
     cx: &mut Context<Desktop>,
@@ -2316,7 +2456,7 @@ fn relation_graph(
             );
         }
         for edge in edges.iter().take(shown) {
-            c = c.child(rel_chip(&edge.module, Some(row), cx));
+            c = c.child(rel_chip(&edge.module, index.kind(&edge.module), Some(row), cx));
         }
         if edges.len() > G_MAX {
             c = c.child(
@@ -2416,7 +2556,7 @@ fn relation_graph(
                 .justify_between()
                 .h_full()
                 .child(column(deps, shown_l, true, cx))
-                .child(rel_hub(module, Some(hub)))
+                .child(rel_hub(view, Some(hub)))
                 .child(column(dependents, shown_r, false, cx)),
         )
         .into_any_element()
@@ -2424,7 +2564,8 @@ fn relation_graph(
 
 /// M2 竖排：`依赖 ↓ 本模块 ↑ 被依赖`。窄窗（<900 单栏）和挤的两档都用这套。
 fn relation_column(
-    module: &nous_engine::Module,
+    view: &crate::plugin_page::View<'_>,
+    index: &crate::plugin_page::Index,
     deps: &[crate::plugin_graph::Edge],
     dependents: &[crate::plugin_graph::Edge],
     cx: &mut Context<Desktop>,
@@ -2452,7 +2593,7 @@ fn relation_column(
                 div().flex().flex_wrap().gap(t.d(4.)).children(
                     edges
                         .iter()
-                        .map(|e| rel_chip(&e.module, None, cx))
+                        .map(|e| rel_chip(&e.module, index.kind(&e.module), None, cx))
                         .collect::<Vec<_>>(),
                 ),
             );
@@ -2481,7 +2622,7 @@ fn relation_column(
             cx,
         ))
         .child(arrow("↓", "往下走"))
-        .child(rel_hub(module, None))
+        .child(rel_hub(view, None))
         .child(arrow("↑", "往上看"))
         .child(seg(
             format!("被依赖 {}", dependents.len()),

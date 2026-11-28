@@ -41,6 +41,7 @@ mod new_entry;
 mod perf;
 mod plugin_doc;
 mod plugin_graph;
+mod plugin_page;
 mod preset_confirm;
 mod preview;
 mod preset_menu;
