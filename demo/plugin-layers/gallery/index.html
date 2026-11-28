@@ -1,0 +1,55 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>插件页 · 10 套方案（挑一个）</title><link rel="stylesheet" href="base.css">
+<style>
+body{display:flex;flex-direction:column}
+.top{padding:22px 26px 16px;border-bottom:1px solid var(--line)}
+.top h1{margin:0 0 6px;font-size:19px;font-weight:600}
+.top p{margin:0;color:var(--dim);max-width:900px}
+.top .nums{display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;font-size:10.5px;color:var(--faint)}
+.top .nums b{font-family:var(--mono);font-size:15px;color:var(--fg);font-weight:500;margin-right:5px}
+.grid{flex:1;overflow:auto;padding:16px;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(390px,1fr));gap:14px}
+.card{border:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;
+  overflow:hidden;background:#050505}
+.card:hover{border-color:#6a6a6a}
+.thumb{height:226px;position:relative;overflow:hidden;background:#000;border-bottom:1px solid var(--line2)}
+.thumb iframe{width:1280px;height:800px;border:0;transform:scale(.28);transform-origin:0 0;
+  pointer-events:none;position:absolute;left:0;top:0}
+.cap{padding:9px 12px;display:flex;flex-direction:column;gap:3px}
+.cap .t{display:flex;align-items:baseline;gap:8px}
+.cap .no{font-family:var(--mono);font-size:10px;color:var(--faint)}
+.cap b{font-size:13px;font-weight:600}
+.cap .s{font-size:11px;color:var(--dim);line-height:1.55}
+</style></head><body>
+<div class="top">
+  <h1>插件页 · 10 套方案</h1>
+  <p>同一个问题：31 个插件里，只有 15 个有端点、能在 Desk 里看见；另外 16 个库（<span class="mono">ai / durable / wire / routes…</span>）在关系图里是正常节点，点进去却什么都没有。</p>
+  <div class="nums"><span><b>31</b>插件（plugin.toml）</span><span><b>15</b>端点模块</span>
+    <span><b>16</b>库</span><span><b>1</b>有端点但没登记</span>
+    <span><b>165</b>端点</span><span><b>96</b>依赖边</span></div>
+</div>
+<div class="grid" id="grid"></div>
+<script>
+const ITEMS = [
+  ['s01','一张完整清单','不新加「依赖层」这一栏 —— 31 个就排一个表，用徽标区分端点模块 / 库 / 未登记。'],
+  ['s02','左右两栏 + 真连线','左端点模块、右库，中间把 96 条边画出来；碰一行点亮它的线。'],
+  ['s03','四层泳道','按 kernel → platform → app → dev 摆，一眼看出谁在底下垫着。'],
+  ['s04','整张关系图','31 个节点摊成力导向图，实心 = 端点模块，空心 = 库；点谁谁亮。'],
+  ['s05','卡片墙','像应用商店：31 张卡一屏，可筛「全部 / 端点模块 / 库」。'],
+  ['s06','依赖矩阵','行依赖列，涂满的格子就是枢纽；不用读文字就看出 routes / durable 撑着多少人。'],
+  ['s07','按出品方分组','按 vendor 分节（Nous / Data / Element / Library / AboutME），贴近「我装了谁家的东西」。'],
+  ['s08','详情页统一','别改列表，改详情 —— 不管点的是模块还是库，都长成同一张「谁养我 / 我养谁」的图。'],
+  ['s09','行内指纹条','每行自带一条双向条（左 = 被谁用、右 = 用了谁），不点开就能扫出地基与孤岛。'],
+  ['s10','目录页重构','升级成「目录」：搜索 + 按类型筛 + 按端点数 / 被依赖数排。'],
+];
+const grid = document.getElementById('grid');
+for (const [id, t, s] of ITEMS) {
+  const c = document.createElement('div');
+  c.className = 'card';
+  c.innerHTML = `<div class="thumb"><iframe src="${id}.html" scrolling="no" loading="lazy"></iframe></div>
+    <div class="cap"><div class="t"><span class="no">${id.slice(1)}</span><b>${t}</b></div>
+      <div class="s">${s}</div></div>`;
+  c.onclick = ()=> location.href = id + '.html';
+  grid.appendChild(c);
+}
+</script></body></html>

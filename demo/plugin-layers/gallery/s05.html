@@ -1,0 +1,96 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>05 · 卡片墙（像应用商店）</title><link rel="stylesheet" href="base.css">
+<style>
+body{display:flex;flex-direction:column}
+.bar2{flex:none;display:flex;gap:8px;align-items:center;padding:10px 22px;border-bottom:1px solid var(--line2)}
+.f{padding:3px 11px;border:1px solid var(--line);background:transparent;color:var(--dim);
+  font:inherit;font-size:11.5px;cursor:pointer}
+.f:hover{color:var(--fg)}
+.f.on{background:var(--fg);color:#000;border-color:var(--fg)}
+.f .n{font-family:var(--mono);font-size:10px;margin-left:5px;opacity:.7}
+.bar2 .sp{flex:1}
+.wrap{flex:1;overflow:auto;padding:16px 20px}
+.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:10px}
+.card{border:1px solid var(--line);padding:11px 12px;cursor:pointer;position:relative;
+  display:flex;flex-direction:column;gap:6px;min-height:126px}
+.card:hover{border-color:var(--dim);background:var(--sel)}
+.card.on{border-color:#fff}
+.card .nm{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card.lib .nm{color:var(--dim);font-weight:400}
+.card.unl .nm{color:var(--warn)}
+.card .sub{display:flex;gap:6px;align-items:center;font-size:10px;color:var(--faint)}
+.card .desc{font-size:10.5px;color:var(--faint);line-height:1.5;flex:1;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .foot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line2);padding-top:6px}
+.card .foot .mono{font-size:10.5px;color:var(--dim)}
+.bars{display:flex;flex-direction:column;gap:2px;flex:1}
+.bars .l{height:2px;background:var(--line2);position:relative}
+.bars .l i{position:absolute;top:0;bottom:0;background:#4a4a4a}
+.bars .l.in i{background:#e6e6e6}
+.card.mod .nm::before{content:"";display:inline-block;width:6px;height:6px;background:#e6e6e6;
+  margin-right:7px;vertical-align:1px}
+.card.lib .nm::before{content:"";display:inline-block;width:6px;height:6px;border:1px solid #6a6a6a;
+  margin-right:7px;vertical-align:1px}
+.card.unl .nm::before{content:"";display:inline-block;width:6px;height:6px;background:var(--warn);
+  margin-right:7px;vertical-align:1px}
+.empty{grid-column:1/-1;padding:40px;text-align:center;color:var(--faint)}
+</style></head><body>
+<div class="bar"><span class="no">05</span><b>卡片墙</b>
+  <span class="thesis">主张：插件页没必要长得像设置项 —— 31 个摆成一屏卡片，像应用商店，端点模块实心点、库空心点。</span>
+  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
+
+<div class="bar2">
+  <button class="f on" data-k="all">全部<span class="n">31</span></button>
+  <button class="f" data-k="module">端点模块<span class="n">14</span></button>
+  <button class="f" data-k="lib">库<span class="n">16</span></button>
+  <button class="f" data-k="unlisted">未登记<span class="n">1</span></button>
+  <span class="sp"></span>
+  <span class="dimtxt">卡片底部两条：↑被依赖 / ↓依赖</span>
+</div>
+<div class="wrap scroll"><div class="wall" id="wall"></div></div>
+
+<script src="data.js"></script>
+<script>
+const D0 = window.D;
+const wall = document.getElementById('wall');
+let filter = 'all';
+const maxIn = Math.max(...D0.nodes.map(n=>n.dependents.length));
+const maxOut = Math.max(...D0.nodes.map(n=>n.deps.length));
+
+function render(){
+  wall.innerHTML = '';
+  const list = D0.nodes.filter(n=>filter==='all'||n.kind===filter)
+    .sort((a,b)=> (a.kind==='lib'?1:0)-(b.kind==='lib'?1:0) ||
+      b.endpoints-a.endpoints || b.dependents.length-a.dependents.length ||
+      a.name.localeCompare(b.name));
+  if (!list.length) { wall.innerHTML = '<div class="empty">这一栏是空的</div>'; return; }
+  for (const n of list) {
+    const c = document.createElement('div');
+    c.className = 'card ' + n.kind;
+    c.innerHTML = `<div class="nm">${n.name}</div>
+      <div class="sub"><span class="pill">${n.vendor}</span>
+        <span class="pill v">${n.version}</span><span class="num">${n.layer}</span></div>
+      <div class="desc">${n.desc||''}</div>
+      <div class="foot">
+        <span class="mono">${n.kind==='module'?n.endpoints+' 端点':n.kind==='unlisted'?'1 端点 · 未登记':'无端点'}</span>
+        <div class="bars">
+          <div class="l in"><i style="left:0;width:${Math.round(n.dependents.length/maxIn*100)}%"></i></div>
+          <div class="l"><i style="left:0;width:${Math.round(n.deps.length/maxOut*100)}%"></i></div>
+        </div>
+        <span class="mono">↑${n.dependents.length} ↓${n.deps.length}</span>
+      </div>`;
+    c.onclick = () => {
+      document.querySelectorAll('.card.on').forEach(x=>x.classList.remove('on'));
+      c.classList.add('on');
+    };
+    wall.appendChild(c);
+  }
+}
+document.querySelectorAll('.f').forEach(b=>{
+  b.onclick = () => {
+    document.querySelectorAll('.f').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); filter = b.dataset.k; render();
+  };
+});
+render();
+</script></body></html>

@@ -1,0 +1,83 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>03 · 四层泳道</title><link rel="stylesheet" href="base.css">
+<style>
+body{display:flex;flex-direction:column}
+.wrap{flex:1;overflow:auto;padding:0}
+.lanes{display:grid;grid-template-columns:repeat(4,minmax(250px,1fr));min-height:100%}
+.lane{border-right:1px solid var(--line);padding:0 0 30px;min-width:0}
+.lane:last-child{border-right:0}
+.lh{position:sticky;top:0;background:#050505;border-bottom:1px solid var(--line);
+  padding:10px 12px;z-index:2}
+.lh .t{font-family:var(--mono);font-size:11px;letter-spacing:.6px;color:var(--fg)}
+.lh .s{font-size:10px;color:var(--faint);margin-top:2px}
+.lh .n{float:right;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.card{margin:8px 10px;border:1px solid var(--line);padding:9px 10px;cursor:pointer;position:relative}
+.card:hover{border-color:var(--dim);background:var(--sel)}
+.card.on{border-color:#fff;background:var(--sel2)}
+.card .top{display:flex;align-items:baseline;gap:6px}
+.card .nm{font-size:12.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.card .sub{font-size:10px;color:var(--faint);margin-top:3px;display:flex;gap:8px}
+.card.lib{border-style:dashed}
+.card.lib .nm{color:var(--dim);font-weight:400}
+.card.unl{border-color:var(--warn-dim)}
+.card .up{font-size:9.5px;color:var(--faint);margin-top:6px;line-height:1.5}
+.card .up b{color:var(--dim);font-weight:400}
+.card .bar{position:absolute;left:0;top:0;bottom:0;width:2px;background:#3a3a3a}
+.card.mod .bar{background:#e6e6e6}
+.card.unl .bar{background:var(--warn)}
+.legend{padding:10px 14px;font-size:10.5px;color:var(--faint);border-top:1px solid var(--line);
+  display:flex;gap:18px;flex-wrap:wrap}
+</style></head><body>
+<div class="bar"><span class="no">03</span><b>四层泳道</b>
+  <span class="thesis">主张：按 layer 摆，一眼看出「谁在底下垫着」—— kernel 在左，app 在右，依赖只往左流。</span>
+  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
+
+<div class="wrap scroll"><div class="lanes" id="lanes"></div></div>
+<div class="legend">
+  <span>实线卡 = 端点模块</span><span>虚线卡 = 库（零端点）</span>
+  <span style="color:var(--warn)">琥珀条 = 有端点但没登记</span>
+  <span>卡内「↑N」= 被几个模块依赖</span>
+</div>
+
+<script src="data.js"></script>
+<script>
+const D0 = window.D;
+const LAYERS = [
+  {k:'kernel',  t:'kernel',  s:'最底层 · 谁都得踩'},
+  {k:'platform',t:'platform',s:'中间层 · 工具与契约'},
+  {k:'app',     t:'app',     s:'应用层 · 自带端点'},
+  {k:'dev',     t:'dev',     s:'只在开发/测试里'},
+];
+const lanes = document.getElementById('lanes');
+for (const L of LAYERS) {
+  const items = D0.nodes.filter(n=>n.layer===L.k)
+    .sort((a,b)=> (a.kind==='lib'?1:0)-(b.kind==='lib'?1:0) || b.endpoints-a.endpoints ||
+      b.dependents.length-a.dependents.length || a.name.localeCompare(b.name));
+  const el = document.createElement('div');
+  el.className = 'lane';
+  el.innerHTML = `<div class="lh"><span class="n">${items.length}</span>
+    <div class="t">${L.t}</div><div class="s">${L.s}</div></div>`;
+  for (const n of items) {
+    const c = document.createElement('div');
+    c.className = 'card ' + (n.kind==='module'?'mod':n.kind==='unlisted'?'unl':'lib');
+    c.innerHTML = `<div class="bar"></div>
+      <div class="top"><span class="nm">${n.name}</span>
+        <span class="pill v">${n.version}</span></div>
+      <div class="sub"><span>${n.vendor}</span><span class="mono">${n.pkg}</span></div>
+      <div class="sub">${n.kind==='module'?`<span class="pill mod">${n.endpoints} 端点</span>`
+        :n.kind==='unlisted'?`<span class="pill unl">1 端点 · 未登记</span>`
+        :`<span class="pill lib">库 · 无端点</span>`}</div>
+      <div class="up"><b>↑${n.dependents.length}</b> 被依赖 ·
+        <b>↓${n.deps.length}</b> 依赖
+        ${n.deps.length?`<span style="color:var(--faint)">（${n.deps.slice(0,3).join('、')}${n.deps.length>3?'…':''}）</span>`:''}</div>`;
+    c.onclick = () => {
+      document.querySelectorAll('.card.on').forEach(x=>x.classList.remove('on'));
+      c.classList.add('on');
+    };
+    el.appendChild(c);
+  }
+  if (!items.length) el.innerHTML += '<div class="dimtxt" style="padding:10px 14px">这一层没有模块</div>';
+  lanes.appendChild(el);
+}
+</script></body></html>

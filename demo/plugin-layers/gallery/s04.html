@@ -1,0 +1,137 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>04 · 整张关系图</title><link rel="stylesheet" href="base.css">
+<style>
+body{display:flex;flex-direction:column}
+.stage{flex:1;position:relative;min-height:0;overflow:hidden}
+svg{width:100%;height:100%;display:block}
+circle{cursor:pointer;transition:opacity .12s}
+text{fill:#9a9a9a;font-size:9px;font-family:var(--mono);pointer-events:none}
+text.mod{fill:#e6e6e6}
+text.unl{fill:var(--warn)}
+line.edge{stroke:#242424;stroke-width:1}
+line.edge.hl{stroke:#dcdcdc;stroke-width:1.4}
+.hud{position:absolute;left:18px;bottom:16px;font-size:10.5px;color:var(--faint);
+  line-height:1.9;border-left:2px solid var(--line);padding-left:10px}
+.hud b{color:var(--dim);font-weight:400}
+.hud .sw{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:-1px;margin-right:5px}
+.panel{position:absolute;right:16px;top:16px;width:250px;border:1px solid var(--line);
+  background:#050505;padding:12px 13px;display:none}
+.panel.on{display:block}
+.panel h4{margin:0 0 8px;font-size:13px}
+.panel .kv{font-size:11px;color:var(--dim);display:grid;grid-template-columns:auto 1fr;
+  gap:3px 10px;margin-bottom:8px}
+.panel .kv b{color:var(--faint);font-weight:400}
+.hint{position:absolute;right:16px;bottom:16px;font-size:10.5px;color:var(--faint)}
+</style></head><body>
+<div class="bar"><span class="no">04</span><b>整张关系图</b>
+  <span class="thesis">主张：别用列表了 —— 31 个节点、96 条边直接摊成一张图，端点模块是实心点，库是空心点，点谁谁亮。</span>
+  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
+
+<div class="stage"><svg id="svg"></svg>
+  <div class="hud">
+    <div><span class="sw" style="background:#e6e6e6"></span><b>端点模块</b> · 14</div>
+    <div><span class="sw" style="border:1px solid #6a6a6a;background:transparent"></span><b>库（零端点）</b> · 16</div>
+    <div><span class="sw" style="background:var(--warn)"></span><b>未登记</b> · 1</div>
+    <div style="margin-top:6px">点数越大 = 被依赖越多（枢纽：routes 16 / durable 10 / env 9）</div>
+  </div>
+  <div class="panel" id="panel"></div>
+  <div class="hint">点节点看详情，再点一次收起</div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const D0 = window.D;
+const svg = document.getElementById('svg');
+const W = 1280, H = 900;
+
+// ── 同步预热一份稳定的力导向布局（截图也稳定） ──
+const idx = new Map(D0.nodes.map((n,i)=>[n.name,i]));
+const P = D0.nodes.map((n,i)=>{
+  const a = i/D0.nodes.length*Math.PI*2;
+  return {x:W/2+Math.cos(a)*260, y:H/2+Math.sin(a)*230, vx:0, vy:0};
+});
+const E = [];
+for (const n of D0.nodes) for (const t of n.deps)
+  E.push([idx.get(n.name), idx.get(t)]);
+
+for (let step=0; step<900; step++) {
+  const k = step<700 ? 1 : 0.35;
+  // 斥力
+  for (let i=0;i<P.length;i++) for (let j=i+1;j<P.length;j++) {
+    let dx=P[i].x-P[j].x, dy=P[i].y-P[j].y;
+    let d2=dx*dx+dy*dy; if (d2<1) d2=1;
+    const d=Math.sqrt(d2), f=2600/d2;
+    dx/=d; dy/=d;
+    P[i].vx+=dx*f*k; P[i].vy+=dy*f*k; P[j].vx-=dx*f*k; P[j].vy-=dy*f*k;
+  }
+  // 弹簧
+  for (const [a,b] of E) {
+    let dx=P[b].x-P[a].x, dy=P[b].y-P[a].y;
+    const d=Math.hypot(dx,dy)||1, f=(d-118)*0.012*k;
+    dx/=d; dy/=d;
+    P[a].vx+=dx*f; P[a].vy+=dy*f; P[b].vx-=dx*f; P[b].vy-=dy*f;
+  }
+  // 向心 + 阻尼
+  for (const p of P) {
+    p.vx += (W/2-p.x)*0.0016*k; p.vy += (H/2-p.y)*0.0016*k;
+    p.vx*=0.86; p.vy*=0.86;
+    p.x+=p.vx; p.y+=p.vy;
+    p.x=Math.max(60,Math.min(W-60,p.x)); p.y=Math.max(50,Math.min(H-50,p.y));
+  }
+}
+
+const rOf = n => n.kind==='module' ? 6+n.dependents.length*0.85
+                 : n.kind==='unlisted' ? 8 : 4.5+n.dependents.length*0.5;
+
+let out = '';
+for (const [a,b] of E) {
+  out += `<line class="edge" data-a="${a}" data-b="${b}" x1="${P[a].x}" y1="${P[a].y}"
+    x2="${P[b].x}" y2="${P[b].y}"/>`;
+}
+D0.nodes.forEach((n,i)=>{
+  const p=P[i], r=rOf(n);
+  const fill = n.kind==='module' ? '#e6e6e6' : n.kind==='unlisted' ? '#d9a54a' : 'none';
+  const stroke = n.kind==='lib' ? '#6a6a6a' : 'none';
+  out += `<circle data-i="${i}" cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}"
+    stroke="${stroke}" stroke-width="1"/>`;
+  // 标签：只给枢纽和模块，免得糊成一团
+  if (n.kind!=='lib' || n.dependents.length>=4) {
+    const anchor = p.x > W/2 ? 'start' : 'end';
+    const dx = anchor==='start' ? r+4 : -(r+4);
+    out += `<text class="${n.kind}" x="${p.x+dx}" y="${p.y+3.5}"
+      text-anchor="${anchor}">${n.name}</text>`;
+  }
+});
+svg.innerHTML = out;
+
+let sel = null;
+const panel = document.getElementById('panel');
+svg.querySelectorAll('circle').forEach(c=>{
+  c.onclick = () => {
+    const n = D0.nodes[+c.dataset.i];
+    if (sel === n.name) { sel=null; panel.classList.remove('on');
+      svg.querySelectorAll('circle').forEach(x=>x.style.opacity=1);
+      svg.querySelectorAll('line').forEach(x=>x.classList.remove('hl')); return; }
+    sel = n.name;
+    const nb = new Set([n.name, ...n.deps, ...n.dependents]);
+    svg.querySelectorAll('circle').forEach(x=>{
+      x.style.opacity = nb.has(D0.nodes[+x.dataset.i].name) ? 1 : 0.18;
+    });
+    svg.querySelectorAll('line').forEach(x=>{
+      x.classList.toggle('hl',
+        D0.nodes[+x.dataset.a].name===sel || D0.nodes[+x.dataset.b].name===sel);
+    });
+    panel.classList.add('on');
+    panel.innerHTML = `<h4>${n.name}</h4>
+      <div class="kv">
+        <b>类型</b><span>${n.kind==='module'?'端点模块 · '+n.endpoints+' 端点':n.kind==='unlisted'?'未登记（1 端点）':'库 · 零端点'}</span>
+        <b>crate</b><span class="mono">${n.pkg}</span>
+        <b>层</b><span>${n.layer}</span>
+        <b>版本</b><span class="mono">${n.version}</span>
+        <b>依赖</b><span>${n.deps.length}</span>
+        <b>被依赖</b><span>${n.dependents.length}</span>
+      </div>
+      <div class="dimtxt">${n.desc||''}</div>`;
+  };
+});
+</script></body></html>

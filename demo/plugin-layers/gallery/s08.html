@@ -1,0 +1,151 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>08 · 详情页统一：左依赖 / 中自身 / 右被依赖</title><link rel="stylesheet" href="base.css">
+<style>
+body{display:flex;flex-direction:column}
+.body{flex:1;display:flex;min-height:0}
+.side{width:290px;flex:none;border-right:1px solid var(--line);overflow:auto;padding:10px 0}
+.side .h{font-size:10px;color:var(--faint);letter-spacing:.6px;padding:2px 15px 8px;
+  position:sticky;top:-10px;background:#000}
+.side .r{height:31px;display:flex;align-items:center;gap:7px;padding:0 15px;cursor:pointer;
+  border-left:2px solid transparent}
+.side .r:hover{background:var(--sel)}
+.side .r.on{background:var(--sel2);border-left-color:#fff}
+.side .r .nm{font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side .r.lib .nm{color:var(--dim)}
+.side .r.unl .nm{color:var(--warn)}
+.side .r .n{font-family:var(--mono);font-size:10px;color:var(--faint)}
+.det{flex:1;display:flex;flex-direction:column;min-width:0}
+.dhead{padding:16px 22px 12px;border-bottom:1px solid var(--line2);flex:none}
+.dhead .t{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.dhead .t .n{font-size:17px;font-weight:600}
+.dhead .kv{display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin-top:7px}
+.dhead .kv b{color:var(--faint);font-weight:400;margin-right:5px}
+.tri{flex:1;display:grid;grid-template-columns:1fr 210px 1fr;min-height:0;position:relative}
+.tri .side-col{overflow:auto;padding:14px 10px}
+.tri .side-col.l{align-items:flex-start;text-align:left}
+.tri .lbl{font-size:10px;color:var(--faint);letter-spacing:.6px;margin-bottom:8px;padding-left:2px}
+.node{display:flex;align-items:center;gap:6px;border:1px solid var(--line);padding:4px 8px;
+  margin-bottom:6px;cursor:pointer;font-family:var(--mono);font-size:11px}
+.node:hover{background:var(--line)}
+.node:last-child{margin-bottom:0}
+.node.lib{border-style:dashed;color:var(--dim)}
+.node.unl{border-color:var(--warn-dim);color:var(--warn)}
+.node .e{margin-left:auto;font-size:9.5px;color:var(--faint)}
+.hub{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:16px 12px;border-left:1px solid var(--line2);border-right:1px solid var(--line2);text-align:center}
+.hub .nm{font-size:15px;font-weight:600;word-break:break-all}
+.hub .kindsig{width:10px;height:10px;margin-bottom:10px}
+.hub .kindsig.mod{background:#e6e6e6}
+.hub .kindsig.lib{border:1px solid #6a6a6a}
+.hub .kindsig.unl{background:var(--warn)}
+.hub .meta{font-size:10.5px;color:var(--faint);line-height:1.8;margin-top:10px}
+.hub .meta b{color:var(--dim);font-weight:400}
+.hub .note{font-size:10px;color:var(--warn);margin-top:10px;line-height:1.5}
+svg.wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+</style></head><body>
+<div class="bar"><span class="no">08</span><b>详情页统一：左依赖 / 中自身 / 右被依赖</b>
+  <span class="thesis">主张：别改列表，改详情 —— 不管点的是端点模块还是库，都长成同一张「谁养我 / 我养谁」的图。</span>
+  <span class="sp"></span><a class="back" href="index.html">← 10 套</a></div>
+
+<div class="body">
+  <aside class="side scroll" id="side"></aside>
+  <main class="det">
+    <div class="dhead" id="dhead"></div>
+    <div class="tri">
+      <div class="side-col"><div class="lbl">它依赖谁</div><div id="deps"></div></div>
+      <div class="hub" id="hub"></div>
+      <div class="side-col"><div class="lbl">谁依赖它</div><div id="inn"></div></div>
+      <svg class="wires" id="wires"></svg>
+    </div>
+  </main>
+</div>
+
+<script src="data.js"></script>
+<script>
+const D0 = window.D;
+let cur = 'sessions';
+const side = document.getElementById('side');
+const order = [...D0.nodes].sort((a,b)=>{
+  const rk = n => n.kind==='module'?0 : n.kind==='unlisted'?1 : 2;
+  if (rk(a)!==rk(b)) return rk(a)-rk(b);
+  if (a.kind==='module') return b.endpoints-a.endpoints || a.name.localeCompare(b.name);
+  return b.dependents.length-a.dependents.length || a.name.localeCompare(b.name);
+});
+side.innerHTML = '<div class="h">全部插件 · 31（库也能点）</div>';
+order.forEach(n=>{
+  const r = document.createElement('div');
+  r.className = 'r ' + n.kind + (n.name===cur?' on':'');
+  r.dataset.name = n.name;
+  r.innerHTML = `<span class="nm">${n.name}</span>
+    <span class="n">${n.kind==='module'?n.endpoints:n.kind==='unlisted'?'?':'·'}</span>`;
+  r.onclick = ()=>{ cur=n.name; paint(); };
+  side.appendChild(r);
+});
+
+function nodeEl(name){
+  const n = D0.nodes.find(x=>x.name===name);
+  const d = document.createElement('div');
+  d.className = 'node ' + n.kind;
+  d.innerHTML = `${n.name}<span class="e">${n.kind==='module'?n.endpoints+' ep':'lib'}</span>`;
+  d.onclick = ()=>{ cur=name; paint(); };
+  return d;
+}
+
+function paint(){
+  document.querySelectorAll('.side .r').forEach(r=>
+    r.classList.toggle('on', r.dataset.name===cur));
+  const n = D0.nodes.find(x=>x.name===cur);
+  const deps = n.deps.map(x=>D0.nodes.find(y=>y.name===x));
+  const inn = n.dependents.map(x=>D0.nodes.find(y=>y.name===x));
+
+  document.getElementById('dhead').innerHTML = `<div class="t">
+    <span class="n">${n.name}</span>
+    <span class="pill">${n.vendor}</span><span class="pill v">${n.version}</span>
+    <span class="pill ${n.kind==='module'?'mod':n.kind==='unlisted'?'unl':'lib'}">${
+      n.kind==='module'?n.endpoints+' 端点':n.kind==='unlisted'?'1 端点 · 未登记':'库 · 零端点'}</span>
+    </div><div class="kv">
+      <span><b>crate</b><span class="mono">${n.pkg}</span></span>
+      <span><b>层</b>${n.layer}</span>
+      <span><b>依赖</b>${n.deps.length}</span>
+      <span><b>被依赖</b>${n.dependents.length}</span>
+    </div>${n.desc?`<div class="dimtxt" style="margin-top:6px">${n.desc}</div>`:''}`;
+
+  document.getElementById('hub').innerHTML = `<div class="kindsig ${n.kind}"></div>
+    <div class="nm">${n.name}</div>
+    <div class="meta"><b>${n.kind==='module'?'端点模块':n.kind==='unlisted'?'未登记':'库'}</b><br>
+      ${n.layer} · v${n.version}</div>
+    ${n.note?`<div class="note">${n.note}</div>`:''}
+    ${n.kind==='lib'?`<div class="note" style="color:var(--faint)">库不提供端点，<br>但依赖关系完整可查。</div>`:''}`;
+
+  const de = document.getElementById('deps'), ie = document.getElementById('inn');
+  de.innerHTML=''; ie.innerHTML='';
+  deps.length ? deps.forEach(x=>de.appendChild(nodeEl(x.name)))
+              : de.innerHTML='<span class="dimtxt">没声明依赖</span>';
+  inn.length ? inn.forEach(x=>ie.appendChild(nodeEl(x.name)))
+             : ie.innerHTML='<span class="dimtxt">没人依赖它</span>';
+
+  // 连线：从左右列节点连到中心 hub
+  requestAnimationFrame(()=>{
+    const svg = document.getElementById('wires');
+    const box = svg.getBoundingClientRect();
+    const hub = document.getElementById('hub').getBoundingClientRect();
+    const cx = hub.left - box.left + hub.width/2, cy = hub.top - box.top + hub.height/2;
+    let s = '';
+    de.querySelectorAll('.node').forEach(el=>{
+      const r = el.getBoundingClientRect();
+      const x = r.right-box.left, y = r.top-box.top+r.height/2;
+      s += `<path d="M${x} ${y} C ${(x+cx)/2} ${y}, ${(x+cx)/2} ${cy}, ${cx-70} ${cy}"
+        fill="none" stroke="#2e2e2e" stroke-width="1"/>`;
+    });
+    ie.querySelectorAll('.node').forEach(el=>{
+      const r = el.getBoundingClientRect();
+      const x = r.left-box.left, y = r.top-box.top+r.height/2;
+      s += `<path d="M${x} ${y} C ${(x+cx)/2} ${y}, ${(x+cx)/2} ${cy}, ${cx+70} ${cy}"
+        fill="none" stroke="#2e2e2e" stroke-width="1"/>`;
+    });
+    svg.innerHTML = s;
+  });
+}
+paint();
+window.addEventListener('resize', paint);
+</script></body></html>
